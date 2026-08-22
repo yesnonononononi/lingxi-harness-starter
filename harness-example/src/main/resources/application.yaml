@@ -1,0 +1,13 @@
+server:
+  port: 8080
+spring:
+  application:
+    name: harness-example
+lingxi:
+  agent:
+    model:
+      conf:
+        stream:
+          base-url: http://127.0.0.1:11434/v1
+          api-key: none
+          model-name: "gemma4:e4b"

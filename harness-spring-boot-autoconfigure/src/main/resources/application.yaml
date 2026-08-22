@@ -1,0 +1,3 @@
+spring:
+  application:
+    name: harness-spring-boot-autoconfigure
