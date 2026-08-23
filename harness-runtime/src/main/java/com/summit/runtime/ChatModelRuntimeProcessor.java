@@ -1,90 +1,119 @@
 package com.summit.runtime;
 
+import com.summit.harnesscore.agent.AgentRequest;
 import com.summit.harnesscore.agent.Execution;
+import com.summit.harnesscore.conversation.context.RuntimeContext;
 import com.summit.harnesscore.runtime.ExecutionRuntime;
-import com.summit.harnesscore.runtime.Workspace;
 import com.summit.harnesscore.tool.*;
-import com.summit.runtime.workspace.LocalWorkSpace;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
  * a lifestyle of running execution and managing tools
  */
 public class ChatModelRuntimeProcessor implements ExecutionRuntime {
-    private final ChatModel model;
-    private final ToolRegistry toolRegistry;
-    private final Workspace workspace;
+    private final Logger logger = LoggerFactory.getLogger(ChatModelRuntimeProcessor.class);
+    private final RuntimeContext<ChatModel> runtimeContext;
 
-    public ChatModelRuntimeProcessor(ChatModel chatModel, ToolRegistry toolRegistry, Workspace workspace) {
-        this.model = chatModel  ;
-        this.workspace = workspace;
-        this.toolRegistry = toolRegistry;
+    public ChatModelRuntimeProcessor(RuntimeContext<ChatModel> runtimeContext) {
+        this.runtimeContext = runtimeContext;
+
     }
 
 
     @Override
     public Execution execute(Execution execution) {
-        List<ChatMessage> messages = new ArrayList<>(execution.getMessages());
-        ChatRequest chatRequest = buildRequest(messages);
+        initContext(execution.getAgentRequest());
+        ChatRequest chatRequest = buildRequest();
         execution.start();
         while (true) {
             ChatResponse chatResponse = obtainChatResponse(chatRequest);
+
             List<ToolExecutionRequest> toolCalls = chatResponse.aiMessage().toolExecutionRequests();
             if (toolCalls.isEmpty()) {
-                appendContext(messages, chatResponse, null);
+                appendContext(chatResponse, null);
                 break;
             }
-            List<ToolExecutionResultMessage> toolResMessages = executeTools(toolCalls, workspace);
-            appendContext(messages, chatResponse, toolResMessages);
-            chatRequest = buildRequest(messages);
+            List<ToolExecutionResultMessage> toolResMessages = executeTools(toolCalls);
+            appendContext(chatResponse, toolResMessages);
+            chatRequest = buildRequest();
         }
-        saveMessages(messages, execution);
+        save(execution);
         execution.complete();
         return execution;
     }
 
-    private void saveMessages(List<ChatMessage> messages, Execution execution) {
-        execution.setMessages(messages);
+
+    private void initContext(AgentRequest agentRequest) {
+        UserMessage userMessage = UserMessage.from(agentRequest.getInput());
+        SystemMessage systemMessage = SystemMessage.from(getSystemMessage());
+        this.runtimeContext.messages().addAll(List.of(systemMessage, userMessage));
     }
 
-    private void appendContext(List<ChatMessage> messages, ChatResponse chatResponse,@Nullable List<ToolExecutionResultMessage> toolExecutionResultMessage) {
+
+    private void save(Execution execution) {
+        execution.setMessages(this.runtimeContext.messages());
+        execution.setTokenUsage(this.runtimeContext.tokenUsage());
+    }
+
+    private void appendContext(ChatResponse chatResponse, @Nullable List<ToolExecutionResultMessage> toolExecutionResultMessage) {
         AiMessage aiMessage = chatResponse.aiMessage();
-        messages.add(aiMessage);
-        if(toolExecutionResultMessage != null && !toolExecutionResultMessage.isEmpty())messages.addAll(toolExecutionResultMessage);
+        this.runtimeContext.messages().add(aiMessage);
+        this.runtimeContext.tokenUsage().add(chatResponse.tokenUsage());
+        if (toolExecutionResultMessage != null && !toolExecutionResultMessage.isEmpty())
+            this.runtimeContext.messages().addAll(toolExecutionResultMessage);
     }
 
-    private ChatRequest buildRequest(List<ChatMessage> messages) {
+    private ChatRequest buildRequest() {
         return ChatRequest.builder()
-                .messages(messages)
-                .toolSpecifications(toolRegistry.getTools().values().stream().toList())
+                .messages(this.runtimeContext.messages())
+                .toolSpecifications(this.runtimeContext.toolRegistry()
+                        .getTools()
+                        .values()
+                        .stream()
+                        .toList()
+                )
                 .build();
     }
 
     public ChatResponse obtainChatResponse(ChatRequest chatRequest) {
-        return this.model.chat(chatRequest);
+        ChatResponse response = this.runtimeContext.model().chat(chatRequest);
+        logger.info("【AI】:{}", response.aiMessage().text());
+        return response;
     }
 
-    public List<ToolExecutionResultMessage> executeTools(List<ToolExecutionRequest> toolExecutionRequests, Workspace workspace) {
+    public List<ToolExecutionResultMessage> executeTools(List<ToolExecutionRequest> toolExecutionRequests) {
         return toolExecutionRequests.stream().map(request -> {
-                    System.out.println("Executing tool: " + request.name());
                     String toolName = request.name();
-                    ToolSpecification tooSpec = this.toolRegistry.getToolSpec(toolName);
-                    Tool tool = this.toolRegistry.getTool(toolName);
+                    ToolRegistry toolRegistry = this.runtimeContext.toolRegistry();
+
+                    ToolSpecification tooSpec = toolRegistry.getToolSpec(toolName);
+                    Tool tool = toolRegistry.getTool(toolName);
+                    if (tool == null) {
+                        return ToolExecuteResult.err(request.id(), tooSpec, "Tool not found");
+                    }
                     ToolExecution execution = createToolExecution(request, tooSpec);
+
+                    logger.info("【Tool】 model execute :{} toolName:{}",request.arguments(),toolName);
+
                     return tool.executor().execute(execution);
                 })
-                .map(result -> ToolExecutionResultMessage.toolExecutionResultMessage(result.getId(), result.getToolSpecification().name(), result.getToolOutput()))
+                .map(result -> {
+                    ToolSpecification toolSpecification = result.getToolSpecification();
+                    return ToolExecutionResultMessage.toolExecutionResultMessage(result.getId(), toolSpecification == null ? "unknown tool" : toolSpecification.name(), result.getToolOutput());
+                })
                 .toList();
     }
 
@@ -92,8 +121,21 @@ public class ChatModelRuntimeProcessor implements ExecutionRuntime {
         return ToolExecution.builder()
                 .id(request.id())
                 .toolSpecification(tool)
-                .workspace(this.workspace)
+                .workspace(this.runtimeContext.workspace())
                 .args(request.arguments())
                 .build();
     }
+
+
+    private String getSystemMessage() {
+        return String.format("""
+                        current
+                         operation system : %s
+                         workdir: %s
+                        """,
+                this.runtimeContext.workspace().getOsType(),
+                this.runtimeContext.workspace().getWorkDir()
+        );
+    }
+
 }

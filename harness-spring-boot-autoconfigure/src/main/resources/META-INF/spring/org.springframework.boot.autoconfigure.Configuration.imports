@@ -3,5 +3,6 @@ com.summit.harness.springbootautoconfigure.conf.ModelConfig
 com.summit.harness.springbootautoconfigure.conf.ModelProviderConfig
 com.summit.harness.springbootautoconfigure.conf.WorkSpaceConfig
 com.summit.harness.springbootautoconfigure.conf.JsonConfig
-com.summit.harness.springbootautoconfigure.conf.ToolConfig
+com.summit.harness.springbootautoconfigure.conf.CommonToolAutoConfiguration
+com.summit.harness.springbootautoconfigure.conf.FileToolAutoConfiguration
 

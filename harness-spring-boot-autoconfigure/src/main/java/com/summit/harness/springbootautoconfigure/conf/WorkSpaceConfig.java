@@ -5,10 +5,12 @@ import com.summit.runtime.workspace.LocalWorkSpace;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.context.annotation.Bean;
 
+import java.nio.charset.StandardCharsets;
+
 @AutoConfiguration
 public class WorkSpaceConfig {
     @Bean
     public Workspace localWorkSpace(){
-        return new LocalWorkSpace(System.getProperty("user.dir"));
+        return new LocalWorkSpace(System.getProperty("user.dir"), StandardCharsets.UTF_8);
     }
 }

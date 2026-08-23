@@ -3,11 +3,34 @@ server:
 spring:
   application:
     name: harness-example
+
 lingxi:
   agent:
+    runtime:
+      tool:
+        read_file:
+          enabled: true
+        edit_file:
+          enabled: true
+        terminal:
+          enabled: true
+          timeout: 30
+        web_search:
+          enabled: true
+          baseUrl: https://api.tavily.com/search
+          apiKey: ${TAVILY_APIKEY}
+          timeout: 30
     model:
       conf:
+        chat:
+          base-url: https://api.deepseek.com             # https://globalai.vip/v1                      #http://127.0.0.1:11434/v1
+          api-key:  ${DEEPSEEK_APIKEY}                      # ${GLOBALAI_APIKEY}
+          model-name: "deepseek-v4-flash"
+          timeout: 120s
         stream:
           base-url: http://127.0.0.1:11434/v1
-          api-key: none
-          model-name: "gemma4:e4b"
+          api-key: ${GLOBALAI_APIKEY}
+          model-name: "gemma4:12b"
+          timeout: 120s
+
+

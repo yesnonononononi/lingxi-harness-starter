@@ -18,6 +18,7 @@ public class DefaultStreamingModelProvider implements StreamingChatModelProvider
                 .baseUrl(config.getBaseUrl())
                 .apiKey(config.getApiKey())
                 .modelName(config.getModelName())
+                .timeout(config.getTimeout())
                 .build();
     }
 }

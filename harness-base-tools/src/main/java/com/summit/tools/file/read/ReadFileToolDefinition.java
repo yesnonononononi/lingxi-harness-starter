@@ -1,9 +1,8 @@
-package com.summit.runtime.tools.file.definition;
+package com.summit.tools.file.read;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.harnesscore.tool.Tool;
 import com.summit.harnesscore.tool.ToolExecutor;
-import com.summit.runtime.tools.ReadFileToolExecutor;
 
 public class ReadFileToolDefinition implements Tool {
     private final ObjectMapper objectMapper;

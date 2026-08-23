@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>登录 · LingXi 灵犀</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --primary: #6366f1;
+    --primary-dark: #4f46e5;
+    --primary-light: #818cf8;
+    --accent: #22d3ee;
+    --bg-deep: #0b1020;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+  }
+
+  html, body { height: 100%; }
+
+  body {
+    font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', -apple-system, sans-serif;
+    color: var(--text);
+    background: var(--bg-deep);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  /* ---------- 背景动态光晕 ---------- */
+  .bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    background:
+      radial-gradient(ellipse 60% 50% at 20% 10%, rgba(99,102,241,.28), transparent 60%),
+      radial-gradient(ellipse 55% 45% at 85% 20%, rgba(34,211,238,.18), transparent 60%),
+      radial-gradient(ellipse 60% 55% at 70% 95%, rgba(168,85,247,.22), transparent 60%),
+      linear-gradient(135deg, #0b1020 0%, #141a33 55%, #1a1440 100%);
+  }
+
+  .orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(90px);
+    opacity: .5;
+    animation: drift 16s ease-in-out infinite;
+  }
+  .orb-1 { width: 420px; height: 420px; background: rgba(99,102,241,.55); top: -120px; left: -80px; }
+  .orb-2 { width: 380px; height: 380px; background: rgba(34,211,238,.4);  bottom: -140px; right: -60px; animation-delay: -6s; }
+  .orb-3 { width: 260px; height: 260px; background: rgba(168,85,247,.45); top: 58%; left: 55%; animation-delay: -11s; }
+
+  @keyframes drift {
+    0%, 100% { transform: translate(0,0) scale(1); }
+    33%      { transform: translate(46px,-34px) scale(1.12); }
+    66%      { transform: translate(-34px,30px) scale(.94); }
+  }
+
+  /* 网格 */
+  .grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(circle at 50% 40%, #000 10%, transparent 72%);
+    -webkit-mask-image: radial-gradient(circle at 50% 40%, #000 10%, transparent 72%);
+  }
+
+  /* ---------- 主容器 ---------- */
+  .shell {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 960px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-radius: 28px;
+    overflow: hidden;
+    box-shadow: 0 40px 90px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.08);
+    animation: rise .9s cubic-bezier(.16,1,.3,1) both;
+  }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(36px) scale(.97); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* ---------- 左侧品牌区 ---------- */
+  .brand {
+    position: relative;
+    padding: 52px 46px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    background:
+      linear-gradient(160deg, rgba(99,102,241,.32), rgba(20,22,51,.55) 45%, rgba(168,85,247,.22)),
+      rgba(13,17,38,.6);
+    backdrop-filter: blur(6px);
+    border-right: 1px solid rgba(255,255,255,.06);
+    overflow: hidden;
+  }
+
+  .brand::after {
+    content: '';
+    position: absolute;
+    width: 340px; height: 340px;
+    right: -120px; bottom: -140px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(99,102,241,.4), transparent 65%);
+  }
+
+  .logo-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .logo-badge {
+    width: 46px; height: 46px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, var(--primary-light), var(--accent));
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 10px 26px rgba(99,102,241,.5);
+    animation: pulse 3.2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%,100% { box-shadow: 0 10px 26px rgba(99,102,241,.5); }
+    50%     { box-shadow: 0 10px 34px rgba(34,211,238,.55); }
+  }
+  .logo-badge svg { width: 26px; height: 26px; fill: #fff; }
+
+  .brand h2 {
+    font-size: 21px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  .brand h2 small {
+    display: block;
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--muted);
+    letter-spacing: 2px;
+    margin-top: 2px;
+  }
+
+  .brand-tag h1 {
+    font-size: 34px;
+    line-height: 1.25;
+    font-weight: 800;
+    background: linear-gradient(92deg, #e0e7ff, #a5b4fc 55%, #67e8f9);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 14px;
+  }
+  .brand-tag p {
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.8;
+    max-width: 300px;
+  }
+
+  .brand-points {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    position: relative;
+    z-index: 1;
+  }
+  .point {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13.5px;
+    color: #cbd5e1;
+  }
+  .point .dot {
+    width: 22px; height: 22px;
+    border-radius: 7px;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(99,102,241,.22);
+    border: 1px solid rgba(129,140,248,.35);
+  }
+  .point .dot svg { width: 12px; height: 12px; stroke: #a5b4fc; }
+
+  /* ---------- 右侧表单区 ---------- */
+  .panel {
+    background: rgba(18,23,48,.72);
+    backdrop-filter: blur(26px) saturate(150%);
+    -webkit-backdrop-filter: blur(26px) saturate(150%);
+    padding: 48px 46px 40px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .panel .head {
+    margin-bottom: 30px;
+  }
+  .panel .head h3 {
+    font-size: 26px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .panel .head p {
+    color: var(--muted);
+    font-size: 13.5px;
+  }
+
+  .field {
+    margin-bottom: 18px;
+  }
+  .field label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: #cbd5e1;
+    margin-bottom: 8px;
+  }
+  .input-wrap {
+    position: relative;
+  }
+  .input-wrap svg.icon {
+    position: absolute;
+    left: 14px; top: 50%;
+    transform: translateY(-50%);
+    width: 18px; height: 18px;
+    stroke: var(--muted);
+    pointer-events: none;
+    transition: stroke .2s;
+  }
+  .input-wrap input {
+    width: 100%;
+    padding: 13px 46px 13px 44px;
+    font-size: 15px;
+    color: var(--text);
+    background: rgba(11,16,32,.55);
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 12px;
+    outline: none;
+    transition: border-color .25s, box-shadow .25s, background .25s;
+  }
+  .input-wrap input::placeholder { color: rgba(148,163,184,.55); }
+  .input-wrap input:focus {
+    border-color: var(--primary-light);
+    background: rgba(11,16,32,.75);
+    box-shadow: 0 0 0 4px rgba(99,102,241,.16);
+  }
+  .input-wrap:focus-within svg.icon { stroke: var(--primary-light); }
+
+  .toggle-pwd {
+    position: absolute;
+    right: 8px; top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 8px;
+    color: var(--muted);
+    display: flex;
+    transition: color .2s, background .2s;
+  }
+  .toggle-pwd:hover { color: var(--text); background: rgba(255,255,255,.08); }
+  .toggle-pwd svg { width: 18px; height: 18px; }
+
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 2px 0 22px;
+    font-size: 13px;
+  }
+  .check {
+    display: flex; align-items: center; gap: 8px;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+  }
+  .check input { display: none; }
+  .check .box {
+    width: 16px; height: 16px;
+    border-radius: 5px;
+    border: 1px solid rgba(255,255,255,.25);
+    background: rgba(11,16,32,.5);
+    display: flex; align-items: center; justify-content: center;
+    transition: all .2s;
+  }
+  .check input:checked + .box {
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    border-color: transparent;
+  }
+  .check input:checked + .box::after {
+    content: '';
+    width: 8px; height: 4px;
+    border-left: 2px solid #fff;
+    border-bottom: 2px solid #fff;
+    transform: rotate(-45deg) translateY(-1px);
+  }
+  .forgot {
+    color: var(--primary-light);
+    text-decoration: none;
+    font-weight: 500;
+    transition: color .2s;
+  }
+  .forgot:hover { color: #c7d2fe; text-decoration: underline; }
+
+  .btn {
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    cursor: pointer;
+    color: #fff;
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    background-size: 200% 200%;
+    box-shadow: 0 12px 26px rgba(79,70,229,.42);
+    transition: all .3s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 16px 34px rgba(79,70,229,.5); }
+  .btn:active { transform: translateY(0); }
+  .btn.loading { pointer-events: none; opacity: .85; }
+  .btn .spinner {
+    display: none;
+    width: 16px; height: 16px;
+    border: 2px solid rgba(255,255,255,.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    vertical-align: middle;
+    margin-right: 8px;
+    animation: spin .7s linear infinite;
+  }
+  .btn.loading .spinner { display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .divider {
+    display: flex; align-items: center; gap: 14px;
+    margin: 24px 0;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .divider::before, .divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(255,255,255,.1);
+  }
+
+  .social {
+    display: flex;
+    justify-content: center;
+    gap: 14px;
+  }
+  .social a {
+    width: 46px; height: 46px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.1);
+    color: var(--muted);
+    transition: all .25s;
+  }
+  .social a:hover {
+    transform: translateY(-3px);
+    color: #fff;
+    border-color: var(--primary-light);
+    background: rgba(99,102,241,.22);
+  }
+  .social a svg { width: 20px; height: 20px; fill: currentColor; }
+
+  .register {
+    text-align: center;
+    margin-top: 24px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .register a {
+    color: var(--primary-light);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .register a:hover { color: #c7d2fe; text-decoration: underline; }
+
+  /* toast */
+  .toast {
+    position: fixed;
+    top: 26px; left: 50%;
+    transform: translateX(-50%) translateY(-90px);
+    background: rgba(11,16,32,.95);
+    border: 1px solid rgba(255,255,255,.15);
+    color: #f8fafc;
+    padding: 12px 22px;
+    border-radius: 12px;
+    font-size: 14px;
+    box-shadow: 0 18px 44px rgba(0,0,0,.5);
+    z-index: 100;
+    display: flex; align-items: center; gap: 10px;
+    transition: transform .45s cubic-bezier(.16,1,.3,1);
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast .dot { width: 8px; height: 8px; border-radius: 50%; background: #34d399; }
+  .toast.error .dot { background: #f87171; }
+
+  /* ---------- 响应式 ---------- */
+  @media (max-width: 820px) {
+    .shell { grid-template-columns: 1fr; max-width: 440px; }
+    .brand { display: none; }
+    .panel { padding: 40px 30px 34px; }
+  }
+  @media (max-width: 480px) {
+    body { padding: 12px; }
+    .panel { padding: 34px 22px 28px; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="bg">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+    <div class="grid"></div>
+  </div>
+
+  <div class="shell">
+    <!-- 左侧品牌区 -->
+    <aside class="brand">
+      <div class="logo-row">
+        <div class="logo-badge">
+          <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+        </div>
+        <h2>LingXi<small>灵犀 · 智能协作平台</small></h2>
+      </div>
+
+      <div class="brand-tag">
+        <h1>连接灵感，<br>驱动未来。</h1>
+        <p>一站式智能协作平台，让团队在同一个空间里高效共创、实时同步、专注成长。</p>
+      </div>
+
+      <div class="brand-points">
+        <div class="point">
+          <span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+          AI 驱动的智能协同
+        </div>
+        <div class="point">
+          <span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+          数据安全 · 端到端加密
+        </div>
+        <div class="point">
+          <span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+          多端实时同步，随处可达
+        </div>
+      </div>
+    </aside>
+
+    <!-- 右侧登录区 -->
+    <main class="panel">
+      <div class="head">
+        <h3>欢迎回来 👋</h3>
+        <p>登录你的账号，继续你的灵感之旅</p>
+      </div>
+
+      <form id="loginForm" novalidate>
+        <div class="field">
+          <label for="username">邮箱 / 用户名</label>
+          <div class="input-wrap">
+            <input type="text" id="username" placeholder="请输入邮箱或用户名" autocomplete="username">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="password">密码</label>
+          <div class="input-wrap">
+            <input type="password" id="password" placeholder="请输入密码" autocomplete="current-password">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <button type="button" class="toggle-pwd" id="togglePwd" aria-label="显示/隐藏密码">
+              <svg id="eyeOpen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+              <svg id="eyeClosed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                <line x1="1" y1="1" x2="23" y2="23"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="row">
+          <label class="check">
+            <input type="checkbox" id="remember">
+            <span class="box"></span>
+            <span>记住我</span>
+          </label>
+          <a href="#" class="forgot">忘记密码？</a>
+        </div>
+
+        <button type="submit" class="btn" id="loginBtn">
+          <span class="spinner"></span><span id="btnText">登 录</span>
+        </button>
+      </form>
+
+      <div class="divider">或使用以下方式登录</div>
+
+      <div class="social">
+        <a href="#" title="GitHub" aria-label="GitHub">
+          <svg viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
+        </a>
+        <a href="#" title="Google" aria-label="Google">
+          <svg viewBox="0 0 24 24"><path d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z"/></svg>
+        </a>
+        <a href="#" title="微信" aria-label="微信">
+          <svg viewBox="0 0 24 24"><path d="M8.691 2.188C3.891 2.188 0 5.476 0 9.53c0 2.212 1.17 4.203 3.002 5.55a.59.59 0 0 1 .213.665l-.39 1.48c-.019.07-.048.141-.048.213 0 .163.13.295.29.295a.326.326 0 0 0 .167-.054l1.903-1.114a.863.863 0 0 1 .717-.098 10.16 10.16 0 0 0 2.837.403c.276 0 .543-.027.811-.05-.325-1.432-.179-2.865.387-4.096.974-2.115 3.063-3.48 5.437-3.48.26 0 .512.027.763.05-.55-3.214-4.107-5.666-8.848-5.666zm-2.64 4.554c.663 0 1.2.537 1.2 1.2s-.537 1.2-1.2 1.2-1.2-.537-1.2-1.2.537-1.2 1.2-1.2zm5.547 0c.663 0 1.2.537 1.2 1.2s-.537 1.2-1.2 1.2-1.2-.537-1.2-1.2.537-1.2 1.2-1.2zm6.702 2.59c-3.893 0-7.05 2.656-7.05 5.93 0 3.275 3.157 5.93 7.05 5.93.799 0 1.565-.104 2.29-.309a.69.69 0 0 1 .573.079l1.523.89a.26.26 0 0 0 .133.043c.13 0 .233-.105.233-.235 0-.058-.022-.114-.038-.17l-.313-1.182a.47.47 0 0 1 .17-.532A5.83 5.83 0 0 0 24 15.263c0-3.275-3.157-5.93-7.05-5.93zm-2.4 3.555c.53 0 .96.43.96.96s-.43.96-.96.96-.96-.43-.96-.96.43-.96.96-.96zm4.8 0c.53 0 .96.43.96.96s-.43.96-.96.96-.96-.43-.96-.96.43-.96.96-.96z"/></svg>
+        </a>
+      </div>
+
+      <p class="register">还没有账号？<a href="#">立即注册</a></p>
+    </main>
+  </div>
+
+  <div class="toast" id="toast">
+    <span class="dot"></span>
+    <span id="toastMsg"></span>
+  </div>
+
+  <script>
+    const form       = document.getElementById('loginForm');
+    const username   = document.getElementById('username');
+    const password   = document.getElementById('password');
+    const btn        = document.getElementById('loginBtn');
+    const btnText    = document.getElementById('btnText');
+    const togglePwd  = document.getElementById('togglePwd');
+    const eyeOpen    = document.getElementById('eyeOpen');
+    const eyeClosed  = document.getElementById('eyeClosed');
+    const toast      = document.getElementById('toast');
+    const toastMsg   = document.getElementById('toastMsg');
+
+    // 显示 / 隐藏密码
+    togglePwd.addEventListener('click', () => {
+      const hidden = password.type === 'password';
+      password.type = hidden ? 'text' : 'password';
+      eyeOpen.style.display    = hidden ? 'none' : 'block';
+      eyeClosed.style.display  = hidden ? 'block' : 'none';
+    });
+
+    // 顶部提示
+    function showToast(msg, isError = false) {
+      toastMsg.textContent = msg;
+      toast.classList.toggle('error', isError);
+      toast.classList.add('show');
+      clearTimeout(showToast._t);
+      showToast._t = setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    // 模拟登录（可替换为真实接口）
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const u = username.value.trim();
+      const p = password.value.trim();
+
+      if (!u || !p) {
+        showToast('请输入账号和密码', true);
+        (!u ? username : password).focus();
+        return;
+      }
+
+      btn.classList.add('loading');
+      btnText.textContent = '登录中...';
+
+      setTimeout(() => {
+        btn.classList.remove('loading');
+        btnText.textContent = '登 录';
+        showToast('登录成功，欢迎回来！');
+        // fetch('/api/login', { method: 'POST',
+        //   headers: { 'Content-Type': 'application/json' },
+        //   body: JSON.stringify({ username: u, password: p }) });
+      }, 1200);
+    });
+
+    // Enter 键在用户名输入框跳转到密码框
+    username.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') password.focus();
+    });
+  </script>
+</body>
+</html>

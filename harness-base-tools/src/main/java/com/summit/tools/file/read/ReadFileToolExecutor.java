@@ -1,4 +1,4 @@
-package com.summit.runtime.tools;
+package com.summit.tools.file.read;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -6,7 +6,9 @@ import com.summit.harnesscore.runtime.Workspace;
 import com.summit.harnesscore.tool.ToolExecuteResult;
 import com.summit.harnesscore.tool.ToolExecution;
 import com.summit.harnesscore.tool.ToolExecutor;
-import com.summit.runtime.tools.file.arguments.ReadFileRequest;
+
+import com.summit.tools.arguments.ReadFileRequest;
+import org.jspecify.annotations.NonNull;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -20,14 +22,14 @@ public class ReadFileToolExecutor implements ToolExecutor {
     }
 
     @Override
-    public ToolExecuteResult execute(ToolExecution toolExecution) {
+    public @NonNull ToolExecuteResult execute(ToolExecution toolExecution) {
         try {
             Path filePath = resolveArgs(toolExecution);
 
             String content =  read(filePath);
             return ToolExecuteResult.success(toolExecution.getId(), toolExecution.getToolSpecification(), content);
         }catch (Exception e){
-            return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolSpecification(), "tool execute failed : "+e.getMessage());
+            return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolSpecification(), "tool execute failed : "+e);
         }
     }
 

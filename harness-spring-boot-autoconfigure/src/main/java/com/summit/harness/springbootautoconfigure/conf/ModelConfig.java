@@ -13,11 +13,12 @@ import org.springframework.context.annotation.Bean;
 @EnableConfigurationProperties({AgentProperties.class, AgentChatProperties.class})
 public class ModelConfig {
     @Bean
-    public com.summit.harnesscore.model.ModelConfig chatModelConfig(AgentProperties agentProperties){
+    public com.summit.harnesscore.model.ModelConfig chatModelConfig(AgentChatProperties agentChatProperties){
         return com.summit.harnesscore.model.ModelConfig.builder()
-                .baseUrl(agentProperties.getBaseUrl())
-                .apiKey(agentProperties.getApiKey())
-                .modelName(agentProperties.getModelName())
+                .baseUrl(agentChatProperties.getBaseUrl())
+                .apiKey(agentChatProperties.getApiKey())
+                .modelName(agentChatProperties.getModelName())
+                .timeout(agentChatProperties.getTimeout())
                 .provider("default")
                 .build();
     }
@@ -27,6 +28,7 @@ public class ModelConfig {
                 .baseUrl(agentProperties.getBaseUrl())
                 .apiKey(agentProperties.getApiKey())
                 .modelName(agentProperties.getModelName())
+                .timeout(agentProperties.getTimeout())
                 .provider("default-streaming")
                 .build();
     }
@@ -37,8 +39,8 @@ public class ModelConfig {
     }
 
     @Bean
-    public ChatModel defaultChatModel(ModelProviderRegistry<ChatModel> chatModelProviderRegistry, AgentProperties agentProperties){
-        return chatModelProviderRegistry.create(chatModelConfig(agentProperties));
+    public ChatModel defaultChatModel(ModelProviderRegistry<ChatModel> chatModelProviderRegistry, AgentChatProperties agentChatProperties){
+        return chatModelProviderRegistry.create(chatModelConfig(agentChatProperties));
     }
 
 }

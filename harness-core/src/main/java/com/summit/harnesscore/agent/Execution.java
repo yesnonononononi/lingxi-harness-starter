@@ -42,10 +42,6 @@ public class Execution {
      */
     private Instant completedAt;
     /**
-     * The result of the execution.
-     */
-    private ExecutionResult executionResult;
-    /**
      * The request for the execution.
      */
     private AgentRequest agentRequest;

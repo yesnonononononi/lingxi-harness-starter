@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import java.util.Map;
+
 @SpringBootTest
 public class HarnessExampleApplicationTests {
     @Autowired
@@ -15,9 +17,12 @@ public class HarnessExampleApplicationTests {
 
    @Test
    public void contextLoads() {
-       System.out.println(System.getProperty("user.dir"));
-       //System.out.println(toolRegistry);
-       demo.chat("试一下这个read_file工具,读取pom.xml文件");
+      // System.out.println(System.getProperty("user.dir"));
+       //System.out.println(System.getProperty("os.name"));
+       //System.out.println(System.getenv().get("TAVILY_APIKEY"));
+       //System.out.println(System.getenv().get("DEEPSEEK_APIKEY"));
+        //System.out.println(toolRegistry);
+    demo.chat("尝试使用edit_file工具来编辑login.html文件,我要看看这个工具的可用性");
     }
 
 }

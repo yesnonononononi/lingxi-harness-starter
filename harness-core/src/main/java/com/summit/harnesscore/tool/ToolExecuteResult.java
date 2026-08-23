@@ -3,6 +3,9 @@ package com.summit.harnesscore.tool;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import lombok.Builder;
 import lombok.Data;
+
+import java.util.Objects;
+
 @Builder
 @Data
 public class ToolExecuteResult {
@@ -15,7 +18,7 @@ public class ToolExecuteResult {
                 .code(1)
                 .id(id)
                 .toolSpecification(toolSpecification)
-                .toolOutput(toolOutput)
+                .toolOutput(Objects.requireNonNullElse(toolOutput,""))
                 .build();
     }
 
@@ -24,7 +27,7 @@ public class ToolExecuteResult {
                 .code(0)
                 .id(id)
                 .toolSpecification(toolSpecification)
-                .toolOutput(toolOutput)
+                .toolOutput(Objects.requireNonNullElse(toolOutput,""))
                 .build();
     }
 }

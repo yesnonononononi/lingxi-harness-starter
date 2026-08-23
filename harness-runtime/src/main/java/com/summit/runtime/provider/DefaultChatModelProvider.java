@@ -17,6 +17,7 @@ public class DefaultChatModelProvider implements ChatModelProvider {
                 .baseUrl(config.getBaseUrl())
                 .apiKey(config.getApiKey())
                 .modelName(config.getModelName())
+                .timeout(config.getTimeout())
                 .build();
     }
 }
