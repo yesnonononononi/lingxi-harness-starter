@@ -22,10 +22,7 @@ public class WebSearchToolDefinition implements Tool {
         return String.valueOf("web-search-tool".hashCode());
     }
 
-    @Override
-    public String description() {
-        return "web search tool";
-    }
+
 
 
 

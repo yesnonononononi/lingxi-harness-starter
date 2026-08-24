@@ -21,9 +21,7 @@ public class StreamingAgent implements Agent {
 
     @Override
     public Execution execute(AgentRequest agentRequest) {
-        Execution execution = ExecutionCreator.create(agentRequest, this);
-        ExecutionRuntime executionRuntime = RuntimeCreator.create(model, toolRegistry, workspace);
-        return executionRuntime.execute(execution);
+        return ExecutionCreator.create(agentRequest, this);
     }
 
 

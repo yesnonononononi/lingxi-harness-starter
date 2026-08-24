@@ -30,7 +30,7 @@ public class FileToolAutoConfiguration {
         );
         ToolSpecification toolSpec = ToolSpecification.builder()
                 .name(editFileToolDefinition.name())
-                .description(editFileToolDefinition.description())
+                .description("Edit file content")
                 .parameters(JsonObjectSchema.builder()
                         .addEnumProperty("type", List.of("INSERT_BEFORE", "INSERT_AFTER", "REPLACE", "DELETE"),"INSERT_* : insert content behind or in front of anchor. ")
                         .addStringProperty("anchor", "The anchor of Insert operation it is a required parameter if type in terms of INSERT unless want to insert a empty file")

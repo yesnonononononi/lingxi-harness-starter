@@ -22,7 +22,7 @@ public class HarnessExampleApplicationTests {
        //System.out.println(System.getenv().get("TAVILY_APIKEY"));
        //System.out.println(System.getenv().get("DEEPSEEK_APIKEY"));
         //System.out.println(toolRegistry);
-    demo.chat("尝试使用edit_file工具来编辑login.html文件,我要看看这个工具的可用性");
+    demo.chat("我需要测试上下文摘要功能,需要你来调用压缩工具,查看会话是否被概括正确");
     }
 
 }

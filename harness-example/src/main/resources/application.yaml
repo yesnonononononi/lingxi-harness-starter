@@ -23,14 +23,25 @@ lingxi:
     model:
       conf:
         chat:
-          base-url: https://api.deepseek.com             # https://globalai.vip/v1                      #http://127.0.0.1:11434/v1
+          base-url: https://api.deepseek.com     #http://localhost:1234/v1        # https://globalai.vip/v1                      #http://127.0.0.1:11434/v1
           api-key:  ${DEEPSEEK_APIKEY}                      # ${GLOBALAI_APIKEY}
-          model-name: "deepseek-v4-flash"
+          model-name: "deepseek-v4-flash"                               #"google/gemma-4-12b-qat"
           timeout: 120s
         stream:
           base-url: http://127.0.0.1:11434/v1
           api-key: ${GLOBALAI_APIKEY}
           model-name: "gemma4:12b"
           timeout: 120s
+          maxTokens: 2_000_000
+        # 上下文压缩专用模型（无 thinking）
+        compact:
+          base-url: https://api.deepseek.com
+          api-key: ${DEEPSEEK_APIKEY}
+          model-name: "deepseek-v4-flash"
+          timeout: 120s
+          maxTokens: 32768
+          reasoning-effort: "none"
+          send-thinking: false
+          return-thinking: false
 
 

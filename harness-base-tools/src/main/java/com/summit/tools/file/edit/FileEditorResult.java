@@ -6,19 +6,28 @@ import lombok.Getter;
 
 @Getter
 @Builder
-public class FileEditorResult {
+public class FileEditorResult<T> {
     private int code;
     private String errMsg;
+    private T data;
 
     public boolean isSuccess() {
         return code == 1;
     }
 
-    public static FileEditorResult success() {
-        return FileEditorResult.builder().code(1).errMsg("success").build();
+    public static <T>FileEditorResult<T> success(T data) {
+        return FileEditorResult.<T>builder()
+                .code(1)
+                .data(data)
+                .build();
+    }
+    public static <T>FileEditorResult<T> success() {
+        return FileEditorResult.<T>builder()
+                .code(1)
+                .build();
     }
 
-    public static FileEditorResult err(String errMsg) {
-        return FileEditorResult.builder().code(0).errMsg(errMsg).build();
+    public static <T>FileEditorResult<T> err(String errMsg) {
+        return FileEditorResult.<T>builder().code(0).errMsg(errMsg).build();
     }
 }

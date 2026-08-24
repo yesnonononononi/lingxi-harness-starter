@@ -19,10 +19,7 @@ public class EditFileToolDefinition implements Tool {
         return String.valueOf("edit_file".hashCode());
     }
 
-    @Override
-    public String description() {
-        return "edit file content";
-    }
+
 
     @Override
     public ToolExecutor executor() {

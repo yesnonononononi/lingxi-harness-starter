@@ -17,6 +17,10 @@ public class DefaultStreamingModelProvider implements StreamingChatModelProvider
         return OpenAiStreamingChatModel.builder()
                 .baseUrl(config.getBaseUrl())
                 .apiKey(config.getApiKey())
+                .sendThinking(config.isSendThinking())
+                .returnThinking(config.isReturnThinking())
+                .maxTokens(config.getMaxTokens())
+                .reasoningEffort(config.getReasoningEffort())
                 .modelName(config.getModelName())
                 .timeout(config.getTimeout())
                 .build();

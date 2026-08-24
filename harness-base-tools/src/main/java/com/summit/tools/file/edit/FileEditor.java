@@ -19,7 +19,7 @@ public  class FileEditor {
             %s
             """;
 
-    public static FileEditorResult edit(EditFileRequest editFileRequest, @NonNull File targetFile, Charset charset, Integer aroundLines) {
+    public static FileEditorResult<EditResult> edit(EditFileRequest editFileRequest, @NonNull File targetFile, Charset charset, Integer aroundLines) {
 
         EditType type = EditType.fromString(editFileRequest.getType());
         return switch (type) {

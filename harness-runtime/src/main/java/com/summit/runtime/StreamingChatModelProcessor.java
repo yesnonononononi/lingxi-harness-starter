@@ -11,7 +11,9 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 @Getter
 public class StreamingChatModelProcessor implements ExecutionRuntime {
-    private final RuntimeContext<StreamingChatModel> runtimeContext;
+    private final RuntimeContext runtimeContext;
+
+
 
 
     @Override

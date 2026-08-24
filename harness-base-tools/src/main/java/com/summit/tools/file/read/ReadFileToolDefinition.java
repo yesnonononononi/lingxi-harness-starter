@@ -20,10 +20,6 @@ public class ReadFileToolDefinition implements Tool {
         return String.valueOf("read_file".hashCode());
     }
 
-    @Override
-    public String description() {
-        return "read file";
-    }
 
     @Override
     public ToolExecutor executor() {

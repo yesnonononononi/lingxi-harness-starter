@@ -2,6 +2,7 @@ package com.summit.tools.terminal;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.summit.harnesscore.runtime.ShellType;
 import com.summit.harnesscore.runtime.Workspace;
 import com.summit.harnesscore.tool.ToolExecuteResult;
 import com.summit.harnesscore.tool.ToolExecution;
@@ -9,20 +10,24 @@ import com.summit.harnesscore.tool.ToolExecutor;
 
 import com.summit.tools.arguments.ExecuteCommandRequest;
 import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 import java.util.concurrent.TimeUnit;
 
+@Slf4j
 @Getter
 public class CommandToolDefinitionExecutor implements ToolExecutor {
     private final ObjectMapper objectMapper;
     private final TerminalConfig terminalConfig;
-
-    public CommandToolDefinitionExecutor(ObjectMapper objectMapper,TerminalConfig terminalConfig) {
+    final int joinTime = 1;
+    public CommandToolDefinitionExecutor(ObjectMapper objectMapper, TerminalConfig terminalConfig) {
         this.objectMapper = objectMapper;
         this.terminalConfig = terminalConfig;
     }
@@ -32,6 +37,9 @@ public class CommandToolDefinitionExecutor implements ToolExecutor {
         try {
             // resolve args
             ExecuteCommandRequest request = resolveArgs(toolExecution);
+            log.info("【ToolCall】 {}", request.getInstruction());
+
+
             if (request.getInstruction() == null || request.getInstruction().isBlank())
                 return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolSpecification(), "instruction is empty");
 
@@ -54,12 +62,16 @@ public class CommandToolDefinitionExecutor implements ToolExecutor {
 
         StringBuilder stringBuilder = new StringBuilder();
 
+        ShellType shellType = workspace.runTimeEnvironment().shellType();
+
+        if(shellType == null)throw new IllegalStateException("Unknown operating system");
+
         ProcessBuilder processBuilder = new ProcessBuilder(
-               ShellAdapter.shell(request.getInstruction(), workspace.getOsType())
+               shellType.buildCommand(request.getInstruction())
         );
 
         // set working directory
-        processBuilder.directory(new File(workspace.getWorkDir()));
+        processBuilder.directory(new File(workspace.runTimeEnvironment().workDir()));
 
         // integrate error stream with output stream
         processBuilder.redirectErrorStream(true);
@@ -69,7 +81,7 @@ public class CommandToolDefinitionExecutor implements ToolExecutor {
 
         // get output from virtual thread
         Thread outputThread = Thread.ofVirtual().start(() -> {
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), workspace.getCharset()))) {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), workspace.runTimeEnvironment().charset()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     stringBuilder.append(line).append("\n");
@@ -81,13 +93,17 @@ public class CommandToolDefinitionExecutor implements ToolExecutor {
         });
 
         // wait for process to complete
-        if(!process.waitFor(this.terminalConfig.getTimeout(), TimeUnit.SECONDS)){
+        if (!process.waitFor(this.terminalConfig.getTimeout(), TimeUnit.SECONDS)) {
             // stop if not completed or timeout
             process.destroy();
-            if (process.isAlive()){
+            if (process.isAlive()) {
                 process.destroyForcibly();
             }
+
             outputThread.interrupt();
+
+
+            outputThread.join(Duration.of(joinTime, ChronoUnit.SECONDS));
             return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolSpecification(), "process timeout");
         }
 
@@ -103,7 +119,6 @@ public class CommandToolDefinitionExecutor implements ToolExecutor {
         String args = toolExecution.getArgs();
         return objectMapper.readValue(args, ExecuteCommandRequest.class);
     }
-
 
 
 }

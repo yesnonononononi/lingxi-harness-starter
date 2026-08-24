@@ -8,12 +8,14 @@ import com.summit.harnesscore.tool.ToolExecution;
 import com.summit.harnesscore.tool.ToolExecutor;
 
 import com.summit.tools.arguments.ReadFileRequest;
+import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+@Slf4j
 public class ReadFileToolExecutor implements ToolExecutor {
     private final ObjectMapper objectMapper;
 
@@ -25,6 +27,8 @@ public class ReadFileToolExecutor implements ToolExecutor {
     public @NonNull ToolExecuteResult execute(ToolExecution toolExecution) {
         try {
             Path filePath = resolveArgs(toolExecution);
+
+            log.info("【ToolCall】 read_file :{}",filePath.toRealPath());
 
             String content =  read(filePath);
             return ToolExecuteResult.success(toolExecution.getId(), toolExecution.getToolSpecification(), content);

@@ -13,4 +13,8 @@ public class ModelConfig {
     private String modelName;
     private String provider;
     private Duration timeout;
+    private Integer maxTokens;
+    private String reasoningEffort;
+    private boolean returnThinking;
+    private boolean sendThinking;
 }

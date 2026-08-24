@@ -16,6 +16,10 @@ public class DefaultChatModelProvider implements ChatModelProvider {
         return OpenAiChatModel.builder()
                 .baseUrl(config.getBaseUrl())
                 .apiKey(config.getApiKey())
+                .sendThinking(config.isSendThinking())
+                .returnThinking(config.isReturnThinking())
+                .maxTokens(config.getMaxTokens())
+                .reasoningEffort(config.getReasoningEffort())
                 .modelName(config.getModelName())
                 .timeout(config.getTimeout())
                 .build();

@@ -10,6 +10,7 @@ import com.summit.harnesscore.exception.OutWorkSpaceException;
 import com.summit.runtime.agent.ChatAgent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 @Slf4j
@@ -17,7 +18,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class Demo {
 
-    private final ChatAgent chatAgent;
+
+    private final ChatAgent defaultChatAgent;
 
     public void chat(String input) {
 
@@ -29,7 +31,7 @@ public class Demo {
 
         Execution execution;
         try {
-            execution = chatAgent.execute(AgentRequest
+            execution = defaultChatAgent.execute(AgentRequest
                     .builder()
                     .input(input)
                     .build()

@@ -11,7 +11,7 @@ import java.util.Map;
 import java.util.Objects;
 
 public class FileInsertor  {
-    public static FileEditorResult insert(EditFileRequest editFileRequest, @NonNull File targetFile, Charset charset, Integer aroundLines) {
+    public static FileEditorResult<EditResult> insert(EditFileRequest editFileRequest, @NonNull File targetFile, Charset charset, Integer aroundLines) {
         int insertIndex;
         EditType type = EditType.fromString(editFileRequest.getType());
         String newText = Objects.requireNonNullElse(editFileRequest.getNewText(), "");

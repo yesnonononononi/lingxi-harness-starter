@@ -54,6 +54,8 @@ public class Execution {
      */
     private TokenUsage tokenUsage;
 
+    private String errorMessage;
+
 
     public void cancel(){
         this.executionState = ExecutionState.CANCELLED;
@@ -70,6 +72,11 @@ public class Execution {
     }
     public void complete(){
         this.executionState = ExecutionState.COMPLETED;
+        this.completedAt = Instant.now();
+    }
+    public void fail(String errorMessage){
+        this.errorMessage = errorMessage;
+        this.executionState = ExecutionState.FAILED;
         this.completedAt = Instant.now();
     }
 

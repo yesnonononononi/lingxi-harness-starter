@@ -22,10 +22,7 @@ public class ExecuteCommandToolDefinition implements Tool {
         return String.valueOf("execute-command-tool".hashCode());
     }
 
-    @Override
-    public String description() {
-        return "execute terminal command";
-    }
+
 
     @Override
     public ToolExecutor executor() {

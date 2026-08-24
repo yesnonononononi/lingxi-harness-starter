@@ -10,12 +10,14 @@ import com.summit.harnesscore.tool.ToolExecutor;
 
 import com.summit.tools.arguments.EditFileRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.nio.file.Path;
 
+@Slf4j
 @RequiredArgsConstructor
 public class EditFileToolExecutor implements ToolExecutor {
     private final ObjectMapper objectMapper;
@@ -25,10 +27,12 @@ public class EditFileToolExecutor implements ToolExecutor {
         String args = toolExecution.getArgs();
         try {
             EditFileRequest request = objectMapper.readValue(args, EditFileRequest.class);
+            log.info("【ToolCall】 edit_file :{}",request.getPath());
+
             //step1 validate file whether exist or not
             File target = validateFileExist(request.getPath(), toolExecution.getWorkspace());
             //edit
-            FileEditorResult edit = FileEditor.edit(request, target, toolExecution.getWorkspace().getCharset(),this.editFileToolConfig.aroundLines());
+            FileEditorResult<EditResult> edit = FileEditor.edit(request, target, toolExecution.getWorkspace().runTimeEnvironment().charset(), this.editFileToolConfig.aroundLines());
 
             if(edit.isSuccess()){
                 return ToolExecuteResult.success(toolExecution.getId(),toolExecution.getToolSpecification(),null);
@@ -45,8 +49,8 @@ public class EditFileToolExecutor implements ToolExecutor {
     }
 
     private File validateFileExist(String path, Workspace workspace) throws FileNotFoundException {
-        Path resolvePath = workspace.resolve(path).normalize();
-        if(!resolvePath.startsWith(workspace.getWorkDir())){
+        Path resolvePath = workspace.resolve(path);
+        if(!resolvePath.startsWith(workspace.runTimeEnvironment().workDir())){
             throw new OutWorkSpaceException("Target File is out of workspace");
         }
         File target = resolvePath.toFile();
