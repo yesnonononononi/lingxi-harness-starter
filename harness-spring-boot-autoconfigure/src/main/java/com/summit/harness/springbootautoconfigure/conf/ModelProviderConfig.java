@@ -1,8 +1,7 @@
 package com.summit.harness.springbootautoconfigure.conf;
 
-import com.summit.harness.springbootautoconfigure.properties.AgentChatProperties;
+import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
 import com.summit.harness.springbootautoconfigure.properties.CompactContextModelProperties;
-import com.summit.harness.springbootautoconfigure.properties.StreamingAgentProperties;
 import com.summit.harnesscore.model.ModelProvider;
 import com.summit.harnesscore.model.ModelProviderRegistry;
 import com.summit.runtime.provider.DefaultChatModelProvider;
@@ -18,7 +17,7 @@ import java.util.List;
 
 /** 注册三类模型 Provider：default(推理)、default-streaming(流式)、default-compact(上下文压缩)。自定义 Provider 注册为 Bean 后 registry 自动收集。 */
 @AutoConfiguration
-@EnableConfigurationProperties({StreamingAgentProperties.class, AgentChatProperties.class, CompactContextModelProperties.class})
+@EnableConfigurationProperties({AgentChatProperties.class, CompactContextModelProperties.class})
 public class ModelProviderConfig {
 
     @Bean

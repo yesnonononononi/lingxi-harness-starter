@@ -8,7 +8,7 @@ import lombok.Data;
 @Data
 public class ToolExecution {
     private String id;
-    private ToolSpecification toolSpecification;
+    private ToolDefinition<? extends ToolExecutor> toolDefinition;
     private String args;
     private Workspace workspace;
 }

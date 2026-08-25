@@ -11,4 +11,6 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class ReadFileRequest {
     private String path;
+    private Integer startLine;
+    private Integer endLine;
 }

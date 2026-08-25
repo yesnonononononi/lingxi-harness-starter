@@ -1,6 +1,7 @@
 package com.summit.runtime.conversation;
 
 import com.summit.harnesscore.agent.AgentRequest;
+import com.summit.harnesscore.compact.ContextCompacter;
 import com.summit.harnesscore.compact.ContextSummary;
 import com.summit.harnesscore.conversation.ConversationManager;
 import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
@@ -9,15 +10,12 @@ import com.summit.harnesscore.tool.ToolExecuteResult;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.response.ChatResponse;
-
 import dev.langchain4j.model.output.TokenUsage;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
-
 import java.util.*;
-import java.util.function.Supplier;
-import java.util.stream.Stream;
+
 
 @Getter
 @Slf4j
@@ -25,22 +23,16 @@ public class DefaultConversationManager implements ConversationManager {
     private final Workspace workspace;
     private final List<ChatMessage> messages;
     private TokenUsage tokenUsage;
-    private final Queue<ToolExecutionResultMessage> priorityQueue;
     private SystemMessage originalSystemMessage = null;
-    private static final int DEFAULT_ATTEMPT_NUM = 3;
-    private final List<Supplier<Integer>> squeezeStrategies;
     private final RuntimeEventPublisher runtimeEventPublisher;
+    private final ContextCompacter contextCompacter;
 
-    public DefaultConversationManager(Workspace workspace, RuntimeEventPublisher runtimeEventPublisher) {
+    public DefaultConversationManager(Workspace workspace, RuntimeEventPublisher runtimeEventPublisher, ContextCompacter contextCompacter) {
         this.workspace = workspace;
         this.messages = new LinkedList<>();
-        this.priorityQueue = new PriorityQueue<>(
-                Comparator.comparingInt(tm -> ((ToolExecutionResultMessage) tm).text().length()).reversed()
-        );
-
         this.tokenUsage = new TokenUsage(0, 0, 0);
-        this.squeezeStrategies = new LinkedList<>(Arrays.asList(this::squeezeByLength, this::squeezeByAge));
         this.runtimeEventPublisher = runtimeEventPublisher;
+        this.contextCompacter = contextCompacter;
     }
 
     @Override
@@ -77,31 +69,7 @@ public class DefaultConversationManager implements ConversationManager {
 
     @Override
     public void squeezeContext(Integer expectedTokens, Integer attemptNum) {
-
-        int maxAttempts = Objects.requireNonNullElse(
-                attemptNum,
-                DEFAULT_ATTEMPT_NUM
-        );
-
-        int delta = 0;
-
-        for (int attempt = 0;
-             attempt < maxAttempts;
-             attempt++) {
-
-            int currentTokens =
-                    this.tokenUsage.totalTokenCount() - delta;
-
-            if (currentTokens <= expectedTokens) {
-                break;
-            }
-
-            int curStep = attempt % this.squeezeStrategies.size();
-
-            delta += this.squeezeStrategies
-                    .get(curStep)
-                    .get();
-        }
+       this.contextCompacter.compact(expectedTokens,attemptNum,messages);
     }
 
     @Override
@@ -142,49 +110,6 @@ public class DefaultConversationManager implements ConversationManager {
         }
     }
 
-    private Integer squeezeByLength() {
-        ChatMessage chatMessage = this.priorityQueue.poll();
-        if ((chatMessage instanceof ToolExecutionResultMessage toolMsg)) {
-            String truncatedText = truncateText(toolMsg.text());
-            if (truncatedText.equals(toolMsg.text())) {
-                return 0;
-            }
-            ToolExecutionResultMessage newMsg = ToolExecutionResultMessage.toolExecutionResultMessage(toolMsg.id(), toolMsg.toolName(), truncatedText);
-            if (Collections.replaceAll(this.messages, chatMessage, newMsg)) {
-                log.info("Squeezed message: {} oldMessage:{}", newMsg, chatMessage);
-                return estimateToken(toolMsg.text()) - estimateToken(truncatedText);
-            }
-            log.info("Failed to squeeze message: {} oldMessage:{}", newMsg, chatMessage);
-        }
-        return 0;
-    }
-
-
-    private Integer squeezeByAge() {
-        ListIterator<ChatMessage> iterator = this.messages.listIterator();
-        while (iterator.hasNext()) {
-            if (iterator.next() instanceof ToolExecutionResultMessage toolMsg) {
-                String truncateText = truncateText(toolMsg.text());
-
-                if (truncateText.equals(toolMsg.text())) {
-                    return 0;
-                }
-
-                ToolExecutionResultMessage newMsg = ToolExecutionResultMessage.toolExecutionResultMessage(toolMsg.id(), toolMsg.toolName(), truncateText);
-                iterator.set(newMsg);
-
-                this.priorityQueue.remove(toolMsg);
-
-                return estimateToken(toolMsg.text()) - estimateToken(truncateText);
-            }
-        }
-        return 0;
-    }
-
-    private String truncateText(String text) {
-        if (text == null || text.isEmpty()) return "";
-        return text.substring(0, (int) (text.length() * 0.2)) + "..." + text.substring(text.length() - (int) (text.length() * 0.2));
-    }
 
     private void addToolMessages(List<ToolExecuteResult> results) {
         if (results == null || results.isEmpty()) {
@@ -204,13 +129,7 @@ public class DefaultConversationManager implements ConversationManager {
                     );
 
             this.messages.add(message);
-            this.priorityQueue.add(message);
         }
-    }
-
-
-    private Integer estimateToken(String text) {
-        return (int) Math.ceil((double) text.length() / 4);
     }
 
 
@@ -247,8 +166,21 @@ public class DefaultConversationManager implements ConversationManager {
                         current
                          operation system : %s
                          workdir: %s
-                        notice
-                          you should attempt call compact_context tool if existing conversation history exceeds 85 percent of the maximum token limit
+
+                        tool usage rules (STRICT - choose the right tool before acting):
+                         1. READ a file        -> use read_file, support startLine/endLine for partial reads.
+                                                 NEVER use terminal commands (cat/type/Get-Content/more/tail) to read files.
+                         2. CREATE/MODIFY a file -> use edit_file (INSERT_BEFORE/INSERT_AFTER/REPLACE/DELETE).
+                                                 NEVER use terminal commands (Set-Content/Add-Content/echo/redirect >/sed) to modify files.
+                         3. Web / external info -> use web_search. NEVER use terminal for network lookups.
+                         4. execute_command is ONLY for real commands: build, run, install, git, start/stop services,
+                                                 directory/file management (ls/cd/mkdir/cp/mv/rm). Its output is truncated
+                                                 to a few thousand chars, so it is NOT suitable for reading or writing file content.
+                         5. Always prefer the dedicated tool matching the operation: it saves tokens and avoids truncation.
+
+                        context management
+                         - call compact_context tool when existing conversation history exceeds 85 percent of the maximum token limit
+                         - prioritize the use of tools corresponding to the functions to save token consumption
                         """,
                 this.workspace.runTimeEnvironment().osType(),
                 this.workspace.runTimeEnvironment().workDir()

@@ -1,6 +1,7 @@
-package com.summit.harness.springbootautoconfigure.conf;
+package com.summit.harness.springbootautoconfigure.conf.sys;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.summit.harnesscore.compact.Tokenizer;
 import com.summit.harnesscore.conversation.ConversationManager;
 import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
 import com.summit.harnesscore.runtime.RuntimeExecutionPolicy;
@@ -19,21 +20,22 @@ import java.util.List;
 @AutoConfiguration
 public class ExecutionRuntimeConfig {
     @Bean
-    public RuntimeFactory defaultRuntimeFactory(Workspace workspace, RuntimeEventPublisher defaultRuntimeListener, ConversationManager conversationManager, ToolExecutionManager defaultToolExecutionManager, AgentConfig agentConfig, ObjectMapper objectMapper){
+    public RuntimeFactory defaultRuntimeFactory(Workspace workspace, RuntimeEventPublisher defaultRuntimeListener, ConversationManager conversationManager, ToolExecutionManager defaultToolExecutionManager, AgentConfig agentConfig, ObjectMapper objectMapper, Tokenizer tokenizer){
         return DefaultRuntimeFactory.builder()
                 .workspace(workspace)
-                .runtimeExecutionPolicy(runtimeExecutionPolicy(agentConfig))
+                .runtimeExecutionPolicy(runtimeExecutionPolicy(agentConfig, tokenizer))
                 .toolExecutionManager(defaultToolExecutionManager)
                 .runtimeEventPublisher(defaultRuntimeListener)
                 .conversationManager(conversationManager)
                 .objectMapper(objectMapper)
+                .maxIterations(agentConfig.maxIterations())
                 .build();
     }
 
 
     @Bean
-    public RuntimeExecutionPolicy runtimeExecutionPolicy(AgentConfig agentConfig){
-        return new DefaultRuntimeExecutionPolicy(agentConfig);
+    public RuntimeExecutionPolicy runtimeExecutionPolicy(AgentConfig agentConfig, Tokenizer tokenizer){
+        return new DefaultRuntimeExecutionPolicy(agentConfig,tokenizer);
     }
 
     @Bean

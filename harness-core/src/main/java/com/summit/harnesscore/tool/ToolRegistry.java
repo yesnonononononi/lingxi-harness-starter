@@ -1,6 +1,5 @@
 package com.summit.harnesscore.tool;
 
-import dev.langchain4j.agent.tool.ToolSpecification;
 import lombok.Data;
 import lombok.ToString;
 
@@ -8,14 +7,14 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 @ToString
 @Data
+@SuppressWarnings("unchecked")
 public class ToolRegistry {
-    private final Map<String, ToolSpecification> tools = new ConcurrentHashMap<>();
-    private final Map<ToolSpecification, Tool> executors = new ConcurrentHashMap<>();
+    private final Map<String, ToolDefinition<? extends ToolExecutor>> tools = new ConcurrentHashMap<>();
 
-    public void register(ToolSpecification toolSpec,Tool tool) {
+
+    public <T extends ToolExecutor>void register(String name, ToolDefinition< ? extends T> tool) {
         if (tool != null) {
-            tools.put(tool.name(), toolSpec);
-            executors.put(toolSpec, tool);
+            tools.put(name, tool);
         }
     }
 
@@ -25,22 +24,11 @@ public class ToolRegistry {
         }
     }
 
-    public ToolSpecification getToolSpec(String toolName) {
+    public <T extends ToolExecutor>ToolDefinition<T> getTool(String toolName) {
         if (toolName != null && !toolName.isBlank()) {
-            return tools.get(toolName);
+            return (ToolDefinition<T>) tools.get(toolName);
         }
         return null;
     }
 
-    public Tool getTool(ToolSpecification toolSpecification) {
-        return this.executors.get(toolSpecification);
-    }
-
-    public Tool getTool(String name) {
-        ToolSpecification toolSpecification = this.tools.get(name);
-        if (toolSpecification != null) {
-            return this.getTool(toolSpecification);
-        }
-        return null;
-    }
 }

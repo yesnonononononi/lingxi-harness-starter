@@ -1,8 +1,7 @@
 package com.summit.harness.springbootautoconfigure.conf;
 
-import com.summit.harness.springbootautoconfigure.properties.AgentChatProperties;
+import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
 import com.summit.harness.springbootautoconfigure.properties.CompactContextModelProperties;
-import com.summit.harness.springbootautoconfigure.properties.StreamingAgentProperties;
 import com.summit.harnesscore.model.ModelConfig;
 import com.summit.harnesscore.model.ModelProviderRegistry;
 import dev.langchain4j.model.chat.ChatModel;
@@ -18,7 +17,7 @@ import org.springframework.context.annotation.Bean;
  * 用户可配置 yaml 参数，或自实现 Provider 并通过 provider 字段指定。
  */
 @AutoConfiguration
-@EnableConfigurationProperties({StreamingAgentProperties.class, AgentChatProperties.class, CompactContextModelProperties.class})
+@EnableConfigurationProperties({AgentChatProperties.class, CompactContextModelProperties.class})
 public class ModelConfiguration {
 
     @Bean
@@ -32,25 +31,10 @@ public class ModelConfiguration {
                 .maxTokens(agentChatProperties.getMaxTokens())
                 .reasoningEffort(agentChatProperties.getReasoningEffort())
                 .returnThinking(agentChatProperties.isReturnThinking())
-                .provider(agentChatProperties.getProvider())
                 .build();
     }
 
-    @Bean
-    public ModelConfig streamingModelConfig(StreamingAgentProperties agentProperties) {
-        return ModelConfig.builder()
-                .baseUrl(agentProperties.getBaseUrl())
-                .apiKey(agentProperties.getApiKey())
-                .modelName(agentProperties.getModelName())
-                .timeout(agentProperties.getTimeout())
-                .sendThinking(agentProperties.isSendThinking())
-                .maxTokens(agentProperties.getMaxTokens())
-                .reasoningEffort(agentProperties.getReasoningEffort())
-                .returnThinking(agentProperties.isReturnThinking())
-                .provider(agentProperties.getProvider())
-                .build();
-    }
-
+ 
     @Bean
     public ModelConfig compactContextModelConfig(CompactContextModelProperties compactContextModelProperties) {
         return ModelConfig.builder()
@@ -70,8 +54,9 @@ public class ModelConfiguration {
     @ConditionalOnMissingBean(name = "defaultStreamingChatModel")
     public StreamingChatModel defaultStreamingChatModel(
             ModelProviderRegistry<StreamingChatModel> streamingModelProviderRegistry,
-            @Qualifier("streamingModelConfig") ModelConfig streamingModelConfig) {
-        return streamingModelProviderRegistry.create(streamingModelConfig);
+            @Qualifier("chatModelConfig") ModelConfig modelConfig) {
+        modelConfig.setProvider("default-streaming");
+        return streamingModelProviderRegistry.create(modelConfig);
     }
 
     @Bean
@@ -79,6 +64,7 @@ public class ModelConfiguration {
     public ChatModel defaultChatModel(
             ModelProviderRegistry<ChatModel> chatModelProviderRegistry,
             @Qualifier("chatModelConfig") ModelConfig chatModelConfig) {
+        chatModelConfig.setProvider("default");
         return chatModelProviderRegistry.create(chatModelConfig);
     }
 
@@ -87,6 +73,7 @@ public class ModelConfiguration {
     public ChatModel defaultContextCompactModel(
             ModelProviderRegistry<ChatModel> chatModelProviderRegistry,
             @Qualifier("compactContextModelConfig") ModelConfig compactContextModelConfig) {
+        compactContextModelConfig.setProvider("default-compact");
         return chatModelProviderRegistry.create(compactContextModelConfig);
     }
 }

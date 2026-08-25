@@ -1,4 +1,4 @@
-package com.summit.harness.springbootautoconfigure.conf;
+package com.summit.harness.springbootautoconfigure.conf.sys;
 
 import com.summit.harnesscore.runtime.OsType;
 import com.summit.harnesscore.runtime.RuntimeEnvironment;

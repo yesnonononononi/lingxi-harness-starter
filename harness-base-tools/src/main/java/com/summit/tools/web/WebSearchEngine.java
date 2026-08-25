@@ -18,6 +18,12 @@ public class WebSearchEngine {
     private final HttpClient httpClient;
 
     public String search(WebSearchArguments arguments) throws IOException, InterruptedException {
+        String maxResults = arguments.getMaxResults();
+        Integer maxRes = this.webSearchConfig.maxResult();
+
+        if(maxRes != null && maxRes < Integer.parseInt(maxResults)) {
+            arguments.setMaxResults(String.valueOf(maxRes));
+        }
         return this.search(Json.toJson(arguments));
     }
     public String search(String json) throws IOException, InterruptedException {

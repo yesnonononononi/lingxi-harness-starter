@@ -1,6 +1,7 @@
 package com.summit.runtime.policy;
 
 import com.summit.harnesscore.agent.Execution;
+import com.summit.harnesscore.compact.Tokenizer;
 import com.summit.harnesscore.conversation.ConversationManager;
 
 import com.summit.harnesscore.compact.ContextSqueezeRequest;
@@ -12,23 +13,25 @@ import lombok.AllArgsConstructor;
 @AllArgsConstructor
 public class DefaultRuntimeExecutionPolicy implements RuntimeExecutionPolicy {
     private final AgentConfig agentConfig ;
+    private final Tokenizer tokenizer;
     @Override
     public boolean shouldContinue(Execution execution, ConversationManager conversationManager) {
-        TokenUsage tokenUsage = conversationManager.tokenUsage();
-        Integer maxTokens =agentConfig.maxTokens();
-        Integer count = tokenUsage.totalTokenCount();
-      return count < maxTokens;
+        Integer maxTokens = agentConfig.maxTokens();
+        if (maxTokens == null) return true;
+        int accumulatedTokens = conversationManager.tokenUsage().totalTokenCount();
+        int currentContextTokens = tokenizer.count(conversationManager.messages());
+        return accumulatedTokens < maxTokens && currentContextTokens < maxTokens;
    }
 
     @Override
     public ContextSqueezeRequest shouldSqueezeContext(ConversationManager conversationManager, Execution execution) {
-        Integer tokenUsage = conversationManager.tokenUsage().totalTokenCount();
+        int currentTokens = tokenizer.count(conversationManager.messages());
         Double v = agentConfig.squeezeThreshold();
         Integer maxTokens = agentConfig.maxTokens();
         double expectT = maxTokens * (v > 1.0 ? 1.0 : v);
         return ContextSqueezeRequest.builder()
-                .shouldSqueeze(tokenUsage > expectT)
-                .expectTokens((int) (expectT * agentConfig.squeezeThreshold()))
+                .shouldSqueeze(currentTokens > expectT)
+                .expectTokens((int) expectT)
                 .build();
     }
 }

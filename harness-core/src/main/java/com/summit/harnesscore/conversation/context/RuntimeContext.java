@@ -17,8 +17,12 @@ public record RuntimeContext(ChatModelInvoker modelInvoker,
                              RuntimeEventPublisher runtimeEventPublisher,
                              ToolExecutionManager toolExecutionManager,
                              RuntimeExecutionPolicy runtimeExecutionPolicy,
-                             ObjectMapper objectMapper
+                             ObjectMapper objectMapper,
+                             Integer maxIterations
 ) {
-
+    private static final int DEFAULT_MAX_ITERATIONS = 10;
+    public int getMaxIterations() {
+        return maxIterations != null ? maxIterations : DEFAULT_MAX_ITERATIONS;
+    }
 
 }

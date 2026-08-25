@@ -3,7 +3,7 @@ package com.summit.runtime;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.summit.harnesscore.agent.Execution;
 import com.summit.harnesscore.compact.ContextSummary;
-import com.summit.harnesscore.compact.ToolResultType;
+import com.summit.harnesscore.tool.ToolResultType;
 import com.summit.harnesscore.conversation.context.RuntimeContext;
 import com.summit.harnesscore.conversation.event.*;
 import com.summit.harnesscore.runtime.ExecutionRuntime;
@@ -24,6 +24,7 @@ public class ChatModelRuntimeProcessor implements ExecutionRuntime {
     private final Logger logger = LoggerFactory.getLogger(ChatModelRuntimeProcessor.class);
     private final RuntimeContext context;
 
+
     public ChatModelRuntimeProcessor(RuntimeContext context) {
         this.context = context;
 
@@ -37,8 +38,16 @@ public class ChatModelRuntimeProcessor implements ExecutionRuntime {
         context.runtimeEventPublisher().onExecutionStart(new ExecutionStartEvent(executionId));
         context.conversationManager().startConversation(execution.getAgentRequest());
         execution.start();
+        int iterations = 0;
+        int maxIterations = context.getMaxIterations();
         try {
             while (context.runtimeExecutionPolicy().shouldContinue(execution,this.context.conversationManager())) {
+                // ensure interaction loop does not exceed max iterations
+                if (++iterations > maxIterations) {
+                    logger.warn("【Agent】reached max iterations {}, stop execution to avoid context explosion", maxIterations);
+                    break;
+                }
+                // ensure context is not squeezed to death
                 if ((contextSqueezeRequest = context.runtimeExecutionPolicy().shouldSqueezeContext(this.context.conversationManager(),execution)).shouldSqueeze()) {
                     context.conversationManager().squeezeContext(contextSqueezeRequest.expectTokens(),null);
                 }
@@ -80,7 +89,7 @@ public class ChatModelRuntimeProcessor implements ExecutionRuntime {
 
             context.conversationManager().endConversation();
 
-            context.runtimeEventPublisher().onExecutionComplete(new ExecutionCompleteEvent(executionId));
+            context.runtimeEventPublisher().onExecutionComplete(new ExecutionCompleteEvent(executionId, execution.getTokenUsage()));
             return execution;
         } catch (Exception e) {
             context.runtimeEventPublisher().onExecutionError(new ExecutionErrorEvent(e,null,executionId, new Timestamp(System.currentTimeMillis())));
@@ -114,9 +123,7 @@ public class ChatModelRuntimeProcessor implements ExecutionRuntime {
         return ChatRequest.builder()
                 .messages(this.context.conversationManager().messages())
                 .toolSpecifications(this.context.toolExecutionManager().toolRegistry()
-                        .getTools()
-                        .values()
-                        .stream()
+                        .getTools().values().stream().map(ToolDefinition::toolSpecification)
                         .toList()
                 )
                 .build();

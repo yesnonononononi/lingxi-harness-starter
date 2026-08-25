@@ -8,36 +8,39 @@ lingxi:
   agent:
     runtime:
       tool:
-        read_file:
+        common:
+          max-output: 500
+        read-file:
           enabled: true
-        edit_file:
+          max-output: 600
+        edit-file:
           enabled: true
+          max-output: 200
         terminal:
           enabled: true
           timeout: 30
-        web_search:
+          max-output: 2000
+        web-search:
           enabled: true
           baseUrl: https://api.tavily.com/search
           apiKey: ${TAVILY_APIKEY}
           timeout: 30
+        context-compact:
+          enabled: true
+
     model:
       conf:
         chat:
-          base-url: https://api.deepseek.com     #http://localhost:1234/v1        # https://globalai.vip/v1                      #http://127.0.0.1:11434/v1
-          api-key:  ${DEEPSEEK_APIKEY}                      # ${GLOBALAI_APIKEY}
-          model-name: "deepseek-v4-flash"                               #"google/gemma-4-12b-qat"
+          base-url: https://globalai.vip/v1                         #https://openrouter.ai/api/v1/chat/completions  https://api.deepseek.com   http://localhost:1234/v1
+          api-key:  ${GLOBALAI_APIKEY}              #DEEPSEEK_APIKEY  #OPENROUTER_APIKEY OPENROUTER_APIKEY
+          model-name: "gpt-5.4-mini"                            #"google/gemma-4-12b-qat" "deepseek-v4-flash" "stealth/ox-alpha"
           timeout: 120s
-        stream:
-          base-url: http://127.0.0.1:11434/v1
-          api-key: ${GLOBALAI_APIKEY}
-          model-name: "gemma4:12b"
-          timeout: 120s
-          maxTokens: 2_000_000
-        # 上下文压缩专用模型（无 thinking）
+          max-iterations: 50
+          max-tokens: 50_0000
         compact:
-          base-url: https://api.deepseek.com
-          api-key: ${DEEPSEEK_APIKEY}
-          model-name: "deepseek-v4-flash"
+          base-url: https://globalai.vip/v1                         #https://openrouter.ai/api/v1/chat/completions  https://api.deepseek.com   http://localhost:1234/v1
+          api-key: ${GLOBALAI_APIKEY}
+          model-name: "gpt-5.4-mini"
           timeout: 120s
           maxTokens: 32768
           reasoning-effort: "none"

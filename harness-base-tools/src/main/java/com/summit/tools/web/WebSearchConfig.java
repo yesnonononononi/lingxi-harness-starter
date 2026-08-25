@@ -4,6 +4,6 @@ import lombok.Builder;
 
 
 @Builder
-public record WebSearchConfig (String baseUrl, String apiKey,Long timeout){
+public record WebSearchConfig (String baseUrl, String apiKey,Long timeout,Integer maxResult){
 
 }

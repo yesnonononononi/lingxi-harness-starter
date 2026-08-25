@@ -24,6 +24,7 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
     private final ConversationManager conversationManager;
     private final RuntimeExecutionPolicy runtimeExecutionPolicy;
     private final ObjectMapper objectMapper;
+    private final Integer maxIterations;
 
     @Override
     public ExecutionRuntime createChatModelRuntime(ChatModelInvoker chatModelInvoker) {
@@ -36,6 +37,7 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
                         .conversationManager(conversationManager)
                         .runtimeExecutionPolicy(runtimeExecutionPolicy)
                         .objectMapper(objectMapper)
+                        .maxIterations(maxIterations)
                         .build()
         );
     }

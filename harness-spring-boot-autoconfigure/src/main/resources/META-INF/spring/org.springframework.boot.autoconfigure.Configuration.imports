@@ -1,10 +1,10 @@
-com.summit.harness.springbootautoconfigure.conf.AgentConfiguration
+com.summit.harness.springbootautoconfigure.conf.agent.AgentConfiguration
 com.summit.harness.springbootautoconfigure.conf.ModelConfiguration
 com.summit.harness.springbootautoconfigure.conf.ModelProviderConfig
-com.summit.harness.springbootautoconfigure.conf.WorkSpaceConfig
-com.summit.harness.springbootautoconfigure.conf.JsonConfig
-com.summit.harness.springbootautoconfigure.conf.CommonToolAutoConfiguration
-com.summit.harness.springbootautoconfigure.conf.FileToolAutoConfiguration
+com.summit.harness.springbootautoconfigure.conf.sys.WorkSpaceConfig
+com.summit.harness.springbootautoconfigure.conf.sys.JsonConfig
+com.summit.harness.springbootautoconfigure.conf.tool.CommonToolAutoConfiguration
+com.summit.harness.springbootautoconfigure.conf.tool.FileToolAutoConfiguration
 com.summit.harness.springbootautoconfigure.conf.ConversationConfig
-com.summit.harness.springbootautoconfigure.conf.ExecutionRuntimeConfig
+com.summit.harness.springbootautoconfigure.conf.sys.ExecutionRuntimeConfig
 

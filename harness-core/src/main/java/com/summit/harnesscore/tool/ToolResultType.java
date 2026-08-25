@@ -1,4 +1,4 @@
-package com.summit.harnesscore.compact;
+package com.summit.harnesscore.tool;
 
 public enum ToolResultType {
     NORMAL,

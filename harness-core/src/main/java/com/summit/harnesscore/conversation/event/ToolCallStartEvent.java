@@ -4,11 +4,13 @@ package com.summit.harnesscore.conversation.event;
 import lombok.Data;
 
 import java.time.Instant;
+import java.util.List;
 
 @Data
 public class ToolCallStartEvent implements AgentEvent {
     private final String executionId;
     private final String toolName;
+    private final String args;
     @Override
     public String executionId() {
         return executionId;

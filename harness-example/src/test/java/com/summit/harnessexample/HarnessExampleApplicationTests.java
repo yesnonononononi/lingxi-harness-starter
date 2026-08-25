@@ -15,14 +15,26 @@ public class HarnessExampleApplicationTests {
     @Autowired
     private ToolRegistry toolRegistry;
 
-   @Test
-   public void contextLoads() {
-      // System.out.println(System.getProperty("user.dir"));
-       //System.out.println(System.getProperty("os.name"));
-       //System.out.println(System.getenv().get("TAVILY_APIKEY"));
-       //System.out.println(System.getenv().get("DEEPSEEK_APIKEY"));
-        //System.out.println(toolRegistry);
-    demo.chat("我需要测试上下文摘要功能,需要你来调用压缩工具,查看会话是否被概括正确");
+    @Test
+    public void contextLoads() {
+        // System.out.println(System.getProperty("user.dir"));
+        //System.out.println(System.getProperty("os.name"));
+        //System.out.println(System.getenv().get("TAVILY_APIKEY"));
+        //System.out.println(System.getenv().get("DEEPSEEK_APIKEY"));
+        // System.out.println(toolRegistry);
+        demo.chat("""
+                
+                [plugin:vite:vue] Attribute name cannot start with '='.
+                D:/Code/starter/lingxi-harness-agent/harness-example/frontend/src/views/HomeView.vue:129:31
+                127 |          <template v-for=(item, index) in events :key=index>
+                128 |            <!-- 用户消息：右侧蓝色气泡 -->
+                129 |            <div v-if=item.type === 'USER' class=row row-user>
+                    |                                 ^
+                130 |              <div class=bubble bubble-user>
+                131 |                <div class=bubble-text>{{ item.text }}</div>
+                
+                修复这个错误
+                """);
     }
 
 }

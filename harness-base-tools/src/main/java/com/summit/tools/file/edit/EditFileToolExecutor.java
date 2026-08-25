@@ -21,7 +21,8 @@ import java.nio.file.Path;
 @RequiredArgsConstructor
 public class EditFileToolExecutor implements ToolExecutor {
     private final ObjectMapper objectMapper;
-    private final EditFileToolConfig editFileToolConfig;
+    private final int DEFAULT_AROUND_LINE = 3;
+
     @Override
     public @NonNull ToolExecuteResult execute(ToolExecution toolExecution) {
         String args = toolExecution.getArgs();
@@ -32,17 +33,17 @@ public class EditFileToolExecutor implements ToolExecutor {
             //step1 validate file whether exist or not
             File target = validateFileExist(request.getPath(), toolExecution.getWorkspace());
             //edit
-            FileEditorResult<EditResult> edit = FileEditor.edit(request, target, toolExecution.getWorkspace().runTimeEnvironment().charset(), this.editFileToolConfig.aroundLines());
+            FileEditorResult<EditResult> edit = FileEditor.edit(request, target, toolExecution.getWorkspace().runTimeEnvironment().charset(),DEFAULT_AROUND_LINE);
 
             if(edit.isSuccess()){
-                return ToolExecuteResult.success(toolExecution.getId(),toolExecution.getToolSpecification(),null);
+                return ToolExecuteResult.success(toolExecution.getId(),toolExecution.getToolDefinition().toolSpecification(), null);
             }
 
-            return ToolExecuteResult.err(toolExecution.getId(),toolExecution.getToolSpecification(),edit.getErrMsg());
+            return ToolExecuteResult.err(toolExecution.getId(),toolExecution.getToolDefinition().toolSpecification(),edit.getErrMsg());
 
 
         } catch (JsonProcessingException | FileNotFoundException | OutWorkSpaceException e ) {
-            return ToolExecuteResult.err(toolExecution.getId(),toolExecution.getToolSpecification(),e.getMessage());
+            return ToolExecuteResult.err(toolExecution.getId(),toolExecution.getToolDefinition().toolSpecification(),e.getMessage());
         }
 
 

@@ -1,5 +1,6 @@
 package com.summit.runtime.tool;
 
+import com.summit.harnesscore.compact.Tokenizer;
 import com.summit.harnesscore.conversation.event.ToolCallEndEvent;
 import com.summit.harnesscore.conversation.event.ToolCallStartEvent;
 import com.summit.harnesscore.tool.*;
@@ -10,39 +11,39 @@ import lombok.Getter;
 import org.jspecify.annotations.NonNull;
 
 import java.util.List;
+
 @AllArgsConstructor
 @Getter
-
 public class DefaultToolExecutionManager implements ToolExecutionManager {
     private final ToolExecutionContext toolExecutionContext;
     private final CommonToolConfig commonToolConfig;
+    private final Tokenizer tokenizer;
 
 
     @Override
     public List<ToolExecuteResult> execute(ToolExecuteCommand toolExecuteCommand) {
         return toolExecuteCommand.requests().stream()
                 .map(request -> {
-                    Tool tool;
                     try {
-                        this.toolExecutionContext.runtimeEventPublisher().onToolCall(new ToolCallStartEvent(toolExecuteCommand.executionId(), request.name()));
+                        this.toolExecutionContext.runtimeEventPublisher().onToolCall(new ToolCallStartEvent(toolExecuteCommand.executionId(), request.name(), request.arguments()));
 
-                        ToolSpecification tooSpec = this.toolExecutionContext.toolRegistry().getToolSpec(request.name());
+                        ToolDefinition<?> toolDef = this.toolExecutionContext.toolRegistry().getTool(request.name());
 
-                        if ((tool = this.toolExecutionContext.toolRegistry().getTool(request.name())) == null) {
-                            return ToolExecuteResult.err(request.id(), tooSpec, "Tool not found");
+                        if (toolDef == null) {
+                            return ToolExecuteResult.err(request.id(), null, "Tool not found");
                         }
+                        ToolExecuteResult result = ToolResultLimiter.limit(toolDef.executor().execute(createToolExecution(request, toolDef)),toolDef,this.tokenizer);
 
-                        ToolExecuteResult result = tool.executor().execute(
-                                createToolExecution(request, tooSpec)
-                        );
-
-                        this.toolExecutionContext.runtimeEventPublisher().onToolCallOutput(new ToolCallEndEvent(toolExecuteCommand.executionId(),formatEventToolOutput( result.getToolOutput())));
+                        this.toolExecutionContext.runtimeEventPublisher().onToolCallOutput(new ToolCallEndEvent(toolExecuteCommand.executionId(), formatEventToolOutput(result.getToolOutput())));
 
                         return result;
 
-                    }catch (Exception e){
+                    } catch (Exception e) {
+                        // keep the tool name in the error result so the model can tell which tool failed
+                        ToolDefinition<?> toolDef = this.toolExecutionContext.toolRegistry().getTool(request.name());
+                        ToolSpecification spec = toolDef == null ? null : toolDef.toolSpecification();
                         this.toolExecutionContext.runtimeEventPublisher().onToolCallOutput(new ToolCallEndEvent(toolExecuteCommand.executionId(), "Tool execution error" + e.getMessage()));
-                        return ToolExecuteResult.err(request.id(), null, "Tool execution error" + e.getMessage());
+                        return ToolExecuteResult.err(request.id(), spec, "Tool execution error" + e.getMessage());
                     }
                 })
 
@@ -54,10 +55,10 @@ public class DefaultToolExecutionManager implements ToolExecutionManager {
         return this.toolExecutionContext.toolRegistry();
     }
 
-    private ToolExecution createToolExecution(@NonNull ToolExecutionRequest request, ToolSpecification tool) {
+    private ToolExecution createToolExecution(@NonNull ToolExecutionRequest request, ToolDefinition<?> tool) {
         return ToolExecution.builder()
                 .id(request.id())
-                .toolSpecification(tool)
+                .toolDefinition(tool)
                 .workspace(this.toolExecutionContext.workspace())
                 .args(request.arguments())
                 .build();
@@ -65,12 +66,13 @@ public class DefaultToolExecutionManager implements ToolExecutionManager {
 
     /**
      * Format the tool output to be displayed in the event.
+     *
      * @param output The tool output to be formatted.
      * @return The formatted tool output.
      */
-    private String formatEventToolOutput(String output){
+    private String formatEventToolOutput(String output) {
         Integer maxChar = commonToolConfig.maxToolOutputDisplay();
-        return output.length() > maxChar ? output.substring(0, maxChar)+"..." : output;
+        return output.length() > maxChar ? output.substring(0, maxChar) + "..." : output;
     }
 
 }

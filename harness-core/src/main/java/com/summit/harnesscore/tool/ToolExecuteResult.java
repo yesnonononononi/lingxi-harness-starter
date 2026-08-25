@@ -1,6 +1,5 @@
 package com.summit.harnesscore.tool;
 
-import com.summit.harnesscore.compact.ToolResultType;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import lombok.Builder;
 import lombok.Data;
@@ -51,5 +50,9 @@ public class ToolExecuteResult {
                 .toolSpecification(toolSpecification)
                 .toolOutput(Objects.requireNonNullElse(toolOutput,""))
                 .build();
+    }
+
+    public  boolean isSuccess(){
+        return this.code == 1;
     }
 }

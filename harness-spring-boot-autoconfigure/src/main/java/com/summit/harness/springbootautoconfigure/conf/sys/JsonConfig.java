@@ -1,4 +1,4 @@
-package com.summit.harness.springbootautoconfigure.conf;
+package com.summit.harness.springbootautoconfigure.conf.sys;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.autoconfigure.AutoConfiguration;

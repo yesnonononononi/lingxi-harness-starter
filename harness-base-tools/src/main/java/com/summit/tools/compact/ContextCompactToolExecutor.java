@@ -3,7 +3,7 @@ package com.summit.tools.compact;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.harnesscore.compact.ToolResultType;
+import com.summit.harnesscore.tool.ToolResultType;
 import com.summit.harnesscore.tool.ToolExecuteResult;
 import com.summit.harnesscore.tool.ToolExecution;
 import com.summit.harnesscore.tool.ToolExecutor;
@@ -12,7 +12,6 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
-import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -55,7 +54,7 @@ public class ContextCompactToolExecutor implements ToolExecutor {
         log.info("【compact-model】 model has responded:{} thinking:{}", response.aiMessage().text(), response.aiMessage().thinking());
 
         return ToolExecuteResult.success(toolExecution.getId(),
-                toolExecution.getToolSpecification(),
+                toolExecution.getToolDefinition().toolSpecification(),
                 response.aiMessage().text(),
                 ToolResultType.CONTEXT_COMPACT
         );

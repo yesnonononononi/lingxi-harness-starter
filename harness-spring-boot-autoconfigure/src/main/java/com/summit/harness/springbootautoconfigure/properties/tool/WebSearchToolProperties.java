@@ -1,4 +1,4 @@
-package com.summit.harness.springbootautoconfigure.properties;
+package com.summit.harness.springbootautoconfigure.properties.tool;
 
 
 import lombok.Data;
@@ -9,6 +9,8 @@ public class WebSearchToolProperties {
     private boolean enabled;
     private String baseUrl;
     private String apiKey;
+    private Integer maxOutput;
+    private int maxResult = 3;
     private Long timeout;
 
 }
