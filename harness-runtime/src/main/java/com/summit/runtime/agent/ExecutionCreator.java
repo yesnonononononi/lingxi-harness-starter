@@ -13,7 +13,7 @@ public class ExecutionCreator {
     public static Execution create(AgentRequest agentRequest, Agent agent){
         List<ChatMessage> messages = new ArrayList<>();
         String input = agentRequest.getInput();
-        if (input != null && !input.isBlank()) {
+        if (!input.isBlank()) {
             messages.add(UserMessage.from(input));
         }
         return Execution.builder()
@@ -23,6 +23,8 @@ public class ExecutionCreator {
                 .createAt(Instant.now())
                 .executionState(ExecutionState.CREATED)
                 .messages(messages)
+                .thinking(agentRequest.isThinking())
+                .streaming(agentRequest.isStreaming())
                 .build();
     }
 }

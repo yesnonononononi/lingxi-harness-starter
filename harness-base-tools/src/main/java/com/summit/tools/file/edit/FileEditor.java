@@ -19,7 +19,7 @@ public  class FileEditor {
             %s
             """;
 
-    public static FileEditorResult<EditResult> edit(EditFileRequest editFileRequest, @NonNull File targetFile, Charset charset, Integer aroundLines) {
+    public static FileEditorResult edit(EditFileRequest editFileRequest, @NonNull File targetFile, Charset charset, Integer aroundLines) {
 
         EditType type = EditType.fromString(editFileRequest.getType());
         return switch (type) {
@@ -37,7 +37,7 @@ public  class FileEditor {
         return String.format(DUPLICATE_AREA_FORMAT, strBuilder);
     }
 
-    private static int findLineNumber(String content, int index) {
+    static int findLineNumber(String content, int index) {
         int line = 1;
         for (int i = 0; i < index; i++) {
             if (content.charAt(i) == '\n') {
@@ -54,7 +54,7 @@ public  class FileEditor {
      * @param index   the index of the character
      * @return the index of the end of the line
      */
-    private static int findEndLineIndex(String content, int index) {
+    static int findEndLineIndex(String content, int index) {
         int end = content.indexOf("\n", index);
         return end == -1 ? content.length() : end;
     }
@@ -66,7 +66,7 @@ public  class FileEditor {
      * @param index   the index of the character
      * @return the index of the start of the line
      */
-    private static int findStartLineIndex(String content, int index) {
+    static int findStartLineIndex(String content, int index) {
         int start = content.lastIndexOf("\n", index - 1); // from behind to front. sink  '\n'. the reason why index-1 is to avoid '\n' at index
         return start == -1 ? 0 : start + 1;
     }

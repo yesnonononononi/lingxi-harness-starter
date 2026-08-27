@@ -38,9 +38,13 @@ public class DefaultConversationManager implements ConversationManager {
     @Override
     public void startConversation(AgentRequest agentRequest) {
         UserMessage userMessage = UserMessage.from(agentRequest.getInput());
-        SystemMessage systemMessage = SystemMessage.from(getSystemMessage());
-        this.originalSystemMessage = systemMessage;
-        this.messages.addAll(List.of(systemMessage, userMessage));
+        SystemMessage systemMessage = SystemMessage.from(getSystemMessage(agentRequest.getSystemPrompt()));
+        // 多轮对话复用首条 system prompt，避免每次请求重复注入 system 消息导致上下文膨胀
+        if (this.originalSystemMessage == null) {
+            this.originalSystemMessage = systemMessage;
+            this.messages.add(systemMessage);
+        }
+        this.messages.add(userMessage);
     }
 
     @Override
@@ -59,7 +63,7 @@ public class DefaultConversationManager implements ConversationManager {
 
     @Override
     public List<ChatMessage> messages() {
-        return this.messages;
+        return Collections.unmodifiableList(this.messages);
     }
 
     @Override
@@ -83,7 +87,7 @@ public class DefaultConversationManager implements ConversationManager {
             this.messages.clear();
             this.messages.addAll(List.of(systemMessage, SystemMessage.from(
                     String.format("""
-                                    The context_compact tool has been executed successfully, and the conversation history has been compressed into the following summary:
+                                    The compact_context tool has been executed successfully, and the conversation history has been compressed into the following summary:
                                     goal: \n
                                     %s
                                     summary: \n
@@ -161,29 +165,10 @@ public class DefaultConversationManager implements ConversationManager {
         return (SystemMessage) this.messages.stream().filter(msg -> msg instanceof SystemMessage).findFirst().orElseThrow();
     }
 
-    private String getSystemMessage() {
-        return String.format("""
-                        current
-                         operation system : %s
-                         workdir: %s
-
-                        tool usage rules (STRICT - choose the right tool before acting):
-                         1. READ a file        -> use read_file, support startLine/endLine for partial reads.
-                                                 NEVER use terminal commands (cat/type/Get-Content/more/tail) to read files.
-                         2. CREATE/MODIFY a file -> use edit_file (INSERT_BEFORE/INSERT_AFTER/REPLACE/DELETE).
-                                                 NEVER use terminal commands (Set-Content/Add-Content/echo/redirect >/sed) to modify files.
-                         3. Web / external info -> use web_search. NEVER use terminal for network lookups.
-                         4. execute_command is ONLY for real commands: build, run, install, git, start/stop services,
-                                                 directory/file management (ls/cd/mkdir/cp/mv/rm). Its output is truncated
-                                                 to a few thousand chars, so it is NOT suitable for reading or writing file content.
-                         5. Always prefer the dedicated tool matching the operation: it saves tokens and avoids truncation.
-
-                        context management
-                         - call compact_context tool when existing conversation history exceeds 85 percent of the maximum token limit
-                         - prioritize the use of tools corresponding to the functions to save token consumption
-                        """,
-                this.workspace.runTimeEnvironment().osType(),
-                this.workspace.runTimeEnvironment().workDir()
+    private String getSystemMessage(String systemPrompt) {
+        return String.format(systemPrompt,
+                this.workspace.runtimeEnvironment().osType(),
+                this.workspace.workDir()
         );
     }
 

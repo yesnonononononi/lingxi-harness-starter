@@ -8,6 +8,7 @@ import com.summit.harnesscore.runtime.Workspace;
 import com.summit.runtime.compact.DefaultContextCompacter;
 import com.summit.runtime.conversation.DefaultConversationManager;
 import com.summit.runtime.conversation.DefaultTokenizer;
+import dev.langchain4j.model.TokenCountEstimator;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
@@ -16,19 +17,19 @@ import org.springframework.context.annotation.Bean;
 public class ConversationConfig {
     @Bean
     @ConditionalOnMissingBean
-    public ConversationManager defaultConversationManager (Workspace workspace, RuntimeEventPublisher runtimeEventPublisher){
-        return new DefaultConversationManager(workspace,runtimeEventPublisher,contextCompacter());
+    public ConversationManager defaultConversationManager (Workspace workspace, RuntimeEventPublisher runtimeEventPublisher, TokenCountEstimator tokenCountEstimator){
+        return new DefaultConversationManager(workspace,runtimeEventPublisher,contextCompacter(tokenCountEstimator));
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public Tokenizer tokenizer(){
-        return new DefaultTokenizer();
+    public Tokenizer tokenizer(TokenCountEstimator tokenCountEstimator){
+        return new DefaultTokenizer(tokenCountEstimator);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public ContextCompacter contextCompacter(){
-        return new DefaultContextCompacter(tokenizer());
+    public ContextCompacter contextCompacter(TokenCountEstimator tokenCountEstimator){
+        return new DefaultContextCompacter(tokenizer(tokenCountEstimator));
     }
 }

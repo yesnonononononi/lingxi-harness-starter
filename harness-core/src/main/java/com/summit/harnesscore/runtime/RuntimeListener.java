@@ -36,5 +36,13 @@ public interface RuntimeListener {
 
     ;
 
+    default void onFileEdit(FileEditEvent event) {
+    }
+
+    default void onPartialText(AgentPartialTextEvent event) {
+    }
+
+    default void onPartialThinking(AgentPartialThinkingEvent event) {
+    }
 }
 

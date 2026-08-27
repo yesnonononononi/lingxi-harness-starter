@@ -39,6 +39,7 @@ public class DefaultContextCompacter implements ContextCompacter {
                 log.error("【Context Compacter-local】Error occurred while squeezing messages by age, current retry: {}", attempt, e);
             }
         }
+        log.info("【context-squeeze】context squeezed from {} to {} tokens (expected {})", originalTokens, this.tokenizer.count(messages), expectedTokens);
     }
 
     public void compact( Integer expectedTokens, List<ChatMessage> messages) {

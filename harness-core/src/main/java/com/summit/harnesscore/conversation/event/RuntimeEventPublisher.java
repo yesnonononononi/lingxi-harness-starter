@@ -60,4 +60,25 @@ public class RuntimeEventPublisher {
         }
 
     }
+    public void onFileEdit(FileEditEvent event){
+        try {
+            listeners.forEach(listener -> listener.onFileEdit(event));
+        } catch (Exception e) {
+            log.error("Error occurred while publishing file edit event", e);
+        }
+    }
+    public void onPartialText(AgentPartialTextEvent event){
+        try {
+            listeners.forEach(listener -> listener.onPartialText(event));
+        } catch (Exception e) {
+            log.error("Error occurred while publishing partial text event", e);
+        }
+    }
+    public void onPartialThinking(AgentPartialThinkingEvent event){
+        try {
+            listeners.forEach(listener -> listener.onPartialThinking(event));
+        } catch (Exception e) {
+            log.error("Error occurred while publishing partial thinking event", e);
+        }
+    }
 }

@@ -1,23 +1,30 @@
 package com.summit.harnessexample;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.difflib.patch.PatchFailedException;
 import com.summit.harnesscore.conversation.event.AgentMessageEvent;
+import com.summit.harnesscore.conversation.event.AgentPartialTextEvent;
+import com.summit.harnesscore.conversation.event.AgentPartialThinkingEvent;
 import com.summit.harnesscore.conversation.event.ExecutionCompleteEvent;
 import com.summit.harnesscore.conversation.event.ExecutionErrorEvent;
 import com.summit.harnesscore.conversation.event.ExecutionStartEvent;
+import com.summit.harnesscore.conversation.event.FileEditEvent;
 import com.summit.harnesscore.conversation.event.ToolCallEndEvent;
 import com.summit.harnesscore.conversation.event.ToolCallStartEvent;
 import com.summit.harnesscore.runtime.RuntimeListener;
+import com.summit.harnesscore.tool.PatchManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Listens to all coding-agent runtime events and forwards them to the
- * connected front-end clients through {@link AgentWebSocketHandler}.
+ * connected front-end clients through {@link SseEventPublisher}.
  *
  * <p>Each event is serialized into the following JSON envelope:</p>
  * <pre>
@@ -35,8 +42,9 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class EventListener implements RuntimeListener {
 
-    private final AgentWebSocketHandler webSocketHandler;
+    private final SseEventPublisher sseEventPublisher;
     private final ObjectMapper objectMapper;
+    private final PatchManager<UUID> defaultPatchManager;
 
     @Override
     public void onExecutionStart(ExecutionStartEvent event) {
@@ -49,6 +57,7 @@ public class EventListener implements RuntimeListener {
     public void onToolCall(ToolCallStartEvent event) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("toolName", event.getToolName());
+        data.put("args", event.getArgs());
         broadcast("TOOL_STARTED", event.executionId(), data);
     }
 
@@ -63,7 +72,22 @@ public class EventListener implements RuntimeListener {
     public void onAiMessage(AgentMessageEvent event) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("text", event.getText());
+        data.put("thinking", event.getThinking());
         broadcast("AGENT_MESSAGE", event.executionId(), data);
+    }
+
+    @Override
+    public void onPartialText(AgentPartialTextEvent event) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("text", event.content());
+        broadcast("PARTIAL_TEXT", event.executionId(), data);
+    }
+
+    @Override
+    public void onPartialThinking(AgentPartialThinkingEvent event) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("text", event.content());
+        broadcast("PARTIAL_THINKING", event.executionId(), data);
     }
 
     @Override
@@ -78,7 +102,24 @@ public class EventListener implements RuntimeListener {
     public void onExecutionCompleted(ExecutionCompleteEvent event) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("executionId", event.executionId());
+        // forward token usage so the front-end can render input / output / total token stats
+        if (event.getTokenInfo() != null) {
+            data.put("tokenUsage", event.getTokenInfo());
+        }
         broadcast("EXECUTION_COMPLETED", event.executionId(), data);
+    }
+
+    @Override
+    public void onFileEdit(FileEditEvent event) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("patchId", event.getPatchId());
+        data.put("filePath", event.getFilePath());
+        data.put("oldContent", event.getOldContent());
+        data.put("newContent", event.getNewContent());
+        try {
+            defaultPatchManager.applyToPatch((UUID) event.getPatchId());
+        }catch (Exception ignore){}
+        broadcast("FILE_EDIT", null, data);
     }
 
     private void broadcast(String type, String executionId, Map<String, Object> data) {
@@ -88,9 +129,9 @@ public class EventListener implements RuntimeListener {
         message.put("timestamp", System.currentTimeMillis());
         message.put("data", data);
         try {
-            webSocketHandler.broadcast(objectMapper.writeValueAsString(message));
+            sseEventPublisher.broadcast(objectMapper.writeValueAsString(message));
         } catch (Exception e) {
-            log.error("failed to publish ws event type={}", type, e);
+            log.error("failed to publish sse event type={}", type, e);
         }
     }
 }

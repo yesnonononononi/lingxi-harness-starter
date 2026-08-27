@@ -5,8 +5,8 @@ import { getToken } from '../utils/auth'
 const routes = [
   {
     path: '/',
-    redirect: '/home',
-    meta: { title: '首页' },
+    redirect: '/official',
+    meta: { title: '官网首页' },
   },
   {
     path: '/login',
@@ -19,6 +19,12 @@ const routes = [
     name: 'Home',
     component: () => import('../views/HomeView.vue'),
     meta: { title: '首页', public: false },
+  },
+  {
+    path: '/official',
+    name: 'OfficialHome',
+    component: () => import('../views/HomeView.vue'),
+    meta: { title: '官网首页', public: true },
   },
   {
     path: '/:pathMatch(.*)*',

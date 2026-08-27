@@ -38,14 +38,14 @@ public class CommandToolDefinitionExecutor implements ToolExecutor {
         try {
             // resolve args
             ExecuteCommandRequest request = resolveArgs(toolExecution);
-            log.info("【ToolCall】 {}", request.getInstruction());
+            log.info("【ToolCall】 {}", request.getCommand());
 
 
-            if (request.getInstruction() == null || request.getInstruction().isBlank())
+            if (request.getCommand() == null || request.getCommand().isBlank())
                 return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition().toolSpecification(), "instruction is empty");
 
             // ensure the instruction is accessible
-            if (!InstructionGuard.process(request.getInstruction())) {
+            if (!InstructionGuard.process(request.getCommand())) {
                 return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition().toolSpecification(), "instruction is not accessible");
             }
 
@@ -66,16 +66,16 @@ public class CommandToolDefinitionExecutor implements ToolExecutor {
         StringBuilder stringBuilder = new StringBuilder();
         AtomicBoolean truncated = new AtomicBoolean(false);
 
-        ShellType shellType = workspace.runTimeEnvironment().shellType();
+        ShellType shellType = workspace.runtimeEnvironment().shellType();
 
         if (shellType == null) throw new IllegalStateException("Unknown operating system");
 
         ProcessBuilder processBuilder = new ProcessBuilder(
-                shellType.buildCommand(request.getInstruction())
+                shellType.buildCommand(request.getCommand())
         );
 
         // set working directory
-        processBuilder.directory(new File(workspace.runTimeEnvironment().workDir()));
+        processBuilder.directory(new File(workspace.workDir()));
 
         // integrate error stream with output stream
         processBuilder.redirectErrorStream(true);
@@ -86,7 +86,7 @@ public class CommandToolDefinitionExecutor implements ToolExecutor {
         // get output from virtual thread, buffer up to maxOutput tokens (~3 chars/token) to avoid blowing up the model context
         long maxBufferChars = toolDefinition.maxOutput() * 3L;
         Thread outputThread = Thread.ofVirtual().start(() -> {
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), workspace.runTimeEnvironment().charset()))) {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), workspace.runtimeEnvironment().charset()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     if (stringBuilder.length() >= maxBufferChars) {
@@ -99,7 +99,7 @@ public class CommandToolDefinitionExecutor implements ToolExecutor {
                     stringBuilder.append("Exiting code :").append(process.exitValue());
                 }
             } catch (IOException e) {
-                log.warn("Failed to read process output: {}", request.getInstruction(), e);
+                log.warn("Failed to read process output: {}", request.getCommand(), e);
                 stringBuilder.append("\n[OUTPUT_READ_ERROR] failed to read process output: ")
                         .append(e.getMessage())
                         .append("\n");

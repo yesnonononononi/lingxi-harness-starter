@@ -16,12 +16,6 @@ export default defineConfig({
         // 后端接口本身不带 /api 前缀，去掉 /api 前缀
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
-      // WebSocket 代理：前端连接 /ws/agent 时转发到后端
-      '/ws': {
-        target: 'ws://localhost:8080',
-        ws: true,
-        changeOrigin: true,
-      },
     },
   },
 })

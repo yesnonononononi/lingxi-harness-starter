@@ -7,7 +7,6 @@ import com.summit.harnesscore.conversation.ConversationManager;
 import com.summit.harnesscore.compact.ContextSqueezeRequest;
 import com.summit.harnesscore.runtime.RuntimeExecutionPolicy;
 import com.summit.runtime.agent.AgentConfig;
-import dev.langchain4j.model.output.TokenUsage;
 import lombok.AllArgsConstructor;
 
 @AllArgsConstructor
@@ -20,7 +19,7 @@ public class DefaultRuntimeExecutionPolicy implements RuntimeExecutionPolicy {
         if (maxTokens == null) return true;
         int accumulatedTokens = conversationManager.tokenUsage().totalTokenCount();
         int currentContextTokens = tokenizer.count(conversationManager.messages());
-        return accumulatedTokens < maxTokens && currentContextTokens < maxTokens;
+        return currentContextTokens < maxTokens;
    }
 
     @Override

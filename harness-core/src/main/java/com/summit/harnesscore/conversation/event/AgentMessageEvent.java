@@ -7,6 +7,7 @@ import java.time.Instant;
 @Data
 public class AgentMessageEvent implements AgentEvent{
     private final String text;
+    private final String thinking;
     private final String executionId;
 
     @Override

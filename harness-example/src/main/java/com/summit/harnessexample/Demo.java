@@ -7,10 +7,10 @@ import com.summit.harnesscore.agent.ExecutionState;
 import com.summit.harnesscore.exception.ModelException;
 import com.summit.harnesscore.exception.NoSuchModelProviderException;
 import com.summit.harnesscore.exception.OutWorkSpaceException;
+import com.summit.harnesscore.runtime.Workspace;
 import com.summit.runtime.agent.ChatAgent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 @Slf4j
@@ -20,20 +20,27 @@ public class Demo {
 
 
     private final ChatAgent defaultChatAgent;
+    private final Workspace workspace;
 
     public void chat(String input) {
+        chat(input, false);
+    }
+
+    public void chat(String input, boolean streaming) {
 
         // 1. validate input
         if (input == null || input.isBlank()) {
             log.warn("chat input is null or blank");
             throw new IllegalArgumentException("chat input must not be null or blank");
         }
-
+        log.info("chat input: {}, streaming: {}", input, streaming);
         Execution execution;
         try {
             execution = defaultChatAgent.execute(AgentRequest
                     .builder()
                     .input(input)
+                    .workspace(workspace)
+                    .streaming(streaming)
                     .build()
             );
         } catch (NoSuchModelProviderException e) {

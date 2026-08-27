@@ -1,26 +1,35 @@
 package com.summit.tools.file.edit;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.difflib.patch.Patch;
+import com.summit.harnesscore.conversation.event.FileEditEvent;
+import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
 import com.summit.harnesscore.exception.OutWorkSpaceException;
 import com.summit.harnesscore.runtime.Workspace;
-import com.summit.harnesscore.tool.ToolExecuteResult;
-import com.summit.harnesscore.tool.ToolExecution;
-import com.summit.harnesscore.tool.ToolExecutor;
-
+import com.summit.harnesscore.tool.*;
 import com.summit.tools.arguments.EditFileRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 
 import java.io.File;
-import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.EventListener;
+import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
 
 @Slf4j
 @RequiredArgsConstructor
+@SuppressWarnings("unchecked")
 public class EditFileToolExecutor implements ToolExecutor {
     private final ObjectMapper objectMapper;
+    private final Differ differ;
+    private final PatchManager patchManager;
+    private final RuntimeEventPublisher runtimeEventPublisher;
     private final int DEFAULT_AROUND_LINE = 3;
 
     @Override
@@ -28,36 +37,68 @@ public class EditFileToolExecutor implements ToolExecutor {
         String args = toolExecution.getArgs();
         try {
             EditFileRequest request = objectMapper.readValue(args, EditFileRequest.class);
-            log.info("【ToolCall】 edit_file :{}",request.getPath());
+            log.info("【ToolCall】 edit_file :{}", request.getPath());
 
             //step1 validate file whether exist or not
-            File target = validateFileExist(request.getPath(), toolExecution.getWorkspace());
+            File target = ensureFileExists(request.getPath(), toolExecution.getWorkspace());
             //edit
-            FileEditorResult<EditResult> edit = FileEditor.edit(request, target, toolExecution.getWorkspace().runTimeEnvironment().charset(),DEFAULT_AROUND_LINE);
+            FileEditorResult editRes = FileEditor.edit(request, target, toolExecution.getWorkspace().runtimeEnvironment().charset(), DEFAULT_AROUND_LINE);
 
-            if(edit.isSuccess()){
-                return ToolExecuteResult.success(toolExecution.getId(),toolExecution.getToolDefinition().toolSpecification(), null);
+            if (editRes.isSuccess()) {
+                DiffResult diffResult = doDiff(editRes.getData(), request.getPath());
+
+                Object id = patchManager.savePatch(buildPatchEntity(diffResult, this.patchManager.hashFile(editRes.getData().oldContent()), request.getPath()));
+
+                publicEvent(id, request.getPath(), editRes.getData().oldContent(), editRes.getData().newContent());
+                return ToolExecuteResult.success(toolExecution.getId(), toolExecution.getToolDefinition().toolSpecification(),
+                        objectMapper.writeValueAsString(diffResult)
+                );
             }
 
-            return ToolExecuteResult.err(toolExecution.getId(),toolExecution.getToolDefinition().toolSpecification(),edit.getErrMsg());
+            return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition().toolSpecification(), editRes.getErrMsg());
 
 
-        } catch (JsonProcessingException | FileNotFoundException | OutWorkSpaceException e ) {
-            return ToolExecuteResult.err(toolExecution.getId(),toolExecution.getToolDefinition().toolSpecification(),e.getMessage());
+        } catch (OutWorkSpaceException | IOException e) {
+            return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition().toolSpecification(), e.getMessage());
         }
 
 
     }
 
-    private File validateFileExist(String path, Workspace workspace) throws FileNotFoundException {
+    private void publicEvent(Object id, String path,String oldContent,String newContent) {
+        this.runtimeEventPublisher.onFileEdit(FileEditEvent.builder()
+                .patchId(id)
+                .filePath(path)
+                .oldContent(oldContent)
+                .newContent(newContent)
+                .build());
+    }
+
+
+
+
+    private PatchEntity<?> buildPatchEntity(DiffResult diffResult, String fileContentHash, String filePath) {
+        return PatchEntity.builder()
+                .fileContentHash(fileContentHash)
+                .filePath(filePath)
+                .patch(diffResult.getPatch())
+                .build();
+    }
+
+    private DiffResult doDiff(FileEditorResult.ContentInfo data,String path) {
+        return this.differ.diff(path,data.oldContent(), data.newContent());
+    }
+
+    private File ensureFileExists(String path, Workspace workspace) throws IOException {
         Path resolvePath = workspace.resolve(path);
-        if(!resolvePath.startsWith(workspace.runTimeEnvironment().workDir())){
-            throw new OutWorkSpaceException("Target File is out of workspace");
+        Path parent = resolvePath.getParent();
+        if (Files.notExists(parent)) {
+            Files.createDirectories(parent);
         }
-        File target = resolvePath.toFile();
-        if(!target.exists()){
-            throw new FileNotFoundException("Target file does not exist");
+        if (Files.notExists(resolvePath)) {
+            Files.createFile(resolvePath);
         }
-        return target;
+
+        return resolvePath.toFile();
     }
 }

@@ -3,57 +3,59 @@ package com.summit.runtime.conversation;
 import com.summit.harnesscore.compact.Tokenizer;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
+import dev.langchain4j.model.TokenCountEstimator;
 
 import java.util.List;
-import java.util.Objects;
 
+/**
+ * 默认 Tokenizer：优先使用 langchain4j 的 {@link TokenCountEstimator}（如 OpenAI BPE 编码）精确估算；
+ * 未提供（自定义 Provider 无估算器）时退化为「字符数/3」的简单估算兜底。
+ */
 public class DefaultTokenizer implements Tokenizer {
+
+    private final TokenCountEstimator tokenCountEstimator;
+
+    public DefaultTokenizer() {
+        this(null);
+    }
+
+    public DefaultTokenizer(TokenCountEstimator tokenCountEstimator) {
+        this.tokenCountEstimator = tokenCountEstimator;
+    }
 
     @Override
     public int count(List<ChatMessage> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return 0;
+        }
+        if (tokenCountEstimator != null) {
+            return tokenCountEstimator.estimateTokenCountInMessages(messages);
+        }
         int res = 0;
         for (ChatMessage message : messages) {
-            if (message instanceof SystemMessage systemMessage) {
-                res += countSystemMessageTokens(systemMessage);
-            }
-            if (message instanceof UserMessage userMessage) {
-                res += countUserMessageTokens(userMessage);
-            }
-            if (message instanceof AiMessage aiMessage) {
-                res += countAiMessageTokens(aiMessage);
-            }
-            if (message instanceof ToolExecutionResultMessage toolExecutionResultMessage) {
-                res += countToolExecutionResultMessageTokens(toolExecutionResultMessage);
-            }
+            res += estimateTokenCountFallback(message);
         }
-        return convertCharToToken(res);
-    }
-
-
-
-
-    private int countToolExecutionResultMessageTokens(ToolExecutionResultMessage toolExecutionResultMessage) {
-        return toolExecutionResultMessage.text().length();
-    }
-
-    private int countAiMessageTokens(AiMessage aiMessage) {
-        int res = 0;
-        for (ToolExecutionRequest toolExecutionRequest : aiMessage.toolExecutionRequests()) {
-            res += Objects.requireNonNullElse(toolExecutionRequest.arguments(), "").length();
-            res += Objects.requireNonNullElse(toolExecutionRequest.name(), "").length();
-        }
-        res += Objects.requireNonNullElse(aiMessage.text(), "").length() + Objects.requireNonNullElse(aiMessage.thinking(), "").length();
         return res;
     }
 
-    private int countUserMessageTokens(UserMessage userMessage) {
-        int res = 0;
-        res += Objects.requireNonNullElse(userMessage.singleText(), "").length();
-        return res;
-    }
-
-    private int countSystemMessageTokens(SystemMessage systemMessage) {
-        return Objects.requireNonNullElse(systemMessage.text(), "").length();
+    private int estimateTokenCountFallback(ChatMessage message) {
+        if (message instanceof SystemMessage systemMessage) {
+            return systemMessage.text().length() / 3;
+        } else if (message instanceof UserMessage userMessage) {
+            return userMessage.singleText().length() / 3;
+        } else if (message instanceof AiMessage aiMessage) {
+            int res = 0;
+            for (ToolExecutionRequest toolExecutionRequest : aiMessage.toolExecutionRequests()) {
+                res += (toolExecutionRequest.arguments() == null ? 0 : toolExecutionRequest.arguments().length()) / 3;
+                res += (toolExecutionRequest.name() == null ? 0 : toolExecutionRequest.name().length()) / 3;
+            }
+            res += (aiMessage.text() == null ? 0 : aiMessage.text().length()) / 3;
+            res += (aiMessage.thinking() == null ? 0 : aiMessage.thinking().length()) / 3;
+            return res;
+        } else if (message instanceof ToolExecutionResultMessage toolExecutionResultMessage) {
+            return toolExecutionResultMessage.text().length() / 3;
+        }
+        return 0;
     }
 
     @Override
@@ -62,8 +64,10 @@ public class DefaultTokenizer implements Tokenizer {
             return output;
         }
 
-        int size = convertCharToToken(output.length());
-        if (size <= maxOutput) {
+        int totalTokens = tokenCountEstimator != null
+                ? tokenCountEstimator.estimateTokenCountInText(output)
+                : output.length() / 3;
+        if (totalTokens <= maxOutput) {
             return output;
         }
         int tokenBudget = Math.max(maxOutput, 1);
@@ -71,17 +75,13 @@ public class DefaultTokenizer implements Tokenizer {
         int headTokens = tokenBudget / 2;
         int tailTokens = tokenBudget - headTokens;
 
-        // token -> chars can conveniently substring
-        int headChars = Math.min(output.length(), headTokens * 3);
-        int tailChars = Math.min(output.length() - headChars, tailTokens * 3);
 
+        double charsPerToken = (double) output.length() / Math.max(totalTokens, 1);
+        int headChars = Math.min(output.length(), (int) (headTokens * charsPerToken));
+        int tailChars = Math.min(output.length() - headChars, (int) (tailTokens * charsPerToken));
 
         return output.substring(0, headChars)
                 + "\n...[OUTPUT_TRUNCATED]...\n"
                 + output.substring(output.length() - tailChars);
-    }
-
-    public int convertCharToToken(int charCount) {
-        return charCount / 3;
     }
 }

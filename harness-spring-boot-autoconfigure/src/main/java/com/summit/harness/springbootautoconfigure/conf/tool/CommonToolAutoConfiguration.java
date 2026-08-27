@@ -6,13 +6,10 @@ import com.summit.harness.springbootautoconfigure.properties.tool.CommonToolProp
 import com.summit.harness.springbootautoconfigure.properties.tool.ContextCompactToolProperties;
 import com.summit.harness.springbootautoconfigure.properties.tool.TerminalToolProperties;
 import com.summit.harness.springbootautoconfigure.properties.tool.WebSearchToolProperties;
-import com.summit.harnesscore.compact.Tokenizer;
 import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
+import com.summit.harnesscore.interceptor.InterceptorProcessor;
 import com.summit.harnesscore.runtime.Workspace;
-import com.summit.harnesscore.tool.ToolDefinition;
-import com.summit.harnesscore.tool.ToolExecutionContext;
-import com.summit.harnesscore.tool.ToolExecutionManager;
-import com.summit.harnesscore.tool.ToolRegistry;
+import com.summit.harnesscore.tool.*;
 import com.summit.runtime.tool.DefaultToolExecutionManager;
 import com.summit.runtime.tool.CommonToolConfig;
 import com.summit.tools.compact.ContextCompactToolExecutor;
@@ -50,6 +47,7 @@ public class CommonToolAutoConfiguration {
                 .name("execute_command")
                 .description("""
                         Execute a terminal command. Only use it when you really need to run a command (build/run/install/git/start server/network check).
+                        don't use prefix to the command like : Get-ChildItem -Name
                         WARNING: output is truncated to %d chars, keep the command precise and avoid large outputs.
                         DO NOT use this tool to replace dedicated tools:
                         - read files -> use read_file
@@ -58,7 +56,7 @@ public class CommonToolAutoConfiguration {
                         - inspect or list project files -> use dedicated file tools, avoid recursive listings like dir /s /b or Get-ChildItem -Recurse
                         """)
                 .parameters(JsonObjectSchema.builder()
-                        .addStringProperty("instruction", "require notice system os and use PowerShell if windows. Instruction,example : ll  it is a required parameter")
+                        .addStringProperty("command", "require notice system os and use PowerShell if windows. Instruction,example : ll  it is a required parameter")
                         .build())
                 .build();
         ToolDefinition<CommandToolDefinitionExecutor> definition = ToolDefinition.<CommandToolDefinitionExecutor>builder()
@@ -79,7 +77,7 @@ public class CommonToolAutoConfiguration {
     )
     public ToolDefinition<ContextCompactToolExecutor> contextCompactToolDefinition(ToolRegistry toolRegistry, @Qualifier("defaultContextCompactModel") ChatModel defaultContextCompactModel, ContextCompactToolProperties contextCompactToolProperties, CommonToolProperties commonToolProperties) {
         ToolSpecification toolSpecification = ToolSpecification.builder()
-                .name("context_compact")
+                .name("compact_context")
                 .description("""
                         Context compression tool. Call this tool when the conversation has accumulated too much content and you need to summarize the history to free up context.
                         The 'context' parameter is required and must contain the full conversation history (as a JSON string of messages) that needs to be compressed.
@@ -137,12 +135,12 @@ public class CommonToolAutoConfiguration {
             name = "enabled",
             havingValue = "true"
     )
-    public WebSearchEngine webSearchEngine(WebSearchToolProperties webSearchToolProperties) {
+    public WebSearchEngine webSearchEngine(WebSearchToolProperties webSearchToolProperties, CommonToolProperties commonToolProperties) {
         return new WebSearchEngine(WebSearchConfig.builder()
                 .baseUrl(webSearchToolProperties.getBaseUrl())
                 .apiKey(webSearchToolProperties.getApiKey())
                 .maxResult(webSearchToolProperties.getMaxResult())
-                .timeout(webSearchToolProperties.getTimeout ())
+                .timeout(Objects.requireNonNullElseGet(webSearchToolProperties.getTimeout(), commonToolProperties::getTimeout))
                 .build()
                 , HttpClient.newHttpClient());
     }
@@ -155,15 +153,15 @@ public class CommonToolAutoConfiguration {
 
 
     @Bean
-    public ToolExecutionManager defaultToolExecutionManager(ToolRegistry toolRegistry, Workspace workspace, RuntimeEventPublisher runtimeEventPublisher, CommonToolConfig commonToolConfig, Tokenizer tokenizer) {
+    public ToolExecutionManager defaultToolExecutionManager(ToolRegistry toolRegistry, Workspace workspace, RuntimeEventPublisher runtimeEventPublisher, CommonToolConfig commonToolConfig,  InterceptorProcessor<ToolInterceptor,ToolExecution> interceptorProcessor) {
         return new DefaultToolExecutionManager(
                 ToolExecutionContext.builder()
                         .toolRegistry(toolRegistry)
                         .workspace(workspace)
                         .runtimeEventPublisher(runtimeEventPublisher)
                         .build(),
-                commonToolConfig,
-                tokenizer
+                interceptorProcessor,
+                commonToolConfig
         );
     }
 

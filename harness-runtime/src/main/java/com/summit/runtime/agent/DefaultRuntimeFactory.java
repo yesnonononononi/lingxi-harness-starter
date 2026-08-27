@@ -4,21 +4,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.harnesscore.conversation.ConversationManager;
 import com.summit.harnesscore.conversation.context.RuntimeContext;
 import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
-import com.summit.harnesscore.model.ChatModelInvoker;
-import com.summit.harnesscore.model.StreamingModelInvoker;
+import com.summit.harnesscore.model.ModelInvoker;
 import com.summit.harnesscore.runtime.ExecutionRuntime;
 import com.summit.harnesscore.runtime.RuntimeExecutionPolicy;
 import com.summit.harnesscore.runtime.RuntimeFactory;
 import com.summit.harnesscore.runtime.Workspace;
 import com.summit.harnesscore.tool.ToolExecutionManager;
-import com.summit.runtime.ChatModelRuntimeProcessor;
+import com.summit.runtime.RuntimeProcessorTemplate;
 import lombok.Builder;
 import lombok.RequiredArgsConstructor;
 
 @Builder
 @RequiredArgsConstructor
 public class DefaultRuntimeFactory implements RuntimeFactory {
-    private final Workspace workspace;
     private final RuntimeEventPublisher runtimeEventPublisher;
     private final ToolExecutionManager toolExecutionManager;
     private final ConversationManager conversationManager;
@@ -27,11 +25,28 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
     private final Integer maxIterations;
 
     @Override
-    public ExecutionRuntime createChatModelRuntime(ChatModelInvoker chatModelInvoker) {
-        return new ChatModelRuntimeProcessor(
+    public ExecutionRuntime createChatModelRuntime(ModelInvoker chatModelInvoker, Workspace workspace) {
+        return new RuntimeProcessorTemplate(
                 RuntimeContext.builder()
                         .workspace(workspace)
-                        .modelInvoker(chatModelInvoker)
+                        .invoker(chatModelInvoker)
+                        .runtimeEventPublisher(runtimeEventPublisher)
+                        .toolExecutionManager(toolExecutionManager)
+                        .conversationManager(conversationManager)
+                        .runtimeExecutionPolicy(runtimeExecutionPolicy)
+                        .objectMapper(objectMapper)
+                        .maxIterations(maxIterations)
+                        .build()
+        ) {
+        };
+    }
+
+    @Override
+    public ExecutionRuntime createStreamingModelRuntime(ModelInvoker streamingModelInvoker, Workspace workspace) {
+        return new RuntimeProcessorTemplate(
+                RuntimeContext.builder()
+                        .invoker(streamingModelInvoker)
+                        .workspace(workspace)
                         .runtimeEventPublisher(runtimeEventPublisher)
                         .toolExecutionManager(toolExecutionManager)
                         .conversationManager(conversationManager)
@@ -40,10 +55,5 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
                         .maxIterations(maxIterations)
                         .build()
         );
-    }
-
-    @Override
-    public ExecutionRuntime createStreamingModelRuntime(StreamingModelInvoker streamingModelInvoker) {
-        return null;
     }
 }

@@ -1,6 +1,7 @@
 package com.summit.harness.springbootautoconfigure.conf.agent;
 
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
+import com.summit.harnesscore.model.ModelInvoker;
 import com.summit.harnesscore.runtime.RuntimeFactory;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.agent.ChatAgent;
@@ -15,10 +16,12 @@ import org.springframework.context.annotation.Bean;
 @EnableConfigurationProperties({AgentChatProperties.class})
 public class AgentConfiguration {
     @Bean
-    public ChatAgent chatAgent(@Qualifier("defaultChatModel") ChatModel chatModel, RuntimeFactory defaultRuntimeFactory){
+    public ChatAgent chatAgent(@Qualifier("defaultChatModel") ChatModel chatModel, RuntimeFactory defaultRuntimeFactory, AgentConfig agentConfig, ModelInvoker defaultStreamingModelInvoker){
         return new ChatAgent(
                 chatModel,
-                defaultRuntimeFactory
+                defaultRuntimeFactory,
+                agentConfig,
+                defaultStreamingModelInvoker
         );
     }
 
@@ -30,6 +33,7 @@ public class AgentConfiguration {
                 .squeezeThreshold(agentProperties.getSqueezeThreshold())
                 .maxTokens(agentProperties.getMaxTokens())
                 .maxIterations(agentProperties.getMaxIterations())
+                .systemPrompt(agentProperties.getSystemPrompt())
                 .build();
     }
 

@@ -55,6 +55,14 @@ public class Execution {
     private TokenUsage tokenUsage;
 
     private String errorMessage;
+    /**
+     * require thinking text or not
+     */
+    private boolean thinking;
+    /**
+     * require streaming or not
+     */
+    private boolean streaming;
 
 
     public void cancel(){

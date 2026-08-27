@@ -20,9 +20,8 @@ import java.util.List;
 @AutoConfiguration
 public class ExecutionRuntimeConfig {
     @Bean
-    public RuntimeFactory defaultRuntimeFactory(Workspace workspace, RuntimeEventPublisher defaultRuntimeListener, ConversationManager conversationManager, ToolExecutionManager defaultToolExecutionManager, AgentConfig agentConfig, ObjectMapper objectMapper, Tokenizer tokenizer){
+    public RuntimeFactory defaultRuntimeFactory(RuntimeEventPublisher defaultRuntimeListener, ConversationManager conversationManager, ToolExecutionManager defaultToolExecutionManager, AgentConfig agentConfig, ObjectMapper objectMapper, Tokenizer tokenizer){
         return DefaultRuntimeFactory.builder()
-                .workspace(workspace)
                 .runtimeExecutionPolicy(runtimeExecutionPolicy(agentConfig, tokenizer))
                 .toolExecutionManager(defaultToolExecutionManager)
                 .runtimeEventPublisher(defaultRuntimeListener)

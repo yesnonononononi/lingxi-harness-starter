@@ -12,7 +12,7 @@ lingxi:
           max-output: 500
         read-file:
           enabled: true
-          max-output: 600
+          max-output: 3000
         edit-file:
           enabled: true
           max-output: 200
@@ -31,16 +31,17 @@ lingxi:
     model:
       conf:
         chat:
-          base-url: https://globalai.vip/v1                         #https://openrouter.ai/api/v1/chat/completions  https://api.deepseek.com   http://localhost:1234/v1
-          api-key:  ${GLOBALAI_APIKEY}              #DEEPSEEK_APIKEY  #OPENROUTER_APIKEY OPENROUTER_APIKEY
-          model-name: "gpt-5.4-mini"                            #"google/gemma-4-12b-qat" "deepseek-v4-flash" "stealth/ox-alpha"
+          base-url: https://api.deepseek.com                        #https://openrouter.ai/api/v1/chat/completions     http://localhost:1234/v1 https://globalai.vip/v1
+          api-key:  ${DEEPSEEK_APIKEY}              #  #OPENROUTER_APIKEY   GLOBALAI_APIKEY
+          model-name: "deepseek-v4-flash"                            #"google/gemma-4-12b-qat" "deepseek-v4-flash" "stealth/ox-alpha"
           timeout: 120s
           max-iterations: 50
-          max-tokens: 50_0000
+          max-tokens: 393200
+          reasoning-effort: medium
         compact:
           base-url: https://globalai.vip/v1                         #https://openrouter.ai/api/v1/chat/completions  https://api.deepseek.com   http://localhost:1234/v1
           api-key: ${GLOBALAI_APIKEY}
-          model-name: "gpt-5.4-mini"
+          model-name: "deepseek-v4-flash"
           timeout: 120s
           maxTokens: 32768
           reasoning-effort: "none"

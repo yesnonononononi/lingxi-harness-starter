@@ -1,14 +1,17 @@
 package com.summit.harnesscore.conversation.event;
 
-import dev.langchain4j.model.output.TokenUsage;
+
+import lombok.Builder;
 import lombok.Data;
 
 import java.time.Instant;
 
 @Data
 public class ExecutionCompleteEvent implements AgentEvent{
+    @Builder
+    public record TokenInfo(Integer inputTokenCount, Integer outputTokenCount, Integer totalTokenCount){}
     private final String executionId;
-    private final TokenUsage tokenUsage;
+    private final TokenInfo tokenInfo   ;
 
     @Override
     public String executionId() {

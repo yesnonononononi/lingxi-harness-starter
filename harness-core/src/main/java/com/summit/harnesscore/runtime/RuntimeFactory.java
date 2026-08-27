@@ -1,9 +1,9 @@
 package com.summit.harnesscore.runtime;
 
-import com.summit.harnesscore.model.ChatModelInvoker;
-import com.summit.harnesscore.model.StreamingModelInvoker;
+import com.summit.harnesscore.model.ModelInvoker;
+
 
 public interface RuntimeFactory {
-    ExecutionRuntime createChatModelRuntime(ChatModelInvoker chatModelInvoker);
-    ExecutionRuntime createStreamingModelRuntime(StreamingModelInvoker streamingModelInvoker);
+    ExecutionRuntime createChatModelRuntime(ModelInvoker chatModelInvoker, Workspace workspace);
+    ExecutionRuntime createStreamingModelRuntime(ModelInvoker streamingModelInvoker, Workspace workspace);
 }

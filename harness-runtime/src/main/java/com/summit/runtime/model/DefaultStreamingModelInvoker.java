@@ -2,39 +2,30 @@ package com.summit.runtime.model;
 
 
 import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
-import com.summit.harnesscore.model.StreamingModelInvoker;
-import dev.langchain4j.model.StreamingResponseHandler;
+import com.summit.harnesscore.model.ModelChatCommand;
+import com.summit.harnesscore.model.ModelInvoker;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.chat.request.ChatRequest;
-import dev.langchain4j.model.output.Response;
+import dev.langchain4j.model.chat.response.ChatResponse;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
 @Getter
 @RequiredArgsConstructor
-public class DefaultStreamingModelInvoker implements StreamingModelInvoker {
+public class DefaultStreamingModelInvoker implements ModelInvoker {
     private final StreamingChatModel model;
     private final RuntimeEventPublisher runtimeEventPublisher;
 
 
-
     @Override
-    public void invoke(ChatRequest chatRequest) {
-        StreamingResponseHandler<Object> handler = new StreamingResponseHandler<>() {
-            @Override
-            public void onNext(String token) {
-
-            }
-
-            @Override
-            public void onComplete(Response<Object> response) {
-                StreamingResponseHandler.super.onComplete(response);
-            }
-
-            @Override
-            public void onError(Throwable error) {
-
-            }
-        };
+    public ChatResponse invoke(ModelChatCommand chatCommand) {
+        if (!chatCommand.streaming()) {
+            throw new IllegalStateException("streaming invoker only accepts a streaming model command");
+        }
+        StreamingModelResponseBehaveDecider handler = (StreamingModelResponseBehaveDecider) chatCommand.streamingChatResponseHandler();
+        if (handler == null) {
+            throw new IllegalStateException("streamingChatResponseHandler must not be null for a streaming invocation");
+        }
+        this.model.chat(chatCommand.chatRequest(), handler);
+        return handler.getStreamingResponseContext().future().join();
     }
 }
