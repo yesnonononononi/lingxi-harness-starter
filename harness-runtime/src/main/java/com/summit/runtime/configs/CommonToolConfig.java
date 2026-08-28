@@ -1,4 +1,4 @@
-package com.summit.runtime.tool;
+package com.summit.runtime.configs;
 
 
 import lombok.Builder;

@@ -4,8 +4,10 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.output.TokenUsage;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NonNull;
 import lombok.ToString;
 
+import java.io.Serializable;
 import java.time.Instant;
 import java.util.List;
 
@@ -25,6 +27,10 @@ public class Execution {
      * The unique identifier for the agent.
      */
     private String agentId;
+    /**
+     * The unique identifier for the session.
+     */
+    private @NonNull Serializable sessionId;
     /**
      * The current state of the execution.
      */

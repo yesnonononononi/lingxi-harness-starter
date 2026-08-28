@@ -5,12 +5,14 @@ import com.summit.harnesscore.conversation.event.ToolCallStartEvent;
 import com.summit.harnesscore.interceptor.InterceptorProcessor;
 import com.summit.harnesscore.interceptor.InvocationContext;
 import com.summit.harnesscore.tool.*;
+import com.summit.runtime.configs.CommonToolConfig;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 
+import java.io.Serializable;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -32,23 +34,23 @@ public class DefaultToolExecutionManager implements ToolExecutionManager {
         return toolExecuteCommand.requests().stream()
                 .map(request -> {
                     try {
-                        this.toolExecutionContext.runtimeEventPublisher().onToolCall(new ToolCallStartEvent(toolExecuteCommand.executionId(), request.name(), request.arguments()));
+                        this.toolExecutionContext.runtimeEventPublisher().onToolCall(new ToolCallStartEvent(toolExecuteCommand.executionId(), toolExecuteCommand.sessionId(), request.name(), request.arguments()));
 
                         ToolDefinition<?> toolDef = this.toolExecutionContext.toolRegistry().getTool(request.name());
 
                         if (toolDef == null) {
                             return ToolExecuteResult.err(request.id(), null, "Tool not found");
                         }
-                        ToolExecuteResult result = this.executeTool(toolDef, createToolExecution(request, toolDef));
+                        ToolExecuteResult result = this.executeTool(toolDef, createToolExecution(request, toolDef, toolExecuteCommand.sessionId()));
 
-                        this.toolExecutionContext.runtimeEventPublisher().onToolCallOutput(new ToolCallEndEvent(toolExecuteCommand.executionId(),toolDef.toolSpecification().name(), request.arguments(), formatEventToolOutput(result.getToolOutput())));
+                        this.toolExecutionContext.runtimeEventPublisher().onToolCallOutput(new ToolCallEndEvent(toolExecuteCommand.executionId(),toolDef.toolSpecification().name(), request.arguments(),toolExecuteCommand.sessionId() ,formatEventToolOutput(result.getToolOutput())));
 
                         return result;
 
                     } catch (Throwable e) {
                         // keep the tool name in the error result so the model can tell which tool failed
                         ToolDefinition<?> toolDef = this.toolExecutionContext.toolRegistry().getTool(request.name());
-                        this.toolExecutionContext.runtimeEventPublisher().onToolCallOutput(new ToolCallEndEvent(toolExecuteCommand.executionId(), toolDef.toolSpecification().name(), request.arguments(), "Tool execution error" + e.getMessage()));
+                        this.toolExecutionContext.runtimeEventPublisher().onToolCallOutput(new ToolCallEndEvent(toolExecuteCommand.executionId(), toolDef.toolSpecification().name(), request.arguments(),toolExecuteCommand.sessionId(), "Tool execution error" + e.getMessage()));
                         return ToolExecuteResult.err(request.id(), toolDef.toolSpecification(), "Tool execution error" + e.getMessage());
                     }
                 })
@@ -62,10 +64,11 @@ public class DefaultToolExecutionManager implements ToolExecutionManager {
         return this.toolExecutionContext.toolRegistry();
     }
 
-    private ToolExecution createToolExecution(@NonNull ToolExecutionRequest request, ToolDefinition<?> tool) {
+    private ToolExecution createToolExecution(@NonNull ToolExecutionRequest request, ToolDefinition<?> tool, Serializable sessionId) {
         return ToolExecution.builder()
                 .id(request.id())
                 .toolDefinition(tool)
+                .sessionId(sessionId)
                 .workspace(this.toolExecutionContext.workspace())
                 .args(request.arguments())
                 .build();
@@ -89,13 +92,11 @@ public class DefaultToolExecutionManager implements ToolExecutionManager {
                 .target(toolDefinition.executor())
                 .context(toolExecution)
                 .build();
-        long timeoutSeconds = toolDefinition.timeout() == null ? 0 : toolDefinition.timeout();
+        long timeoutSeconds = toolDefinition.timeout();
         if (timeoutSeconds <= 0) {
             return (ToolExecuteResult) this.interceptorProcessor.proceed(execute);
         }
-        // run the executor asynchronously so a hung tool (e.g. read on a slow path) cannot
-        // block the agent loop forever; timeout only releases the caller, the worker may still
-        // finish on its own in the background.
+
         CompletableFuture<ToolExecuteResult> future = CompletableFuture.supplyAsync(() -> {
             try {
                 return (ToolExecuteResult) this.interceptorProcessor.proceed(execute);

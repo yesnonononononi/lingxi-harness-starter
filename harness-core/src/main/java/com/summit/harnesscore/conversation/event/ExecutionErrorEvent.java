@@ -2,6 +2,7 @@ package com.summit.harnesscore.conversation.event;
 
 import lombok.Data;
 
+import java.io.Serializable;
 import java.sql.Timestamp;
 import java.time.Instant;
 
@@ -11,6 +12,7 @@ public class ExecutionErrorEvent implements AgentEvent{
     private final String extraDes;
     private final String executionId;
     private final Timestamp timestamp;
+    private final Serializable sessionId;
 
     @Override
     public String executionId() {

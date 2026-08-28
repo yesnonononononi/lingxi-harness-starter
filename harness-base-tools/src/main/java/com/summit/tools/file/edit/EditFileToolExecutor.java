@@ -2,7 +2,6 @@ package com.summit.tools.file.edit;
 
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.difflib.patch.Patch;
 import com.summit.harnesscore.conversation.event.FileEditEvent;
 import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
 import com.summit.harnesscore.exception.OutWorkSpaceException;
@@ -12,23 +11,19 @@ import com.summit.tools.arguments.EditFileRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
-
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.EventListener;
-import java.util.List;
-import java.util.Objects;
-import java.util.UUID;
+
 
 @Slf4j
 @RequiredArgsConstructor
-@SuppressWarnings("unchecked")
 public class EditFileToolExecutor implements ToolExecutor {
     private final ObjectMapper objectMapper;
     private final Differ differ;
     private final PatchManager patchManager;
+    private final FileHasher fileHasher;
     private final RuntimeEventPublisher runtimeEventPublisher;
     private final int DEFAULT_AROUND_LINE = 3;
 
@@ -46,10 +41,10 @@ public class EditFileToolExecutor implements ToolExecutor {
 
             if (editRes.isSuccess()) {
                 DiffResult diffResult = doDiff(editRes.getData(), request.getPath());
+                Object id = patchManager.savePatch(toolExecution.getSessionId(),
+                        buildPatchEntity(diffResult, fileHasher.hash(editRes.getData().oldContent()), request.getPath()));
 
-                Object id = patchManager.savePatch(buildPatchEntity(diffResult, this.patchManager.hashFile(editRes.getData().oldContent()), request.getPath()));
-
-                publicEvent(id, request.getPath(), editRes.getData().oldContent(), editRes.getData().newContent());
+                publicEvent(id, request.getPath(), editRes.getData().oldContent(), editRes.getData().newContent(), toolExecution.getSessionId());
                 return ToolExecuteResult.success(toolExecution.getId(), toolExecution.getToolDefinition().toolSpecification(),
                         objectMapper.writeValueAsString(diffResult)
                 );
@@ -65,19 +60,20 @@ public class EditFileToolExecutor implements ToolExecutor {
 
     }
 
-    private void publicEvent(Object id, String path,String oldContent,String newContent) {
+    private void publicEvent(Object id, String path, String oldContent, String newContent, java.io.Serializable sessionId) {
         this.runtimeEventPublisher.onFileEdit(FileEditEvent.builder()
                 .patchId(id)
                 .filePath(path)
                 .oldContent(oldContent)
                 .newContent(newContent)
+                .sessionId(sessionId)
                 .build());
     }
 
 
 
 
-    private PatchEntity<?> buildPatchEntity(DiffResult diffResult, String fileContentHash, String filePath) {
+    private PatchEntity buildPatchEntity(DiffResult diffResult, String fileContentHash, String filePath) {
         return PatchEntity.builder()
                 .fileContentHash(fileContentHash)
                 .filePath(filePath)

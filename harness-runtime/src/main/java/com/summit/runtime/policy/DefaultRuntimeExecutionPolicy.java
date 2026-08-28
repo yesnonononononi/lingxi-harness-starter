@@ -17,14 +17,14 @@ public class DefaultRuntimeExecutionPolicy implements RuntimeExecutionPolicy {
     public boolean shouldContinue(Execution execution, ConversationManager conversationManager) {
         Integer maxTokens = agentConfig.maxTokens();
         if (maxTokens == null) return true;
-        int accumulatedTokens = conversationManager.tokenUsage().totalTokenCount();
-        int currentContextTokens = tokenizer.count(conversationManager.messages());
+        int accumulatedTokens = conversationManager.tokenUsage(execution.getSessionId()).totalTokenCount();
+        int currentContextTokens = tokenizer.count(conversationManager.messages(execution.getSessionId()));
         return currentContextTokens < maxTokens;
    }
 
     @Override
     public ContextSqueezeRequest shouldSqueezeContext(ConversationManager conversationManager, Execution execution) {
-        int currentTokens = tokenizer.count(conversationManager.messages());
+        int currentTokens = tokenizer.count(conversationManager.messages(execution.getSessionId()));
         Double v = agentConfig.squeezeThreshold();
         Integer maxTokens = agentConfig.maxTokens();
         double expectT = maxTokens * (v > 1.0 ? 1.0 : v);

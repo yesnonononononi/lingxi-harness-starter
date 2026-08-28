@@ -7,12 +7,12 @@ import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
 import com.summit.harnesscore.runtime.RuntimeExecutionPolicy;
 import com.summit.harnesscore.runtime.RuntimeFactory;
 import com.summit.harnesscore.runtime.RuntimeListener;
-import com.summit.harnesscore.runtime.Workspace;
 import com.summit.harnesscore.tool.ToolExecutionManager;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.policy.DefaultRuntimeExecutionPolicy;
-import com.summit.runtime.agent.DefaultRuntimeFactory;
+import com.summit.runtime.DefaultRuntimeFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 
 import java.util.List;
@@ -20,9 +20,10 @@ import java.util.List;
 @AutoConfiguration
 public class ExecutionRuntimeConfig {
     @Bean
-    public RuntimeFactory defaultRuntimeFactory(RuntimeEventPublisher defaultRuntimeListener, ConversationManager conversationManager, ToolExecutionManager defaultToolExecutionManager, AgentConfig agentConfig, ObjectMapper objectMapper, Tokenizer tokenizer){
+    @ConditionalOnMissingBean
+    public RuntimeFactory defaultRuntimeFactory(RuntimeEventPublisher defaultRuntimeListener, ConversationManager conversationManager, ToolExecutionManager defaultToolExecutionManager, AgentConfig agentConfig, ObjectMapper objectMapper, RuntimeExecutionPolicy runtimeExecutionPolicy){
         return DefaultRuntimeFactory.builder()
-                .runtimeExecutionPolicy(runtimeExecutionPolicy(agentConfig, tokenizer))
+                .runtimeExecutionPolicy(runtimeExecutionPolicy)
                 .toolExecutionManager(defaultToolExecutionManager)
                 .runtimeEventPublisher(defaultRuntimeListener)
                 .conversationManager(conversationManager)
@@ -33,6 +34,7 @@ public class ExecutionRuntimeConfig {
 
 
     @Bean
+    @ConditionalOnMissingBean
     public RuntimeExecutionPolicy runtimeExecutionPolicy(AgentConfig agentConfig, Tokenizer tokenizer){
         return new DefaultRuntimeExecutionPolicy(agentConfig,tokenizer);
     }

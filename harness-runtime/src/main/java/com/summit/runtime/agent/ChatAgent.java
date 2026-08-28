@@ -7,6 +7,7 @@ import com.summit.harnesscore.model.ModelInvoker;
 import com.summit.harnesscore.runtime.ExecutionRuntime;
 import com.summit.harnesscore.runtime.RuntimeFactory;
 import com.summit.harnesscore.runtime.Workspace;
+import com.summit.runtime.utils.ExecutionCreator;
 import dev.langchain4j.model.chat.ChatModel;
 import lombok.RequiredArgsConstructor;
 
@@ -32,6 +33,7 @@ public class ChatAgent implements Agent {
         Workspace workspace = agentRequest.getWorkspace();
 
         ExecutionRuntime executionRuntime = defaultRuntimeFactory.createChatModelRuntime(
+                agentRequest.sessionIdOrDefault(),
                 chatCommand -> {
                     if (agentRequest.isStreaming()) {
                         return defaultStreamingModelInvoker.invoke(chatCommand);

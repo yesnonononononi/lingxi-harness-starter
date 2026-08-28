@@ -1,4 +1,4 @@
-package com.summit.runtime.agent;
+package com.summit.runtime.utils;
 
 import com.summit.harnesscore.agent.*;
 import dev.langchain4j.data.message.ChatMessage;
@@ -19,6 +19,7 @@ public class ExecutionCreator {
         return Execution.builder()
                 .id(UUID.randomUUID().toString())
                 .agentId(agent.id())
+                .sessionId(agentRequest.sessionIdOrDefault())
                 .agentRequest(agentRequest)
                 .createAt(Instant.now())
                 .executionState(ExecutionState.CREATED)

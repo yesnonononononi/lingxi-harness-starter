@@ -11,7 +11,7 @@ import com.summit.harnesscore.interceptor.InterceptorProcessor;
 import com.summit.harnesscore.runtime.Workspace;
 import com.summit.harnesscore.tool.*;
 import com.summit.runtime.tool.DefaultToolExecutionManager;
-import com.summit.runtime.tool.CommonToolConfig;
+import com.summit.runtime.configs.CommonToolConfig;
 import com.summit.tools.compact.ContextCompactToolExecutor;
 import com.summit.tools.terminal.CommandToolDefinitionExecutor;
 import com.summit.tools.web.WebSearchConfig;

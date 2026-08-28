@@ -3,12 +3,14 @@ package com.summit.harnesscore.conversation.event;
 
 import lombok.Data;
 
+import java.io.Serializable;
 import java.time.Instant;
 import java.util.List;
 
 @Data
 public class ToolCallStartEvent implements AgentEvent {
     private final String executionId;
+    private final Serializable sessionId;
     private final String toolName;
     private final String args;
     @Override

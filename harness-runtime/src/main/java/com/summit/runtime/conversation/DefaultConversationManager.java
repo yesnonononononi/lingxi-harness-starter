@@ -3,7 +3,9 @@ package com.summit.runtime.conversation;
 import com.summit.harnesscore.agent.AgentRequest;
 import com.summit.harnesscore.compact.ContextCompacter;
 import com.summit.harnesscore.compact.ContextSummary;
+import com.summit.harnesscore.conversation.ConversationEntity;
 import com.summit.harnesscore.conversation.ConversationManager;
+import com.summit.harnesscore.conversation.ConversationStore;
 import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
 import com.summit.harnesscore.runtime.Workspace;
 import com.summit.harnesscore.tool.ToolExecuteResult;
@@ -11,81 +13,82 @@ import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.output.TokenUsage;
+import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
+
+import java.io.Serializable;
 import java.util.*;
+
 
 
 @Getter
 @Slf4j
+@AllArgsConstructor
 public class DefaultConversationManager implements ConversationManager {
-    private final Workspace workspace;
-    private final List<ChatMessage> messages;
-    private TokenUsage tokenUsage;
-    private SystemMessage originalSystemMessage = null;
+    private final ConversationStore conversationStore;
     private final RuntimeEventPublisher runtimeEventPublisher;
     private final ContextCompacter contextCompacter;
 
-    public DefaultConversationManager(Workspace workspace, RuntimeEventPublisher runtimeEventPublisher, ContextCompacter contextCompacter) {
-        this.workspace = workspace;
-        this.messages = new LinkedList<>();
-        this.tokenUsage = new TokenUsage(0, 0, 0);
-        this.runtimeEventPublisher = runtimeEventPublisher;
-        this.contextCompacter = contextCompacter;
-    }
 
     @Override
     public void startConversation(AgentRequest agentRequest) {
-        UserMessage userMessage = UserMessage.from(agentRequest.getInput());
-        SystemMessage systemMessage = SystemMessage.from(getSystemMessage(agentRequest.getSystemPrompt()));
-        // 多轮对话复用首条 system prompt，避免每次请求重复注入 system 消息导致上下文膨胀
-        if (this.originalSystemMessage == null) {
-            this.originalSystemMessage = systemMessage;
-            this.messages.add(systemMessage);
-        }
-        this.messages.add(userMessage);
+        Serializable sessionId = agentRequest.getSessionId();
+        String systemPrompt = getSystemMessage(agentRequest.getSystemPrompt(), agentRequest.getWorkspace());
+        SystemMessage systemMessage = SystemMessage.from(systemPrompt);
+        LinkedList<ChatMessage> messages = new LinkedList<>(
+                List.of(
+                        systemMessage,
+                        UserMessage.from(agentRequest.getInput())
+                )
+        );
+        ConversationEntity conversation = ConversationEntity.empty(agentRequest.getWorkspace(), systemMessage, sessionId, messages);
+        this.conversationStore.save(agentRequest.getSessionId(), conversation);
     }
 
     @Override
-    public void addMessage(ChatResponse chatResponse, @Nullable List<ToolExecuteResult> toolExecutionResultMessage) {
+    public void addMessage(Serializable sessionId, ChatResponse chatResponse, @Nullable List<ToolExecuteResult> toolExecutionResultMessage) {
         AiMessage aiMessage = chatResponse.aiMessage();
-        this.tokenUsage = this.tokenUsage.add(chatResponse.tokenUsage());
+        ConversationEntity conversation = getConversationEntity(sessionId);
+        conversation.messages().add(aiMessage);
+        conversation.tokenUsage().add(chatResponse.tokenUsage());
 
-        this.messages.add(aiMessage);
-        addToolMessages(toolExecutionResultMessage);
+        addToolMessages(toolExecutionResultMessage,conversation);
     }
 
     @Override
-    public void endConversation() {
-
+    public ConversationEntity endConversation(Serializable sessionId) {
+        return this.conversationStore.remove(sessionId);
     }
 
     @Override
-    public List<ChatMessage> messages() {
-        return Collections.unmodifiableList(this.messages);
+    public List<ChatMessage> messages(Serializable sessionId) {
+        return Collections.unmodifiableList(getConversationEntity(sessionId).messages());
     }
 
     @Override
-    public TokenUsage tokenUsage() {
-        return this.tokenUsage;
+    public TokenUsage tokenUsage(Serializable sessionId) {
+        return this.conversationStore.get(sessionId).orElseThrow().tokenUsage();
     }
 
     @Override
-    public void squeezeContext(Integer expectedTokens, Integer attemptNum) {
-       this.contextCompacter.compact(expectedTokens,attemptNum,messages);
+    public void squeezeContext(Integer expectedTokens, Integer attemptNum, Serializable sessionId) {
+        ConversationEntity conversation = getConversationEntity(sessionId);
+        this.contextCompacter.compact(expectedTokens, attemptNum, conversation.messages());
     }
 
     @Override
-    public void rebuildContext(ContextSummary contextSummary) {
+    public void rebuildContext(ContextSummary contextSummary, Serializable sessionId) {
         if (contextSummary == null) return;
+        ConversationEntity conversation = getConversationEntity(sessionId);
         String summary = contextSummary.getSummary();
         try {
             log.info("【context-rebuild】 rebuilding context with summary: {}", summary);
-            SystemMessage systemMessage = findOriginalSystemMessage();
-            List<ChatMessage> latestToolMessageAndAiMessage = findLatestInteraction();
-            this.messages.clear();
-            this.messages.addAll(List.of(systemMessage, SystemMessage.from(
+            SystemMessage systemMessage = conversation.systemMessage();
+            List<ChatMessage> latestToolMessageAndAiMessage = findLatestInteraction(conversation);
+            conversation.messages().clear();
+           conversation.messages().addAll(List.of(systemMessage, SystemMessage.from(
                     String.format("""
                                     The compact_context tool has been executed successfully, and the conversation history has been compressed into the following summary:
                                     goal: \n
@@ -107,7 +110,7 @@ public class DefaultConversationManager implements ConversationManager {
                             contextSummary.getState()
                     )
             )));
-            this.messages.addAll(latestToolMessageAndAiMessage);
+            conversation.messages().addAll(latestToolMessageAndAiMessage);
             log.info("【context-rebuild】successfully rebuild context with summary: {}", summary);
         } catch (Exception e) {
             log.error("【context-rebuild】 failed to rebuild context with summary: {}", summary, e);
@@ -115,7 +118,7 @@ public class DefaultConversationManager implements ConversationManager {
     }
 
 
-    private void addToolMessages(List<ToolExecuteResult> results) {
+    private void addToolMessages(List<ToolExecuteResult> results,ConversationEntity conversation) {
         if (results == null || results.isEmpty()) {
             return;
         }
@@ -132,18 +135,18 @@ public class DefaultConversationManager implements ConversationManager {
                             result.getToolOutput()
                     );
 
-            this.messages.add(message);
+            conversation.messages().add(message);
         }
     }
 
 
-    private List<ChatMessage> findLatestInteraction() {
+    private List<ChatMessage> findLatestInteraction(ConversationEntity conversation) {
 
         List<ChatMessage> result = new ArrayList<>();
 
-        for (int i = messages.size() - 1; i >= 0; i--) {
+        for (int i = conversation.messages().size() - 1; i >= 0; i--) {
 
-            ChatMessage message = messages.get(i);
+            ChatMessage message = conversation.messages().get(i);
 
             if (message instanceof ToolExecutionResultMessage) {
                 result.addFirst(message);
@@ -160,16 +163,16 @@ public class DefaultConversationManager implements ConversationManager {
     }
 
 
-    private SystemMessage findOriginalSystemMessage() {
-        if (this.originalSystemMessage != null) return this.originalSystemMessage;
-        return (SystemMessage) this.messages.stream().filter(msg -> msg instanceof SystemMessage).findFirst().orElseThrow();
+
+    private String getSystemMessage(String systemPrompt, Workspace workspace) {
+        return String.format(systemPrompt,
+                workspace.runtimeEnvironment().osType(),
+                workspace.workDir()
+        );
     }
 
-    private String getSystemMessage(String systemPrompt) {
-        return String.format(systemPrompt,
-                this.workspace.runtimeEnvironment().osType(),
-                this.workspace.workDir()
-        );
+    private ConversationEntity getConversationEntity(Serializable sessionId) {
+        return this.conversationStore.get(sessionId).orElseThrow();
     }
 
 }

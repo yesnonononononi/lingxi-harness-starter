@@ -1,4 +1,4 @@
-package com.summit.runtime.agent;
+package com.summit.runtime;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.harnesscore.conversation.ConversationManager;
@@ -10,9 +10,10 @@ import com.summit.harnesscore.runtime.RuntimeExecutionPolicy;
 import com.summit.harnesscore.runtime.RuntimeFactory;
 import com.summit.harnesscore.runtime.Workspace;
 import com.summit.harnesscore.tool.ToolExecutionManager;
-import com.summit.runtime.RuntimeProcessorTemplate;
 import lombok.Builder;
 import lombok.RequiredArgsConstructor;
+
+import java.io.Serializable;
 
 @Builder
 @RequiredArgsConstructor
@@ -25,7 +26,7 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
     private final Integer maxIterations;
 
     @Override
-    public ExecutionRuntime createChatModelRuntime(ModelInvoker chatModelInvoker, Workspace workspace) {
+    public ExecutionRuntime createChatModelRuntime(Serializable sessionId, ModelInvoker chatModelInvoker, Workspace workspace) {
         return new RuntimeProcessorTemplate(
                 RuntimeContext.builder()
                         .workspace(workspace)
@@ -42,7 +43,7 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
     }
 
     @Override
-    public ExecutionRuntime createStreamingModelRuntime(ModelInvoker streamingModelInvoker, Workspace workspace) {
+    public ExecutionRuntime createStreamingModelRuntime(Serializable sessionId, ModelInvoker streamingModelInvoker, Workspace workspace) {
         return new RuntimeProcessorTemplate(
                 RuntimeContext.builder()
                         .invoker(streamingModelInvoker)

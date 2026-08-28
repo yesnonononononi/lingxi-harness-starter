@@ -23,6 +23,7 @@ import dev.langchain4j.model.output.TokenUsage;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import java.io.Serializable;
 import java.sql.Timestamp;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -35,8 +36,9 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
     @Override
     public Execution execute(Execution execution) {
         String executionId = execution.getId();
+        Serializable sessionId = execution.getSessionId();
         ContextSqueezeRequest contextSqueezeRequest;
-        context.getRuntimeEventPublisher().onExecutionStart(new ExecutionStartEvent(executionId));
+        context.getRuntimeEventPublisher().onExecutionStart(new ExecutionStartEvent(executionId, sessionId));
         context.getConversationManager().startConversation(execution.getAgentRequest());
         execution.start();
         int iterations = 0;
@@ -51,7 +53,7 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
                 contextSqueezeRequest = context.getRuntimeExecutionPolicy().shouldSqueezeContext(this.context.getConversationManager(), execution);
                 if (contextSqueezeRequest.shouldSqueeze()) {
                     log.info("【context-squeeze】current context over limit, squeezing to {} tokens", contextSqueezeRequest.expectTokens());
-                    context.getConversationManager().squeezeContext(contextSqueezeRequest.expectTokens(), null);
+                    context.getConversationManager().squeezeContext(contextSqueezeRequest.expectTokens(), null,sessionId);
                 }
 
                 if (!context.getRuntimeExecutionPolicy().shouldContinue(execution, this.context.getConversationManager())) {
@@ -65,44 +67,44 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
                 log.info("【Agent】:{} thinking:{}", chatResponse.aiMessage().text(), chatResponse.aiMessage().thinking());
 
                 // the lifestyle of execution processing
-                context.getRuntimeEventPublisher().onAiMessage(new AgentMessageEvent(chatResponse.aiMessage().text(), chatResponse.aiMessage().thinking(), executionId));
+                context.getRuntimeEventPublisher().onAiMessage(new AgentMessageEvent(sessionId, chatResponse.aiMessage().text(), chatResponse.aiMessage().thinking(), executionId));
 
                 // if no tool calls, add the message to conversation and break the loop
                 List<ToolExecutionRequest> toolCalls = chatResponse.aiMessage().toolExecutionRequests();
 
                 // if no tool calls, add the message to conversation and break the loop
                 if (toolCalls.isEmpty()) {
-                    context.getConversationManager().addMessage(chatResponse, null);
+                    context.getConversationManager().addMessage(sessionId,chatResponse, null);
                     break;
                 }
 
                 // execute the tools and get the tool calls
-                List<ToolExecuteResult> toolResMessages = context.getToolExecutionManager().execute(new ToolExecuteCommand(toolCalls, executionId));
+                List<ToolExecuteResult> toolResMessages = context.getToolExecutionManager().execute(new ToolExecuteCommand(toolCalls, executionId, sessionId));
 
                 // if the tool call is context compact, rebuild the context
                 ToolExecuteResult requireContextCompact = toolResMessages.stream().filter(this::isContextCompactRequest).findFirst().orElse(null);
                 if (requireContextCompact != null) {
-                    context.getConversationManager().rebuildContext(resolveContextSummary(requireContextCompact));
+                    context.getConversationManager().rebuildContext(resolveContextSummary(requireContextCompact),sessionId);
                     continue;
                 }
 
                 // add the tool calls to the conversation
-                context.getConversationManager().addMessage(chatResponse, toolResMessages);
+                context.getConversationManager().addMessage(sessionId,chatResponse, toolResMessages);
             }
 
             save(execution);
 
             execution.complete();
 
-            context.getConversationManager().endConversation();
+            context.getConversationManager().endConversation(sessionId);
 
-            context.getRuntimeEventPublisher().onExecutionComplete(new ExecutionCompleteEvent(executionId,
+            context.getRuntimeEventPublisher().onExecutionComplete(new ExecutionCompleteEvent(executionId, sessionId,
                     buildTokenInfo(execution)
             ));
             return execution;
         } catch (Exception e) {
-            context.getRuntimeEventPublisher().onExecutionError(new ExecutionErrorEvent(e, null, executionId, new Timestamp(System.currentTimeMillis())));
-            context.getConversationManager().endConversation();
+            context.getRuntimeEventPublisher().onExecutionError(new ExecutionErrorEvent(e, null, executionId, new Timestamp(System.currentTimeMillis()), sessionId));
+            context.getConversationManager().endConversation(sessionId);
             execution.fail(e.getMessage());
             return execution;
         }
@@ -110,8 +112,8 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
 
 
     private void save(Execution execution) {
-        execution.setMessages(this.context.getConversationManager().messages());
-        execution.setTokenUsage(this.context.getConversationManager().tokenUsage());
+        execution.setMessages(this.context.getConversationManager().messages(execution.getSessionId()));
+        execution.setTokenUsage(this.context.getConversationManager().tokenUsage(execution.getSessionId()));
     }
 
 
@@ -132,7 +134,7 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
         ModelChatCommand.ModelChatCommandBuilder builder = ModelChatCommand.builder()
                 .chatRequest(
                         ChatRequest.builder()
-                                .messages(this.context.getConversationManager().messages())
+                                .messages(this.context.getConversationManager().messages(execution.getSessionId()))
                                 .toolSpecifications(this.context.getToolExecutionManager().toolRegistry()
                                         .getTools().values().stream().map(ToolDefinition::toolSpecification)
                                         .toList()
@@ -143,6 +145,7 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
 
         if (execution.isStreaming()) {
             StreamingModelResponseBehaveDecider decider = new StreamingModelResponseBehaveDecider(this.context.getRuntimeEventPublisher(), StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
+                    .sessionId(execution.getSessionId())
                     .executionId(execution.getId())
                     .agentId(execution.getAgentId())
                     .future(new CompletableFuture<>())

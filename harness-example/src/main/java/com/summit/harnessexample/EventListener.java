@@ -1,7 +1,6 @@
 package com.summit.harnessexample;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.difflib.patch.PatchFailedException;
 import com.summit.harnesscore.conversation.event.AgentMessageEvent;
 import com.summit.harnesscore.conversation.event.AgentPartialTextEvent;
 import com.summit.harnesscore.conversation.event.AgentPartialThinkingEvent;
@@ -17,10 +16,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
+import java.io.Serializable;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * Listens to all coding-agent runtime events and forwards them to the
@@ -32,6 +30,7 @@ import java.util.UUID;
  *   "type": "AGENT_MESSAGE" | "TOOL_STARTED" | "TOOL_COMPLETED" |
  *           "EXECUTION_STARTED" | "EXECUTION_COMPLETED" | "EXECUTION_FAILED",
  *   "executionId": "...",
+ *   "sessionId": "...",
  *   "timestamp": 1234567890,
  *   "data": { ... }
  * }
@@ -44,13 +43,13 @@ public class EventListener implements RuntimeListener {
 
     private final SseEventPublisher sseEventPublisher;
     private final ObjectMapper objectMapper;
-    private final PatchManager<UUID> defaultPatchManager;
+    private final PatchManager patchManager;
 
     @Override
     public void onExecutionStart(ExecutionStartEvent event) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("executionId", event.executionId());
-        broadcast("EXECUTION_STARTED", event.executionId(), data);
+        broadcast("EXECUTION_STARTED", event.executionId(), event.getSessionId(), data);
     }
 
     @Override
@@ -58,14 +57,14 @@ public class EventListener implements RuntimeListener {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("toolName", event.getToolName());
         data.put("args", event.getArgs());
-        broadcast("TOOL_STARTED", event.executionId(), data);
+        broadcast("TOOL_STARTED", event.executionId(), event.getSessionId(), data);
     }
 
     @Override
     public void onToolCallOutput(ToolCallEndEvent event) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("output", event.getOutput());
-        broadcast("TOOL_COMPLETED", event.executionId(), data);
+        broadcast("TOOL_COMPLETED", event.executionId(), event.getSessionId(), data);
     }
 
     @Override
@@ -73,21 +72,21 @@ public class EventListener implements RuntimeListener {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("text", event.getText());
         data.put("thinking", event.getThinking());
-        broadcast("AGENT_MESSAGE", event.executionId(), data);
+        broadcast("AGENT_MESSAGE", event.executionId(), event.getSessionId(), data);
     }
 
     @Override
     public void onPartialText(AgentPartialTextEvent event) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("text", event.content());
-        broadcast("PARTIAL_TEXT", event.executionId(), data);
+        broadcast("PARTIAL_TEXT", event.executionId(), event.sessionId(), data);
     }
 
     @Override
     public void onPartialThinking(AgentPartialThinkingEvent event) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("text", event.content());
-        broadcast("PARTIAL_THINKING", event.executionId(), data);
+        broadcast("PARTIAL_THINKING", event.executionId(), event.sessionId(), data);
     }
 
     @Override
@@ -95,7 +94,7 @@ public class EventListener implements RuntimeListener {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("error", event.getErr() == null ? "unknown error" : event.getErr().getMessage());
         data.put("extraDes", event.getExtraDes());
-        broadcast("EXECUTION_FAILED", event.executionId(), data);
+        broadcast("EXECUTION_FAILED", event.executionId(), event.getSessionId(), data);
     }
 
     @Override
@@ -106,7 +105,7 @@ public class EventListener implements RuntimeListener {
         if (event.getTokenInfo() != null) {
             data.put("tokenUsage", event.getTokenInfo());
         }
-        broadcast("EXECUTION_COMPLETED", event.executionId(), data);
+        broadcast("EXECUTION_COMPLETED", event.executionId(), event.getSessionId(), data);
     }
 
     @Override
@@ -116,16 +115,24 @@ public class EventListener implements RuntimeListener {
         data.put("filePath", event.getFilePath());
         data.put("oldContent", event.getOldContent());
         data.put("newContent", event.getNewContent());
-        try {
-            defaultPatchManager.applyToPatch((UUID) event.getPatchId());
-        }catch (Exception ignore){}
-        broadcast("FILE_EDIT", null, data);
+        if (event.getSessionId() != null) {
+            applyPatchQuietly(event);
+        }
+        broadcast("FILE_EDIT", null, event.getSessionId(), data);
     }
 
-    private void broadcast(String type, String executionId, Map<String, Object> data) {
+    private void applyPatchQuietly(FileEditEvent event) {
+        try {
+            patchManager.applyPatch(event.getSessionId(), (Serializable) event.getPatchId());
+        } catch (Exception ignore) {
+        }
+    }
+
+    private void broadcast(String type, String executionId, Serializable sessionId, Map<String, Object> data) {
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("type", type);
         message.put("executionId", executionId);
+        message.put("sessionId", sessionId);
         message.put("timestamp", System.currentTimeMillis());
         message.put("data", data);
         try {
