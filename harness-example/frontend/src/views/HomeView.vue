@@ -21,6 +21,12 @@ const editingDir = ref(false)
 const dirInput = ref('')
 const savingDir = ref(false)
 let es = null
+// ====== 会话管理（后端临时 Map 存储，仅示例） ======
+const sessions = ref([])
+const currentSessionId = ref('')
+const currentSessionName = ref('')
+const showSessionRename = ref(false)
+const renameInput = ref('')
 // 流式打字机期间用纯文本渲染，停顿后切换到 Markdown，避免每个 chunk 都重解析导致卡顿
 let mdSettleTimer = null
 const MD_SETTLE_MS = 350
@@ -155,6 +161,8 @@ function connectEvents() {
         workdir.value = evt.data?.workdir || workdir.value
         return
       }
+      // 只展示当前会话的事件；切换会话后旧会话的延迟事件被忽略
+      if (evt.sessionId && currentSessionId.value && evt.sessionId !== currentSessionId.value) return
       const item = { time: now(), type: evt.type, text: formatEvent(evt), executionId: evt.executionId || '' }
       if (evt.type === 'TOOL_STARTED') {
         item.toolName = evt.data?.toolName || ''
@@ -275,7 +283,22 @@ async function sendMessage() {
   input.value = ''
 
   try {
-    const data = await request.post('/agent/chat', { input: text, streaming: true })
+    const body = { input: text, streaming: true }
+    if (currentSessionId.value) body.sessionId = currentSessionId.value
+    if (currentSessionName.value) body.sessionName = currentSessionName.value
+    const data = await request.post('/agent/chat', body)
+    // 后端分配/确认 sessionId，同步到本地会话列表
+    if (data?.sessionId) {
+      const newId = data.sessionId
+      const isNewSession = !currentSessionId.value || currentSessionId.value !== newId
+      currentSessionId.value = newId
+      currentSessionName.value = data.sessionName || currentSessionName.value || '新会话'
+      if (isNewSession) {
+        sessions.value.push({ sessionId: newId, sessionName: currentSessionName.value })
+      } else {
+        upsertSession(newId, data.sessionName)
+      }
+    }
     appendLog({ time: now(), type: 'SYS', text: `任务已提交：${data?.message || 'ok'}` })
   } catch (e) {
     appendLog({ time: now(), type: 'ERROR', text: `发送失败：${e?.message || e}` })
@@ -284,9 +307,114 @@ async function sendMessage() {
   }
 }
 
+function upsertSession(id, name) {
+  const found = sessions.value.find((s) => s.sessionId === id)
+  if (found) {
+    if (name) found.sessionName = name
+  } else {
+    sessions.value.push({ sessionId: id, sessionName: name || '新会话' })
+  }
+}
+
+// ====== 会话管理 ======
+async function loadSessions() {
+  try {
+    const data = await request.get('/agent/sessions')
+    sessions.value = data?.sessions || []
+  } catch (e) {
+    sessions.value = []
+  }
+}
+
+function newSession() {
+  currentSessionId.value = ''
+  currentSessionName.value = ''
+  events.value = []
+  showSessionRename.value = false
+  appendLog({ time: now(), type: 'SYS', text: '已新建会话，发送消息后将自动创建 sessionId' })
+}
+
+function switchSession(session) {
+  if (!session.sessionId || session.sessionId === currentSessionId.value) return
+  currentSessionId.value = session.sessionId
+  currentSessionName.value = session.sessionName || '新会话'
+  events.value = []
+  showSessionRename.value = false
+  appendLog({ time: now(), type: 'SYS', text: `已切换到会话：${currentSessionName.value}` })
+}
+
+function startRename() {
+  renameInput.value = currentSessionName.value || ''
+  showSessionRename.value = true
+}
+
+function cancelRename() {
+  showSessionRename.value = false
+}
+
+async function saveRename() {
+  const name = renameInput.value.trim()
+  if (!name || !currentSessionId.value) {
+    showSessionRename.value = false
+    return
+  }
+  try {
+    const data = await request.post('/agent/sessions/rename', {
+      sessionId: currentSessionId.value,
+      sessionName: name,
+    })
+    currentSessionName.value = data?.sessionName || name
+    upsertSession(currentSessionId.value, currentSessionName.value)
+    appendLog({ time: now(), type: 'SYS', text: `会话已重命名为：${currentSessionName.value}` })
+  } catch (e) {
+    appendLog({ time: now(), type: 'ERROR', text: `重命名失败：${e?.message || e}` })
+  } finally {
+    showSessionRename.value = false
+  }
+}
+
 function handleLogout() {
   removeToken()
   router.push('/login')
+}
+
+// ====== 导入代码 ======
+const showImportModal = ref(false)
+const importPath = ref('')
+const importCode = ref('')
+const importDesc = ref('')
+
+function openImport() {
+  showImportModal.value = true
+}
+
+function closeImport() {
+  showImportModal.value = false
+}
+
+// 表单提交：把代码组装成一条消息交给 Agent，由 Agent 写入项目文件
+async function submitImport() {
+  const code = importCode.value.trim()
+  if (!code) return
+
+  const path = importPath.value.trim()
+  const desc = importDesc.value.trim()
+  const lines = ['请将以下代码添加到项目中。']
+  if (desc) lines.push(`说明：${desc}`)
+  if (path) lines.push(`文件路径：${path}`)
+  lines.push('代码内容：', '```', code, '```')
+
+  input.value = lines.join('\n')
+  importPath.value = ''
+  importCode.value = ''
+  importDesc.value = ''
+  showImportModal.value = false
+  await sendMessage()
+}
+
+// 弹窗打开时支持按 Esc 关闭
+function onKeydown(e) {
+  if (e.key === 'Escape' && showImportModal.value) closeImport()
 }
 
 // ====== 工作目录 ======
@@ -327,10 +455,13 @@ async function saveWorkdir() {
 onMounted(() => {
   connectEvents()
   loadWorkdir()
+  loadSessions()
+  window.addEventListener('keydown', onKeydown)
 })
 
 onBeforeUnmount(() => {
   if (mdSettleTimer) clearTimeout(mdSettleTimer)
+  window.removeEventListener('keydown', onKeydown)
   if (es) {
     es.close()
   }
@@ -355,6 +486,7 @@ onBeforeUnmount(() => {
       <div class="user-area">
         <span class="ws-badge" :class="{ online: sseStatus === '已连接' }">{{ sseStatus }}</span>
         <span class="name">你好，{{ user.name || '访客' }}</span>
+        <button class="import-btn" @click="openImport">＋ 导入代码</button>
         <button class="logout" @click="handleLogout">退出登录</button>
       </div>
     </header>
@@ -373,6 +505,27 @@ onBeforeUnmount(() => {
     </section>
 
     <main class="chat-wrap">
+      <div class="layout">
+        <!-- 会话侧边栏（临时 Map 存储） -->
+        <aside class="sidebar">
+          <button class="new-session-btn" @click="newSession">＋ 新建会话</button>
+          <div class="session-list">
+            <div
+              v-for="s in sessions"
+              :key="s.sessionId"
+              class="session-item"
+              :class="{ active: s.sessionId === currentSessionId }"
+              @click="switchSession(s)"
+            >
+              <span class="session-name">{{ s.sessionName || '新会话' }}</span>
+              <span class="session-id">{{ s.sessionId.slice(0, 8) }}</span>
+            </div>
+            <div v-if="sessions.length === 0" class="session-empty">暂无会话<br />点击「新建会话」开始</div>
+          </div>
+        </aside>
+
+        <!-- 聊天面板 -->
+        <div class="chat-panel">
       <!-- 工作目录栏 -->
       <div class="workdir-bar">
         <span class="workdir-label">工作目录</span>
@@ -390,6 +543,19 @@ onBeforeUnmount(() => {
           />
           <button class="workdir-btn primary" :disabled="savingDir" @click="saveWorkdir">{{ savingDir ? '保存中...' : '保存' }}</button>
           <button class="workdir-btn" @click="cancelEditDir">取消</button>
+        </template>
+      </div>
+
+      <!-- 当前会话标题 + 重命名 -->
+      <div class="session-header">
+        <template v-if="!showSessionRename">
+          <span class="session-title">{{ currentSessionName || '新会话' }}</span>
+          <button v-if="currentSessionId" class="rename-btn" @click="startRename" title="重命名会话">✎ 重命名</button>
+        </template>
+        <template v-else>
+          <input v-model="renameInput" class="rename-input" placeholder="输入会话名称" @keydown.enter="saveRename" @keydown.esc="cancelRename" />
+          <button class="rename-btn primary" @click="saveRename">保存</button>
+          <button class="rename-btn" @click="cancelRename">取消</button>
         </template>
       </div>
 
@@ -541,7 +707,37 @@ onBeforeUnmount(() => {
         </div>
         <p class="tips">内容由 AI 生成，请仔细甄别</p>
       </div>
+        </div>
+      </div>
     </main>
+  </div>
+
+  <!-- 导入代码弹窗：点击「导入代码」按钮弹出 -->
+  <div v-if="showImportModal" class="modal-mask" @click.self="closeImport">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="添加代码">
+      <div class="modal-header">
+        <h3>添加代码</h3>
+        <button class="modal-close" @click="closeImport" aria-label="关闭">✕</button>
+      </div>
+      <div class="modal-body">
+        <label class="field">
+          <span class="field-label">文件路径 <em>（可选，如 src/main/java/Hello.java）</em></span>
+          <input v-model="importPath" class="field-input" placeholder="留空则交由 Agent 判断保存位置" @keydown.esc="closeImport" />
+        </label>
+        <label class="field">
+          <span class="field-label">代码内容 <em>（必填）</em></span>
+          <textarea v-model="importCode" class="field-textarea" rows="10" spellcheck="false" placeholder="在此粘贴或输入要添加的代码..."></textarea>
+        </label>
+        <label class="field">
+          <span class="field-label">说明 <em>（可选）</em></span>
+          <input v-model="importDesc" class="field-input" placeholder="例如：实现登录接口" />
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel" @click="closeImport">取消</button>
+        <button class="btn-submit" :disabled="!importCode.trim()" @click="submitImport">导入</button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -699,6 +895,123 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow: hidden;
 }
+.layout { flex: 1; display: flex; min-height: 0; }
+
+/* ====== 会话侧边栏 ====== */
+.sidebar {
+  width: 230px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 12px;
+  border-right: 1px solid #f0f1f5;
+  background: #fafbfc;
+  overflow: hidden;
+}
+.new-session-btn {
+  flex-shrink: 0;
+  width: 100%;
+  padding: 9px 0;
+  border: 1px solid #4d6bfe;
+  border-radius: 10px;
+  background: #4d6bfe;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.new-session-btn:hover { background: #3a57e8; }
+.session-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.session-item {
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: all 0.2s;
+}
+.session-item:hover { background: #f0f2f8; }
+.session-item.active { background: #eef2ff; border-color: #dbe2ff; }
+.session-name {
+  font-size: 13px;
+  color: #262832;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-item.active .session-name { color: #4d6bfe; font-weight: 600; }
+.session-id {
+  font-size: 11px;
+  color: #a0a3b5;
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+}
+.session-empty {
+  padding: 24px 8px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.8;
+  color: #b0b3c4;
+}
+
+/* ====== 聊天面板 ====== */
+.chat-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+/* ====== 会话标题栏 ====== */
+.session-header {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 12px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.session-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #262832;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rename-btn {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 8px;
+  border: 1px solid #e4e6eb;
+  background: #fff;
+  color: #55586b;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.rename-btn:hover { border-color: #4d6bfe; color: #4d6bfe; }
+.rename-btn.primary { background: #4d6bfe; border-color: #4d6bfe; color: #fff; }
+.rename-btn.primary:hover { background: #3a57e8; }
+.rename-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  padding: 4px 10px;
+  border: 1px solid #4d6bfe;
+  border-radius: 8px;
+  outline: none;
+  color: #262832;
+}
 
 /* ====== 工作目录栏 ====== */
 .workdir-bar {
@@ -706,7 +1019,7 @@ onBeforeUnmount(() => {
   width: 100%;
   max-width: 780px;
   margin: 0 auto;
-  padding: 14px 0 0;
+  padding: 8px 0 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1141,4 +1454,174 @@ onBeforeUnmount(() => {
   color: #c0c2cf;
   margin: 10px 0 0;
 }
+
+/* ====== 导入代码按钮 ====== */
+.import-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  color: #fff;
+  background: #4d6bfe;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.import-btn:hover { background: #3a57e8; }
+
+/* ====== 添加代码弹窗 ====== */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 18, 35, 0.55);
+  backdrop-filter: blur(3px);
+  animation: modal-fade .2s ease both;
+}
+@keyframes modal-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.modal {
+  width: 100%;
+  max-width: 640px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.35);
+  animation: modal-rise .28s cubic-bezier(.16, 1, .3, 1) both;
+  overflow: hidden;
+}
+@keyframes modal-rise {
+  from { opacity: 0; transform: translateY(20px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #f0f1f5;
+}
+.modal-header h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #1f2232;
+}
+.modal-close {
+  border: none;
+  background: transparent;
+  color: #a0a3b5;
+  font-size: 15px;
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+  border-radius: 6px;
+  transition: all .2s;
+}
+.modal-close:hover { color: #262832; background: #f5f6fb; }
+.modal-body {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+}
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #262832;
+}
+.field-label em {
+  font-style: normal;
+  font-weight: 400;
+  color: #a0a3b5;
+  font-size: 12px;
+}
+.field-input {
+  padding: 9px 12px;
+  border: 1px solid #e4e6eb;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #262832;
+  outline: none;
+  background: #fafbfc;
+  transition: border-color .2s, box-shadow .2s;
+}
+.field-input:focus {
+  border-color: #4d6bfe;
+  box-shadow: 0 0 0 3px rgba(77, 107, 254, 0.08);
+  background: #fff;
+}
+.field-textarea {
+  padding: 10px 12px;
+  border: 1px solid #e4e6eb;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #262832;
+  outline: none;
+  resize: vertical;
+  min-height: 160px;
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  background: #fafbfc;
+  transition: border-color .2s, box-shadow .2s;
+}
+.field-textarea:focus {
+  border-color: #4d6bfe;
+  box-shadow: 0 0 0 3px rgba(77, 107, 254, 0.08);
+  background: #fff;
+}
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid #f0f1f5;
+  background: #fafbfc;
+}
+.btn-cancel {
+  padding: 8px 18px;
+  font-size: 13px;
+  color: #55586b;
+  background: #fff;
+  border: 1px solid #e4e6eb;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all .2s;
+}
+.btn-cancel:hover { border-color: #c9ccd6; color: #262832; }
+.btn-submit {
+  padding: 8px 22px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: #4d6bfe;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all .2s;
+}
+.btn-submit:hover:not(:disabled) { background: #3a57e8; }
+.btn-submit:disabled { background: #dfe1e8; cursor: not-allowed; }
 </style>
+
+
+
+
+
+
+
+
+
+
+
+
+
+

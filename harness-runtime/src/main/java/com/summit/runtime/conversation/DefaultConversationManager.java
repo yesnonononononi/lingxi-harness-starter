@@ -34,17 +34,26 @@ public class DefaultConversationManager implements ConversationManager {
 
     @Override
     public void startConversation(AgentRequest agentRequest) {
-        Serializable sessionId = agentRequest.getSessionId();
+        Serializable sessionId = agentRequest.sessionIdOrDefault();
+        UserMessage userMessage = UserMessage.from(agentRequest.getInput());
+        Optional<ConversationEntity> existing = this.conversationStore.get(sessionId);
+        if (existing.isPresent()) {
+            ConversationEntity conversation = existing.get();
+            List<ChatMessage> messages = conversation.messages();
+            ChatMessage last = messages.isEmpty() ? null : messages.getLast();
+            // Idempotent protection: When the last execution fails and is retried, the last message may already be the current input, avoiding duplicate appending
+            if (last == null || !last.equals(userMessage)) {
+                messages.add(userMessage);
+                this.conversationStore.save(sessionId, conversation);
+            }
+            return;
+        }
+        // New session: create system + this input
         String systemPrompt = getSystemMessage(agentRequest.getSystemPrompt(), agentRequest.getWorkspace());
         SystemMessage systemMessage = SystemMessage.from(systemPrompt);
-        LinkedList<ChatMessage> messages = new LinkedList<>(
-                List.of(
-                        systemMessage,
-                        UserMessage.from(agentRequest.getInput())
-                )
-        );
+        LinkedList<ChatMessage> messages = new LinkedList<>(List.of(systemMessage, userMessage));
         ConversationEntity conversation = ConversationEntity.empty(agentRequest.getWorkspace(), systemMessage, sessionId, messages);
-        this.conversationStore.save(agentRequest.getSessionId(), conversation);
+        this.conversationStore.save(sessionId, conversation);
     }
 
     @Override
@@ -59,7 +68,8 @@ public class DefaultConversationManager implements ConversationManager {
 
     @Override
     public ConversationEntity endConversation(Serializable sessionId) {
-        return this.conversationStore.remove(sessionId);
+        //Only the current execution is ended. The session is retained in the store for subsequent executions with the same sessionId to reuse the history
+        return this.conversationStore.get(sessionId).orElse(null);
     }
 
     @Override

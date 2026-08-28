@@ -13,9 +13,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Entry point for the simple coding agent.
@@ -35,6 +39,8 @@ public class Controller {
     private final SseEventPublisher sseEventPublisher;
     private final LocalWorkSpace workSpace;
     private final ObjectMapper objectMapper;
+    /** In-memory session registry (temporary storage): sessionId -> sessionName. */
+    private final Map<String, String> sessions = new ConcurrentHashMap<>();
 
     /** Opens a Server-Sent Events stream; runtime events are pushed onto it. */
     @GetMapping(value = "/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -54,12 +60,28 @@ public class Controller {
             return ResponseEntity.badRequest().body(error);
         }
 
+        // Resolve the conversation: reuse an existing sessionId or create a new one.
+        String sessionId = body == null ? null : body.get("sessionId");
+        boolean newSession = sessionId == null || sessionId.isBlank();
+        if (newSession) {
+            sessionId = UUID.randomUUID().toString();
+        }
+        String sessionName = body == null ? null : body.get("sessionName");
+        if (sessionName == null || sessionName.isBlank()) {
+            sessionName = defaultSessionName(input);
+        }
+        sessions.put(sessionId, sessionName);
+
         // Run the coding agent asynchronously; events are pushed via SSE.
-        CompletableFuture.runAsync(() -> demo.chat(input, true));
+        String finalSessionId = sessionId;
+        CompletableFuture.runAsync(() -> demo.chat(input, streaming, finalSessionId));
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("input", input);
         data.put("streaming", streaming);
+        data.put("sessionId", sessionId);
+        data.put("sessionName", sessions.get(sessionId));
+        data.put("newSession", newSession);
         data.put("sseClients", sseEventPublisher.connectedCount());
 
         Map<String, Object> response = new LinkedHashMap<>();
@@ -67,6 +89,57 @@ public class Controller {
         response.put("message", "agent task submitted, events will be streamed via sse://{host}/agent/events");
         response.put("data", data);
         return ResponseEntity.ok(response);
+    }
+
+    /** Returns all conversations kept in the in-memory session registry. */
+    @GetMapping("/sessions")
+    public ResponseEntity<Map<String, Object>> sessions() {
+        List<Map<String, Object>> list = new ArrayList<>();
+        sessions.forEach((id, name) -> {
+            Map<String, Object> session = new LinkedHashMap<>();
+            session.put("sessionId", id);
+            session.put("sessionName", name);
+            list.add(session);
+        });
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("sessions", list);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("code", 200);
+        response.put("message", "ok");
+        response.put("data", data);
+        return ResponseEntity.ok(response);
+    }
+
+    /** Renames an existing conversation (in-memory map only for now). */
+    @PostMapping("/sessions/rename")
+    public ResponseEntity<Map<String, Object>> renameSession(@RequestBody Map<String, String> body) {
+        String sessionId = body == null ? null : body.get("sessionId");
+        String sessionName = body == null ? null : body.get("sessionName");
+
+        if (sessionId == null || sessionId.isBlank() || sessionName == null || sessionName.isBlank()) {
+            Map<String, Object> error = new LinkedHashMap<>();
+            error.put("code", 400);
+            error.put("message", "sessionId and sessionName must not be blank");
+            return ResponseEntity.badRequest().body(error);
+        }
+        sessions.put(sessionId, sessionName);
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("sessionId", sessionId);
+        data.put("sessionName", sessionName);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("code", 200);
+        response.put("message", "ok");
+        response.put("data", data);
+        return ResponseEntity.ok(response);
+    }
+
+    private String defaultSessionName(String input) {
+        String name = input.replaceAll("\\s+", " ").trim();
+        return name.length() > 20 ? name.substring(0, 20) + "..." : name;
     }
 
     /** Returns the agent's current working directory. */

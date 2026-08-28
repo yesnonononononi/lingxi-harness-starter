@@ -13,6 +13,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.io.Serializable;
+
 @Slf4j
 @RequiredArgsConstructor
 @Component
@@ -23,17 +25,21 @@ public class Demo {
     private final Workspace workspace;
 
     public void chat(String input) {
-        chat(input, false);
+        chat(input, false, null);
     }
 
     public void chat(String input, boolean streaming) {
+        chat(input, streaming, null);
+    }
+
+    public void chat(String input, boolean streaming, Serializable sessionId) {
 
         // 1. validate input
         if (input == null || input.isBlank()) {
             log.warn("chat input is null or blank");
             throw new IllegalArgumentException("chat input must not be null or blank");
         }
-        log.info("chat input: {}, streaming: {}", input, streaming);
+        log.info("chat input: {}, streaming: {}, sessionId: {}", input, streaming, sessionId);
         Execution execution;
         try {
             execution = defaultChatAgent.execute(AgentRequest
@@ -41,6 +47,7 @@ public class Demo {
                     .input(input)
                     .workspace(workspace)
                     .streaming(streaming)
+                    .sessionId(sessionId)
                     .build()
             );
         } catch (NoSuchModelProviderException e) {
