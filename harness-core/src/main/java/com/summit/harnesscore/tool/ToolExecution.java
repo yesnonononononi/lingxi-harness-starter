@@ -1,7 +1,7 @@
 package com.summit.harnesscore.tool;
 
 import com.summit.harnesscore.runtime.Workspace;
-import dev.langchain4j.agent.tool.ToolSpecification;
+
 import lombok.Builder;
 import lombok.Data;
 

@@ -2,6 +2,7 @@ package com.summit.harnessexample;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.summit.harnesscore.runtime.Workspace;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -37,7 +38,7 @@ public class Controller {
 
     private final Demo demo;
     private final SseEventPublisher sseEventPublisher;
-    private final LocalWorkSpace workSpace;
+    private final Workspace workSpace;
     private final ObjectMapper objectMapper;
     /** In-memory session registry (temporary storage): sessionId -> sessionName. */
     private final Map<String, String> sessions = new ConcurrentHashMap<>();
@@ -50,6 +51,7 @@ public class Controller {
 
     @PostMapping("/chat")
     public ResponseEntity<Map<String, Object>> chat(@RequestBody Map<String, String> body) {
+
         String input = body == null ? null : body.get("input");
         boolean streaming = body != null && Boolean.parseBoolean(body.getOrDefault("streaming", "false"));
 
@@ -61,12 +63,12 @@ public class Controller {
         }
 
         // Resolve the conversation: reuse an existing sessionId or create a new one.
-        String sessionId = body == null ? null : body.get("sessionId");
+        String sessionId = body.get("sessionId");
         boolean newSession = sessionId == null || sessionId.isBlank();
         if (newSession) {
             sessionId = UUID.randomUUID().toString();
         }
-        String sessionName = body == null ? null : body.get("sessionName");
+        String sessionName = body.get("sessionName");
         if (sessionName == null || sessionName.isBlank()) {
             sessionName = defaultSessionName(input);
         }
@@ -104,6 +106,51 @@ public class Controller {
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("sessions", list);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("code", 200);
+        response.put("message", "ok");
+        response.put("data", data);
+        return ResponseEntity.ok(response);
+    }
+
+    /** Simple liveness probe for the example app. */
+    @GetMapping("/health")
+    public ResponseEntity<Map<String, Object>> health() {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("status", "UP");
+        data.put("sessions", sessions.size());
+        data.put("sseClients", sseEventPublisher.connectedCount());
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("code", 200);
+        response.put("message", "ok");
+        response.put("data", data);
+        return ResponseEntity.ok(response);
+    }
+
+    /** Deletes a conversation from the in-memory session registry. */
+    @PostMapping("/sessions/delete")
+    public ResponseEntity<Map<String, Object>> deleteSession(@RequestBody Map<String, String> body) {
+        String sessionId = body == null ? null : body.get("sessionId");
+
+        if (sessionId == null || sessionId.isBlank()) {
+            Map<String, Object> error = new LinkedHashMap<>();
+            error.put("code", 400);
+            error.put("message", "sessionId must not be blank");
+            return ResponseEntity.badRequest().body(error);
+        }
+        String removed = sessions.remove(sessionId);
+        if (removed == null) {
+            Map<String, Object> error = new LinkedHashMap<>();
+            error.put("code", 404);
+            error.put("message", "session not found: " + sessionId);
+            return ResponseEntity.status(404).body(error);
+        }
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("sessionId", sessionId);
+        data.put("sessionName", removed);
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("code", 200);
@@ -170,8 +217,17 @@ public class Controller {
             return ResponseEntity.badRequest().body(error);
         }
 
+        // Switching directories only applies to the local workspace; a sandbox
+        // workspace has its fixed in-container root.
+        if (!(workSpace instanceof LocalWorkSpace local)) {
+            Map<String, Object> error = new LinkedHashMap<>();
+            error.put("code", 400);
+            error.put("message", "workdir switch is not supported for workspace: " + workSpace.id());
+            return ResponseEntity.badRequest().body(error);
+        }
+
         try {
-            workSpace.updateWorkDir(workdir);
+            local.updateWorkDir(workdir);
         } catch (IllegalArgumentException e) {
             Map<String, Object> error = new LinkedHashMap<>();
             error.put("code", 400);

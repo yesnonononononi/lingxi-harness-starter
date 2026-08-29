@@ -17,7 +17,7 @@ public class DefaultRuntimeExecutionPolicy implements RuntimeExecutionPolicy {
     public boolean shouldContinue(Execution execution, ConversationManager conversationManager) {
         Integer maxTokens = agentConfig.maxTokens();
         if (maxTokens == null) return true;
-        int accumulatedTokens = conversationManager.tokenUsage(execution.getSessionId()).totalTokenCount();
+        int accumulatedTokens = conversationManager.tokenUsage(execution.getSessionId()).getTotalTokens();
         int currentContextTokens = tokenizer.count(conversationManager.messages(execution.getSessionId()));
         return currentContextTokens < maxTokens;
    }

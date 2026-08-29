@@ -1,13 +1,13 @@
 package com.summit.harnesscore.compact;
 
-import dev.langchain4j.data.message.ChatMessage;
+import com.summit.harnesscore.conversation.message.Message;
 
 import java.util.List;
 
 public interface Tokenizer {
-     int count(List<ChatMessage> messages);
+     int count(List<Message> messages);
 
-     default int count(ChatMessage chatMessage){
+     default int count(Message chatMessage){
           return count(List.of(chatMessage));
      };
 

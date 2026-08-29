@@ -23,12 +23,12 @@ public class WebSearchExecutor implements ToolExecutor {
         try {
             String args = toolExecution.getArgs();
             WebSearchArguments arguments = objectMapper.readValue(args, WebSearchArguments.class);
-            if(args == null || args.isBlank())return ToolExecuteResult.err(toolExecution.getId(), toolDefinition.toolSpecification(), "tool execute failed : args is empty");
+            if(args == null || args.isBlank())return ToolExecuteResult.err(toolExecution.getId(), toolDefinition, "tool execute failed : args is empty");
             log.info("【ToolCall】 web_search :{}",args);
             String res = this.webSearchEngine.search(arguments);
-            return ToolExecuteResult.success(toolExecution.getId(), toolDefinition.toolSpecification(), res);
+            return ToolExecuteResult.success(toolExecution.getId(), toolDefinition, res);
         }catch (Exception e){
-            return ToolExecuteResult.err(toolExecution.getId(), toolDefinition.toolSpecification(), "tool execute failed : "+e.getMessage());
+            return ToolExecuteResult.err(toolExecution.getId(), toolDefinition, "tool execute failed : "+e.getMessage());
         }
     }
 

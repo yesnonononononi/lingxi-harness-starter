@@ -4,23 +4,19 @@ package com.summit.tools.file.edit;
 import com.summit.tools.arguments.EditFileRequest;
 import org.jspecify.annotations.NonNull;
 
-import java.io.File;
 import java.nio.charset.Charset;
-import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
 public class FileInsertor  {
-    public static FileEditorResult insert(EditFileRequest editFileRequest, @NonNull File targetFile, Charset charset, Integer aroundLines) {
+    public static FileEditorResult insert(EditFileRequest editFileRequest, @NonNull String content, Charset charset, Integer aroundLines) {
         int insertIndex;
         EditType type = EditType.fromString(editFileRequest.getType());
         String newText = Objects.requireNonNullElse(editFileRequest.getNewText(), "");
         String anchor = editFileRequest.getAnchor();
         try {
 
-            // read target file content
-            String content = Files.readString(targetFile.toPath(), charset);
             if (!content.isEmpty()) {
                 if (anchor == null || anchor.isEmpty())
                     return FileEditorResult.err("anchor is empty. There are no ways to insure position is correct");

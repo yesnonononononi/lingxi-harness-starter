@@ -15,10 +15,6 @@ public class DefaultConversationStore implements ConversationStore {
     private final Map<Serializable, ConversationEntity> managerStore = new ConcurrentHashMap<>();
 
 
-    @Override
-    public Serializable generateId() {
-        return UUID.randomUUID();
-    }
 
     @Override
     public  Optional<ConversationEntity> get(@NonNull Serializable sessionId) {
@@ -26,22 +22,25 @@ public class DefaultConversationStore implements ConversationStore {
     }
 
 
-    @Override
-    public Serializable save(@NonNull ConversationEntity conversationEntity) {
-        Serializable id = this.generateId();
-        managerStore.put(id,conversationEntity);
-        return id;
-    }
+
 
     @Override
     public void save(@NonNull Serializable sessionId, @NonNull ConversationEntity conversationEntity) {
+        if(conversationEntity.sessionId() == null){
+            conversationEntity = conversationEntity.withSessionId(sessionId);
+        }
         this.managerStore.put(sessionId, conversationEntity);
     }
 
 
     @Override
-    public ConversationEntity  remove(@NonNull Serializable sessionId) {
-        return managerStore.remove(sessionId);
+    public Optional<ConversationEntity> removeAndReturn(@NonNull Serializable sessionId) {
+        return Optional.ofNullable(managerStore.remove(sessionId));
+    }
+
+    @Override
+    public void remove(@NonNull Serializable sessionId) {
+        this.managerStore.remove(sessionId);
     }
 
     @Override
@@ -50,7 +49,7 @@ public class DefaultConversationStore implements ConversationStore {
     }
 
     @Override
-    public Collection<ConversationEntity> getAll() {
+    public Collection<ConversationEntity> list() {
         return this.managerStore.values().stream().toList();
     }
 

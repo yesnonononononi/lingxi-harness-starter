@@ -8,6 +8,7 @@ import com.summit.harness.springbootautoconfigure.properties.tool.TerminalToolPr
 import com.summit.harness.springbootautoconfigure.properties.tool.WebSearchToolProperties;
 import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
 import com.summit.harnesscore.interceptor.InterceptorProcessor;
+import com.summit.harnesscore.model.ChatModel;
 import com.summit.harnesscore.runtime.Workspace;
 import com.summit.harnesscore.tool.*;
 import com.summit.runtime.tool.DefaultToolExecutionManager;
@@ -17,9 +18,6 @@ import com.summit.tools.terminal.CommandToolDefinitionExecutor;
 import com.summit.tools.web.WebSearchConfig;
 import com.summit.tools.web.WebSearchEngine;
 import com.summit.tools.web.WebSearchExecutor;
-import dev.langchain4j.agent.tool.ToolSpecification;
-import dev.langchain4j.model.chat.ChatModel;
-import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -43,29 +41,33 @@ public class CommonToolAutoConfiguration {
             havingValue = "true"
     )
     public ToolDefinition<CommandToolDefinitionExecutor> executeCommandToolDefinition(ObjectMapper objectMapper, ToolRegistry toolRegistry, TerminalToolProperties terminalToolProperties, CommonToolProperties commonToolProperties) {
-        ToolSpecification toolSpec = ToolSpecification.builder()
-                .name("execute_command")
+        String name = "execute_command";
+        ToolDefinition<CommandToolDefinitionExecutor> definition = ToolDefinition.<CommandToolDefinitionExecutor>builder()
+                .executor(new CommandToolDefinitionExecutor(objectMapper))
+                .id(name)
+                .name(name)
                 .description("""
                         Execute a terminal command. Only use it when you really need to run a command (build/run/install/git/start server/network check).
                         don't use prefix to the command like : Get-ChildItem -Name
-                        WARNING: output is truncated to %d chars, keep the command precise and avoid large outputs.
+                        WARNING: output is truncated, keep the command precise and avoid large outputs.
                         DO NOT use this tool to replace dedicated tools:
                         - read files -> use read_file
                         - modify files -> use edit_file
                         - search web / external info -> use web_search
                         - inspect or list project files -> use dedicated file tools, avoid recursive listings like dir /s /b or Get-ChildItem -Recurse
                         """)
-                .parameters(JsonObjectSchema.builder()
-                        .addStringProperty("command", "require notice system os and use PowerShell if windows. Instruction,example : ll  it is a required parameter")
-                        .build())
-                .build();
-        ToolDefinition<CommandToolDefinitionExecutor> definition = ToolDefinition.<CommandToolDefinitionExecutor>builder()
-                .executor(new CommandToolDefinitionExecutor(objectMapper))
+                .parametersJsonSchema("""
+                        {
+                          "type": "object",
+                          "properties": {
+                            "command": {"type": "string", "description": "require notice system os and use PowerShell if windows. Instruction,example : ll  it is a required parameter"}
+                          }
+                        }
+                        """)
                 .maxOutput(Objects.requireNonNullElseGet(terminalToolProperties.getMaxOutput(), commonToolProperties::getMaxOutput))
                 .timeout(Objects.requireNonNullElseGet(terminalToolProperties.getTimeout(), commonToolProperties::getTimeout))
-                .toolSpecification(toolSpec)
                 .build();
-        toolRegistry.register(toolSpec.name(), definition);
+        toolRegistry.register(name, definition);
         return definition;
     }
 
@@ -76,26 +78,28 @@ public class CommonToolAutoConfiguration {
             havingValue = "true"
     )
     public ToolDefinition<ContextCompactToolExecutor> contextCompactToolDefinition(ToolRegistry toolRegistry, @Qualifier("defaultContextCompactModel") ChatModel defaultContextCompactModel, ContextCompactToolProperties contextCompactToolProperties, CommonToolProperties commonToolProperties) {
-        ToolSpecification toolSpecification = ToolSpecification.builder()
-                .name("compact_context")
+        String name = "compact_context";
+        ToolDefinition<ContextCompactToolExecutor> definition = ToolDefinition.<ContextCompactToolExecutor>builder()
+                .executor(new ContextCompactToolExecutor(defaultContextCompactModel))
+                .id(name)
+                .name(name)
                 .description("""
                         Context compression tool. Call this tool when the conversation has accumulated too much content and you need to summarize the history to free up context.
                         The 'context' parameter is required and must contain the full conversation history (as a JSON string of messages) that needs to be compressed.
-                        
+
                         """)
-                .parameters(
-                        JsonObjectSchema.builder()
-                                .addStringProperty("context", "The full conversation history to compress, as a JSON string. Required parameter.")
-                                .build()
-                )
-                .build();
-        ToolDefinition<ContextCompactToolExecutor> definition = ToolDefinition.<ContextCompactToolExecutor>builder()
-                .executor(new ContextCompactToolExecutor(defaultContextCompactModel))
-                .toolSpecification(toolSpecification)
+                .parametersJsonSchema("""
+                        {
+                          "type": "object",
+                          "properties": {
+                            "context": {"type": "string", "description": "The full conversation history to compress, as a JSON string. Required parameter."}
+                          }
+                        }
+                        """)
                 .maxOutput(Objects.requireNonNullElseGet(contextCompactToolProperties.getMaxOutput(),commonToolProperties::getMaxOutput))
                 .timeout(Objects.requireNonNullElseGet(contextCompactToolProperties.getTimeout(),commonToolProperties::getTimeout))
                 .build();
-        toolRegistry.register(toolSpecification.name(), definition);
+        toolRegistry.register(name, definition);
         return definition;
     }
 
@@ -107,24 +111,27 @@ public class CommonToolAutoConfiguration {
             havingValue = "true"
     )
     public ToolDefinition<WebSearchExecutor> webSearchToolDefinition(ToolRegistry toolRegistry, WebSearchEngine webSearchEngine, WebSearchToolProperties webSearchToolProperties, CommonToolProperties commonToolProperties, ObjectMapper objectMapper) {
-
-        ToolSpecification toolSpec = ToolSpecification.builder()
-                .name("web_search")
-                .description("Search the web for external/current information. PREFERRED for any online lookup; do NOT use terminal commands instead.")
-                .parameters(JsonObjectSchema.builder()
-                        .addStringProperty("query", "The search query to execute. it is a required parameter")
-                        .addNumberProperty("max_results", "Maximum number of results to return. it is an optional parameter max :"+ webSearchToolProperties.getMaxResult())
-                        .addStringProperty("start_date", " Will return all results after the specified start date based on publish date or last updated date. Required to be written in the format YYYY-MM-DD. it is an optional parameter")
-                        .addStringProperty("end_date", "  Will return all results before the specified end date based on publish date or last updated date. Required to be written in the format YYYY-MM-DD. it is an optional parameter")
-                        .build())
-                .build();
+        String name = "web_search";
         ToolDefinition<WebSearchExecutor> definition = ToolDefinition.<WebSearchExecutor>builder()
                 .executor(new WebSearchExecutor(webSearchEngine,objectMapper))
-                .toolSpecification(toolSpec)
+                .id(name)
+                .name(name)
+                .description("Search the web for external/current information. PREFERRED for any online lookup; do NOT use terminal commands instead.")
+                .parametersJsonSchema(("""
+                        {
+                          "type": "object",
+                          "properties": {
+                            "query": {"type": "string", "description": "The search query to execute. it is a required parameter"},
+                            "max_results": {"type": "number", "description": "Maximum number of results to return. it is an optional parameter max :%s"},
+                            "start_date": {"type": "string", "description": " Will return all results after the specified start date based on publish date or last updated date. Required to be written in the format YYYY-MM-DD. it is an optional parameter"},
+                            "end_date": {"type": "string", "description": "  Will return all results before the specified end date based on publish date or last updated date. Required to be written in the format YYYY-MM-DD. it is an optional parameter"}
+                          }
+                        }
+                        """).formatted(String.valueOf(webSearchToolProperties.getMaxResult())))
                 .maxOutput(Objects.requireNonNullElseGet(webSearchToolProperties.getMaxOutput(), commonToolProperties::getMaxOutput))
                 .timeout(Objects.requireNonNullElseGet(webSearchToolProperties.getTimeout(), commonToolProperties::getTimeout))
                 .build();
-        toolRegistry.register(toolSpec.name(), definition);
+        toolRegistry.register(name, definition);
         log.info("webSearchToolDefinition successfully registered");
         return definition;
     }

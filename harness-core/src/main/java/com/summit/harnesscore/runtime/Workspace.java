@@ -1,5 +1,7 @@
 package com.summit.harnesscore.runtime;
 
+import lombok.NonNull;
+
 import java.nio.file.Path;
 
 public interface Workspace {
@@ -43,5 +45,20 @@ public interface Workspace {
      * @throws IllegalArgumentException if the path is invalid or
      *                                  cannot be resolved
      */
-    Path resolve(String path);
+    Path resolve( String path);
+
+    /**
+     * Returns the IO / command-execution bridge for this workspace.
+     *
+     * <p>Defaults to the local-machine bridge. Workspaces backed by an
+     * isolated environment (e.g. a Docker container) override this method to
+     * return a bridge that routes file IO and command execution into that
+     * environment, so tool executors operate on the sandbox instead of the
+     * host.</p>
+     *
+     * @return the workspace bridge, never {@code null}
+     */
+    default WorkspaceBridge bridge() {
+        return LocalWorkspaceBridge.INSTANCE;
+    }
 }

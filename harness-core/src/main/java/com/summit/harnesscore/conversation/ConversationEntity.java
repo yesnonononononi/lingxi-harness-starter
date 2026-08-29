@@ -1,28 +1,32 @@
 package com.summit.harnesscore.conversation;
 
+import com.summit.harnesscore.conversation.message.Message;
+import com.summit.harnesscore.conversation.message.SystemMessageEntity;
+import com.summit.harnesscore.conversation.message.TokenUsageEntity;
 import com.summit.harnesscore.runtime.Workspace;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.model.output.TokenUsage;
 import lombok.Builder;
-
+import lombok.NonNull;
 import java.io.Serializable;
 import java.util.LinkedList;
 import java.util.List;
 @Builder
 public record ConversationEntity(
-        Serializable sessionId, List<ChatMessage> messages, TokenUsage tokenUsage, SystemMessage systemMessage, Workspace workspace
+        Serializable sessionId, List<Message> messages, TokenUsageEntity tokenUsageEntity, SystemMessageEntity SystemMessageEntity, Workspace workspace
         ) {
-    public static ConversationEntity empty(Workspace workspace,SystemMessage systemMessage,Serializable sessionId,List<ChatMessage> messages){
+    public static ConversationEntity empty(Workspace workspace,SystemMessageEntity SystemMessageEntity,Serializable sessionId,List<Message> messages){
         return ConversationEntity.builder()
                 .messages(messages)
-                .tokenUsage(new TokenUsage(0,0,0))
-                .systemMessage(systemMessage)
+                .tokenUsageEntity(TokenUsageEntity.empty())
+                .SystemMessageEntity(SystemMessageEntity)
                 .workspace(workspace)
                 .sessionId(sessionId)
                 .build();
     }
-    public static ConversationEntity empty(Workspace workspace,SystemMessage systemMessage,Serializable sessionId) {
-        return empty(workspace, systemMessage, sessionId, new LinkedList<>());
+    public static ConversationEntity empty(Workspace workspace,SystemMessageEntity SystemMessageEntity,Serializable sessionId) {
+        return empty(workspace, SystemMessageEntity, sessionId, new LinkedList<>());
+    }
+
+    public @NonNull ConversationEntity withSessionId(@NonNull Serializable sessionId) {
+        return new ConversationEntity(sessionId, messages, tokenUsageEntity, SystemMessageEntity, workspace);
     }
 }

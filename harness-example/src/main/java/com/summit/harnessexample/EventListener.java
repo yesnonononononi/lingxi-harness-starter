@@ -11,6 +11,7 @@ import com.summit.harnesscore.conversation.event.FileEditEvent;
 import com.summit.harnesscore.conversation.event.ToolCallEndEvent;
 import com.summit.harnesscore.conversation.event.ToolCallStartEvent;
 import com.summit.harnesscore.runtime.RuntimeListener;
+import com.summit.harnesscore.runtime.Workspace;
 import com.summit.harnesscore.tool.PatchManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,6 +45,7 @@ public class EventListener implements RuntimeListener {
     private final SseEventPublisher sseEventPublisher;
     private final ObjectMapper objectMapper;
     private final PatchManager patchManager;
+    private final Workspace workspace;
 
     @Override
     public void onExecutionStart(ExecutionStartEvent event) {
@@ -123,7 +125,9 @@ public class EventListener implements RuntimeListener {
 
     private void applyPatchQuietly(FileEditEvent event) {
         try {
-            patchManager.applyPatch(event.getSessionId(), (Serializable) event.getPatchId());
+            // Apply inside the workspace so patches land in the sandbox (e.g. Docker)
+            // when the workspace is not the local file system.
+            patchManager.applyPatch(event.getSessionId(), (Serializable) event.getPatchId(), workspace);
         } catch (Exception ignore) {
         }
     }

@@ -4,16 +4,14 @@ package com.summit.tools.file.edit;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.harnesscore.conversation.event.FileEditEvent;
 import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
-import com.summit.harnesscore.exception.OutWorkSpaceException;
 import com.summit.harnesscore.runtime.Workspace;
+import com.summit.harnesscore.runtime.WorkspaceBridge;
 import com.summit.harnesscore.tool.*;
 import com.summit.tools.arguments.EditFileRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 
@@ -34,10 +32,15 @@ public class EditFileToolExecutor implements ToolExecutor {
             EditFileRequest request = objectMapper.readValue(args, EditFileRequest.class);
             log.info("【ToolCall】 edit_file :{}", request.getPath());
 
-            //step1 validate file whether exist or not
-            File target = ensureFileExists(request.getPath(), toolExecution.getWorkspace());
-            //edit
-            FileEditorResult editRes = FileEditor.edit(request, target, toolExecution.getWorkspace().runtimeEnvironment().charset(), DEFAULT_AROUND_LINE);
+            Workspace workspace = toolExecution.getWorkspace();
+            WorkspaceBridge bridge = workspace.bridge();
+
+            //step1 validate file whether exist or not (inside the workspace environment)
+            Path target = ensureFileExists(request.getPath(), workspace);
+
+            //edit: all content IO goes through the bridge so it lands in the workspace environment
+            String oldContent = bridge.readString(target, workspace.runtimeEnvironment().charset());
+            FileEditorResult editRes = FileEditor.edit(request, oldContent, workspace.runtimeEnvironment().charset(), DEFAULT_AROUND_LINE);
 
             if (editRes.isSuccess()) {
                 DiffResult diffResult = doDiff(editRes.getData(), request.getPath());
@@ -45,16 +48,16 @@ public class EditFileToolExecutor implements ToolExecutor {
                         buildPatchEntity(diffResult, fileHasher.hash(editRes.getData().oldContent()), request.getPath()));
 
                 publicEvent(id, request.getPath(), editRes.getData().oldContent(), editRes.getData().newContent(), toolExecution.getSessionId());
-                return ToolExecuteResult.success(toolExecution.getId(), toolExecution.getToolDefinition().toolSpecification(),
+                return ToolExecuteResult.success(toolExecution.getId(), toolExecution.getToolDefinition(),
                         objectMapper.writeValueAsString(diffResult)
                 );
             }
 
-            return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition().toolSpecification(), editRes.getErrMsg());
+            return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition(), editRes.getErrMsg());
 
 
-        } catch (OutWorkSpaceException | IOException e) {
-            return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition().toolSpecification(), e.getMessage());
+        } catch (IOException e) {
+            return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition(), e.getMessage());
         }
 
 
@@ -85,16 +88,14 @@ public class EditFileToolExecutor implements ToolExecutor {
         return this.differ.diff(path,data.oldContent(), data.newContent());
     }
 
-    private File ensureFileExists(String path, Workspace workspace) throws IOException {
+    private Path ensureFileExists(String path, Workspace workspace) throws IOException {
+        WorkspaceBridge bridge = workspace.bridge();
         Path resolvePath = workspace.resolve(path);
         Path parent = resolvePath.getParent();
-        if (Files.notExists(parent)) {
-            Files.createDirectories(parent);
+        if (parent != null && !bridge.exists(parent)) {
+            bridge.createDirectories(parent);
         }
-        if (Files.notExists(resolvePath)) {
-            Files.createFile(resolvePath);
-        }
-
-        return resolvePath.toFile();
+        bridge.createFile(resolvePath);
+        return resolvePath;
     }
 }

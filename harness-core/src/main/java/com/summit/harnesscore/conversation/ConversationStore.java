@@ -7,17 +7,19 @@ import java.util.Collection;
 import java.util.Optional;
 
 public interface ConversationStore {
-    Serializable generateId();
 
     Optional<ConversationEntity> get(@NonNull Serializable sessionId);
 
-    Serializable save(@NonNull ConversationEntity conversationManager);
 
-    void save(@NonNull Serializable sessionId, @NonNull ConversationEntity conversationManager);
+    void save(@NonNull Serializable sessionId, @NonNull ConversationEntity conversation);
 
-    ConversationEntity remove(@NonNull Serializable sessionId);
+    default Optional<ConversationEntity> removeAndReturn(@NonNull Serializable sessionId){
+        return Optional.empty();
+    };
+
+    void remove(@NonNull Serializable sessionId);
 
     void clear();
 
-    Collection<ConversationEntity> getAll();
+    Collection<ConversationEntity> list();
 }

@@ -4,28 +4,25 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.summit.harnesscore.agent.Execution;
 import com.summit.harnesscore.compact.ContextSqueezeRequest;
 import com.summit.harnesscore.compact.ContextSummary;
+import com.summit.harnesscore.conversation.api.ChatRequestEntity;
+import com.summit.harnesscore.conversation.api.ChatResponseEntity;
 import com.summit.harnesscore.conversation.context.RuntimeContext;
 import com.summit.harnesscore.conversation.event.AgentMessageEvent;
 import com.summit.harnesscore.conversation.event.ExecutionCompleteEvent;
 import com.summit.harnesscore.conversation.event.ExecutionErrorEvent;
 import com.summit.harnesscore.conversation.event.ExecutionStartEvent;
+import com.summit.harnesscore.conversation.message.TokenUsageEntity;
 import com.summit.harnesscore.model.ModelChatCommand;
 import com.summit.harnesscore.runtime.ExecutionRuntime;
-import com.summit.harnesscore.tool.ToolDefinition;
 import com.summit.harnesscore.tool.ToolExecuteCommand;
 import com.summit.harnesscore.tool.ToolExecuteResult;
 import com.summit.harnesscore.tool.ToolResultType;
 import com.summit.runtime.model.StreamingModelResponseBehaveDecider;
-import dev.langchain4j.agent.tool.ToolExecutionRequest;
-import dev.langchain4j.model.chat.request.ChatRequest;
-import dev.langchain4j.model.chat.response.ChatResponse;
-import dev.langchain4j.model.output.TokenUsage;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.Serializable;
 import java.sql.Timestamp;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 @AllArgsConstructor
@@ -44,6 +41,7 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
         int iterations = 0;
         int maxIterations = context.getMaxIterations();
         try {
+
             while (true) {
                 // ensure interaction loop does not exceed max iterations
                 if (++iterations > maxIterations) {
@@ -62,24 +60,21 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
                 }
 
                 // get response from model
-                ChatResponse chatResponse = this.context.getInvoker().invoke(buildRequest(execution));
+                ChatResponseEntity chatResponse = this.context.getInvoker().invoke(buildRequest(execution));
 
-                log.info("【Agent】:{} thinking:{}", chatResponse.aiMessage().text(), chatResponse.aiMessage().thinking());
+                log.info("【Agent】:{} thinking:{}", chatResponse.getAiMessageEntity().text(), chatResponse.getAiMessageEntity().getThinking());
 
                 // the lifestyle of execution processing
-                context.getRuntimeEventPublisher().onAiMessage(new AgentMessageEvent(sessionId, chatResponse.aiMessage().text(), chatResponse.aiMessage().thinking(), executionId));
+                context.getRuntimeEventPublisher().onAiMessage(new AgentMessageEvent(sessionId, chatResponse.getAiMessageEntity().text(), chatResponse.getAiMessageEntity().getThinking(), executionId));
 
                 // if no tool calls, add the message to conversation and break the loop
-                List<ToolExecutionRequest> toolCalls = chatResponse.aiMessage().toolExecutionRequests();
-
-                // if no tool calls, add the message to conversation and break the loop
-                if (toolCalls.isEmpty()) {
+                if (chatResponse.getAiMessageEntity().getToolCalls() == null || chatResponse.getAiMessageEntity().getToolCalls().isEmpty()) {
                     context.getConversationManager().addMessage(sessionId,chatResponse, null);
                     break;
                 }
 
                 // execute the tools and get the tool calls
-                List<ToolExecuteResult> toolResMessages = context.getToolExecutionManager().execute(new ToolExecuteCommand(toolCalls, executionId, sessionId));
+                var toolResMessages = context.getToolExecutionManager().execute(new ToolExecuteCommand(chatResponse.getAiMessageEntity().getToolCalls(), executionId, sessionId));
 
                 // if the tool call is context compact, rebuild the context
                 ToolExecuteResult requireContextCompact = toolResMessages.stream().filter(this::isContextCompactRequest).findFirst().orElse(null);
@@ -133,12 +128,9 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
     private ModelChatCommand buildRequest(Execution execution) {
         ModelChatCommand.ModelChatCommandBuilder builder = ModelChatCommand.builder()
                 .chatRequest(
-                        ChatRequest.builder()
+                        ChatRequestEntity.builder()
                                 .messages(this.context.getConversationManager().messages(execution.getSessionId()))
-                                .toolSpecifications(this.context.getToolExecutionManager().toolRegistry()
-                                        .getTools().values().stream().map(ToolDefinition::toolSpecification)
-                                        .toList()
-                                )
+                                .tools(this.context.getToolExecutionManager().toolRegistry().getTools().values().stream().toList())
                                 .build()
                 ).thinking(execution.isThinking())
                 .streaming(execution.isStreaming());
@@ -157,14 +149,14 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
     }
 
     private ExecutionCompleteEvent.TokenInfo buildTokenInfo(Execution execution) {
-        TokenUsage tokenUsage = execution.getTokenUsage();
+        TokenUsageEntity tokenUsage = execution.getTokenUsage();
         if (tokenUsage == null) {
             return null;
         }
         return ExecutionCompleteEvent.TokenInfo.builder()
-                .inputTokenCount(tokenUsage.inputTokenCount())
-                .outputTokenCount(tokenUsage.outputTokenCount())
-                .totalTokenCount(tokenUsage.totalTokenCount())
+                .inputTokenCount(tokenUsage.getInputTokens())
+                .outputTokenCount(tokenUsage.getOutputTokens())
+                .totalTokenCount(tokenUsage.getTotalTokens())
                 .build();
     }
 }

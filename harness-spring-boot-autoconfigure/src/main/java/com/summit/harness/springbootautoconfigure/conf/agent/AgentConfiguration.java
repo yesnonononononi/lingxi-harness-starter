@@ -5,7 +5,7 @@ import com.summit.harnesscore.model.ModelInvoker;
 import com.summit.harnesscore.runtime.RuntimeFactory;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.agent.ChatAgent;
-import dev.langchain4j.model.chat.ChatModel;
+import com.summit.harnesscore.model.ChatModel;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;

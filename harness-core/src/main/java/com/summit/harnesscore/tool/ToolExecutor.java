@@ -1,8 +1,10 @@
 package com.summit.harnesscore.tool;
 
-import org.jspecify.annotations.NonNull;
+
+import lombok.NonNull;
 
 @FunctionalInterface
 public interface ToolExecutor {
-    @NonNull ToolExecuteResult execute(ToolExecution toolExecution);
+    @NonNull
+    ToolExecuteResult execute(ToolExecution toolExecution);
 }

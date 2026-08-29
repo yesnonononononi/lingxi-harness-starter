@@ -1,9 +1,9 @@
 package com.summit.harnesscore.compact;
 
-import dev.langchain4j.data.message.ChatMessage;
+import com.summit.harnesscore.conversation.message.Message;
 
 import java.util.List;
 
 public interface ContextCompacter {
-     void compact(Integer expectedTokens, Integer attemptNum, List<ChatMessage> messages);
+     void compact(Integer expectedTokens, Integer attemptNum, List<Message> messages);
 }

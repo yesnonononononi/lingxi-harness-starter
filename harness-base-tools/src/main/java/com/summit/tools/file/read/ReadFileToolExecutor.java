@@ -2,7 +2,7 @@ package com.summit.tools.file.read;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.harnesscore.runtime.Workspace;
+import com.summit.harnesscore.runtime.WorkspaceBridge;
 import com.summit.harnesscore.tool.ToolExecuteResult;
 import com.summit.harnesscore.tool.ToolExecution;
 import com.summit.harnesscore.tool.ToolExecutor;
@@ -11,11 +11,10 @@ import com.summit.tools.arguments.ReadFileRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 
-import java.io.*;
-import java.nio.file.Files;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 
 @Slf4j
@@ -33,12 +32,35 @@ public class ReadFileToolExecutor implements ToolExecutor {
 
             log.info("【ToolCall】 read_file :{}", request.getPath());
 
-            String content = FileLineReader.read(new File(request.getPath()), request.getStartLine(), request.getEndLine());
+            WorkspaceBridge bridge = toolExecution.getWorkspace().bridge();
+            Path path = Path.of(request.getPath());
+            String content = read(bridge, path,
+                    toolExecution.getWorkspace().runtimeEnvironment().charset(),
+                    request.getStartLine(), request.getEndLine());
 
-            return ToolExecuteResult.success(toolExecution.getId(), toolExecution.getToolDefinition().toolSpecification(), content);
+            return ToolExecuteResult.success(toolExecution.getId(), toolExecution.getToolDefinition(), content);
         } catch (Exception e) {
-            return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition().toolSpecification(), "tool execute failed : " + e);
+            return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition(), "tool execute failed : " + e);
         }
+    }
+
+    /**
+     * Reads the file through the workspace bridge and returns the content by
+     * line range; when both bounds are null the whole file is returned.
+     */
+    private String read(WorkspaceBridge bridge, Path path, java.nio.charset.Charset charset,
+                        Integer startLine, Integer endLine) throws IOException {
+        if (startLine == null && endLine == null) {
+            return bridge.readString(path, charset);
+        }
+        List<String> lines = bridge.readLines(path, charset);
+        int start = Objects.requireNonNullElse(startLine, 0);
+        int end = Math.min(Objects.requireNonNullElse(endLine, Integer.MAX_VALUE), lines.size() - 1);
+        List<String> result = new ArrayList<>();
+        for (int current = start; current <= end; current++) {
+            result.add(lines.get(current));
+        }
+        return String.join("\n", result);
     }
 
     private ReadFileRequest resolveArgs(ToolExecution execution) throws JsonProcessingException {

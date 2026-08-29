@@ -1,7 +1,9 @@
 package com.summit.harnesscore.model;
 
-import dev.langchain4j.model.chat.response.ChatResponse;
+
+import com.summit.harnesscore.conversation.api.ChatResponseEntity;
+
 @FunctionalInterface
 public interface ModelInvoker {
-    ChatResponse invoke(ModelChatCommand chatCommand);
+    ChatResponseEntity invoke(ModelChatCommand chatCommand);
 }

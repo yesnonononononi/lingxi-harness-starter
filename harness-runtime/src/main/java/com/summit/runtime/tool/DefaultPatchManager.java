@@ -1,7 +1,8 @@
 package com.summit.runtime.tool;
 
-import com.github.difflib.patch.Patch;
 import com.github.difflib.patch.PatchFailedException;
+import com.summit.harnesscore.runtime.Workspace;
+import com.summit.harnesscore.runtime.WorkspaceBridge;
 import com.summit.harnesscore.tool.FileHasher;
 import com.summit.harnesscore.tool.PatchEntity;
 import com.summit.harnesscore.tool.PatchManager;
@@ -86,31 +87,71 @@ public class DefaultPatchManager implements PatchManager {
 
     @Override
     public boolean applyPatch(@NonNull Serializable sessionId, @NonNull Serializable pId, Charset charset) throws IOException, PatchFailedException {
-        PatchEntity patch = this.patchStore.get(sessionId, pId)
-                .orElseThrow(() -> new IllegalArgumentException("Patch does not exist: " + pId));
-
-        Patch<String> p = patch.patch();
-        if (p == null) {
-            log.warn("Patch content is null for patch {} on file {}", pId, patch.filePath());
+        PatchEntity patch = loadApplicablePatch(sessionId, pId);
+        if (patch == null) {
             return false;
         }
-
         Path path = Path.of(patch.filePath());
         if (Files.notExists(path)) {
             throw new FileNotFoundException("File not found: " + patch.filePath());
         }
 
-        String currentContent = Files.readString(path, charset);
-        if (!Objects.equals(patch.fileContentHash(), this.fileHasher.hash(currentContent))) {
-            log.warn("File hash mismatch for patch {}, skip applying", pId);
-            return false;
-        }
-
-        List<String> contentList = new ArrayList<>(Arrays.asList(currentContent.split("\\R", -1)));
-        p.applyToExisting(contentList);
-        Files.write(path, contentList, charset);
+        List<String> lines = applyToLines(patch, Files.readString(path, charset));
+        Files.write(path, lines, charset);
         this.patchStore.removeById(sessionId, pId);
         log.info("Applied patch {} for session {} on file {}", pId, sessionId, patch.filePath());
         return true;
     }
+
+    @Override
+    public boolean applyPatch(@NonNull Serializable sessionId, @NonNull Serializable pId,
+                              @NonNull Workspace workspace) throws IOException, PatchFailedException {
+        PatchEntity patch = loadApplicablePatch(sessionId, pId);
+        if (patch == null) {
+            return false;
+        }
+
+        WorkspaceBridge bridge = workspace.bridge();
+        Path path = workspace.resolve(patch.filePath()).normalize();
+        if (!bridge.exists(path)) {
+            throw new FileNotFoundException("File not found: " + path);
+        }
+
+        Charset charset = workspace.runtimeEnvironment().charset();
+        List<String> lines = applyToLines(patch, bridge.readString(path, charset));
+        bridge.writeString(path, String.join(System.lineSeparator(), lines), charset);
+        this.patchStore.removeById(sessionId, pId);
+        log.info("Applied patch {} for session {} on file {} in workspace {}", pId, sessionId, patch.filePath(), workspace.id());
+        return true;
+    }
+
+    /**
+     * Loads the patch for the given session and checks it is applicable at all
+     * (it exists and carries patch content). Returns {@code null} when the
+     * patch has no content and should be reported as not applied.
+     */
+    private PatchEntity loadApplicablePatch(Serializable sessionId, Serializable pId) {
+        PatchEntity patch = this.patchStore.get(sessionId, pId)
+                .orElseThrow(() -> new IllegalArgumentException("Patch does not exist: " + pId));
+        if (patch.patch() == null) {
+            log.warn("Patch content is null for patch {} on file {}", pId, patch.filePath());
+            return null;
+        }
+        return patch;
+    }
+
+    /**
+     * Verifies the recorded content hash against the current file content,
+     * applies the patch and returns the resulting content as lines.
+     */
+    private List<String> applyToLines(PatchEntity patch, String currentContent) throws PatchFailedException {
+        if (!Objects.equals(patch.fileContentHash(), this.fileHasher.hash(currentContent))) {
+            throw new RuntimeException("File hash mismatch for patch " + patch.id() + ", skip applying");
+        }
+        List<String> lines = new ArrayList<>(Arrays.asList(currentContent.split("\\R", -1)));
+        patch.patch().applyToExisting(lines);
+        return lines;
+    }
+
+
 }

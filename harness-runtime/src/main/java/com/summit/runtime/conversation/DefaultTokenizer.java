@@ -1,59 +1,64 @@
 package com.summit.runtime.conversation;
 
+import com.summit.harnesscore.adapter.TokenEstimator;
 import com.summit.harnesscore.compact.Tokenizer;
-import dev.langchain4j.agent.tool.ToolExecutionRequest;
-import dev.langchain4j.data.message.*;
-import dev.langchain4j.model.TokenCountEstimator;
+import com.summit.harnesscore.conversation.message.AiMessageEntity;
+import com.summit.harnesscore.conversation.message.Message;
+import com.summit.harnesscore.conversation.message.SystemMessageEntity;
+import com.summit.harnesscore.conversation.message.ToolMessageEntity;
+import com.summit.harnesscore.conversation.message.UserMessageEntity;
 
 import java.util.List;
 
 /**
- * 默认 Tokenizer：优先使用 langchain4j 的 {@link TokenCountEstimator}（如 OpenAI BPE 编码）精确估算；
- * 未提供（自定义 Provider 无估算器）时退化为「字符数/3」的简单估算兜底。
+ * Default Tokenizer: prefers the injected {@link TokenEstimator} (provided by an adapter module,
+ * e.g. OpenAI BPE based) for accurate estimation; falls back to a simple chars/3 estimate when no estimator is available.
  */
 public class DefaultTokenizer implements Tokenizer {
 
-    private final TokenCountEstimator tokenCountEstimator;
+    private final TokenEstimator tokenEstimator;
 
     public DefaultTokenizer() {
         this(null);
     }
 
-    public DefaultTokenizer(TokenCountEstimator tokenCountEstimator) {
-        this.tokenCountEstimator = tokenCountEstimator;
+    public DefaultTokenizer(TokenEstimator tokenEstimator) {
+        this.tokenEstimator = tokenEstimator;
     }
 
     @Override
-    public int count(List<ChatMessage> messages) {
+    public int count(List<Message> messages) {
         if (messages == null || messages.isEmpty()) {
             return 0;
         }
-        if (tokenCountEstimator != null) {
-            return tokenCountEstimator.estimateTokenCountInMessages(messages);
+        if (tokenEstimator != null) {
+            return tokenEstimator.estimateMessages(messages);
         }
         int res = 0;
-        for (ChatMessage message : messages) {
+        for (Message message : messages) {
             res += estimateTokenCountFallback(message);
         }
         return res;
     }
 
-    private int estimateTokenCountFallback(ChatMessage message) {
-        if (message instanceof SystemMessage systemMessage) {
+    private int estimateTokenCountFallback(Message message) {
+        if (message instanceof SystemMessageEntity systemMessage) {
             return systemMessage.text().length() / 3;
-        } else if (message instanceof UserMessage userMessage) {
-            return userMessage.singleText().length() / 3;
-        } else if (message instanceof AiMessage aiMessage) {
+        } else if (message instanceof UserMessageEntity userMessage) {
+            return userMessage.text().length() / 3;
+        } else if (message instanceof AiMessageEntity aiMessage) {
             int res = 0;
-            for (ToolExecutionRequest toolExecutionRequest : aiMessage.toolExecutionRequests()) {
-                res += (toolExecutionRequest.arguments() == null ? 0 : toolExecutionRequest.arguments().length()) / 3;
-                res += (toolExecutionRequest.name() == null ? 0 : toolExecutionRequest.name().length()) / 3;
+            if (aiMessage.getToolCalls() != null) {
+                for (var toolCallRequest : aiMessage.getToolCalls()) {
+                    res += (toolCallRequest.arguments() == null ? 0 : toolCallRequest.arguments().length()) / 3;
+                    res += (toolCallRequest.name() == null ? 0 : toolCallRequest.name().length()) / 3;
+                }
             }
             res += (aiMessage.text() == null ? 0 : aiMessage.text().length()) / 3;
-            res += (aiMessage.thinking() == null ? 0 : aiMessage.thinking().length()) / 3;
+            res += (aiMessage.getThinking() == null ? 0 : aiMessage.getThinking().length()) / 3;
             return res;
-        } else if (message instanceof ToolExecutionResultMessage toolExecutionResultMessage) {
-            return toolExecutionResultMessage.text().length() / 3;
+        } else if (message instanceof ToolMessageEntity toolMessage) {
+            return toolMessage.text().length() / 3;
         }
         return 0;
     }
@@ -64,8 +69,8 @@ public class DefaultTokenizer implements Tokenizer {
             return output;
         }
 
-        int totalTokens = tokenCountEstimator != null
-                ? tokenCountEstimator.estimateTokenCountInText(output)
+        int totalTokens = tokenEstimator != null
+                ? tokenEstimator.estimateText(output)
                 : output.length() / 3;
         if (totalTokens <= maxOutput) {
             return output;

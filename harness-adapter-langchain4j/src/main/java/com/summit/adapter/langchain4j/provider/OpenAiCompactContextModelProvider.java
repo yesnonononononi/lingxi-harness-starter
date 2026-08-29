@@ -1,19 +1,20 @@
-package com.summit.runtime.provider;
+package com.summit.adapter.langchain4j.provider;
 
-import com.summit.harnesscore.model.ChatModelProvider;
+import com.summit.adapter.langchain4j.model.ChatModelAdapter;
+import com.summit.harnesscore.model.CompactContextModelProvider;
 import com.summit.harnesscore.model.ModelConfig;
-import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 
-public class DefaultChatModelProvider implements ChatModelProvider {
+/** Model provider dedicated to context compaction (OpenAI protocol, no thinking), config prefix {@code lingxi.agent.model.conf.compact}. */
+public class OpenAiCompactContextModelProvider implements CompactContextModelProvider {
     @Override
     public String name() {
-        return "default";
+        return "default-compact";
     }
 
     @Override
-    public ChatModel create(ModelConfig config) {
-        return OpenAiChatModel.builder()
+    public ChatModelAdapter create(ModelConfig config) {
+        return new ChatModelAdapter(OpenAiChatModel.builder()
                 .baseUrl(config.getBaseUrl())
                 .apiKey(config.getApiKey())
                 .sendThinking(config.isSendThinking())
@@ -22,6 +23,6 @@ public class DefaultChatModelProvider implements ChatModelProvider {
                 .reasoningEffort(config.getReasoningEffort())
                 .modelName(config.getModelName())
                 .timeout(config.getTimeout())
-                .build();
+                .build());
     }
 }

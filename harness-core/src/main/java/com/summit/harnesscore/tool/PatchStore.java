@@ -11,7 +11,7 @@ public interface PatchStore {
     void put(@NonNull Serializable sessionId, @NonNull PatchEntity patch);
     void put(@NonNull PatchEntity patch);
 
-    Optional<PatchEntity> get(@org.jspecify.annotations.NonNull Serializable sessionId, @org.jspecify.annotations.NonNull Serializable id);
+    Optional<PatchEntity> get(@NonNull Serializable sessionId, @NonNull Serializable id);
 
     void removeBySessionId(@NonNull Serializable sessionId);
     boolean removeById(@NonNull Serializable sessionId, @NonNull Serializable patchId);

@@ -1,7 +1,7 @@
 package com.summit.harnesscore.agent;
 
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.model.output.TokenUsage;
+import com.summit.harnesscore.conversation.message.Message;
+import com.summit.harnesscore.conversation.message.TokenUsageEntity;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NonNull;
@@ -54,11 +54,11 @@ public class Execution {
     /**
      * The messages for the execution.
      */
-    private List<ChatMessage> messages;
+    private List<Message> messages;
     /**
      * The token usage for the execution.
      */
-    private TokenUsage tokenUsage;
+    private TokenUsageEntity tokenUsage;
 
     private String errorMessage;
     /**
@@ -95,7 +95,4 @@ public class Execution {
     }
 
 
-    public void addMessage(ChatMessage message) {
-        this.messages.add(message);
-    }
 }

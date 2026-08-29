@@ -34,6 +34,7 @@
 
     <modules>
         <module>harness-core</module>
+        <module>harness-adapter-langchain4j</module>
         <module>lingxi-harness-spring-boot-starter</module>
         <module>harness-spring-boot-autoconfigure</module>
         <module>harness-example</module>
@@ -68,6 +69,11 @@
             <dependency>
                 <groupId>io.github.yesnonononononi</groupId>
                 <artifactId>harness-core</artifactId>
+                <version>${lingxi-harness.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.yesnonononononi</groupId>
+                <artifactId>harness-adapter-langchain4j</artifactId>
                 <version>${lingxi-harness.version}</version>
             </dependency>
             <dependency>
@@ -117,6 +123,11 @@
                 <groupId>io.github.java-diff-utils</groupId>
                 <artifactId>java-diff-utils</artifactId>
                 <version>${java-diff-utils.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jspecify</groupId>
+                <artifactId>jspecify</artifactId>
+                <version>1.0.0</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

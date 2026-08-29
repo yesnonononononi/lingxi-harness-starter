@@ -86,4 +86,20 @@ public interface PatchManager {
      * @throws PatchFailedException if the patch cannot be applied to the file content
      */
     boolean applyPatch(@NonNull Serializable sessionId, @NonNull Serializable pId, Charset charset) throws IOException, PatchFailedException;
+
+    /**
+     * Apply a patch to its target file inside the given workspace, using the
+     * workspace's own {@link com.summit.harnesscore.runtime.WorkspaceBridge}
+     * for file IO and resolving the stored (relative) path against the
+     * workspace boundary. Use this overload for sandbox-backed workspaces.
+     *
+     * @param sessionId session id
+     * @param pId       patch id
+     * @param workspace workspace to resolve and write the file in
+     * @return {@code true} if the patch was applied, {@code false} on hash mismatch
+     * @throws IOException          if the file cannot be read or written
+     * @throws PatchFailedException if the patch cannot be applied to the file content
+     */
+    boolean applyPatch(@NonNull Serializable sessionId, @NonNull Serializable pId,
+                       @NonNull com.summit.harnesscore.runtime.Workspace workspace) throws IOException, PatchFailedException;
 }

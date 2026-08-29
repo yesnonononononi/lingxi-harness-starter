@@ -2,7 +2,7 @@ package com.summit.tools.web;
 
 
 import com.summit.tools.arguments.WebSearchArguments;
-import dev.langchain4j.internal.Json;
+
 import lombok.AllArgsConstructor;
 
 import java.io.IOException;
@@ -24,7 +24,7 @@ public class WebSearchEngine {
         if(maxRes != null && maxRes < Integer.parseInt(maxResults)) {
             arguments.setMaxResults(String.valueOf(maxRes));
         }
-        return this.search(Json.toJson(arguments));
+        return this.search(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(arguments));
     }
     public String search(String json) throws IOException, InterruptedException {
         HttpRequest request = HttpRequest.newBuilder()

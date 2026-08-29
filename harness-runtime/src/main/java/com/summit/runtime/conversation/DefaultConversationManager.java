@@ -6,13 +6,16 @@ import com.summit.harnesscore.compact.ContextSummary;
 import com.summit.harnesscore.conversation.ConversationEntity;
 import com.summit.harnesscore.conversation.ConversationManager;
 import com.summit.harnesscore.conversation.ConversationStore;
+import com.summit.harnesscore.conversation.api.ChatResponseEntity;
 import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
+import com.summit.harnesscore.conversation.message.AiMessageEntity;
+import com.summit.harnesscore.conversation.message.Message;
+import com.summit.harnesscore.conversation.message.SystemMessageEntity;
+import com.summit.harnesscore.conversation.message.TokenUsageEntity;
+import com.summit.harnesscore.conversation.message.ToolMessageEntity;
+import com.summit.harnesscore.conversation.message.UserMessageEntity;
 import com.summit.harnesscore.runtime.Workspace;
 import com.summit.harnesscore.tool.ToolExecuteResult;
-import dev.langchain4j.agent.tool.ToolSpecification;
-import dev.langchain4j.data.message.*;
-import dev.langchain4j.model.chat.response.ChatResponse;
-import dev.langchain4j.model.output.TokenUsage;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -35,14 +38,14 @@ public class DefaultConversationManager implements ConversationManager {
     @Override
     public void startConversation(AgentRequest agentRequest) {
         Serializable sessionId = agentRequest.sessionIdOrDefault();
-        UserMessage userMessage = UserMessage.from(agentRequest.getInput());
+        UserMessageEntity userMessage = UserMessageEntity.from(agentRequest.getInput());
         Optional<ConversationEntity> existing = this.conversationStore.get(sessionId);
         if (existing.isPresent()) {
             ConversationEntity conversation = existing.get();
-            List<ChatMessage> messages = conversation.messages();
-            ChatMessage last = messages.isEmpty() ? null : messages.getLast();
+            List<Message> messages = conversation.messages();
+            Message last = messages.isEmpty() ? null : messages.getLast();
             // Idempotent protection: When the last execution fails and is retried, the last message may already be the current input, avoiding duplicate appending
-            if (last == null || !last.equals(userMessage)) {
+            if (last == null || !last.text().equals(userMessage.text())) {
                 messages.add(userMessage);
                 this.conversationStore.save(sessionId, conversation);
             }
@@ -50,20 +53,22 @@ public class DefaultConversationManager implements ConversationManager {
         }
         // New session: create system + this input
         String systemPrompt = getSystemMessage(agentRequest.getSystemPrompt(), agentRequest.getWorkspace());
-        SystemMessage systemMessage = SystemMessage.from(systemPrompt);
-        LinkedList<ChatMessage> messages = new LinkedList<>(List.of(systemMessage, userMessage));
+        SystemMessageEntity systemMessage = SystemMessageEntity.builder().text(systemPrompt).build();
+        LinkedList<Message> messages = new LinkedList<>(List.of(systemMessage, userMessage));
         ConversationEntity conversation = ConversationEntity.empty(agentRequest.getWorkspace(), systemMessage, sessionId, messages);
         this.conversationStore.save(sessionId, conversation);
     }
 
     @Override
-    public void addMessage(Serializable sessionId, ChatResponse chatResponse, @Nullable List<ToolExecuteResult> toolExecutionResultMessage) {
-        AiMessage aiMessage = chatResponse.aiMessage();
+    public void addMessage(Serializable sessionId, ChatResponseEntity chatResponse, @Nullable List<ToolExecuteResult> toolExecutionResultMessage) {
+        AiMessageEntity aiMessage = chatResponse.getAiMessageEntity();
         ConversationEntity conversation = getConversationEntity(sessionId);
         conversation.messages().add(aiMessage);
-        conversation.tokenUsage().add(chatResponse.tokenUsage());
+        conversation.tokenUsageEntity().add(chatResponse.getTokenUsage());
 
-        addToolMessages(toolExecutionResultMessage,conversation);
+        addToolMessages(toolExecutionResultMessage, conversation);
+
+        this.conversationStore.save(sessionId, conversation);
     }
 
     @Override
@@ -73,19 +78,20 @@ public class DefaultConversationManager implements ConversationManager {
     }
 
     @Override
-    public List<ChatMessage> messages(Serializable sessionId) {
+    public List<Message> messages(Serializable sessionId) {
         return Collections.unmodifiableList(getConversationEntity(sessionId).messages());
     }
 
     @Override
-    public TokenUsage tokenUsage(Serializable sessionId) {
-        return this.conversationStore.get(sessionId).orElseThrow().tokenUsage();
+    public TokenUsageEntity tokenUsage(Serializable sessionId) {
+        return this.conversationStore.get(sessionId).orElseThrow().tokenUsageEntity();
     }
 
     @Override
     public void squeezeContext(Integer expectedTokens, Integer attemptNum, Serializable sessionId) {
         ConversationEntity conversation = getConversationEntity(sessionId);
         this.contextCompacter.compact(expectedTokens, attemptNum, conversation.messages());
+        this.conversationStore.save(sessionId, conversation);
     }
 
     @Override
@@ -95,10 +101,10 @@ public class DefaultConversationManager implements ConversationManager {
         String summary = contextSummary.getSummary();
         try {
             log.info("【context-rebuild】 rebuilding context with summary: {}", summary);
-            SystemMessage systemMessage = conversation.systemMessage();
-            List<ChatMessage> latestToolMessageAndAiMessage = findLatestInteraction(conversation);
+            SystemMessageEntity systemMessage = conversation.SystemMessageEntity();
+            List<Message> latestToolMessageAndAiMessage = findLatestInteraction(conversation);
             conversation.messages().clear();
-           conversation.messages().addAll(List.of(systemMessage, SystemMessage.from(
+           conversation.messages().addAll(List.of(systemMessage, SystemMessageEntity.builder().text(
                     String.format("""
                                     The compact_context tool has been executed successfully, and the conversation history has been compressed into the following summary:
                                     goal: \n
@@ -119,8 +125,9 @@ public class DefaultConversationManager implements ConversationManager {
                             contextSummary.getPending(),
                             contextSummary.getState()
                     )
-            )));
+            ).build()));
             conversation.messages().addAll(latestToolMessageAndAiMessage);
+            this.conversationStore.save(sessionId, conversation);
             log.info("【context-rebuild】successfully rebuild context with summary: {}", summary);
         } catch (Exception e) {
             log.error("【context-rebuild】 failed to rebuild context with summary: {}", summary, e);
@@ -134,36 +141,35 @@ public class DefaultConversationManager implements ConversationManager {
         }
 
         for (ToolExecuteResult result : results) {
-            ToolSpecification specification = result.getToolSpecification();
+            var toolDefinition = result.getToolSpecification();
 
-            ToolExecutionResultMessage message =
-                    ToolExecutionResultMessage.toolExecutionResultMessage(
-                            result.getId(),
-                            specification == null
-                                    ? "unknown tool"
-                                    : specification.name(),
-                            result.getToolOutput()
-                    );
+            ToolMessageEntity message = ToolMessageEntity.builder()
+                    .id(result.getId())
+                    .name(toolDefinition == null
+                            ? "unknown tool"
+                            : toolDefinition.name())
+                    .text(result.getToolOutput())
+                    .build();
 
             conversation.messages().add(message);
         }
     }
 
 
-    private List<ChatMessage> findLatestInteraction(ConversationEntity conversation) {
+    private List<Message> findLatestInteraction(ConversationEntity conversation) {
 
-        List<ChatMessage> result = new ArrayList<>();
+        List<Message> result = new ArrayList<>();
 
         for (int i = conversation.messages().size() - 1; i >= 0; i--) {
 
-            ChatMessage message = conversation.messages().get(i);
+            Message message = conversation.messages().get(i);
 
-            if (message instanceof ToolExecutionResultMessage) {
+            if (message instanceof ToolMessageEntity) {
                 result.addFirst(message);
                 continue;
             }
 
-            if (message instanceof AiMessage) {
+            if (message instanceof AiMessageEntity) {
                 result.addFirst(message);
                 break;
             }

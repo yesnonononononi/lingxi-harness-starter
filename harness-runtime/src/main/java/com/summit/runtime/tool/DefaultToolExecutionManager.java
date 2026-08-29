@@ -1,12 +1,12 @@
 package com.summit.runtime.tool;
 
+import com.summit.harnesscore.conversation.api.ToolCallRequest;
 import com.summit.harnesscore.conversation.event.ToolCallEndEvent;
 import com.summit.harnesscore.conversation.event.ToolCallStartEvent;
 import com.summit.harnesscore.interceptor.InterceptorProcessor;
 import com.summit.harnesscore.interceptor.InvocationContext;
 import com.summit.harnesscore.tool.*;
 import com.summit.runtime.configs.CommonToolConfig;
-import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -43,15 +43,15 @@ public class DefaultToolExecutionManager implements ToolExecutionManager {
                         }
                         ToolExecuteResult result = this.executeTool(toolDef, createToolExecution(request, toolDef, toolExecuteCommand.sessionId()));
 
-                        this.toolExecutionContext.runtimeEventPublisher().onToolCallOutput(new ToolCallEndEvent(toolExecuteCommand.executionId(),toolDef.toolSpecification().name(), request.arguments(),toolExecuteCommand.sessionId() ,formatEventToolOutput(result.getToolOutput())));
+                        this.toolExecutionContext.runtimeEventPublisher().onToolCallOutput(new ToolCallEndEvent(toolExecuteCommand.executionId(),toolDef.name(), request.arguments(),toolExecuteCommand.sessionId() ,formatEventToolOutput(result.getToolOutput())));
 
                         return result;
 
                     } catch (Throwable e) {
                         // keep the tool name in the error result so the model can tell which tool failed
                         ToolDefinition<?> toolDef = this.toolExecutionContext.toolRegistry().getTool(request.name());
-                        this.toolExecutionContext.runtimeEventPublisher().onToolCallOutput(new ToolCallEndEvent(toolExecuteCommand.executionId(), toolDef.toolSpecification().name(), request.arguments(),toolExecuteCommand.sessionId(), "Tool execution error" + e.getMessage()));
-                        return ToolExecuteResult.err(request.id(), toolDef.toolSpecification(), "Tool execution error" + e.getMessage());
+                        this.toolExecutionContext.runtimeEventPublisher().onToolCallOutput(new ToolCallEndEvent(toolExecuteCommand.executionId(), toolDef == null ? request.name() : toolDef.name(), request.arguments(),toolExecuteCommand.sessionId(), "Tool execution error" + e.getMessage()));
+                        return ToolExecuteResult.err(request.id(), toolDef, "Tool execution error" + e.getMessage());
                     }
                 })
 
@@ -64,7 +64,7 @@ public class DefaultToolExecutionManager implements ToolExecutionManager {
         return this.toolExecutionContext.toolRegistry();
     }
 
-    private ToolExecution createToolExecution(@NonNull ToolExecutionRequest request, ToolDefinition<?> tool, Serializable sessionId) {
+    private ToolExecution createToolExecution(@NonNull ToolCallRequest request, ToolDefinition<?> tool, Serializable sessionId) {
         return ToolExecution.builder()
                 .id(request.id())
                 .toolDefinition(tool)
@@ -108,8 +108,8 @@ public class DefaultToolExecutionManager implements ToolExecutionManager {
             return future.get(timeoutSeconds, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             log.warn("tool [{}] execution timed out after {}s, returning error to model",
-                    toolDefinition.toolSpecification().name(), timeoutSeconds);
-            return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition().toolSpecification(),
+                    toolDefinition.name(), timeoutSeconds);
+            return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition(),
                     "tool execution timeout after " + timeoutSeconds + "s");
         }
     }

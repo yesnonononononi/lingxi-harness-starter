@@ -6,6 +6,13 @@ spring:
 
 lingxi:
   agent:
+    # agent 工作环境: local(默认,宿主机) 或 docker(沙箱容器)
+    # 选择 docker 时工具的读写/命令全部通过 docker exec 进入容器执行
+    workspace: local
+    # workspace: docker 时生效
+    workspace-docker:
+      container-id: my-agent-container
+      workspace-root: /workspace
     runtime:
       tool:
         common:
