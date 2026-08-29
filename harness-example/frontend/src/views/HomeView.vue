@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { getUser, removeToken } from '../utils/auth'
 import request from '../utils/request'
@@ -26,10 +26,16 @@ const sessions = ref([])
 const currentSessionId = ref('')
 const currentSessionName = ref('')
 const showSessionRename = ref(false)
+const showSessions = ref(true)
 const renameInput = ref('')
 // 流式打字机期间用纯文本渲染，停顿后切换到 Markdown，避免每个 chunk 都重解析导致卡顿
 let mdSettleTimer = null
 const MD_SETTLE_MS = 350
+
+// 是否已有真正的对话内容（系统提示类消息不计入，避免刚连接就挤掉居中欢迎页）
+const hasChat = computed(() =>
+  events.value.some((e) => !['SYS', 'RAW', 'ERROR'].includes(e.type))
+)
 
 const eventTypeLabels = {
   SYS: '系统',
@@ -129,6 +135,11 @@ function toggleTool(item) {
   item.open = !item.open
 }
 
+// thinking 卡片默认收起，点击头部展开/收起（与工具卡片交互一致）
+function toggleThinking(item) {
+  item.thinkingOpen = !item.thinkingOpen
+}
+
 function isReadTool(item) {
   return (item.toolName || '').toLowerCase().includes('read')
 }
@@ -189,7 +200,7 @@ function connectEvents() {
         // (typewriter effect); create the bubble on first chunk if it does not exist yet
         let target = findLastAgentMessage(evt.executionId)
         if (!target) {
-          appendLog({ time: now(), type: 'AGENT_MESSAGE', executionId: evt.executionId || '', text: '', thinking: '', streaming: true })
+          appendLog({ time: now(), type: 'AGENT_MESSAGE', executionId: evt.executionId || '', text: '', thinking: '', streaming: true, thinkingOpen: false })
           target = findLastAgentMessage(evt.executionId)
         }
         const chunk = evt.data?.text || ''
@@ -198,6 +209,15 @@ function connectEvents() {
         target.streaming = true
         scheduleMdSettle()
         return
+      }
+      if (evt.type === 'AGENT_MESSAGE') {
+        // 流式模式下，最终全量消息的文本已经通过 PARTIAL_TEXT 累积到当前气泡里，
+        // 直接把气泡收尾即可；否则会额外多出一段重复的末尾消息
+        const inflight = findLastAgentMessage(evt.executionId)
+        if (inflight && inflight.streaming) {
+          inflight.streaming = false
+          return
+        }
       }
       if (evt.type === 'EXECUTION_COMPLETED' || evt.type === 'EXECUTION_FAILED') {
         // a round of execution is done: immediately settle any in-flight markdown
@@ -287,32 +307,17 @@ async function sendMessage() {
     if (currentSessionId.value) body.sessionId = currentSessionId.value
     if (currentSessionName.value) body.sessionName = currentSessionName.value
     const data = await request.post('/agent/chat', body)
-    // 后端分配/确认 sessionId，同步到本地会话列表
+    // 后端分配/确认 sessionId；会话列表以 conversation store 为准，延迟刷新
     if (data?.sessionId) {
-      const newId = data.sessionId
-      const isNewSession = !currentSessionId.value || currentSessionId.value !== newId
-      currentSessionId.value = newId
+      currentSessionId.value = data.sessionId
       currentSessionName.value = data.sessionName || currentSessionName.value || '新会话'
-      if (isNewSession) {
-        sessions.value.push({ sessionId: newId, sessionName: currentSessionName.value })
-      } else {
-        upsertSession(newId, data.sessionName)
-      }
+      loadSessions()
     }
     appendLog({ time: now(), type: 'SYS', text: `任务已提交：${data?.message || 'ok'}` })
   } catch (e) {
     appendLog({ time: now(), type: 'ERROR', text: `发送失败：${e?.message || e}` })
   } finally {
     sending.value = false
-  }
-}
-
-function upsertSession(id, name) {
-  const found = sessions.value.find((s) => s.sessionId === id)
-  if (found) {
-    if (name) found.sessionName = name
-  } else {
-    sessions.value.push({ sessionId: id, sessionName: name || '新会话' })
   }
 }
 
@@ -364,7 +369,7 @@ async function saveRename() {
       sessionName: name,
     })
     currentSessionName.value = data?.sessionName || name
-    upsertSession(currentSessionId.value, currentSessionName.value)
+    loadSessions()
     appendLog({ time: now(), type: 'SYS', text: `会话已重命名为：${currentSessionName.value}` })
   } catch (e) {
     appendLog({ time: now(), type: 'ERROR', text: `重命名失败：${e?.message || e}` })
@@ -378,44 +383,6 @@ function handleLogout() {
   router.push('/login')
 }
 
-// ====== 导入代码 ======
-const showImportModal = ref(false)
-const importPath = ref('')
-const importCode = ref('')
-const importDesc = ref('')
-
-function openImport() {
-  showImportModal.value = true
-}
-
-function closeImport() {
-  showImportModal.value = false
-}
-
-// 表单提交：把代码组装成一条消息交给 Agent，由 Agent 写入项目文件
-async function submitImport() {
-  const code = importCode.value.trim()
-  if (!code) return
-
-  const path = importPath.value.trim()
-  const desc = importDesc.value.trim()
-  const lines = ['请将以下代码添加到项目中。']
-  if (desc) lines.push(`说明：${desc}`)
-  if (path) lines.push(`文件路径：${path}`)
-  lines.push('代码内容：', '```', code, '```')
-
-  input.value = lines.join('\n')
-  importPath.value = ''
-  importCode.value = ''
-  importDesc.value = ''
-  showImportModal.value = false
-  await sendMessage()
-}
-
-// 弹窗打开时支持按 Esc 关闭
-function onKeydown(e) {
-  if (e.key === 'Escape' && showImportModal.value) closeImport()
-}
 
 // ====== 工作目录 ======
 async function loadWorkdir() {
@@ -456,12 +423,10 @@ onMounted(() => {
   connectEvents()
   loadWorkdir()
   loadSessions()
-  window.addEventListener('keydown', onKeydown)
 })
 
 onBeforeUnmount(() => {
   if (mdSettleTimer) clearTimeout(mdSettleTimer)
-  window.removeEventListener('keydown', onKeydown)
   if (es) {
     es.close()
   }
@@ -484,48 +449,37 @@ onBeforeUnmount(() => {
         <a class="tab" href="/login">登录</a>
       </nav>
       <div class="user-area">
+        <button class="sessions-toggle" :class="{ active: showSessions }" @click="showSessions = !showSessions">
+          ☰ 会话（{{ sessions.length }}）
+        </button>
         <span class="ws-badge" :class="{ online: sseStatus === '已连接' }">{{ sseStatus }}</span>
         <span class="name">你好，{{ user.name || '访客' }}</span>
-        <button class="import-btn" @click="openImport">＋ 导入代码</button>
         <button class="logout" @click="handleLogout">退出登录</button>
       </div>
     </header>
 
-    <section class="hero-banner" id="features">
-      <div class="hero-copy">
-        <div class="pill">✨ 灵犀官网主页 · 简洁 / 高级 / 现代</div>
-        <h1>构建更聪明的灵犀协作体验</h1>
-        <p>灵犀（LingXi）是面向开发者与团队协作的智能能力平台，支持对话式任务编排、实时事件流转与快速接入，让每一次交互都更高效、更顺滑。</p>
+    <!-- 会话管理面板：顶部栏下方弹出，纵向列表 -->
+    <div v-if="showSessions" class="session-panel">
+      <button class="new-session-btn" @click="newSession">＋ 新建会话</button>
+      <div class="session-list">
+        <div
+          v-for="s in sessions"
+          :key="s.sessionId"
+          class="session-item"
+          :class="{ active: s.sessionId === currentSessionId }"
+          @click="switchSession(s)"
+        >
+          <span class="session-name">{{ s.sessionName || '新会话' }}</span>
+          <span class="session-id">{{ s.sessionId.slice(0, 8) }}</span>
+        </div>
+        <div v-if="sessions.length === 0" class="session-empty">暂无会话，点击「新建会话」开始</div>
       </div>
-      <div class="hero-card">
-        <div class="hero-metric"><strong>实时</strong><span>SSE 事件流</span></div>
-        <div class="hero-metric"><strong>高效</strong><span>异步执行与回调</span></div>
-        <div class="hero-metric"><strong>优雅</strong><span>统一视觉与体验</span></div>
-      </div>
-    </section>
+    </div>
 
     <main class="chat-wrap">
       <div class="layout">
-        <!-- 会话侧边栏（临时 Map 存储） -->
-        <aside class="sidebar">
-          <button class="new-session-btn" @click="newSession">＋ 新建会话</button>
-          <div class="session-list">
-            <div
-              v-for="s in sessions"
-              :key="s.sessionId"
-              class="session-item"
-              :class="{ active: s.sessionId === currentSessionId }"
-              @click="switchSession(s)"
-            >
-              <span class="session-name">{{ s.sessionName || '新会话' }}</span>
-              <span class="session-id">{{ s.sessionId.slice(0, 8) }}</span>
-            </div>
-            <div v-if="sessions.length === 0" class="session-empty">暂无会话<br />点击「新建会话」开始</div>
-          </div>
-        </aside>
-
         <!-- 聊天面板 -->
-        <div class="chat-panel">
+        <div class="chat-panel" :class="{ empty: !hasChat }">
       <!-- 工作目录栏 -->
       <div class="workdir-bar">
         <span class="workdir-label">工作目录</span>
@@ -559,14 +513,17 @@ onBeforeUnmount(() => {
         </template>
       </div>
 
-      <!-- 消息列表 -->
-      <div ref="logRef" class="messages">
-        <div v-if="events.length === 0" class="empty-state">
+      <!-- 无消息时：欢迎语居中展示，输入框随之居于页面中心 -->
+      <div v-if="!hasChat" class="empty-hero">
+        <div class="empty-state">
           <div class="empty-icon">Hi</div>
           <h2>Nice to meet you!</h2>
           <p>输入一条指令，Agent 将通过工具调用自动完成任务</p>
         </div>
+      </div>
 
+      <!-- 消息列表 -->
+      <div v-show="hasChat" ref="logRef" class="messages">
         <template v-for="(item, index) in events" :key="index">
           <!-- 用户消息：右侧蓝色气泡 -->
           <div v-if="item.type === 'USER'" class="row row-user">
@@ -581,11 +538,23 @@ onBeforeUnmount(() => {
             <div class="avatar avatar-ai">L</div>
             <div class="ai-body">
               <div class="ai-name">LingXi</div>
-              <div v-if="item.thinking" class="bubble bubble-ai thinking-content">
-                <div class="thinking-label">Thinking</div>
-                <div class="thinking-text">
-                  <pre v-if="item.streaming" class="raw-text">{{ item.thinking }}</pre>
-                  <MarkdownContent v-else :text="item.thinking" />
+              <div v-if="item.thinking" class="tool-event thinking-event">
+                <div class="tool-card thinking-card" :class="{ open: item.thinkingOpen }">
+                  <button class="tool-head" @click="toggleThinking(item)">
+                    <span class="tool-icon" aria-hidden="true">💭</span>
+                    <span class="tool-name">Thinking</span>
+                    <span class="tool-status" :class="item.streaming ? 'running' : 'done'">
+                      <template v-if="item.streaming"><i></i><i></i><i></i><em>思考中</em></template>
+                      <template v-else>✓ 思考完成</template>
+                    </span>
+                    <span class="tool-chevron" :class="{ rotated: item.thinkingOpen }" aria-hidden="true">▾</span>
+                  </button>
+                  <div class="tool-body">
+                    <div class="tool-body-inner">
+                      <pre v-if="item.streaming" class="raw-text thinking-text">{{ item.thinking }}</pre>
+                      <MarkdownContent v-else class="thinking-text" :text="item.thinking" />
+                    </div>
+                  </div>
                 </div>
               </div>
               <div v-if="item.text" class="bubble bubble-ai">
@@ -712,33 +681,6 @@ onBeforeUnmount(() => {
     </main>
   </div>
 
-  <!-- 导入代码弹窗：点击「导入代码」按钮弹出 -->
-  <div v-if="showImportModal" class="modal-mask" @click.self="closeImport">
-    <div class="modal" role="dialog" aria-modal="true" aria-label="添加代码">
-      <div class="modal-header">
-        <h3>添加代码</h3>
-        <button class="modal-close" @click="closeImport" aria-label="关闭">✕</button>
-      </div>
-      <div class="modal-body">
-        <label class="field">
-          <span class="field-label">文件路径 <em>（可选，如 src/main/java/Hello.java）</em></span>
-          <input v-model="importPath" class="field-input" placeholder="留空则交由 Agent 判断保存位置" @keydown.esc="closeImport" />
-        </label>
-        <label class="field">
-          <span class="field-label">代码内容 <em>（必填）</em></span>
-          <textarea v-model="importCode" class="field-textarea" rows="10" spellcheck="false" placeholder="在此粘贴或输入要添加的代码..."></textarea>
-        </label>
-        <label class="field">
-          <span class="field-label">说明 <em>（可选）</em></span>
-          <input v-model="importDesc" class="field-input" placeholder="例如：实现登录接口" />
-        </label>
-      </div>
-      <div class="modal-footer">
-        <button class="btn-cancel" @click="closeImport">取消</button>
-        <button class="btn-submit" :disabled="!importCode.trim()" @click="submitImport">导入</button>
-      </div>
-    </div>
-  </div>
 </template>
 
 <style scoped>
@@ -828,65 +770,6 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
-/* ====== 官网头图 / Hero ====== */
-.hero-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 40px;
-  padding: 44px 24px;
-  max-width: 1100px;
-  margin: 0 auto;
-  border-bottom: 1px solid #f0f1f5;
-}
-.hero-copy { flex: 1; min-width: 0; }
-.pill {
-  display: inline-flex;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: #eef2ff;
-  color: #4d6bfe;
-  font-size: 12px;
-  font-weight: 600;
-}
-.hero-copy h1 {
-  margin: 16px 0 12px;
-  font-size: 34px;
-  line-height: 1.2;
-  color: #1f2232;
-}
-.hero-copy p {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.75;
-  color: #55586b;
-  max-width: 520px;
-}
-.hero-card {
-  flex-shrink: 0;
-  width: 240px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.hero-metric {
-  padding: 14px 16px;
-  border-radius: 12px;
-  background: #f7f8fa;
-  border: 1px solid #f0f1f5;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.hero-metric strong {
-  font-size: 18px;
-  color: #262832;
-}
-.hero-metric span {
-  font-size: 12px;
-  color: #8a8ca0;
-}
-
 /* ====== 主布局 ====== */
 .chat-wrap {
   flex: 1;
@@ -895,22 +778,40 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow: hidden;
 }
+.home { position: relative; }
 .layout { flex: 1; display: flex; min-height: 0; }
 
-/* ====== 会话侧边栏 ====== */
-.sidebar {
-  width: 230px;
-  flex-shrink: 0;
+/* ====== 会话管理面板（顶部栏下方弹出，纵向列表） ====== */
+.session-panel {
+  position: absolute;
+  top: 60px;
+  left: 16px;
+  z-index: 60;
+  width: 300px;
+  max-height: 65vh;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 14px 12px;
-  border-right: 1px solid #f0f1f5;
-  background: #fafbfc;
-  overflow: hidden;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid #e8eaf1;
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(30, 34, 60, 0.12);
 }
+.sessions-toggle {
+  padding: 6px 12px;
+  font-size: 13px;
+  color: #55586b;
+  background: transparent;
+  border: 1px solid #e4e6eb;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.sessions-toggle:hover { border-color: #4d6bfe; color: #4d6bfe; }
+.sessions-toggle.active { background: #eef2ff; border-color: #dbe2ff; color: #4d6bfe; font-weight: 600; }
 .new-session-btn {
-  flex-shrink: 0;
   width: 100%;
   padding: 9px 0;
   border: 1px solid #4d6bfe;
@@ -924,9 +825,6 @@ onBeforeUnmount(() => {
 }
 .new-session-btn:hover { background: #3a57e8; }
 .session-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -957,7 +855,7 @@ onBeforeUnmount(() => {
   font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
 }
 .session-empty {
-  padding: 24px 8px;
+  padding: 20px 8px;
   text-align: center;
   font-size: 12px;
   line-height: 1.8;
@@ -1078,9 +976,18 @@ onBeforeUnmount(() => {
 .messages::-webkit-scrollbar { width: 6px; }
 .messages::-webkit-scrollbar-thumb { background: #dfe1e8; border-radius: 3px; }
 
+/* 无消息时：欢迎语 + 输入框整体居中 */
+.empty-hero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 24px 16px 48px;
+}
+.chat-panel.empty .messages { display: none; }
 .empty-state {
   text-align: center;
-  padding-top: 12vh;
   color: #55586b;
 }
 .empty-icon {
@@ -1184,9 +1091,10 @@ onBeforeUnmount(() => {
 .event-line.error .ev-text,
 .event-line.error .ev-tag { color: #f56c6c; }
 
-.thinking-content { border-left: 3px solid #c5cadb; }
-.thinking-label { margin-bottom: 5px; color: #8a8ca0; font-size: 11px; font-weight: 600; }
-.thinking-text { color: #8a8ca0; font-size: 13px; }
+/* thinking 折叠卡片（与工具卡片同构，默认收起） */
+.thinking-event { margin: 4px 0; }
+.thinking-card .tool-name { color: #8a8ca0; }
+.thinking-text { color: #8a8ca0; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
 
 /* ====== 工具调用卡片（动态下拉） ====== */
 .tool-event { max-width: 780px; margin: 8px auto; }

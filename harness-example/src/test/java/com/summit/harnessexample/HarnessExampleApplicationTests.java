@@ -26,7 +26,7 @@ public class HarnessExampleApplicationTests {
         Workspace workspace = new LocalWorkSpace();
         demo.chat("""
                 1
-                """,true,null,workspace);
+                """,true,null,null,workspace);
     }
 
 }

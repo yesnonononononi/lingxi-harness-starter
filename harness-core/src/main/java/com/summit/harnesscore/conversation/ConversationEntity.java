@@ -11,10 +11,11 @@ import java.util.LinkedList;
 import java.util.List;
 @Builder
 public record ConversationEntity(
-        Serializable sessionId, List<Message> messages, TokenUsageEntity tokenUsageEntity, SystemMessageEntity SystemMessageEntity, Workspace workspace
+        Serializable sessionId, String sessionName, List<Message> messages, TokenUsageEntity tokenUsageEntity, SystemMessageEntity SystemMessageEntity, Workspace workspace
         ) {
-    public static ConversationEntity empty(Workspace workspace,SystemMessageEntity SystemMessageEntity,Serializable sessionId,List<Message> messages){
+    public static ConversationEntity empty(String sessionName,Workspace workspace,SystemMessageEntity SystemMessageEntity,Serializable sessionId,List<Message> messages){
         return ConversationEntity.builder()
+                .sessionName(sessionName)
                 .messages(messages)
                 .tokenUsageEntity(TokenUsageEntity.empty())
                 .SystemMessageEntity(SystemMessageEntity)
@@ -22,11 +23,15 @@ public record ConversationEntity(
                 .sessionId(sessionId)
                 .build();
     }
-    public static ConversationEntity empty(Workspace workspace,SystemMessageEntity SystemMessageEntity,Serializable sessionId) {
-        return empty(workspace, SystemMessageEntity, sessionId, new LinkedList<>());
+    public static ConversationEntity empty(String sessionName,Workspace workspace,SystemMessageEntity SystemMessageEntity,Serializable sessionId) {
+        return empty(sessionName, workspace, SystemMessageEntity, sessionId, new LinkedList<>());
     }
 
     public @NonNull ConversationEntity withSessionId(@NonNull Serializable sessionId) {
-        return new ConversationEntity(sessionId, messages, tokenUsageEntity, SystemMessageEntity, workspace);
+        return new ConversationEntity(sessionId, sessionName, messages, tokenUsageEntity, SystemMessageEntity, workspace);
+    }
+
+    public ConversationEntity withSessionName(String sessionName) {
+        return new ConversationEntity(sessionId, sessionName, messages, tokenUsageEntity, SystemMessageEntity, workspace);
     }
 }

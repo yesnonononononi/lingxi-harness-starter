@@ -54,7 +54,11 @@ public class DockerWorkspace implements Workspace {
         }
         this.id = id;
         this.containerId = containerId;
-        this.workspaceRoot = subLastSlash();
+        // Trim the trailing slash from the SUPPLIED root — do not read the field,
+        // which still holds its default value at this point.
+        this.workspaceRoot = workspaceRoot.endsWith("/") && workspaceRoot.length() > 1
+                ? workspaceRoot.substring(0, workspaceRoot.length() - 1)
+                : workspaceRoot;
     }
 
     @Override

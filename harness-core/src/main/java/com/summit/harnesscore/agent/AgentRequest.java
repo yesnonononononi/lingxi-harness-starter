@@ -14,6 +14,7 @@ public class AgentRequest {
     public static final String DEFAULT_SESSION_ID = "default";
 
     private Serializable sessionId;
+    private String sessionName;
     private @NonNull String input;
     private String systemPrompt;
     private @NonNull Workspace workspace ;

@@ -10,7 +10,9 @@ import java.io.Serializable;
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -61,6 +63,19 @@ public class RedisConversationStore implements ConversationStore {
         return redisTemplate.opsForValue().multiGet(redisTemplate.keys("session:id:*")).stream()
                 .filter(ConversationEntity.class::isInstance)
                 .map(ConversationEntity.class::cast)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public Collection<SessionSummary> sessionSummaries() {
+        Set<String> keys = redisTemplate.keys("session:id:*");
+        if (keys == null || keys.isEmpty()) {
+            return List.of();
+        }
+        return redisTemplate.opsForValue().multiGet(keys).stream()
+                .filter(ConversationEntity.class::isInstance)
+                .map(ConversationEntity.class::cast)
+                .map(entity -> new SessionSummary(entity.sessionId(), entity.sessionName()))
                 .collect(Collectors.toList());
     }
 }

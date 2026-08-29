@@ -24,7 +24,7 @@ public class Demo {
      * The workspace is caller-supplied (local or a per-project sandbox) and
      * passed straight into the AgentRequest — there is no default fallback.
      */
-    public void chat(String input, boolean streaming, Serializable sessionId, Workspace workspace) {
+    public void chat(String input, boolean streaming, Serializable sessionId, String sessionName, Workspace workspace) {
 
         // 1. validate input
         if (input == null || input.isBlank()) {
@@ -44,6 +44,7 @@ public class Demo {
                 .workspace(workspace)
                 .streaming(streaming)
                 .sessionId(sessionId)
+                .sessionName(sessionName)
                 .build()
         );
 

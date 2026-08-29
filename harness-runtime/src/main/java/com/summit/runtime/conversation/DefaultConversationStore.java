@@ -53,5 +53,12 @@ public class DefaultConversationStore implements ConversationStore {
         return this.managerStore.values().stream().toList();
     }
 
+    @Override
+    public Collection<SessionSummary> sessionSummaries() {
+        return this.managerStore.entrySet().stream()
+                .map(e -> new SessionSummary(e.getKey(), e.getValue().sessionName()))
+                .toList();
+    }
+
 
 }

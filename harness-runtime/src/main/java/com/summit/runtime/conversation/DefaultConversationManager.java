@@ -37,26 +37,17 @@ public class DefaultConversationManager implements ConversationManager {
 
     @Override
     public void startConversation(AgentRequest agentRequest) {
-        Serializable sessionId = agentRequest.sessionIdOrDefault();
-        UserMessageEntity userMessage = UserMessageEntity.from(agentRequest.getInput());
-        Optional<ConversationEntity> existing = this.conversationStore.get(sessionId);
+
+        Optional<ConversationEntity> existing = this.conversationStore.get(agentRequest.sessionIdOrDefault());
+
+        // if session has exist then append input
         if (existing.isPresent()) {
-            ConversationEntity conversation = existing.get();
-            List<Message> messages = conversation.messages();
-            Message last = messages.isEmpty() ? null : messages.getLast();
-            // Idempotent protection: When the last execution fails and is retried, the last message may already be the current input, avoiding duplicate appending
-            if (last == null || !last.text().equals(userMessage.text())) {
-                messages.add(userMessage);
-                this.conversationStore.save(sessionId, conversation);
-            }
+           appendNewUserMessageToConversation(agentRequest, existing.get());
             return;
         }
+
         // New session: create system + this input
-        String systemPrompt = getSystemMessage(agentRequest.getSystemPrompt(), agentRequest.getWorkspace());
-        SystemMessageEntity systemMessage = SystemMessageEntity.builder().text(systemPrompt).build();
-        LinkedList<Message> messages = new LinkedList<>(List.of(systemMessage, userMessage));
-        ConversationEntity conversation = ConversationEntity.empty(agentRequest.getWorkspace(), systemMessage, sessionId, messages);
-        this.conversationStore.save(sessionId, conversation);
+        startNewConversation(agentRequest);
     }
 
     @Override
@@ -141,6 +132,11 @@ public class DefaultConversationManager implements ConversationManager {
     }
 
 
+    /**
+     * Add tool messages to the conversation.
+     * @param results The tool execution results.
+     * @param conversation The conversation entity.
+     */
     private void addToolMessages(List<ToolExecuteResult> results,ConversationEntity conversation) {
         if (results == null || results.isEmpty()) {
             return;
@@ -162,6 +158,11 @@ public class DefaultConversationManager implements ConversationManager {
     }
 
 
+    /**
+     * Find the latest interaction in the conversation.
+     * @param conversation The conversation entity.
+     * @return The latest interaction in the conversation.
+     */
     private List<Message> findLatestInteraction(ConversationEntity conversation) {
 
         List<Message> result = new ArrayList<>();
@@ -185,16 +186,64 @@ public class DefaultConversationManager implements ConversationManager {
     }
 
 
-
-    private String getSystemMessage(String systemPrompt, Workspace workspace) {
-        return String.format(systemPrompt,
+    /**
+     * Get the system message for the given system prompt and workspace.
+     * @param systemPrompt The system prompt to use.
+     * @param workspace The workspace to use.
+     * @return The system message.
+     */
+    private SystemMessageEntity getSystemMessage(String systemPrompt, Workspace workspace) {
+        return SystemMessageEntity.builder().text(String.format(systemPrompt,
                 workspace.runtimeEnvironment().osType(),
                 workspace.workDir()
-        );
+        )).build();
+
     }
 
+    /**
+     * Get the conversation entity for the given session ID.
+     * @param sessionId The session ID.
+     * @return The conversation entity.
+     */
     private ConversationEntity getConversationEntity(Serializable sessionId) {
         return this.conversationStore.get(sessionId).orElseThrow();
+    }
+
+    /**
+     * Start a new conversation with the given agent request.
+     * @param agentRequest The agent request containing the system prompt and workspace.
+     */
+    private void startNewConversation(AgentRequest agentRequest){
+        Serializable sessionId = agentRequest.sessionIdOrDefault();
+        SystemMessageEntity systemMessage =  getSystemMessage(agentRequest.getSystemPrompt(), agentRequest.getWorkspace());
+        ConversationEntity conversation = ConversationEntity.empty(agentRequest.getSessionName(), agentRequest.getWorkspace(), systemMessage, sessionId);
+        this.conversationStore.save(sessionId, conversation);
+    }
+
+
+    /**
+     * append a new user message to the conversation and set the sessionName if it is not set
+     * @param agentRequest The agent request containing the input and session name.
+     * @param conversation The conversation entity to append the user message to.
+     */
+    private void appendNewUserMessageToConversation(AgentRequest agentRequest,ConversationEntity conversation){
+        List<Message> messages = conversation.messages();
+        Serializable sessionId = agentRequest.sessionIdOrDefault();
+        String sessionName = agentRequest.getSessionName();
+        UserMessageEntity userMessage = UserMessageEntity.from(agentRequest.getInput());
+        Message last = messages.isEmpty() ? null : messages.getLast();
+
+        // Idempotent protection: When the last execution fails and is retried, the last message may already be the current input, avoiding duplicate appending
+        if (last == null || !last.text().equals(userMessage.text())) {
+            messages.add(userMessage);
+            this.conversationStore.save(sessionId, conversation);
+        }
+
+        // Backfill the session name on first sight if the caller supplied one
+        if (sessionName != null && !sessionName.isBlank()
+                && (conversation.sessionName() == null || conversation.sessionName().isBlank())) {
+            this.conversationStore.save(sessionId, conversation.withSessionName(sessionName));
+        }
     }
 
 }
