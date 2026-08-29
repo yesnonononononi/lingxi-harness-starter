@@ -3,6 +3,8 @@ package com.summit.harnessexample;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.harnesscore.runtime.Workspace;
+import com.summit.runtime.sandbox.DockerWorkspace;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -38,10 +40,17 @@ public class Controller {
 
     private final Demo demo;
     private final SseEventPublisher sseEventPublisher;
-    private final Workspace workSpace;
+    private final Workspace workspace = new DockerWorkspace(
+            UUID.randomUUID().toString(),
+            "6939c6277d8f",
+            "/app"
+    );
     private final ObjectMapper objectMapper;
     /** In-memory session registry (temporary storage): sessionId -> sessionName. */
     private final Map<String, String> sessions = new ConcurrentHashMap<>();
+
+
+
 
     /** Opens a Server-Sent Events stream; runtime events are pushed onto it. */
     @GetMapping(value = "/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -76,7 +85,7 @@ public class Controller {
 
         // Run the coding agent asynchronously; events are pushed via SSE.
         String finalSessionId = sessionId;
-        CompletableFuture.runAsync(() -> demo.chat(input, streaming, finalSessionId));
+        CompletableFuture.runAsync(() -> demo.chat(input, streaming, finalSessionId,workspace));
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("input", input);
@@ -193,7 +202,7 @@ public class Controller {
     @GetMapping("/workdir")
     public ResponseEntity<Map<String, Object>> workdir() {
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("workdir", workSpace.workDir());
+        data.put("workdir", workspace.workDir());
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("code", 200);
@@ -219,10 +228,10 @@ public class Controller {
 
         // Switching directories only applies to the local workspace; a sandbox
         // workspace has its fixed in-container root.
-        if (!(workSpace instanceof LocalWorkSpace local)) {
+        if (!(workspace instanceof LocalWorkSpace local)) {
             Map<String, Object> error = new LinkedHashMap<>();
             error.put("code", 400);
-            error.put("message", "workdir switch is not supported for workspace: " + workSpace.id());
+            error.put("message", "workdir switch is not supported for workspace: " + workspace.id());
             return ResponseEntity.badRequest().body(error);
         }
 
@@ -235,7 +244,7 @@ public class Controller {
             return ResponseEntity.badRequest().body(error);
         }
 
-        String current = workSpace.workDir();
+        String current = workspace.workDir();
         broadcastWorkdir(current);
 
         Map<String, Object> data = new LinkedHashMap<>();

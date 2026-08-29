@@ -160,11 +160,10 @@ public class CommonToolAutoConfiguration {
 
 
     @Bean
-    public ToolExecutionManager defaultToolExecutionManager(ToolRegistry toolRegistry, Workspace workspace, RuntimeEventPublisher runtimeEventPublisher, CommonToolConfig commonToolConfig,  InterceptorProcessor<ToolInterceptor,ToolExecution> interceptorProcessor) {
+    public ToolExecutionManager defaultToolExecutionManager(ToolRegistry toolRegistry, RuntimeEventPublisher runtimeEventPublisher, CommonToolConfig commonToolConfig,  InterceptorProcessor<ToolInterceptor,ToolExecution> interceptorProcessor) {
         return new DefaultToolExecutionManager(
                 ToolExecutionContext.builder()
                         .toolRegistry(toolRegistry)
-                        .workspace(workspace)
                         .runtimeEventPublisher(runtimeEventPublisher)
                         .build(),
                 interceptorProcessor,

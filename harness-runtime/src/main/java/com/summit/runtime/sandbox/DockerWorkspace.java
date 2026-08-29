@@ -67,7 +67,7 @@ public class DockerWorkspace implements Workspace {
         // Always describes the container environment; stateless by nature.
         return RuntimeEnvironment.builder()
                 .osType(OsType.LINUX)
-                .shellType(ShellType.BASH)
+                .shellType(ShellType.SH)
                 .charset(StandardCharsets.UTF_8)
                 .build();
     }
@@ -123,8 +123,6 @@ public class DockerWorkspace implements Workspace {
      * @return true if the path is accessible
      */
     private boolean canAccess(Path path, Path root) {
-      return !path.normalize().startsWith(root);
-
-
+        return path.normalize().startsWith(root);
     }
 }

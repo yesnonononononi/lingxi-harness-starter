@@ -73,8 +73,8 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
                     break;
                 }
 
-                // execute the tools and get the tool calls
-                var toolResMessages = context.getToolExecutionManager().execute(new ToolExecuteCommand(chatResponse.getAiMessageEntity().getToolCalls(), executionId, sessionId));
+                var toolResMessages = context.getToolExecutionManager().execute(
+                        new ToolExecuteCommand(chatResponse.getAiMessageEntity().getToolCalls(), executionId, sessionId, context.getWorkspace()));
 
                 // if the tool call is context compact, rebuild the context
                 ToolExecuteResult requireContextCompact = toolResMessages.stream().filter(this::isContextCompactRequest).findFirst().orElse(null);

@@ -5,6 +5,7 @@ import com.summit.harnesscore.compact.ContextSummary;
 import com.summit.harnesscore.conversation.api.ChatResponseEntity;
 import com.summit.harnesscore.conversation.message.Message;
 import com.summit.harnesscore.conversation.message.TokenUsageEntity;
+import com.summit.harnesscore.runtime.Workspace;
 import com.summit.harnesscore.tool.ToolExecuteResult;
 
 
@@ -19,6 +20,15 @@ public interface ConversationManager {
     ConversationEntity endConversation(Serializable sessionId);
 
     List<Message> messages(Serializable sessionId);
+
+    /**
+     * Returns the workspace bound to the session — the instance supplied by
+     * the {@code AgentRequest} that started it. There is no global fallback;
+     * consumers (e.g. patch application) must use this per-session workspace.
+     *
+     * @return the session workspace, or {@code null} when the session is unknown
+     */
+    Workspace workspace(Serializable sessionId);
 
     TokenUsageEntity tokenUsage(Serializable sessionId);
 

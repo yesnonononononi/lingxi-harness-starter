@@ -5,6 +5,7 @@ import com.summit.harnesscore.conversation.event.ToolCallEndEvent;
 import com.summit.harnesscore.conversation.event.ToolCallStartEvent;
 import com.summit.harnesscore.interceptor.InterceptorProcessor;
 import com.summit.harnesscore.interceptor.InvocationContext;
+import com.summit.harnesscore.runtime.Workspace;
 import com.summit.harnesscore.tool.*;
 import com.summit.runtime.configs.CommonToolConfig;
 import lombok.AllArgsConstructor;
@@ -41,7 +42,7 @@ public class DefaultToolExecutionManager implements ToolExecutionManager {
                         if (toolDef == null) {
                             return ToolExecuteResult.err(request.id(), null, "Tool not found");
                         }
-                        ToolExecuteResult result = this.executeTool(toolDef, createToolExecution(request, toolDef, toolExecuteCommand.sessionId()));
+                        ToolExecuteResult result = this.executeTool(toolDef, createToolExecution(request, toolDef, toolExecuteCommand));
 
                         this.toolExecutionContext.runtimeEventPublisher().onToolCallOutput(new ToolCallEndEvent(toolExecuteCommand.executionId(),toolDef.name(), request.arguments(),toolExecuteCommand.sessionId() ,formatEventToolOutput(result.getToolOutput())));
 
@@ -64,12 +65,22 @@ public class DefaultToolExecutionManager implements ToolExecutionManager {
         return this.toolExecutionContext.toolRegistry();
     }
 
-    private ToolExecution createToolExecution(@NonNull ToolCallRequest request, ToolDefinition<?> tool, Serializable sessionId) {
+    /**
+     * Builds the per-call execution. The workspace ALWAYS comes from the
+     * originating {@link ToolExecuteCommand} (i.e. the {@code AgentRequest});
+     * a missing workspace is a programming error and fails the call.
+     */
+    private ToolExecution createToolExecution(@NonNull ToolCallRequest request, ToolDefinition<?> tool, ToolExecuteCommand command) {
+        Workspace workspace = command.workspace();
+        if (workspace == null) {
+            throw new IllegalStateException(
+                    "No workspace provided for tool '" + request.name() + "': AgentRequest.workspace is required");
+        }
         return ToolExecution.builder()
                 .id(request.id())
                 .toolDefinition(tool)
-                .sessionId(sessionId)
-                .workspace(this.toolExecutionContext.workspace())
+                .sessionId(command.sessionId())
+                .workspace(workspace)
                 .args(request.arguments())
                 .build();
     }

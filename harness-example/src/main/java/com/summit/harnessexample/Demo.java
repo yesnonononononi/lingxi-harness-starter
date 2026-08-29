@@ -4,9 +4,6 @@ package com.summit.harnessexample;
 import com.summit.harnesscore.agent.AgentRequest;
 import com.summit.harnesscore.agent.Execution;
 import com.summit.harnesscore.agent.ExecutionState;
-import com.summit.harnesscore.exception.ModelException;
-import com.summit.harnesscore.exception.NoSuchModelProviderException;
-import com.summit.harnesscore.exception.OutWorkSpaceException;
 import com.summit.harnesscore.runtime.Workspace;
 import com.summit.runtime.agent.ChatAgent;
 import lombok.RequiredArgsConstructor;
@@ -22,53 +19,34 @@ public class Demo {
 
 
     private final ChatAgent defaultChatAgent;
-    private final Workspace workspace;
 
-    public void chat(String input) {
-        chat(input, false, null);
-    }
-
-    public void chat(String input, boolean streaming) {
-        chat(input, streaming, null);
-    }
-
-    public void chat(String input, boolean streaming, Serializable sessionId) {
+    /**
+     * The workspace is caller-supplied (local or a per-project sandbox) and
+     * passed straight into the AgentRequest — there is no default fallback.
+     */
+    public void chat(String input, boolean streaming, Serializable sessionId, Workspace workspace) {
 
         // 1. validate input
         if (input == null || input.isBlank()) {
             log.warn("chat input is null or blank");
             throw new IllegalArgumentException("chat input must not be null or blank");
         }
-        log.info("chat input: {}, streaming: {}, sessionId: {}", input, streaming, sessionId);
-        Execution execution;
-        try {
-            execution = defaultChatAgent.execute(AgentRequest
-                    .builder()
-                    .input(input)
-                    .workspace(workspace)
-                    .streaming(streaming)
-                    .sessionId(sessionId)
-                    .build()
-            );
-        } catch (NoSuchModelProviderException e) {
-            log.error("model provider not found, please check the model configuration", e);
-            throw e;
-        } catch (ModelException e) {
-            log.error("model invocation failed, please check the model service or network", e);
-            throw e;
-        } catch (OutWorkSpaceException e) {
-            log.error("agent tried to access a path outside the workspace", e);
-            throw e;
-        } catch (IllegalArgumentException e) {
-            log.error("invalid argument: {}", e.getMessage(), e);
-            throw e;
-        } catch (RuntimeException e) {
-            log.error("unexpected runtime exception occurred while chatting with agent", e);
-            throw e;
-        } catch (Exception e) {
-            log.error("unexpected exception occurred while chatting with agent", e);
-            throw new IllegalStateException("chat with agent failed", e);
+        if (workspace == null) {
+            log.warn("chat workspace is null");
+            throw new IllegalArgumentException("workspace must not be null: provide the workspace the agent should work in");
         }
+        log.info("chat input: {}, streaming: {}, sessionId: {}, workspace: {}", input, streaming, sessionId, workspace.id());
+        Execution execution;
+
+        execution = defaultChatAgent.execute(AgentRequest
+                .builder()
+                .input(input)
+                .workspace(workspace)
+                .streaming(streaming)
+                .sessionId(sessionId)
+                .build()
+        );
+
 
         // 2. validate result
         if (execution == null) {

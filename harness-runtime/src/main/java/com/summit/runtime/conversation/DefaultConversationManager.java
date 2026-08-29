@@ -83,6 +83,12 @@ public class DefaultConversationManager implements ConversationManager {
     }
 
     @Override
+    public Workspace workspace(Serializable sessionId) {
+        // The workspace stored at session start — the one supplied by the AgentRequest
+        return this.conversationStore.get(sessionId).map(ConversationEntity::workspace).orElse(null);
+    }
+
+    @Override
     public TokenUsageEntity tokenUsage(Serializable sessionId) {
         return this.conversationStore.get(sessionId).orElseThrow().tokenUsageEntity();
     }

@@ -1,9 +1,13 @@
 package com.summit.harnesscore.tool;
 
 import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
-import com.summit.harnesscore.runtime.Workspace;
 import lombok.Builder;
 
+/**
+ * Startup-time tooling context. Deliberately holds NO workspace: the workspace
+ * is per-request, supplied by the {@code AgentRequest} and carried through
+ * {@link ToolExecuteCommand}.
+ */
 @Builder
-public record ToolExecutionContext(Workspace workspace, RuntimeEventPublisher runtimeEventPublisher,ToolRegistry toolRegistry) {
+public record ToolExecutionContext(RuntimeEventPublisher runtimeEventPublisher, ToolRegistry toolRegistry) {
 }

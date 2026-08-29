@@ -1,6 +1,7 @@
 package com.summit.harnessexample;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.summit.harnesscore.conversation.ConversationManager;
 import com.summit.harnesscore.conversation.event.AgentMessageEvent;
 import com.summit.harnesscore.conversation.event.AgentPartialTextEvent;
 import com.summit.harnesscore.conversation.event.AgentPartialThinkingEvent;
@@ -15,6 +16,7 @@ import com.summit.harnesscore.runtime.Workspace;
 import com.summit.harnesscore.tool.PatchManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 import java.io.Serializable;
@@ -45,7 +47,8 @@ public class EventListener implements RuntimeListener {
     private final SseEventPublisher sseEventPublisher;
     private final ObjectMapper objectMapper;
     private final PatchManager patchManager;
-    private final Workspace workspace;
+    /** Deferred lookup: a direct ConversationManager dependency would form a bean cycle via the runtime listener chain. */
+    private final ObjectProvider<ConversationManager> conversationManagerProvider;
 
     @Override
     public void onExecutionStart(ExecutionStartEvent event) {
@@ -125,10 +128,17 @@ public class EventListener implements RuntimeListener {
 
     private void applyPatchQuietly(FileEditEvent event) {
         try {
-            // Apply inside the workspace so patches land in the sandbox (e.g. Docker)
-            // when the workspace is not the local file system.
+            // The workspace is the per-session one supplied by the AgentRequest
+            // (local or sandbox); never a global default bean.
+            ConversationManager conversationManager = conversationManagerProvider.getIfAvailable();
+            Workspace workspace = conversationManager == null ? null : conversationManager.workspace(event.getSessionId());
+            if (workspace == null) {
+                log.warn("no workspace bound to session {}, skip applying patch {}", event.getSessionId(), event.getPatchId());
+                return;
+            }
             patchManager.applyPatch(event.getSessionId(), (Serializable) event.getPatchId(), workspace);
-        } catch (Exception ignore) {
+        } catch (Exception e) {
+            log.warn("failed to apply patch {} for session {}", event.getPatchId(), event.getSessionId(), e);
         }
     }
 

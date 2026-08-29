@@ -28,9 +28,10 @@ public class ChatAgent implements Agent {
 
         agentRequest.setSystemPrompt(this.agentConfig.systemPrompt());
 
-        Execution execution = ExecutionCreator.create(agentRequest, this);
 
         Workspace workspace = agentRequest.getWorkspace();
+
+        Execution execution = ExecutionCreator.create(agentRequest, this);
 
         ExecutionRuntime executionRuntime = defaultRuntimeFactory.createChatModelRuntime(
                 agentRequest.sessionIdOrDefault(),

@@ -37,25 +37,34 @@ public class DockerWorkspaceBridge implements WorkspaceBridge {
         return containerId;
     }
 
+    /**
+     * Renders a workspace path as a POSIX container path. On a Windows host the
+     * resolved {@link Path} contains backslashes, which docker cannot map to
+     * container-internal paths.
+     */
+    private static String containerPath(Path path) {
+        return path.toString().replace('\\', '/');
+    }
+
     @Override
     public boolean exists(Path path) {
-        return runForExitCode(List.of("docker", "exec", containerId, "test", "-e", path.toString())) == 0;
+        return runForExitCode(List.of("docker", "exec", containerId, "test", "-e", containerPath(path))) == 0;
     }
 
     @Override
     public void createDirectories(Path path) throws IOException {
-        run(List.of("docker", "exec", containerId, "mkdir", "-p", path.toString()));
+        run(List.of("docker", "exec", containerId, "mkdir", "-p", containerPath(path)));
     }
 
     @Override
     public void createFile(Path path) throws IOException {
         run(List.of("docker", "exec", containerId, "sh", "-c",
-                "[ -e '" + path + "' ] || touch '" + path + "'"));
+                "[ -e '" + containerPath(path) + "' ] || touch '" + containerPath(path) + "'"));
     }
 
     @Override
     public String readString(Path path, Charset charset) throws IOException {
-        byte[] raw = runForOutput(List.of("docker", "exec", containerId, "cat", path.toString()));
+        byte[] raw = runForOutput(List.of("docker", "exec", containerId, "cat", containerPath(path)));
         return new String(raw, charset);
     }
 
@@ -74,15 +83,15 @@ public class DockerWorkspaceBridge implements WorkspaceBridge {
         Path temp = Files.createTempFile("lingxi-bridge-", ".tmp");
         try {
             Files.writeString(temp, content, charset);
-            run(List.of("docker", "cp", temp.toString(), containerId + ":" + path));
+            run(List.of("docker", "cp", temp.toString(), containerId + ":" + containerPath(path)));
         } finally {
             Files.deleteIfExists(temp);
         }
     }
 
     /**
-     * docker exec -w <workdir such as /data> <containerId> <command>
-     *     execute a command in a container
+     * {@code docker exec -w <workdir> <containerId> <command>} —
+     * execute a command in a container
      */
     @Override
     public CommandResult execute(List<String> command, String workDir, Charset charset,

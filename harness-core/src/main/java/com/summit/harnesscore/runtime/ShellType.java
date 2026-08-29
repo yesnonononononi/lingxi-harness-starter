@@ -64,6 +64,18 @@ public enum ShellType {
                     command
             );
         }
+    },
+
+    /** POSIX sh — present in minimal images such as alpine. */
+    SH("/bin/sh") {
+        @Override
+        public List<String> buildCommand(String command) {
+            return List.of(
+                    this.command,
+                    "-c",
+                    command
+            );
+        }
     };
 
     public final String command;
