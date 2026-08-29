@@ -4,6 +4,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.harnesscore.conversation.ConversationEntity;
 import com.summit.harnesscore.conversation.ConversationStore;
+import com.summit.harnesscore.conversation.message.AiMessageEntity;
+import com.summit.harnesscore.conversation.message.Message;
+import com.summit.harnesscore.conversation.message.ToolMessageEntity;
+import com.summit.harnesscore.conversation.message.UserMessageEntity;
 import com.summit.harnesscore.runtime.Workspace;
 import com.summit.runtime.sandbox.DockerWorkspace;
 import jakarta.annotation.PostConstruct;
@@ -12,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -118,6 +123,52 @@ public class Controller {
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("sessions", list);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("code", 200);
+        response.put("message", "ok");
+        response.put("data", data);
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Returns the message history of one session, mapped to simple display DTOs
+     * (role: USER / AI / TOOL) so the front-end can render its chat bubbles.
+     */
+    @GetMapping("/sessions/{sessionId}/messages")
+    public ResponseEntity<Map<String, Object>> sessionMessages(@PathVariable("sessionId") String sessionId) {
+        Optional<ConversationEntity> entity = conversationStore.get(sessionId);
+        if (entity.isEmpty()) {
+            Map<String, Object> error = new LinkedHashMap<>();
+            error.put("code", 404);
+            error.put("message", "session not found: " + sessionId);
+            return ResponseEntity.status(404).body(error);
+        }
+
+        List<Map<String, Object>> messages = new ArrayList<>();
+        for (Message message : entity.get().messages()) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            if (message instanceof UserMessageEntity user) {
+                item.put("role", "USER");
+                item.put("text", user.text());
+            } else if (message instanceof AiMessageEntity ai) {
+                item.put("role", "AI");
+                item.put("text", ai.text());
+                item.put("thinking", ai.getThinking());
+            } else if (message instanceof ToolMessageEntity tool) {
+                item.put("role", "TOOL");
+                item.put("toolName", tool.getName());
+                item.put("text", tool.text());
+            } else {
+                continue;
+            }
+            messages.add(item);
+        }
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("sessionId", sessionId);
+        data.put("sessionName", entity.get().sessionName());
+        data.put("messages", messages);
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("code", 200);

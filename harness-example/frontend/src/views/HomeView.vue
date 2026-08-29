@@ -339,13 +339,37 @@ function newSession() {
   appendLog({ time: now(), type: 'SYS', text: '已新建会话，发送消息后将自动创建 sessionId' })
 }
 
-function switchSession(session) {
+async function switchSession(session) {
   if (!session.sessionId || session.sessionId === currentSessionId.value) return
   currentSessionId.value = session.sessionId
-  currentSessionName.value = session.sessionName || '新会话'
+  currentSessionName.value = session.sessionName || session.sessionId.slice(0, 8)
   events.value = []
   showSessionRename.value = false
+  try {
+    // 拉取该会话的历史消息，映射为与实时事件相同的气泡模型
+    const data = await request.get(`/agent/sessions/${session.sessionId}/messages`)
+    for (const m of data?.messages || []) {
+      if (m.role === 'USER') {
+        events.value.push({ time: '', type: 'USER', text: m.text || '' })
+      } else if (m.role === 'AI') {
+        events.value.push({
+          time: '', type: 'AGENT_MESSAGE', executionId: '',
+          text: m.text || '', thinking: m.thinking || '',
+          streaming: false, thinkingOpen: false,
+        })
+      } else if (m.role === 'TOOL') {
+        events.value.push({
+          time: '', type: 'TOOL_STARTED', executionId: '',
+          toolName: m.toolName || 'tool', args: '',
+          status: 'done', open: false, output: m.text || '',
+        })
+      }
+    }
+  } catch (e) {
+    appendLog({ time: now(), type: 'ERROR', text: `加载历史消息失败：${e?.message || e}` })
+  }
   appendLog({ time: now(), type: 'SYS', text: `已切换到会话：${currentSessionName.value}` })
+  scrollToBottom()
 }
 
 function startRename() {
@@ -469,7 +493,7 @@ onBeforeUnmount(() => {
           :class="{ active: s.sessionId === currentSessionId }"
           @click="switchSession(s)"
         >
-          <span class="session-name">{{ s.sessionName || '新会话' }}</span>
+          <span class="session-name">{{ s.sessionName || s.sessionId.slice(0, 8) }}</span>
           <span class="session-id">{{ s.sessionId.slice(0, 8) }}</span>
         </div>
         <div v-if="sessions.length === 0" class="session-empty">暂无会话，点击「新建会话」开始</div>

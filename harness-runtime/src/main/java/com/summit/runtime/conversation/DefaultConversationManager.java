@@ -40,7 +40,7 @@ public class DefaultConversationManager implements ConversationManager {
 
         Optional<ConversationEntity> existing = this.conversationStore.get(agentRequest.sessionIdOrDefault());
 
-        // if session has exist then append input
+        // if session has existed then append input
         if (existing.isPresent()) {
            appendNewUserMessageToConversation(agentRequest, existing.get());
             return;
@@ -217,6 +217,7 @@ public class DefaultConversationManager implements ConversationManager {
         Serializable sessionId = agentRequest.sessionIdOrDefault();
         SystemMessageEntity systemMessage =  getSystemMessage(agentRequest.getSystemPrompt(), agentRequest.getWorkspace());
         ConversationEntity conversation = ConversationEntity.empty(agentRequest.getSessionName(), agentRequest.getWorkspace(), systemMessage, sessionId);
+        conversation.messages().add(UserMessageEntity.from(agentRequest.getInput()));
         this.conversationStore.save(sessionId, conversation);
     }
 
