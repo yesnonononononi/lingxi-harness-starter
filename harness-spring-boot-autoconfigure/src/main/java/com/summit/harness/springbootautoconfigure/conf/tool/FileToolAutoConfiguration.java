@@ -4,11 +4,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.harness.springbootautoconfigure.properties.tool.CommonToolProperties;
 import com.summit.harness.springbootautoconfigure.properties.tool.EditFileProperties;
 import com.summit.harness.springbootautoconfigure.properties.tool.ReadFileProperties;
-import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
-import com.summit.harnesscore.tool.*;
+import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.tool.*;
 import com.summit.runtime.utils.DefaultFileHasher;
-import com.summit.runtime.tool.DefaultPatchManager;
-import com.summit.runtime.tool.DefaultPatchStore;
+import com.summit.runtime.tool.DefaultFileRecordManager;
+import com.summit.runtime.tool.DefaultFileRecordStore;
+import com.summit.runtime.tool.FileRecordRestorer;
 import com.summit.tools.file.edit.EditDiffer;
 import com.summit.tools.file.edit.EditFileToolExecutor;
 import com.summit.tools.file.read.ReadFileToolExecutor;
@@ -28,10 +29,10 @@ public class FileToolAutoConfiguration {
             name = "enabled",
             havingValue = "true"
     )
-    public ToolDefinition<EditFileToolExecutor> editFileToolDefinition(ObjectMapper objectMapper, ToolRegistry toolRegistry, EditFileProperties editFileProperties, CommonToolProperties commonToolProperties, RuntimeEventPublisher runtimeEventPublisher, PatchManager patchManager, FileHasher fileHasher) {
+    public ToolDefinition<EditFileToolExecutor> editFileToolDefinition(ObjectMapper objectMapper, ToolRegistry toolRegistry, EditFileProperties editFileProperties, CommonToolProperties commonToolProperties, RuntimeEventPublisher runtimeEventPublisher, FileRecordManager fileRecordManager) {
         String name = "edit_file";
         ToolDefinition<EditFileToolExecutor> definition = ToolDefinition.<EditFileToolExecutor>builder()
-                .executor(new EditFileToolExecutor(objectMapper, differ(), patchManager, fileHasher, runtimeEventPublisher))
+                .executor(new EditFileToolExecutor(objectMapper, differ(), fileRecordManager, runtimeEventPublisher))
                 .id(name)
                 .name(name)
                 .description("Edit file content. THE ONLY tool for creating/modifying files; do NOT use terminal commands (echo/sed/redirect/Set-Content) instead. Use REPLACE to substitute oldText with newText, INSERT_BEFORE/INSERT_AFTER to insert around an anchor, DELETE to remove oldText. Returns the applied diff.")
@@ -94,8 +95,8 @@ public class FileToolAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public PatchStore patchStore(){
-        return new DefaultPatchStore();
+    public FileRecordStore fileRecordStore(){
+        return new DefaultFileRecordStore();
     }
 
     @Bean
@@ -106,8 +107,8 @@ public class FileToolAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public PatchManager patchManager(PatchStore patchStore, FileHasher fileHasher) {
-        return new DefaultPatchManager(patchStore, fileHasher);
+    public FileRecordManager fileRecordManager(FileRecordStore fileRecordStore, FileHasher fileHasher) {
+        return new DefaultFileRecordManager(fileRecordStore, new FileRecordRestorer(fileHasher), fileHasher);
     }
 
 }

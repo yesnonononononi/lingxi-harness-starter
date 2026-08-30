@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { getUser, removeToken } from '../utils/auth'
 import request from '../utils/request'
+import { acceptEdit, rejectEdit, acceptTurn, rejectTurn, listPendingEdits } from '../api/fileEdit'
 import FileDiff from '../components/FileDiff.vue'
 import MarkdownContent from '../components/MarkdownContent.vue'
 
@@ -135,6 +136,61 @@ function toggleTool(item) {
   item.open = !item.open
 }
 
+// 从路径取文件名(下拉框 item 展示用)
+function fileNameOf(path) {
+  return (path || '').split(/[\\/]/).pop() || path || ''
+}
+
+// ====== 文件编辑决策(保留 / 撤销) ======
+// 所有仍待裁决的文件编辑(跨轮),输入框上方下拉框的数据源
+const showPendingEdits = ref(true)
+const pendingEdits = computed(() =>
+  events.value.filter((e) => e.type === 'FILE_EDIT' && e.decision === 'pending')
+)
+
+// 每轮执行(executionId == turnId)中仍待裁决的编辑数
+function pendingEditsOfTurn(executionId) {
+  return pendingEdits.value.filter((e) => e.turnId === executionId)
+}
+
+async function decideEdit(item, accept) {
+  if (!item.recordId || item.decision !== 'pending') return
+  item.deciding = true
+  try {
+    if (accept) await acceptEdit(currentSessionId.value, item.recordId)
+    else await rejectEdit(currentSessionId.value, item.recordId)
+    item.decision = accept ? 'ACCEPTED' : 'REJECTED'
+  } catch (err) {
+    appendLog({ time: now(), type: 'ERROR', text: `文件决策失败:${err.message || err}` })
+  } finally {
+    item.deciding = false
+  }
+}
+
+async function decideTurn(executionId, accept) {
+  if (!pendingEditsOfTurn(executionId).length) return
+  try {
+    if (accept) await acceptTurn(currentSessionId.value, executionId)
+    else await rejectTurn(currentSessionId.value, executionId)
+  } catch (err) {
+    appendLog({ time: now(), type: 'ERROR', text: `整轮决策失败:${err.message || err}` })
+  }
+}
+
+// 对当前会话所有待裁决编辑统一决策:按轮分组,逐轮调用整轮接口
+async function decideAllPending(accept) {
+  const turnIds = [...new Set(pendingEdits.value.map((e) => e.turnId).filter(Boolean))]
+  if (!turnIds.length) return
+  try {
+    for (const turnId of turnIds) {
+      if (accept) await acceptTurn(currentSessionId.value, turnId)
+      else await rejectTurn(currentSessionId.value, turnId)
+    }
+  } catch (err) {
+    appendLog({ time: now(), type: 'ERROR', text: `统一决策失败:${err.message || err}` })
+  }
+}
+
 // thinking 卡片默认收起，点击头部展开/收起（与工具卡片交互一致）
 function toggleThinking(item) {
   item.thinkingOpen = !item.thinkingOpen
@@ -224,15 +280,33 @@ function connectEvents() {
         settleMarkdown(evt.executionId || '')
       }
       if (evt.type === 'FILE_EDIT') {
-        // render a Monaco DiffEditor card showing the file change
+        // render a Monaco DiffEditor card showing the file change;
+        // edits are already applied on disk, recordId enables accept/reject
         appendLog({
           time: now(),
           type: 'FILE_EDIT',
           executionId: evt.executionId || '',
+          recordId: evt.data?.recordId || '',
+          turnId: evt.data?.turnId || '',
           filePath: evt.data?.filePath || '',
           oldContent: evt.data?.oldContent || '',
           newContent: evt.data?.newContent || '',
+          plusLines: evt.data?.plusLines ?? 0,
+          minusLines: evt.data?.minusLines ?? 0,
+          decision: evt.data?.recordId ? 'pending' : 'none',
+          deciding: false,
           open: false,
+        })
+        return
+      }
+      if (evt.type === 'FILE_EDIT_DECISION') {
+        // any page performed an accept/reject (single edit or whole turn):
+        // refresh the decision state of the matching diff cards in place
+        const { recordId, turnId, decision } = evt.data || {}
+        events.value.forEach((item) => {
+          if (item.type !== 'FILE_EDIT' || item.decision === 'none') return
+          const hit = recordId ? item.recordId === recordId : (turnId && item.turnId === turnId)
+          if (hit) item.decision = decision || item.decision
         })
         return
       }
@@ -368,7 +442,22 @@ async function switchSession(session) {
   } catch (e) {
     appendLog({ time: now(), type: 'ERROR', text: `加载历史消息失败：${e?.message || e}` })
   }
-  appendLog({ time: now(), type: 'SYS', text: `已切换到会话：${currentSessionName.value}` })
+    // 拉取该会话仍待裁决的编辑,映射为 FILE_EDIT 卡片(无旧/新内容,仅展示与决策)
+    try {
+      const data = await listPendingEdits(session.sessionId)
+      for (const e of (data?.edits || []).slice().reverse()) {
+        events.value.push({
+          time: '', type: 'FILE_EDIT', executionId: e.turnId || '',
+          recordId: e.recordId, turnId: e.turnId,
+          filePath: e.filePath, oldContent: '', newContent: '',
+          plusLines: e.plusLines ?? 0, minusLines: e.minusLines ?? 0,
+          decision: 'pending', deciding: false, open: false,
+        })
+      }
+    } catch (err) {
+      console.warn('加载待裁决编辑失败', err)
+    }
+    appendLog({ time: now(), type: 'SYS', text: `已切换到会话：${currentSessionName.value}` })
   scrollToBottom()
 }
 
@@ -618,14 +707,16 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <!-- 文件编辑 diff 卡片：点击头部展开 Monaco DiffEditor 对比修改前后 -->
+          <!-- 文件编辑 diff 卡片:点击头部展开 Monaco DiffEditor 对比修改前后;已应用待裁决 -->
           <div v-else-if="item.type === 'FILE_EDIT'" class="tool-event">
             <div class="tool-card diff-card" :class="{ open: item.open }">
               <button class="tool-head" @click="toggleTool(item)">
                 <span class="tool-icon" aria-hidden="true">✏️</span>
                 <span class="tool-name">文件修改</span>
                 <span class="tool-file" :title="item.filePath">{{ item.filePath }}</span>
-                <span class="tool-status done">✓ 已应用</span>
+                <span class="tool-status done">
+                  {{ item.decision === 'REJECTED' ? '↩ 已撤销' : item.decision === 'ACCEPTED' ? '✓ 已保留' : '✓ 已应用' }}
+                </span>
                 <span class="tool-chevron" :class="{ rotated: item.open }" aria-hidden="true">▾</span>
               </button>
               <div class="tool-body">
@@ -635,7 +726,7 @@ onBeforeUnmount(() => {
                     <FileDiff
                       v-if="item.open"
                       :file-path="item.filePath"
-                      :old-content="item.oldContent"
+                      :old-content="item.decision === 'REJECTED' ? item.newContent : item.oldContent"
                       :new-content="item.newContent"
                     />
                   </div>
@@ -677,6 +768,33 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <!-- 待裁决文件编辑下拉框:当前会话所有 PENDING 的 FileRecord -->
+      <div v-if="pendingEdits.length" class="pending-edits">
+        <button class="pending-head" @click="showPendingEdits = !showPendingEdits">
+          <span class="pending-dot" aria-hidden="true"></span>
+          <span class="pending-title">{{ pendingEdits.length }} 个文件修改待裁决</span>
+          <span class="pending-hint">已写入文件,请选择保留或撤销</span>
+          <span class="pending-chevron" :class="{ rotated: showPendingEdits }" aria-hidden="true">▾</span>
+        </button>
+        <div v-if="showPendingEdits" class="pending-list">
+          <div v-for="item in pendingEdits" :key="item.recordId" class="pending-item">
+            <span class="pending-file" :title="item.filePath">{{ fileNameOf(item.filePath) }}</span>
+            <span class="pending-lines">
+              <em class="plus">+{{ item.plusLines ?? 0 }}</em>
+              <em class="minus">-{{ item.minusLines ?? 0 }}</em>
+            </span>
+            <div class="decision-actions">
+              <button class="decision-btn keep" :disabled="item.deciding" @click="decideEdit(item, true)">保留</button>
+              <button class="decision-btn undo" :disabled="item.deciding" @click="decideEdit(item, false)">撤销</button>
+            </div>
+          </div>
+          <div class="pending-footer">
+            <button class="decision-btn keep" @click="decideAllPending(true)">全部保留</button>
+            <button class="decision-btn undo" @click="decideAllPending(false)">全部撤销</button>
+          </div>
+        </div>
+      </div>
+
       <!-- 底部输入框 -->
       <div class="input-area">
         <div class="input-box" :class="{ focused: inputFocused }">
@@ -711,7 +829,8 @@ onBeforeUnmount(() => {
 * { box-sizing: border-box; }
 
 .home {
-  min-height: 100vh;
+  /* 固定为视口高度:页面本身不滚动,消息列表在固定窗口内滚动 */
+  height: 100vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -719,8 +838,11 @@ onBeforeUnmount(() => {
   color: #262832;
 }
 
-/* ====== 顶部栏 ====== */
+/* ====== 顶部栏(含 tab,sticky 置顶) ====== */
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 70;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1542,6 +1664,92 @@ onBeforeUnmount(() => {
 }
 .btn-submit:hover:not(:disabled) { background: #3a57e8; }
 .btn-submit:disabled { background: #dfe1e8; cursor: not-allowed; }
+
+/* 待裁决文件编辑下拉框:位于输入框上方 */
+.pending-edits {
+  flex-shrink: 0;
+  margin: 0 16px 6px;
+  border: 1px solid #eceef4;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(30, 34, 60, 0.06);
+  overflow: hidden;
+}
+.pending-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: #f8f9fc;
+  cursor: pointer;
+  font-size: 12px;
+  color: #262832;
+  text-align: left;
+}
+.pending-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f59e0b;
+  flex-shrink: 0;
+}
+.pending-title { font-weight: 600; }
+.pending-hint { color: #9ca3af; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pending-chevron { color: #9ca3af; transition: transform .2s; }
+.pending-chevron.rotated { transform: rotate(180deg); }
+.pending-list {
+  max-height: 220px;
+  overflow-y: auto;
+}
+.pending-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-top: 1px solid #f0f1f5;
+  font-size: 12px;
+}
+.pending-file {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #262832;
+  font-weight: 500;
+}
+.pending-lines { flex-shrink: 0; font-style: normal; }
+.pending-lines .plus { font-style: normal; color: #17803d; font-variant-numeric: tabular-nums; }
+.pending-lines .minus { font-style: normal; color: #b42318; font-variant-numeric: tabular-nums; }
+.pending-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 7px 12px;
+  border-top: 1px solid #f0f1f5;
+  background: #f8f9fc;
+}
+
+.decision-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.decision-btn {
+  border: none;
+  border-radius: 6px;
+  padding: 5px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all .2s;
+}
+.decision-btn.keep { background: #e8f7ee; color: #17803d; }
+.decision-btn.keep:hover { background: #d2f0de; }
+.decision-btn.undo { background: #fdeeee; color: #b42318; }
+.decision-btn.undo:hover { background: #fbdcdc; }
+.decision-btn:disabled { opacity: .5; cursor: not-allowed; }
 </style>
 
 

@@ -1,14 +1,13 @@
 package com.summit.runtime.conversation;
 
-import com.summit.harnesscore.conversation.ConversationEntity;
-import com.summit.harnesscore.conversation.ConversationStore;
+import com.summit.core.conversation.ConversationEntity;
+import com.summit.core.conversation.ConversationStore;
 import lombok.NonNull;
 
 import java.io.Serializable;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class DefaultConversationStore implements ConversationStore {

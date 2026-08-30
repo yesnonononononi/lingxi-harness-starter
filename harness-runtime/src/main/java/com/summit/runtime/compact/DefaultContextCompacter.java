@@ -1,10 +1,10 @@
 package com.summit.runtime.compact;
 
-import com.summit.harnesscore.compact.ContextCompacter;
-import com.summit.harnesscore.compact.Tokenizer;
-import com.summit.harnesscore.conversation.message.AiMessageEntity;
-import com.summit.harnesscore.conversation.message.Message;
-import com.summit.harnesscore.conversation.message.ToolMessageEntity;
+import com.summit.core.compact.ContextCompacter;
+import com.summit.core.compact.Tokenizer;
+import com.summit.core.conversation.message.AiMessageEntity;
+import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.ToolMessageEntity;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 

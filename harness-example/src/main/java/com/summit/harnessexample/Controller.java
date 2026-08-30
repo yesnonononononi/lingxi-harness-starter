@@ -2,15 +2,14 @@ package com.summit.harnessexample;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.harnesscore.conversation.ConversationEntity;
-import com.summit.harnesscore.conversation.ConversationStore;
-import com.summit.harnesscore.conversation.message.AiMessageEntity;
-import com.summit.harnesscore.conversation.message.Message;
-import com.summit.harnesscore.conversation.message.ToolMessageEntity;
-import com.summit.harnesscore.conversation.message.UserMessageEntity;
-import com.summit.harnesscore.runtime.Workspace;
+import com.summit.core.conversation.ConversationEntity;
+import com.summit.core.conversation.ConversationStore;
+import com.summit.core.conversation.message.AiMessageEntity;
+import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.ToolMessageEntity;
+import com.summit.core.conversation.message.UserMessageEntity;
+import com.summit.core.runtime.Workspace;
 import com.summit.runtime.sandbox.DockerWorkspace;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -48,11 +47,8 @@ public class Controller {
     private final Demo demo;
     private final SseEventPublisher sseEventPublisher;
     private final ConversationStore conversationStore;
-    private final DockerWorkspace workspace = new DockerWorkspace(
-            UUID.randomUUID().toString(),
-            "6939c6277d8f",
-            "/app"
-    );
+    /** The active workspace bean: local (host) or Docker sandbox, per lingxi.agent.workspace. */
+    private final Workspace workspace;
     private final ObjectMapper objectMapper;
 
 
@@ -288,10 +284,17 @@ public class Controller {
         }
 
         try {
-            // Sandbox workspace: switch the in-container working root (the
-            // directory need not exist yet — the agent can create it itself
-            // via edit_file / mkdir inside the container).
-            workspace.setWorkspaceRoot(normalizeContainerPath(workdir));
+            if (workspace instanceof DockerWorkspace docker) {
+                // Sandbox workspace: switch the in-container working root (the
+                // directory need not exist yet — the agent can create it itself
+                // via edit_file / mkdir inside the container).
+                docker.setWorkspaceRoot(normalizeContainerPath(workdir));
+            } else if (workspace instanceof LocalWorkSpace local) {
+                // Local workspace: switch to an existing host directory.
+                local.updateWorkDir(workdir);
+            } else {
+                throw new IllegalArgumentException("workspace does not support switching workdir");
+            }
         } catch (IllegalArgumentException e) {
             Map<String, Object> error = new LinkedHashMap<>();
             error.put("code", 400);

@@ -1,8 +1,8 @@
 package com.summit.adapter.langchain4j.provider;
 
 import com.summit.adapter.langchain4j.model.StreamingChatModelAdapter;
-import com.summit.harnesscore.model.ModelConfig;
-import com.summit.harnesscore.model.StreamingChatModelProvider;
+import com.summit.core.model.ModelConfig;
+import com.summit.core.model.StreamingChatModelProvider;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 
 /** OpenAI-protocol streaming model provider, provider name {@code default-streaming}. */

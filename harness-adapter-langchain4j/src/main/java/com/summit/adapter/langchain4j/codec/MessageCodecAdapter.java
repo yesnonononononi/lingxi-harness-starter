@@ -1,14 +1,14 @@
 package com.summit.adapter.langchain4j.codec;
 
-import com.summit.harnesscore.adapter.MessageCodec;
-import com.summit.harnesscore.conversation.api.ChatResponseEntity;
-import com.summit.harnesscore.conversation.api.ToolCallRequest;
-import com.summit.harnesscore.conversation.message.AiMessageEntity;
-import com.summit.harnesscore.conversation.message.Message;
-import com.summit.harnesscore.conversation.message.SystemMessageEntity;
-import com.summit.harnesscore.conversation.message.TokenUsageEntity;
-import com.summit.harnesscore.conversation.message.ToolMessageEntity;
-import com.summit.harnesscore.conversation.message.UserMessageEntity;
+import com.summit.core.adapter.MessageCodec;
+import com.summit.core.conversation.api.ChatResponseEntity;
+import com.summit.core.conversation.api.ToolCallRequest;
+import com.summit.core.conversation.message.AiMessageEntity;
+import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.SystemMessageEntity;
+import com.summit.core.conversation.message.TokenUsageEntity;
+import com.summit.core.conversation.message.ToolMessageEntity;
+import com.summit.core.conversation.message.UserMessageEntity;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;

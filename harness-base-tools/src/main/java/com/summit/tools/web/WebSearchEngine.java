@@ -1,6 +1,7 @@
 package com.summit.tools.web;
 
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.tools.arguments.WebSearchArguments;
 
 import lombok.AllArgsConstructor;
@@ -16,6 +17,7 @@ import java.time.Duration;
 public class WebSearchEngine {
     private final WebSearchConfig webSearchConfig;
     private final HttpClient httpClient;
+    private final ObjectMapper objectMapper;
 
     public String search(WebSearchArguments arguments) throws IOException, InterruptedException {
         String maxResults = arguments.getMaxResults();
@@ -24,7 +26,7 @@ public class WebSearchEngine {
         if(maxRes != null && maxRes < Integer.parseInt(maxResults)) {
             arguments.setMaxResults(String.valueOf(maxRes));
         }
-        return this.search(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(arguments));
+        return this.search(this.objectMapper.writeValueAsString(arguments));
     }
     public String search(String json) throws IOException, InterruptedException {
         HttpRequest request = HttpRequest.newBuilder()

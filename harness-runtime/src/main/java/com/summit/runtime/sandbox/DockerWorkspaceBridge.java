@@ -1,7 +1,7 @@
 package com.summit.runtime.sandbox;
 
-import com.summit.harnesscore.runtime.ProcessRunner;
-import com.summit.harnesscore.runtime.WorkspaceBridge;
+import com.summit.core.runtime.ProcessRunner;
+import com.summit.core.runtime.WorkspaceBridge;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
@@ -60,6 +60,13 @@ public class DockerWorkspaceBridge implements WorkspaceBridge {
     public void createFile(Path path) throws IOException {
         run(List.of("docker", "exec", containerId, "sh", "-c",
                 "[ -e '" + containerPath(path) + "' ] || touch '" + containerPath(path) + "'"));
+    }
+
+    @Override
+    public void deleteFile(Path path) throws IOException {
+        if (exists(path)) {
+            run(List.of("docker", "exec", containerId, "rm", "-f", containerPath(path)));
+        }
     }
 
     @Override

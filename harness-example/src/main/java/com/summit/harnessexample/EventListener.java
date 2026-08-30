@@ -1,22 +1,18 @@
 package com.summit.harnessexample;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.harnesscore.conversation.ConversationManager;
-import com.summit.harnesscore.conversation.event.AgentMessageEvent;
-import com.summit.harnesscore.conversation.event.AgentPartialTextEvent;
-import com.summit.harnesscore.conversation.event.AgentPartialThinkingEvent;
-import com.summit.harnesscore.conversation.event.ExecutionCompleteEvent;
-import com.summit.harnesscore.conversation.event.ExecutionErrorEvent;
-import com.summit.harnesscore.conversation.event.ExecutionStartEvent;
-import com.summit.harnesscore.conversation.event.FileEditEvent;
-import com.summit.harnesscore.conversation.event.ToolCallEndEvent;
-import com.summit.harnesscore.conversation.event.ToolCallStartEvent;
-import com.summit.harnesscore.runtime.RuntimeListener;
-import com.summit.harnesscore.runtime.Workspace;
-import com.summit.harnesscore.tool.PatchManager;
+import com.summit.core.conversation.event.AgentMessageEvent;
+import com.summit.core.conversation.event.AgentPartialTextEvent;
+import com.summit.core.conversation.event.AgentPartialThinkingEvent;
+import com.summit.core.conversation.event.ExecutionCompleteEvent;
+import com.summit.core.conversation.event.ExecutionErrorEvent;
+import com.summit.core.conversation.event.ExecutionStartEvent;
+import com.summit.core.conversation.event.FileEditEvent;
+import com.summit.core.conversation.event.ToolCallEndEvent;
+import com.summit.core.conversation.event.ToolCallStartEvent;
+import com.summit.core.runtime.RuntimeListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 import java.io.Serializable;
@@ -46,9 +42,6 @@ public class EventListener implements RuntimeListener {
 
     private final SseEventPublisher sseEventPublisher;
     private final ObjectMapper objectMapper;
-    private final PatchManager patchManager;
-    /** Deferred lookup: a direct ConversationManager dependency would form a bean cycle via the runtime listener chain. */
-    private final ObjectProvider<ConversationManager> conversationManagerProvider;
 
     @Override
     public void onExecutionStart(ExecutionStartEvent event) {
@@ -115,31 +108,18 @@ public class EventListener implements RuntimeListener {
 
     @Override
     public void onFileEdit(FileEditEvent event) {
+        // The file content is already written by the tool itself; this event
+        // only carries the applied edit to the front-end for its diff view and
+        // the pending accept/reject decision.
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("patchId", event.getPatchId());
+        data.put("recordId", event.getRecordId());
+        data.put("turnId", event.getTurnId());
         data.put("filePath", event.getFilePath());
         data.put("oldContent", event.getOldContent());
         data.put("newContent", event.getNewContent());
-        if (event.getSessionId() != null) {
-            applyPatchQuietly(event);
-        }
+        data.put("plusLines", event.getPlusLines());
+        data.put("minusLines", event.getMinusLines());
         broadcast("FILE_EDIT", null, event.getSessionId(), data);
-    }
-
-    private void applyPatchQuietly(FileEditEvent event) {
-        try {
-            // The workspace is the per-session one supplied by the AgentRequest
-            // (local or sandbox); never a global default bean.
-            ConversationManager conversationManager = conversationManagerProvider.getIfAvailable();
-            Workspace workspace = conversationManager == null ? null : conversationManager.workspace(event.getSessionId());
-            if (workspace == null) {
-                log.warn("no workspace bound to session {}, skip applying patch {}", event.getSessionId(), event.getPatchId());
-                return;
-            }
-            patchManager.applyPatch(event.getSessionId(), (Serializable) event.getPatchId(), workspace);
-        } catch (Exception e) {
-            log.warn("failed to apply patch {} for session {}", event.getPatchId(), event.getSessionId(), e);
-        }
     }
 
     private void broadcast(String type, String executionId, Serializable sessionId, Map<String, Object> data) {

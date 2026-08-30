@@ -1,15 +1,15 @@
 package com.summit.runtime;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.harnesscore.conversation.ConversationManager;
-import com.summit.harnesscore.conversation.context.RuntimeContext;
-import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
-import com.summit.harnesscore.model.ModelInvoker;
-import com.summit.harnesscore.runtime.ExecutionRuntime;
-import com.summit.harnesscore.runtime.RuntimeExecutionPolicy;
-import com.summit.harnesscore.runtime.RuntimeFactory;
-import com.summit.harnesscore.runtime.Workspace;
-import com.summit.harnesscore.tool.ToolExecutionManager;
+import com.summit.core.conversation.ConversationManager;
+import com.summit.core.conversation.context.RuntimeContext;
+import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.model.ModelInvoker;
+import com.summit.core.runtime.ExecutionRuntime;
+import com.summit.core.runtime.RuntimeExecutionPolicy;
+import com.summit.core.runtime.RuntimeFactory;
+import com.summit.core.runtime.Workspace;
+import com.summit.core.tool.ToolExecutionManager;
 import lombok.Builder;
 import lombok.RequiredArgsConstructor;
 

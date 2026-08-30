@@ -2,13 +2,13 @@ package com.summit.tools.terminal;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.harnesscore.runtime.ShellType;
-import com.summit.harnesscore.runtime.Workspace;
-import com.summit.harnesscore.runtime.WorkspaceBridge;
-import com.summit.harnesscore.tool.ToolDefinition;
-import com.summit.harnesscore.tool.ToolExecuteResult;
-import com.summit.harnesscore.tool.ToolExecution;
-import com.summit.harnesscore.tool.ToolExecutor;
+import com.summit.core.runtime.ShellType;
+import com.summit.core.runtime.Workspace;
+import com.summit.core.runtime.WorkspaceBridge;
+import com.summit.core.tool.ToolDefinition;
+import com.summit.core.tool.ToolExecuteResult;
+import com.summit.core.tool.ToolExecution;
+import com.summit.core.tool.ToolExecutor;
 
 import com.summit.tools.arguments.ExecuteCommandRequest;
 import lombok.Getter;

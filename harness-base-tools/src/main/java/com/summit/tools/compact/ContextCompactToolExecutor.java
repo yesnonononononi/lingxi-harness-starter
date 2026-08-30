@@ -3,16 +3,16 @@ package com.summit.tools.compact;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.harnesscore.conversation.api.ChatRequestEntity;
-import com.summit.harnesscore.conversation.api.ChatResponseEntity;
-import com.summit.harnesscore.conversation.message.Message;
-import com.summit.harnesscore.conversation.message.SystemMessageEntity;
-import com.summit.harnesscore.conversation.message.UserMessageEntity;
-import com.summit.harnesscore.model.ChatModel;
-import com.summit.harnesscore.tool.ToolResultType;
-import com.summit.harnesscore.tool.ToolExecuteResult;
-import com.summit.harnesscore.tool.ToolExecution;
-import com.summit.harnesscore.tool.ToolExecutor;
+import com.summit.core.conversation.api.ChatRequestEntity;
+import com.summit.core.conversation.api.ChatResponseEntity;
+import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.SystemMessageEntity;
+import com.summit.core.conversation.message.UserMessageEntity;
+import com.summit.core.model.ChatModel;
+import com.summit.core.tool.ToolResultType;
+import com.summit.core.tool.ToolExecuteResult;
+import com.summit.core.tool.ToolExecution;
+import com.summit.core.tool.ToolExecutor;
 
 
 import lombok.AllArgsConstructor;

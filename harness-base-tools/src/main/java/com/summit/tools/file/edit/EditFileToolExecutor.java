@@ -2,26 +2,32 @@ package com.summit.tools.file.edit;
 
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.harnesscore.conversation.event.FileEditEvent;
-import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
-import com.summit.harnesscore.runtime.Workspace;
-import com.summit.harnesscore.runtime.WorkspaceBridge;
-import com.summit.harnesscore.tool.*;
+import com.summit.core.conversation.event.FileEditEvent;
+import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.runtime.Workspace;
+import com.summit.core.runtime.WorkspaceBridge;
+import com.summit.core.tool.*;
 import com.summit.tools.arguments.EditFileRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 import java.io.IOException;
+import java.io.Serializable;
+import java.nio.charset.Charset;
 import java.nio.file.Path;
 
 
+/**
+ * Edits a file inside the workspace. The new content is written to disk
+ * FIRST; the applied edit is then recorded as a pending {@link FileRecord} so
+ * the user can accept (keep) or reject (restore) it afterwards.
+ */
 @Slf4j
 @RequiredArgsConstructor
 public class EditFileToolExecutor implements ToolExecutor {
     private final ObjectMapper objectMapper;
     private final Differ differ;
-    private final PatchManager patchManager;
-    private final FileHasher fileHasher;
+    private final FileRecordManager fileRecordManager;
     private final RuntimeEventPublisher runtimeEventPublisher;
     private final int DEFAULT_AROUND_LINE = 3;
 
@@ -33,69 +39,92 @@ public class EditFileToolExecutor implements ToolExecutor {
             log.info("【ToolCall】 edit_file :{}", request.getPath());
 
             Workspace workspace = toolExecution.getWorkspace();
-            WorkspaceBridge bridge = workspace.bridge();
+            EditOutcome outcome = applyEdit(request, workspace);
 
-            //step1 validate file whether exist or not (inside the workspace environment)
-            Path target = ensureFileExists(request.getPath(), workspace);
-
-            //edit: all content IO goes through the bridge so it lands in the workspace environment
-            String oldContent = bridge.readString(target, workspace.runtimeEnvironment().charset());
-            FileEditorResult editRes = FileEditor.edit(request, oldContent, workspace.runtimeEnvironment().charset(), DEFAULT_AROUND_LINE);
-
-            if (editRes.isSuccess()) {
-                DiffResult diffResult = doDiff(editRes.getData(), request.getPath());
-                Object id = patchManager.savePatch(toolExecution.getSessionId(),
-                        buildPatchEntity(diffResult, fileHasher.hash(editRes.getData().oldContent()), request.getPath()));
-
-                publicEvent(id, request.getPath(), editRes.getData().oldContent(), editRes.getData().newContent(), toolExecution.getSessionId());
-                return ToolExecuteResult.success(toolExecution.getId(), toolExecution.getToolDefinition(),
-                        objectMapper.writeValueAsString(diffResult)
-                );
+            if (!outcome.success()) {
+                return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition(), outcome.error());
             }
 
-            return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition(), editRes.getErrMsg());
-
+            Serializable recordId = recordEdit(toolExecution, outcome);
+            publishEditEvent(toolExecution, outcome, recordId);
+            return ToolExecuteResult.success(toolExecution.getId(), toolExecution.getToolDefinition(),
+                    objectMapper.writeValueAsString(outcome.diffResult()));
 
         } catch (IOException e) {
             return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition(), e.getMessage());
         }
-
-
     }
 
-    private void publicEvent(Object id, String path, String oldContent, String newContent, java.io.Serializable sessionId) {
-        this.runtimeEventPublisher.onFileEdit(FileEditEvent.builder()
-                .patchId(id)
-                .filePath(path)
-                .oldContent(oldContent)
-                .newContent(newContent)
-                .sessionId(sessionId)
-                .build());
-    }
-
-
-
-
-    private PatchEntity buildPatchEntity(DiffResult diffResult, String fileContentHash, String filePath) {
-        return PatchEntity.builder()
-                .fileContentHash(fileContentHash)
-                .filePath(filePath)
-                .patch(diffResult.getPatch())
-                .build();
-    }
-
-    private DiffResult doDiff(FileEditorResult.ContentInfo data,String path) {
-        return this.differ.diff(path,data.oldContent(), data.newContent());
-    }
-
-    private Path ensureFileExists(String path, Workspace workspace) throws IOException {
+    private EditOutcome applyEdit(EditFileRequest request, Workspace workspace) throws IOException {
         WorkspaceBridge bridge = workspace.bridge();
-        Path resolvePath = workspace.resolve(path);
-        Path parent = resolvePath.getParent();
+        Charset charset = workspace.runtimeEnvironment().charset();
+        Path target = workspace.resolve(request.getPath());
+
+        boolean existed = bridge.exists(target);
+        String oldContent = existed ? bridge.readString(target, charset) : null;
+        FileEditorResult editRes = FileEditor.edit(request, oldContent == null ? "" : oldContent, charset, DEFAULT_AROUND_LINE);
+        if (!editRes.isSuccess()) {
+            return EditOutcome.failure(editRes.getErrMsg());
+        }
+
+        Path parent = target.getParent();
         if (parent != null && !bridge.exists(parent)) {
             bridge.createDirectories(parent);
         }
-        bridge.createFile(resolvePath);
-        return resolvePath;
+        bridge.writeString(target, editRes.getData().newContent(), charset);
+
+        return EditOutcome.success(request.getPath(), existed, oldContent,
+                editRes.getData().newContent(), differ.diff(request.getPath(), oldContent == null ? "" : oldContent, editRes.getData().newContent()));
+    }
+
+
+    private Serializable recordEdit(ToolExecution toolExecution, EditOutcome outcome) {
+        try {
+            return fileRecordManager.record(toolExecution.getSessionId(), toolExecution.getTurnId(),
+                    FileRecord.builder()
+                            .filePath(outcome.path())
+                            .oldContent(outcome.existed() ? outcome.oldContent() : null)
+                            .newContent(outcome.newContent())
+                            .diff(String.join("\n", outcome.diffResult().getDiffs()))
+                            .build());
+        } catch (Exception e) {
+            // The edit itself is already on disk; failing to journal it must not
+            // fail the tool call, but the edit then cannot be rejected anymore.
+            log.warn("failed to record applied edit on {} for session {}: {}",
+                    outcome.path(), toolExecution.getSessionId(), e.getMessage());
+            return null;
+        }
+    }
+
+    private void publishEditEvent(ToolExecution toolExecution, EditOutcome outcome, Serializable recordId) {
+        runtimeEventPublisher.onFileEdit(FileEditEvent.builder()
+                .recordId(recordId)
+                .turnId(toolExecution.getTurnId())
+                .filePath(outcome.path())
+                .oldContent(outcome.oldContent())
+                .newContent(outcome.newContent())
+                .plusLines(DiffResult.countDiffLines(outcome.diffResult().getDiffs(), '+'))
+                .minusLines(DiffResult.countDiffLines(outcome.diffResult().getDiffs(), '-'))
+                .sessionId(toolExecution.getSessionId())
+                .build());
+    }
+
+    /**
+     * Result of one edit application: what was written and what it replaced.
+     *
+     * @param existed    whether the file existed before this edit (false = created)
+     * @param oldContent content before the edit, {@code null} when created
+     */
+    private record EditOutcome(boolean success, String error, String path, boolean existed,
+                               String oldContent, String newContent, DiffResult diffResult) {
+
+        static EditOutcome success(String path, boolean existed, String oldContent,
+                                   String newContent, DiffResult diffResult) {
+            return new EditOutcome(true, null, path, existed, oldContent, newContent, diffResult);
+        }
+
+        static EditOutcome failure(String error) {
+            return new EditOutcome(false, error, null, false, null, null, null);
+        }
     }
 }

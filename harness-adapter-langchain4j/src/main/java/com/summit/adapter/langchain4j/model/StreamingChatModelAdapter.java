@@ -2,12 +2,12 @@ package com.summit.adapter.langchain4j.model;
 
 import com.summit.adapter.langchain4j.codec.MessageCodecAdapter;
 import com.summit.adapter.langchain4j.codec.ToolCodecAdapter;
-import com.summit.harnesscore.adapter.MessageCodec;
-import com.summit.harnesscore.adapter.ToolCodec;
-import com.summit.harnesscore.conversation.api.ChatRequestEntity;
-import com.summit.harnesscore.conversation.api.ChatResponseEntity;
-import com.summit.harnesscore.model.StreamingChatModel;
-import com.summit.harnesscore.model.StreamingChatResponseHandler;
+import com.summit.core.adapter.MessageCodec;
+import com.summit.core.adapter.ToolCodec;
+import com.summit.core.conversation.api.ChatRequestEntity;
+import com.summit.core.conversation.api.ChatResponseEntity;
+import com.summit.core.model.StreamingChatModel;
+import com.summit.core.model.StreamingChatResponseHandler;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.request.ChatRequest;

@@ -1,8 +1,8 @@
 package com.summit.runtime.utils;
 
-import com.summit.harnesscore.agent.*;
-import com.summit.harnesscore.conversation.message.Message;
-import com.summit.harnesscore.conversation.message.UserMessageEntity;
+import com.summit.core.agent.*;
+import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.UserMessageEntity;
 
 import java.time.Instant;
 import java.util.ArrayList;

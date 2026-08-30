@@ -3,8 +3,8 @@
  *
  * <p>Package layout:</p>
  * <ul>
- *   <li>{@code codec}    - implementations of the core codec SPIs: {@link com.summit.harnesscore.adapter.MessageCodec},
- *       {@link com.summit.harnesscore.adapter.ToolCodec}, {@link com.summit.harnesscore.adapter.TokenEstimator}</li>
+ *   <li>{@code codec}    - implementations of the core codec SPIs: {@link com.summit.core.adapter.MessageCodec},
+ *       {@link com.summit.core.adapter.ToolCodec}, {@link com.summit.core.adapter.TokenEstimator}</li>
  *   <li>{@code model}    - adapters for core {@code ChatModel} / {@code StreamingChatModel} (accept any langchain4j model instance)</li>
  *   <li>{@code provider} - model factories per protocol (OpenAI protocol, wired to the core Provider SPI and configuration)</li>
  * </ul>

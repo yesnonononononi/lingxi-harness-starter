@@ -1,10 +1,10 @@
 package com.summit.runtime.sandbox;
 
-import com.summit.harnesscore.runtime.OsType;
-import com.summit.harnesscore.runtime.RuntimeEnvironment;
-import com.summit.harnesscore.runtime.ShellType;
-import com.summit.harnesscore.runtime.Workspace;
-import com.summit.harnesscore.runtime.WorkspaceBridge;
+import com.summit.core.runtime.OsType;
+import com.summit.core.runtime.RuntimeEnvironment;
+import com.summit.core.runtime.ShellType;
+import com.summit.core.runtime.Workspace;
+import com.summit.core.runtime.WorkspaceBridge;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;

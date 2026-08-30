@@ -1,11 +1,11 @@
 package com.summit.runtime.tool;
 
 
-import com.summit.harnesscore.compact.Tokenizer;
-import com.summit.harnesscore.interceptor.InvocationContext;
-import com.summit.harnesscore.tool.ToolExecuteResult;
-import com.summit.harnesscore.tool.ToolExecution;
-import com.summit.harnesscore.tool.ToolInterceptor;
+import com.summit.core.compact.Tokenizer;
+import com.summit.core.interceptor.InvocationContext;
+import com.summit.core.tool.ToolExecuteResult;
+import com.summit.core.tool.ToolExecution;
+import com.summit.core.tool.ToolInterceptor;
 import lombok.RequiredArgsConstructor;
 
 @RequiredArgsConstructor

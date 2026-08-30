@@ -1,11 +1,11 @@
 package com.summit.runtime.policy;
 
-import com.summit.harnesscore.agent.Execution;
-import com.summit.harnesscore.compact.Tokenizer;
-import com.summit.harnesscore.conversation.ConversationManager;
+import com.summit.core.agent.Execution;
+import com.summit.core.compact.Tokenizer;
+import com.summit.core.conversation.ConversationManager;
 
-import com.summit.harnesscore.compact.ContextSqueezeRequest;
-import com.summit.harnesscore.runtime.RuntimeExecutionPolicy;
+import com.summit.core.compact.ContextSqueezeRequest;
+import com.summit.core.runtime.RuntimeExecutionPolicy;
 import com.summit.runtime.agent.AgentConfig;
 import lombok.AllArgsConstructor;
 

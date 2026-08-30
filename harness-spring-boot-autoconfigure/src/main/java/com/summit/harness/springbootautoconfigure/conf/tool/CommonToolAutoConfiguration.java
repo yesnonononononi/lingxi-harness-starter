@@ -6,11 +6,10 @@ import com.summit.harness.springbootautoconfigure.properties.tool.CommonToolProp
 import com.summit.harness.springbootautoconfigure.properties.tool.ContextCompactToolProperties;
 import com.summit.harness.springbootautoconfigure.properties.tool.TerminalToolProperties;
 import com.summit.harness.springbootautoconfigure.properties.tool.WebSearchToolProperties;
-import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
-import com.summit.harnesscore.interceptor.InterceptorProcessor;
-import com.summit.harnesscore.model.ChatModel;
-import com.summit.harnesscore.runtime.Workspace;
-import com.summit.harnesscore.tool.*;
+import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.interceptor.InterceptorProcessor;
+import com.summit.core.model.ChatModel;
+import com.summit.core.tool.*;
 import com.summit.runtime.tool.DefaultToolExecutionManager;
 import com.summit.runtime.configs.CommonToolConfig;
 import com.summit.tools.compact.ContextCompactToolExecutor;
@@ -122,9 +121,9 @@ public class CommonToolAutoConfiguration {
                           "type": "object",
                           "properties": {
                             "query": {"type": "string", "description": "The search query to execute. it is a required parameter"},
-                            "max_results": {"type": "number", "description": "Maximum number of results to return. it is an optional parameter max :%s"},
-                            "start_date": {"type": "string", "description": " Will return all results after the specified start date based on publish date or last updated date. Required to be written in the format YYYY-MM-DD. it is an optional parameter"},
-                            "end_date": {"type": "string", "description": "  Will return all results before the specified end date based on publish date or last updated date. Required to be written in the format YYYY-MM-DD. it is an optional parameter"}
+                            "maxResults or max_results": {"type": "number", "description": "Maximum number of results to return. it is an optional parameter max :%s"},
+                            "startDate or start_date": {"type": "string", "description": " Will return all results after the specified start date based on publish date or last updated date. Required to be written in the format YYYY-MM-DD. it is an optional parameter"},
+                            "endDate or end_date": {"type": "string", "description": "  Will return all results before the specified end date based on publish date or last updated date. Required to be written in the format YYYY-MM-DD. it is an optional parameter"}
                           }
                         }
                         """).formatted(String.valueOf(webSearchToolProperties.getMaxResult())))
@@ -142,14 +141,16 @@ public class CommonToolAutoConfiguration {
             name = "enabled",
             havingValue = "true"
     )
-    public WebSearchEngine webSearchEngine(WebSearchToolProperties webSearchToolProperties, CommonToolProperties commonToolProperties) {
+    public WebSearchEngine webSearchEngine(WebSearchToolProperties webSearchToolProperties, CommonToolProperties commonToolProperties, ObjectMapper objectMapper) {
         return new WebSearchEngine(WebSearchConfig.builder()
                 .baseUrl(webSearchToolProperties.getBaseUrl())
                 .apiKey(webSearchToolProperties.getApiKey())
                 .maxResult(webSearchToolProperties.getMaxResult())
                 .timeout(Objects.requireNonNullElseGet(webSearchToolProperties.getTimeout(), commonToolProperties::getTimeout))
                 .build()
-                , HttpClient.newHttpClient());
+                , HttpClient.newHttpClient()
+                , objectMapper
+        );
     }
 
 

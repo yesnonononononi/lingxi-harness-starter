@@ -1,12 +1,12 @@
 package com.summit.runtime.conversation;
 
-import com.summit.harnesscore.adapter.TokenEstimator;
-import com.summit.harnesscore.compact.Tokenizer;
-import com.summit.harnesscore.conversation.message.AiMessageEntity;
-import com.summit.harnesscore.conversation.message.Message;
-import com.summit.harnesscore.conversation.message.SystemMessageEntity;
-import com.summit.harnesscore.conversation.message.ToolMessageEntity;
-import com.summit.harnesscore.conversation.message.UserMessageEntity;
+import com.summit.core.adapter.TokenEstimator;
+import com.summit.core.compact.Tokenizer;
+import com.summit.core.conversation.message.AiMessageEntity;
+import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.SystemMessageEntity;
+import com.summit.core.conversation.message.ToolMessageEntity;
+import com.summit.core.conversation.message.UserMessageEntity;
 
 import java.util.List;
 

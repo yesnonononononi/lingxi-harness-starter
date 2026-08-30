@@ -1,8 +1,8 @@
 package com.summit.runtime;
 
-import com.summit.harnesscore.interceptor.InterceptorProcessor;
-import com.summit.harnesscore.interceptor.InvocationContext;
-import com.summit.harnesscore.interceptor.RuntimeInterceptor;
+import com.summit.core.interceptor.InterceptorProcessor;
+import com.summit.core.interceptor.InvocationContext;
+import com.summit.core.interceptor.RuntimeInterceptor;
 
 import lombok.extern.slf4j.Slf4j;
 

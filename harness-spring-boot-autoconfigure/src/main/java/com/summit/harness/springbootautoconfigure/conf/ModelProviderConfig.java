@@ -2,13 +2,13 @@ package com.summit.harness.springbootautoconfigure.conf;
 
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
 import com.summit.harness.springbootautoconfigure.properties.CompactContextModelProperties;
-import com.summit.harnesscore.model.ModelProvider;
-import com.summit.harnesscore.model.ModelProviderRegistry;
+import com.summit.core.model.ModelProvider;
+import com.summit.core.model.ModelProviderRegistry;
 import com.summit.adapter.langchain4j.provider.OpenAiChatModelProvider;
 import com.summit.adapter.langchain4j.provider.OpenAiCompactContextModelProvider;
 import com.summit.adapter.langchain4j.provider.OpenAiStreamingModelProvider;
-import com.summit.harnesscore.model.ChatModel;
-import com.summit.harnesscore.model.StreamingChatModel;
+import com.summit.core.model.ChatModel;
+import com.summit.core.model.StreamingChatModel;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;

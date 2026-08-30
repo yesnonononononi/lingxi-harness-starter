@@ -1,6 +1,6 @@
 package com.summit.harnessexample.session_policy;
-import com.summit.harnesscore.conversation.ConversationEntity;
-import com.summit.harnesscore.conversation.ConversationStore;
+import com.summit.core.conversation.ConversationEntity;
+import com.summit.core.conversation.ConversationStore;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.RedisTemplate;

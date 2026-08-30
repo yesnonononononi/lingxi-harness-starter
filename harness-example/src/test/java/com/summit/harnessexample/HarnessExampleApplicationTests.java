@@ -1,13 +1,11 @@
 package com.summit.harnessexample;
 
 
-import com.summit.harnesscore.runtime.Workspace;
-import com.summit.harnesscore.tool.ToolRegistry;
+import com.summit.core.runtime.Workspace;
+import com.summit.core.tool.ToolRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-
-import java.util.Map;
 
 @SpringBootTest
 public class HarnessExampleApplicationTests {

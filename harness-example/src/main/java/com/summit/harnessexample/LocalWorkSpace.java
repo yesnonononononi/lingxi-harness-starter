@@ -1,9 +1,9 @@
 package com.summit.harnessexample;
 
-import com.summit.harnesscore.runtime.OsType;
-import com.summit.harnesscore.runtime.RuntimeEnvironment;
-import com.summit.harnesscore.runtime.ShellType;
-import com.summit.harnesscore.runtime.Workspace;
+import com.summit.core.runtime.OsType;
+import com.summit.core.runtime.RuntimeEnvironment;
+import com.summit.core.runtime.ShellType;
+import com.summit.core.runtime.Workspace;
 import org.jspecify.annotations.NonNull;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;

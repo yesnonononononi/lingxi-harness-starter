@@ -2,10 +2,10 @@ package com.summit.tools.file.read;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.harnesscore.runtime.WorkspaceBridge;
-import com.summit.harnesscore.tool.ToolExecuteResult;
-import com.summit.harnesscore.tool.ToolExecution;
-import com.summit.harnesscore.tool.ToolExecutor;
+import com.summit.core.runtime.WorkspaceBridge;
+import com.summit.core.tool.ToolExecuteResult;
+import com.summit.core.tool.ToolExecution;
+import com.summit.core.tool.ToolExecutor;
 
 import com.summit.tools.arguments.ReadFileRequest;
 import lombok.extern.slf4j.Slf4j;

@@ -1,8 +1,8 @@
 package com.summit.adapter.langchain4j.provider;
 
 import com.summit.adapter.langchain4j.model.ChatModelAdapter;
-import com.summit.harnesscore.model.ChatModelProvider;
-import com.summit.harnesscore.model.ModelConfig;
+import com.summit.core.model.ChatModelProvider;
+import com.summit.core.model.ModelConfig;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 
 /** OpenAI-protocol reasoning model provider, provider name {@code default}. */

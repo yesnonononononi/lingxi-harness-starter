@@ -1,10 +1,10 @@
 package com.summit.harnessexample;
 
 
-import com.summit.harnesscore.agent.AgentRequest;
-import com.summit.harnesscore.agent.Execution;
-import com.summit.harnesscore.agent.ExecutionState;
-import com.summit.harnesscore.runtime.Workspace;
+import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.Execution;
+import com.summit.core.agent.ExecutionState;
+import com.summit.core.runtime.Workspace;
 import com.summit.runtime.agent.ChatAgent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

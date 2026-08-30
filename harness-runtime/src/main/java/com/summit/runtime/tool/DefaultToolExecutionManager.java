@@ -1,19 +1,18 @@
 package com.summit.runtime.tool;
 
-import com.summit.harnesscore.conversation.api.ToolCallRequest;
-import com.summit.harnesscore.conversation.event.ToolCallEndEvent;
-import com.summit.harnesscore.conversation.event.ToolCallStartEvent;
-import com.summit.harnesscore.interceptor.InterceptorProcessor;
-import com.summit.harnesscore.interceptor.InvocationContext;
-import com.summit.harnesscore.runtime.Workspace;
-import com.summit.harnesscore.tool.*;
+import com.summit.core.conversation.api.ToolCallRequest;
+import com.summit.core.conversation.event.ToolCallEndEvent;
+import com.summit.core.conversation.event.ToolCallStartEvent;
+import com.summit.core.interceptor.InterceptorProcessor;
+import com.summit.core.interceptor.InvocationContext;
+import com.summit.core.runtime.Workspace;
+import com.summit.core.tool.*;
 import com.summit.runtime.configs.CommonToolConfig;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 
-import java.io.Serializable;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -80,6 +79,7 @@ public class DefaultToolExecutionManager implements ToolExecutionManager {
                 .id(request.id())
                 .toolDefinition(tool)
                 .sessionId(command.sessionId())
+                .turnId(command.executionId())
                 .workspace(workspace)
                 .args(request.arguments())
                 .build();

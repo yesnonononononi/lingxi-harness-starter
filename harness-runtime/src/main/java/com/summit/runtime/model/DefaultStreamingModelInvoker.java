@@ -1,11 +1,11 @@
 package com.summit.runtime.model;
 
 
-import com.summit.harnesscore.conversation.api.ChatResponseEntity;
-import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
-import com.summit.harnesscore.model.ModelChatCommand;
-import com.summit.harnesscore.model.ModelInvoker;
-import com.summit.harnesscore.model.StreamingChatModel;
+import com.summit.core.conversation.api.ChatResponseEntity;
+import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.model.ModelChatCommand;
+import com.summit.core.model.ModelInvoker;
+import com.summit.core.model.StreamingChatModel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 

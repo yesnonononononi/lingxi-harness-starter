@@ -1,7 +1,7 @@
 package com.summit.adapter.langchain4j.codec;
 
-import com.summit.harnesscore.adapter.TokenEstimator;
-import com.summit.harnesscore.conversation.message.Message;
+import com.summit.core.adapter.TokenEstimator;
+import com.summit.core.conversation.message.Message;
 import dev.langchain4j.model.TokenCountEstimator;
 import dev.langchain4j.model.openai.OpenAiTokenCountEstimator;
 
