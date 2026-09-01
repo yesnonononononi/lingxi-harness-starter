@@ -1,9 +1,9 @@
 package com.summit.harness.springbootautoconfigure.conf;
 
-import com.summit.harnesscore.compact.Tokenizer;
-import com.summit.harnesscore.interceptor.InterceptorProcessor;
-import com.summit.harnesscore.tool.ToolExecution;
-import com.summit.harnesscore.tool.ToolInterceptor;
+import com.summit.core.compact.Tokenizer;
+import com.summit.core.interceptor.InterceptorProcessor;
+import com.summit.core.tool.ToolExecution;
+import com.summit.core.tool.ToolInterceptor;
 import com.summit.runtime.tool.DefaultToolInterceptor;
 import com.summit.runtime.DefaultInterceptorProcessor;
 import org.springframework.boot.autoconfigure.AutoConfiguration;

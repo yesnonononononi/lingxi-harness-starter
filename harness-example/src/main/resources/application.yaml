@@ -6,6 +6,7 @@ spring:
 
 lingxi:
   agent:
+    workspace: docker
     runtime:
       tool:
         common:
@@ -25,6 +26,8 @@ lingxi:
           baseUrl: https://api.tavily.com/search
           apiKey: ${TAVILY_APIKEY}
           timeout: 30
+          max-output: 3000
+          max-result: 3
         context-compact:
           enabled: true
 

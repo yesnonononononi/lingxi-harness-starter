@@ -19,12 +19,12 @@ public  class FileEditor {
             %s
             """;
 
-    public static FileEditorResult edit(EditFileRequest editFileRequest, @NonNull File targetFile, Charset charset, Integer aroundLines) {
+    public static FileEditorResult edit(EditFileRequest editFileRequest, @NonNull String content, Charset charset, Integer aroundLines) {
 
         EditType type = EditType.fromString(editFileRequest.getType());
         return switch (type) {
-            case INSERT_AFTER, INSERT_BEFORE -> FileInsertor.insert(editFileRequest, targetFile, charset, aroundLines);
-            case REPLACE, DELETE -> FileUpdater.update(editFileRequest, targetFile, charset, aroundLines);
+            case INSERT_AFTER, INSERT_BEFORE -> FileInsertor.insert(editFileRequest, content, charset, aroundLines);
+            case REPLACE, DELETE -> FileUpdater.update(editFileRequest, content, charset, aroundLines);
         };
     }
 

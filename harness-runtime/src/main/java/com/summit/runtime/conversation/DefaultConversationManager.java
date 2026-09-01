@@ -1,18 +1,21 @@
 package com.summit.runtime.conversation;
 
-import com.summit.harnesscore.agent.AgentRequest;
-import com.summit.harnesscore.compact.ContextCompacter;
-import com.summit.harnesscore.compact.ContextSummary;
-import com.summit.harnesscore.conversation.ConversationEntity;
-import com.summit.harnesscore.conversation.ConversationManager;
-import com.summit.harnesscore.conversation.ConversationStore;
-import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
-import com.summit.harnesscore.runtime.Workspace;
-import com.summit.harnesscore.tool.ToolExecuteResult;
-import dev.langchain4j.agent.tool.ToolSpecification;
-import dev.langchain4j.data.message.*;
-import dev.langchain4j.model.chat.response.ChatResponse;
-import dev.langchain4j.model.output.TokenUsage;
+import com.summit.core.agent.AgentRequest;
+import com.summit.core.compact.ContextCompacter;
+import com.summit.core.compact.ContextSummary;
+import com.summit.core.conversation.ConversationEntity;
+import com.summit.core.conversation.ConversationManager;
+import com.summit.core.conversation.ConversationStore;
+import com.summit.core.conversation.api.ChatResponseEntity;
+import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.conversation.message.AiMessageEntity;
+import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.SystemMessageEntity;
+import com.summit.core.conversation.message.TokenUsageEntity;
+import com.summit.core.conversation.message.ToolMessageEntity;
+import com.summit.core.conversation.message.UserMessageEntity;
+import com.summit.core.runtime.Workspace;
+import com.summit.core.tool.ToolExecuteResult;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -34,36 +37,29 @@ public class DefaultConversationManager implements ConversationManager {
 
     @Override
     public void startConversation(AgentRequest agentRequest) {
-        Serializable sessionId = agentRequest.sessionIdOrDefault();
-        UserMessage userMessage = UserMessage.from(agentRequest.getInput());
-        Optional<ConversationEntity> existing = this.conversationStore.get(sessionId);
+
+        Optional<ConversationEntity> existing = this.conversationStore.get(agentRequest.sessionIdOrDefault());
+
+        // if session has existed then append input
         if (existing.isPresent()) {
-            ConversationEntity conversation = existing.get();
-            List<ChatMessage> messages = conversation.messages();
-            ChatMessage last = messages.isEmpty() ? null : messages.getLast();
-            // Idempotent protection: When the last execution fails and is retried, the last message may already be the current input, avoiding duplicate appending
-            if (last == null || !last.equals(userMessage)) {
-                messages.add(userMessage);
-                this.conversationStore.save(sessionId, conversation);
-            }
+           appendNewUserMessageToConversation(agentRequest, existing.get());
             return;
         }
+
         // New session: create system + this input
-        String systemPrompt = getSystemMessage(agentRequest.getSystemPrompt(), agentRequest.getWorkspace());
-        SystemMessage systemMessage = SystemMessage.from(systemPrompt);
-        LinkedList<ChatMessage> messages = new LinkedList<>(List.of(systemMessage, userMessage));
-        ConversationEntity conversation = ConversationEntity.empty(agentRequest.getWorkspace(), systemMessage, sessionId, messages);
-        this.conversationStore.save(sessionId, conversation);
+        startNewConversation(agentRequest);
     }
 
     @Override
-    public void addMessage(Serializable sessionId, ChatResponse chatResponse, @Nullable List<ToolExecuteResult> toolExecutionResultMessage) {
-        AiMessage aiMessage = chatResponse.aiMessage();
+    public void addMessage(Serializable sessionId, ChatResponseEntity chatResponse, @Nullable List<ToolExecuteResult> toolExecutionResultMessage) {
+        AiMessageEntity aiMessage = chatResponse.getAiMessageEntity();
         ConversationEntity conversation = getConversationEntity(sessionId);
         conversation.messages().add(aiMessage);
-        conversation.tokenUsage().add(chatResponse.tokenUsage());
+        conversation.tokenUsageEntity().add(chatResponse.getTokenUsage());
 
-        addToolMessages(toolExecutionResultMessage,conversation);
+        addToolMessages(toolExecutionResultMessage, conversation);
+
+        this.conversationStore.save(sessionId, conversation);
     }
 
     @Override
@@ -73,19 +69,26 @@ public class DefaultConversationManager implements ConversationManager {
     }
 
     @Override
-    public List<ChatMessage> messages(Serializable sessionId) {
+    public List<Message> messages(Serializable sessionId) {
         return Collections.unmodifiableList(getConversationEntity(sessionId).messages());
     }
 
     @Override
-    public TokenUsage tokenUsage(Serializable sessionId) {
-        return this.conversationStore.get(sessionId).orElseThrow().tokenUsage();
+    public Workspace workspace(Serializable sessionId) {
+        // The workspace stored at session start — the one supplied by the AgentRequest
+        return this.conversationStore.get(sessionId).map(ConversationEntity::workspace).orElse(null);
+    }
+
+    @Override
+    public TokenUsageEntity tokenUsage(Serializable sessionId) {
+        return this.conversationStore.get(sessionId).orElseThrow().tokenUsageEntity();
     }
 
     @Override
     public void squeezeContext(Integer expectedTokens, Integer attemptNum, Serializable sessionId) {
         ConversationEntity conversation = getConversationEntity(sessionId);
         this.contextCompacter.compact(expectedTokens, attemptNum, conversation.messages());
+        this.conversationStore.save(sessionId, conversation);
     }
 
     @Override
@@ -95,10 +98,10 @@ public class DefaultConversationManager implements ConversationManager {
         String summary = contextSummary.getSummary();
         try {
             log.info("【context-rebuild】 rebuilding context with summary: {}", summary);
-            SystemMessage systemMessage = conversation.systemMessage();
-            List<ChatMessage> latestToolMessageAndAiMessage = findLatestInteraction(conversation);
+            SystemMessageEntity systemMessage = conversation.SystemMessageEntity();
+            List<Message> latestToolMessageAndAiMessage = findLatestInteraction(conversation);
             conversation.messages().clear();
-           conversation.messages().addAll(List.of(systemMessage, SystemMessage.from(
+           conversation.messages().addAll(List.of(systemMessage, SystemMessageEntity.builder().text(
                     String.format("""
                                     The compact_context tool has been executed successfully, and the conversation history has been compressed into the following summary:
                                     goal: \n
@@ -119,8 +122,9 @@ public class DefaultConversationManager implements ConversationManager {
                             contextSummary.getPending(),
                             contextSummary.getState()
                     )
-            )));
+            ).build()));
             conversation.messages().addAll(latestToolMessageAndAiMessage);
+            this.conversationStore.save(sessionId, conversation);
             log.info("【context-rebuild】successfully rebuild context with summary: {}", summary);
         } catch (Exception e) {
             log.error("【context-rebuild】 failed to rebuild context with summary: {}", summary, e);
@@ -128,42 +132,51 @@ public class DefaultConversationManager implements ConversationManager {
     }
 
 
+    /**
+     * Add tool messages to the conversation.
+     * @param results The tool execution results.
+     * @param conversation The conversation entity.
+     */
     private void addToolMessages(List<ToolExecuteResult> results,ConversationEntity conversation) {
         if (results == null || results.isEmpty()) {
             return;
         }
 
         for (ToolExecuteResult result : results) {
-            ToolSpecification specification = result.getToolSpecification();
+            var toolDefinition = result.getToolSpecification();
 
-            ToolExecutionResultMessage message =
-                    ToolExecutionResultMessage.toolExecutionResultMessage(
-                            result.getId(),
-                            specification == null
-                                    ? "unknown tool"
-                                    : specification.name(),
-                            result.getToolOutput()
-                    );
+            ToolMessageEntity message = ToolMessageEntity.builder()
+                    .id(result.getId())
+                    .name(toolDefinition == null
+                            ? "unknown tool"
+                            : toolDefinition.name())
+                    .text(result.getToolOutput())
+                    .build();
 
             conversation.messages().add(message);
         }
     }
 
 
-    private List<ChatMessage> findLatestInteraction(ConversationEntity conversation) {
+    /**
+     * Find the latest interaction in the conversation.
+     * @param conversation The conversation entity.
+     * @return The latest interaction in the conversation.
+     */
+    private List<Message> findLatestInteraction(ConversationEntity conversation) {
 
-        List<ChatMessage> result = new ArrayList<>();
+        List<Message> result = new ArrayList<>();
 
         for (int i = conversation.messages().size() - 1; i >= 0; i--) {
 
-            ChatMessage message = conversation.messages().get(i);
+            Message message = conversation.messages().get(i);
 
-            if (message instanceof ToolExecutionResultMessage) {
+            if (message instanceof ToolMessageEntity) {
                 result.addFirst(message);
                 continue;
             }
 
-            if (message instanceof AiMessage) {
+            if (message instanceof AiMessageEntity) {
                 result.addFirst(message);
                 break;
             }
@@ -173,16 +186,65 @@ public class DefaultConversationManager implements ConversationManager {
     }
 
 
-
-    private String getSystemMessage(String systemPrompt, Workspace workspace) {
-        return String.format(systemPrompt,
+    /**
+     * Get the system message for the given system prompt and workspace.
+     * @param systemPrompt The system prompt to use.
+     * @param workspace The workspace to use.
+     * @return The system message.
+     */
+    private SystemMessageEntity getSystemMessage(String systemPrompt, Workspace workspace) {
+        return SystemMessageEntity.builder().text(String.format(systemPrompt,
                 workspace.runtimeEnvironment().osType(),
                 workspace.workDir()
-        );
+        )).build();
+
     }
 
+    /**
+     * Get the conversation entity for the given session ID.
+     * @param sessionId The session ID.
+     * @return The conversation entity.
+     */
     private ConversationEntity getConversationEntity(Serializable sessionId) {
         return this.conversationStore.get(sessionId).orElseThrow();
+    }
+
+    /**
+     * Start a new conversation with the given agent request.
+     * @param agentRequest The agent request containing the system prompt and workspace.
+     */
+    private void startNewConversation(AgentRequest agentRequest){
+        Serializable sessionId = agentRequest.sessionIdOrDefault();
+        SystemMessageEntity systemMessage =  getSystemMessage(agentRequest.getSystemPrompt(), agentRequest.getWorkspace());
+        ConversationEntity conversation = ConversationEntity.empty(agentRequest.getSessionName(), agentRequest.getWorkspace(), systemMessage, sessionId);
+        conversation.messages().add(UserMessageEntity.from(agentRequest.getInput()));
+        this.conversationStore.save(sessionId, conversation);
+    }
+
+
+    /**
+     * append a new user message to the conversation and set the sessionName if it is not set
+     * @param agentRequest The agent request containing the input and session name.
+     * @param conversation The conversation entity to append the user message to.
+     */
+    private void appendNewUserMessageToConversation(AgentRequest agentRequest,ConversationEntity conversation){
+        List<Message> messages = conversation.messages();
+        Serializable sessionId = agentRequest.sessionIdOrDefault();
+        String sessionName = agentRequest.getSessionName();
+        UserMessageEntity userMessage = UserMessageEntity.from(agentRequest.getInput());
+        Message last = messages.isEmpty() ? null : messages.getLast();
+
+        // Idempotent protection: When the last execution fails and is retried, the last message may already be the current input, avoiding duplicate appending
+        if (last == null || !last.text().equals(userMessage.text())) {
+            messages.add(userMessage);
+            this.conversationStore.save(sessionId, conversation);
+        }
+
+        // Backfill the session name on first sight if the caller supplied one
+        if (sessionName != null && !sessionName.isBlank()
+                && (conversation.sessionName() == null || conversation.sessionName().isBlank())) {
+            this.conversationStore.save(sessionId, conversation.withSessionName(sessionName));
+        }
     }
 
 }

@@ -1,13 +1,13 @@
 package com.summit.harness.springbootautoconfigure.conf.sys;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.harnesscore.compact.Tokenizer;
-import com.summit.harnesscore.conversation.ConversationManager;
-import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
-import com.summit.harnesscore.runtime.RuntimeExecutionPolicy;
-import com.summit.harnesscore.runtime.RuntimeFactory;
-import com.summit.harnesscore.runtime.RuntimeListener;
-import com.summit.harnesscore.tool.ToolExecutionManager;
+import com.summit.core.compact.Tokenizer;
+import com.summit.core.conversation.ConversationManager;
+import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.runtime.RuntimeExecutionPolicy;
+import com.summit.core.runtime.RuntimeFactory;
+import com.summit.core.runtime.RuntimeListener;
+import com.summit.core.tool.ToolExecutionManager;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.policy.DefaultRuntimeExecutionPolicy;
 import com.summit.runtime.DefaultRuntimeFactory;

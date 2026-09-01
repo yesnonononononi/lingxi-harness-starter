@@ -1,11 +1,11 @@
 package com.summit.runtime.model;
 
 
-import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
-import com.summit.harnesscore.model.ModelChatCommand;
-import com.summit.harnesscore.model.ModelInvoker;
-import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.chat.response.ChatResponse;
+import com.summit.core.conversation.api.ChatResponseEntity;
+import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.model.ModelChatCommand;
+import com.summit.core.model.ModelInvoker;
+import com.summit.core.model.StreamingChatModel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
@@ -17,7 +17,7 @@ public class DefaultStreamingModelInvoker implements ModelInvoker {
 
 
     @Override
-    public ChatResponse invoke(ModelChatCommand chatCommand) {
+    public ChatResponseEntity invoke(ModelChatCommand chatCommand) {
         if (!chatCommand.streaming()) {
             throw new IllegalStateException("streaming invoker only accepts a streaming model command");
         }

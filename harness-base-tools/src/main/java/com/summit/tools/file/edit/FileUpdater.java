@@ -4,15 +4,13 @@ package com.summit.tools.file.edit;
 import com.summit.tools.arguments.EditFileRequest;
 import org.jspecify.annotations.NonNull;
 
-import java.io.File;
 import java.nio.charset.Charset;
-import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
 public class FileUpdater {
-    public static FileEditorResult update(EditFileRequest editFileRequest, @NonNull File targetFile, Charset charset, Integer aroundLines){
+    public static FileEditorResult update(EditFileRequest editFileRequest, @NonNull String content, Charset charset, Integer aroundLines){
         int oldIndex ;
         String newText = Objects.requireNonNullElse(editFileRequest.getNewText(),"");
         String oldText = editFileRequest.getOldText();
@@ -22,8 +20,6 @@ public class FileUpdater {
             if (oldText == null || oldText.isBlank()) return FileEditorResult.err("old text is empty");
 
             //1, validate newText whether duplicate or not
-            String content = Files.readString(targetFile.toPath(), charset);
-
             if(content.isEmpty())   return FileEditorResult.err("file is empty");
 
             // ensure old text exist in file: exact match first, then normalized match as fallback

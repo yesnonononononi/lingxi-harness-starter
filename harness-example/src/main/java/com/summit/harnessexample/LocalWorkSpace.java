@@ -1,9 +1,11 @@
 package com.summit.harnessexample;
 
-import com.summit.harnesscore.runtime.OsType;
-import com.summit.harnesscore.runtime.RuntimeEnvironment;
-import com.summit.harnesscore.runtime.ShellType;
-import com.summit.harnesscore.runtime.Workspace;
+import com.summit.core.runtime.OsType;
+import com.summit.core.runtime.RuntimeEnvironment;
+import com.summit.core.runtime.ShellType;
+import com.summit.core.runtime.Workspace;
+import org.jspecify.annotations.NonNull;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -12,6 +14,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 @Component
+@ConditionalOnProperty(name = "lingxi.agent.workspace", havingValue = "local", matchIfMissing = true)
 public class LocalWorkSpace implements Workspace {
     private volatile boolean allowOutsideWorkspace = true;
     private volatile String workDir = null;
@@ -37,7 +40,7 @@ public class LocalWorkSpace implements Workspace {
     }
 
     @Override
-    public Path resolve(String path) {
+    public Path resolve(@NonNull String path) {
         String workDir = this.workDir();
         Path wd = Paths.get(workDir).normalize();
         Path result = wd.resolve(path).normalize();

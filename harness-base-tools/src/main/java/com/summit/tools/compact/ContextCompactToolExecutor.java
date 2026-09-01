@@ -3,19 +3,22 @@ package com.summit.tools.compact;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.harnesscore.tool.ToolResultType;
-import com.summit.harnesscore.tool.ToolExecuteResult;
-import com.summit.harnesscore.tool.ToolExecution;
-import com.summit.harnesscore.tool.ToolExecutor;
+import com.summit.core.conversation.api.ChatRequestEntity;
+import com.summit.core.conversation.api.ChatResponseEntity;
+import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.SystemMessageEntity;
+import com.summit.core.conversation.message.UserMessageEntity;
+import com.summit.core.model.ChatModel;
+import com.summit.core.tool.ToolResultType;
+import com.summit.core.tool.ToolExecuteResult;
+import com.summit.core.tool.ToolExecution;
+import com.summit.core.tool.ToolExecutor;
 
-import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.ChatModel;
-import dev.langchain4j.model.chat.request.ChatRequest;
-import dev.langchain4j.model.chat.response.ChatResponse;
+
 import lombok.AllArgsConstructor;
+import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
-import org.jspecify.annotations.NonNull;
+
 
 import java.util.LinkedList;
 import java.util.List;
@@ -29,8 +32,8 @@ public class ContextCompactToolExecutor implements ToolExecutor {
     @Override
     public @NonNull ToolExecuteResult execute(ToolExecution toolExecution) {
         String context = extractContext(toolExecution.getArgs());
-        ChatRequest request = ChatRequest.builder()
-                .messages(new LinkedList<>(List.of(SystemMessage.from("""
+        List<Message> messages = new LinkedList<>();
+        messages.add(SystemMessageEntity.builder().text("""
                                                        You are a context compression assistant. Compress the given conversation history into a concise but complete summary so the conversation can be continued seamlessly.
                                                        Keep all important facts, decisions, user requirements, tool calls and their results, and the current task state.
                                                        Write the summary in the same language as the conversation. Output only the summary text, without any extra explanation.
@@ -42,20 +45,19 @@ public class ContextCompactToolExecutor implements ToolExecutor {
                                          "pending[]" : "list of pending tasks",
                                          "state": "current state of the conversation . enum DONE or FAILED"
                                          }
-                                        """),
-                                UserMessage.from(context)
-                        )
-                        )
-                )
+                                        """).build());
+        messages.add(UserMessageEntity.from(context));
+        ChatRequestEntity request = ChatRequestEntity.builder()
+                .messages(messages)
                 .build();
-        ChatResponse response = this.chatModel.chat(
+        ChatResponseEntity response = this.chatModel.chat(
                 request
         );
-        log.info("【compact-model】 model has responded:{} thinking:{}", response.aiMessage().text(), response.aiMessage().thinking());
+        log.info("【compact-model】 model has responded:{} thinking:{}", response.getAiMessageEntity().text(), response.getAiMessageEntity().getThinking());
 
         return ToolExecuteResult.success(toolExecution.getId(),
-                toolExecution.getToolDefinition().toolSpecification(),
-                response.aiMessage().text(),
+                toolExecution.getToolDefinition(),
+                response.getAiMessageEntity().text(),
                 ToolResultType.CONTEXT_COMPACT
         );
     }

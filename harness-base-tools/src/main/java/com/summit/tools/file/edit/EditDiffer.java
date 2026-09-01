@@ -3,14 +3,14 @@ package com.summit.tools.file.edit;
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
 import com.github.difflib.patch.Patch;
-import com.summit.harnesscore.tool.Differ;
+import com.summit.core.tool.Differ;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import com.summit.harnesscore.tool.DiffResult;
+import com.summit.core.tool.DiffResult;
 
 
 public class EditDiffer implements Differ {
@@ -37,7 +37,7 @@ public class EditDiffer implements Differ {
             for (String delta : diff) {
                 System.out.println(delta);
             }
-            return DiffResult.success(diff, patch);
+            return DiffResult.success(diff);
 
         } catch (Exception e) {
             return DiffResult.fail("diff failed"+e.getMessage());

@@ -1,17 +1,16 @@
 package com.summit.harnessexample;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.harnesscore.conversation.event.AgentMessageEvent;
-import com.summit.harnesscore.conversation.event.AgentPartialTextEvent;
-import com.summit.harnesscore.conversation.event.AgentPartialThinkingEvent;
-import com.summit.harnesscore.conversation.event.ExecutionCompleteEvent;
-import com.summit.harnesscore.conversation.event.ExecutionErrorEvent;
-import com.summit.harnesscore.conversation.event.ExecutionStartEvent;
-import com.summit.harnesscore.conversation.event.FileEditEvent;
-import com.summit.harnesscore.conversation.event.ToolCallEndEvent;
-import com.summit.harnesscore.conversation.event.ToolCallStartEvent;
-import com.summit.harnesscore.runtime.RuntimeListener;
-import com.summit.harnesscore.tool.PatchManager;
+import com.summit.core.conversation.event.AgentMessageEvent;
+import com.summit.core.conversation.event.AgentPartialTextEvent;
+import com.summit.core.conversation.event.AgentPartialThinkingEvent;
+import com.summit.core.conversation.event.ExecutionCompleteEvent;
+import com.summit.core.conversation.event.ExecutionErrorEvent;
+import com.summit.core.conversation.event.ExecutionStartEvent;
+import com.summit.core.conversation.event.FileEditEvent;
+import com.summit.core.conversation.event.ToolCallEndEvent;
+import com.summit.core.conversation.event.ToolCallStartEvent;
+import com.summit.core.runtime.RuntimeListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -43,7 +42,6 @@ public class EventListener implements RuntimeListener {
 
     private final SseEventPublisher sseEventPublisher;
     private final ObjectMapper objectMapper;
-    private final PatchManager patchManager;
 
     @Override
     public void onExecutionStart(ExecutionStartEvent event) {
@@ -110,22 +108,18 @@ public class EventListener implements RuntimeListener {
 
     @Override
     public void onFileEdit(FileEditEvent event) {
+        // The file content is already written by the tool itself; this event
+        // only carries the applied edit to the front-end for its diff view and
+        // the pending accept/reject decision.
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("patchId", event.getPatchId());
+        data.put("recordId", event.getRecordId());
+        data.put("turnId", event.getTurnId());
         data.put("filePath", event.getFilePath());
         data.put("oldContent", event.getOldContent());
         data.put("newContent", event.getNewContent());
-        if (event.getSessionId() != null) {
-            applyPatchQuietly(event);
-        }
+        data.put("plusLines", event.getPlusLines());
+        data.put("minusLines", event.getMinusLines());
         broadcast("FILE_EDIT", null, event.getSessionId(), data);
-    }
-
-    private void applyPatchQuietly(FileEditEvent event) {
-        try {
-            patchManager.applyPatch(event.getSessionId(), (Serializable) event.getPatchId());
-        } catch (Exception ignore) {
-        }
     }
 
     private void broadcast(String type, String executionId, Serializable sessionId, Map<String, Object> data) {

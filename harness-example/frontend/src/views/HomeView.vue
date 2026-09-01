@@ -1,8 +1,9 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { getUser, removeToken } from '../utils/auth'
 import request from '../utils/request'
+import { acceptEdit, rejectEdit, acceptTurn, rejectTurn, listPendingEdits } from '../api/fileEdit'
 import FileDiff from '../components/FileDiff.vue'
 import MarkdownContent from '../components/MarkdownContent.vue'
 
@@ -26,10 +27,16 @@ const sessions = ref([])
 const currentSessionId = ref('')
 const currentSessionName = ref('')
 const showSessionRename = ref(false)
+const showSessions = ref(true)
 const renameInput = ref('')
 // 流式打字机期间用纯文本渲染，停顿后切换到 Markdown，避免每个 chunk 都重解析导致卡顿
 let mdSettleTimer = null
 const MD_SETTLE_MS = 350
+
+// 是否已有真正的对话内容（系统提示类消息不计入，避免刚连接就挤掉居中欢迎页）
+const hasChat = computed(() =>
+  events.value.some((e) => !['SYS', 'RAW', 'ERROR'].includes(e.type))
+)
 
 const eventTypeLabels = {
   SYS: '系统',
@@ -129,6 +136,66 @@ function toggleTool(item) {
   item.open = !item.open
 }
 
+// 从路径取文件名(下拉框 item 展示用)
+function fileNameOf(path) {
+  return (path || '').split(/[\\/]/).pop() || path || ''
+}
+
+// ====== 文件编辑决策(保留 / 撤销) ======
+// 所有仍待裁决的文件编辑(跨轮),输入框上方下拉框的数据源
+const showPendingEdits = ref(true)
+const pendingEdits = computed(() =>
+  events.value.filter((e) => e.type === 'FILE_EDIT' && e.decision === 'pending')
+)
+
+// 每轮执行(executionId == turnId)中仍待裁决的编辑数
+function pendingEditsOfTurn(executionId) {
+  return pendingEdits.value.filter((e) => e.turnId === executionId)
+}
+
+async function decideEdit(item, accept) {
+  if (!item.recordId || item.decision !== 'pending') return
+  item.deciding = true
+  try {
+    if (accept) await acceptEdit(currentSessionId.value, item.recordId)
+    else await rejectEdit(currentSessionId.value, item.recordId)
+    item.decision = accept ? 'ACCEPTED' : 'REJECTED'
+  } catch (err) {
+    appendLog({ time: now(), type: 'ERROR', text: `文件决策失败:${err.message || err}` })
+  } finally {
+    item.deciding = false
+  }
+}
+
+async function decideTurn(executionId, accept) {
+  if (!pendingEditsOfTurn(executionId).length) return
+  try {
+    if (accept) await acceptTurn(currentSessionId.value, executionId)
+    else await rejectTurn(currentSessionId.value, executionId)
+  } catch (err) {
+    appendLog({ time: now(), type: 'ERROR', text: `整轮决策失败:${err.message || err}` })
+  }
+}
+
+// 对当前会话所有待裁决编辑统一决策:按轮分组,逐轮调用整轮接口
+async function decideAllPending(accept) {
+  const turnIds = [...new Set(pendingEdits.value.map((e) => e.turnId).filter(Boolean))]
+  if (!turnIds.length) return
+  try {
+    for (const turnId of turnIds) {
+      if (accept) await acceptTurn(currentSessionId.value, turnId)
+      else await rejectTurn(currentSessionId.value, turnId)
+    }
+  } catch (err) {
+    appendLog({ time: now(), type: 'ERROR', text: `统一决策失败:${err.message || err}` })
+  }
+}
+
+// thinking 卡片默认收起，点击头部展开/收起（与工具卡片交互一致）
+function toggleThinking(item) {
+  item.thinkingOpen = !item.thinkingOpen
+}
+
 function isReadTool(item) {
   return (item.toolName || '').toLowerCase().includes('read')
 }
@@ -189,7 +256,7 @@ function connectEvents() {
         // (typewriter effect); create the bubble on first chunk if it does not exist yet
         let target = findLastAgentMessage(evt.executionId)
         if (!target) {
-          appendLog({ time: now(), type: 'AGENT_MESSAGE', executionId: evt.executionId || '', text: '', thinking: '', streaming: true })
+          appendLog({ time: now(), type: 'AGENT_MESSAGE', executionId: evt.executionId || '', text: '', thinking: '', streaming: true, thinkingOpen: false })
           target = findLastAgentMessage(evt.executionId)
         }
         const chunk = evt.data?.text || ''
@@ -199,20 +266,47 @@ function connectEvents() {
         scheduleMdSettle()
         return
       }
+      if (evt.type === 'AGENT_MESSAGE') {
+        // 流式模式下，最终全量消息的文本已经通过 PARTIAL_TEXT 累积到当前气泡里，
+        // 直接把气泡收尾即可；否则会额外多出一段重复的末尾消息
+        const inflight = findLastAgentMessage(evt.executionId)
+        if (inflight && inflight.streaming) {
+          inflight.streaming = false
+          return
+        }
+      }
       if (evt.type === 'EXECUTION_COMPLETED' || evt.type === 'EXECUTION_FAILED') {
         // a round of execution is done: immediately settle any in-flight markdown
         settleMarkdown(evt.executionId || '')
       }
       if (evt.type === 'FILE_EDIT') {
-        // render a Monaco DiffEditor card showing the file change
+        // render a Monaco DiffEditor card showing the file change;
+        // edits are already applied on disk, recordId enables accept/reject
         appendLog({
           time: now(),
           type: 'FILE_EDIT',
           executionId: evt.executionId || '',
+          recordId: evt.data?.recordId || '',
+          turnId: evt.data?.turnId || '',
           filePath: evt.data?.filePath || '',
           oldContent: evt.data?.oldContent || '',
           newContent: evt.data?.newContent || '',
+          plusLines: evt.data?.plusLines ?? 0,
+          minusLines: evt.data?.minusLines ?? 0,
+          decision: evt.data?.recordId ? 'pending' : 'none',
+          deciding: false,
           open: false,
+        })
+        return
+      }
+      if (evt.type === 'FILE_EDIT_DECISION') {
+        // any page performed an accept/reject (single edit or whole turn):
+        // refresh the decision state of the matching diff cards in place
+        const { recordId, turnId, decision } = evt.data || {}
+        events.value.forEach((item) => {
+          if (item.type !== 'FILE_EDIT' || item.decision === 'none') return
+          const hit = recordId ? item.recordId === recordId : (turnId && item.turnId === turnId)
+          if (hit) item.decision = decision || item.decision
         })
         return
       }
@@ -287,32 +381,17 @@ async function sendMessage() {
     if (currentSessionId.value) body.sessionId = currentSessionId.value
     if (currentSessionName.value) body.sessionName = currentSessionName.value
     const data = await request.post('/agent/chat', body)
-    // 后端分配/确认 sessionId，同步到本地会话列表
+    // 后端分配/确认 sessionId；会话列表以 conversation store 为准，延迟刷新
     if (data?.sessionId) {
-      const newId = data.sessionId
-      const isNewSession = !currentSessionId.value || currentSessionId.value !== newId
-      currentSessionId.value = newId
+      currentSessionId.value = data.sessionId
       currentSessionName.value = data.sessionName || currentSessionName.value || '新会话'
-      if (isNewSession) {
-        sessions.value.push({ sessionId: newId, sessionName: currentSessionName.value })
-      } else {
-        upsertSession(newId, data.sessionName)
-      }
+      loadSessions()
     }
     appendLog({ time: now(), type: 'SYS', text: `任务已提交：${data?.message || 'ok'}` })
   } catch (e) {
     appendLog({ time: now(), type: 'ERROR', text: `发送失败：${e?.message || e}` })
   } finally {
     sending.value = false
-  }
-}
-
-function upsertSession(id, name) {
-  const found = sessions.value.find((s) => s.sessionId === id)
-  if (found) {
-    if (name) found.sessionName = name
-  } else {
-    sessions.value.push({ sessionId: id, sessionName: name || '新会话' })
   }
 }
 
@@ -334,13 +413,52 @@ function newSession() {
   appendLog({ time: now(), type: 'SYS', text: '已新建会话，发送消息后将自动创建 sessionId' })
 }
 
-function switchSession(session) {
+async function switchSession(session) {
   if (!session.sessionId || session.sessionId === currentSessionId.value) return
   currentSessionId.value = session.sessionId
-  currentSessionName.value = session.sessionName || '新会话'
+  currentSessionName.value = session.sessionName || session.sessionId.slice(0, 8)
   events.value = []
   showSessionRename.value = false
-  appendLog({ time: now(), type: 'SYS', text: `已切换到会话：${currentSessionName.value}` })
+  try {
+    // 拉取该会话的历史消息，映射为与实时事件相同的气泡模型
+    const data = await request.get(`/agent/sessions/${session.sessionId}/messages`)
+    for (const m of data?.messages || []) {
+      if (m.role === 'USER') {
+        events.value.push({ time: '', type: 'USER', text: m.text || '' })
+      } else if (m.role === 'AI') {
+        events.value.push({
+          time: '', type: 'AGENT_MESSAGE', executionId: '',
+          text: m.text || '', thinking: m.thinking || '',
+          streaming: false, thinkingOpen: false,
+        })
+      } else if (m.role === 'TOOL') {
+        events.value.push({
+          time: '', type: 'TOOL_STARTED', executionId: '',
+          toolName: m.toolName || 'tool', args: '',
+          status: 'done', open: false, output: m.text || '',
+        })
+      }
+    }
+  } catch (e) {
+    appendLog({ time: now(), type: 'ERROR', text: `加载历史消息失败：${e?.message || e}` })
+  }
+    // 拉取该会话仍待裁决的编辑,映射为 FILE_EDIT 卡片(无旧/新内容,仅展示与决策)
+    try {
+      const data = await listPendingEdits(session.sessionId)
+      for (const e of (data?.edits || []).slice().reverse()) {
+        events.value.push({
+          time: '', type: 'FILE_EDIT', executionId: e.turnId || '',
+          recordId: e.recordId, turnId: e.turnId,
+          filePath: e.filePath, oldContent: '', newContent: '',
+          plusLines: e.plusLines ?? 0, minusLines: e.minusLines ?? 0,
+          decision: 'pending', deciding: false, open: false,
+        })
+      }
+    } catch (err) {
+      console.warn('加载待裁决编辑失败', err)
+    }
+    appendLog({ time: now(), type: 'SYS', text: `已切换到会话：${currentSessionName.value}` })
+  scrollToBottom()
 }
 
 function startRename() {
@@ -364,7 +482,7 @@ async function saveRename() {
       sessionName: name,
     })
     currentSessionName.value = data?.sessionName || name
-    upsertSession(currentSessionId.value, currentSessionName.value)
+    loadSessions()
     appendLog({ time: now(), type: 'SYS', text: `会话已重命名为：${currentSessionName.value}` })
   } catch (e) {
     appendLog({ time: now(), type: 'ERROR', text: `重命名失败：${e?.message || e}` })
@@ -378,44 +496,6 @@ function handleLogout() {
   router.push('/login')
 }
 
-// ====== 导入代码 ======
-const showImportModal = ref(false)
-const importPath = ref('')
-const importCode = ref('')
-const importDesc = ref('')
-
-function openImport() {
-  showImportModal.value = true
-}
-
-function closeImport() {
-  showImportModal.value = false
-}
-
-// 表单提交：把代码组装成一条消息交给 Agent，由 Agent 写入项目文件
-async function submitImport() {
-  const code = importCode.value.trim()
-  if (!code) return
-
-  const path = importPath.value.trim()
-  const desc = importDesc.value.trim()
-  const lines = ['请将以下代码添加到项目中。']
-  if (desc) lines.push(`说明：${desc}`)
-  if (path) lines.push(`文件路径：${path}`)
-  lines.push('代码内容：', '```', code, '```')
-
-  input.value = lines.join('\n')
-  importPath.value = ''
-  importCode.value = ''
-  importDesc.value = ''
-  showImportModal.value = false
-  await sendMessage()
-}
-
-// 弹窗打开时支持按 Esc 关闭
-function onKeydown(e) {
-  if (e.key === 'Escape' && showImportModal.value) closeImport()
-}
 
 // ====== 工作目录 ======
 async function loadWorkdir() {
@@ -456,12 +536,10 @@ onMounted(() => {
   connectEvents()
   loadWorkdir()
   loadSessions()
-  window.addEventListener('keydown', onKeydown)
 })
 
 onBeforeUnmount(() => {
   if (mdSettleTimer) clearTimeout(mdSettleTimer)
-  window.removeEventListener('keydown', onKeydown)
   if (es) {
     es.close()
   }
@@ -484,48 +562,37 @@ onBeforeUnmount(() => {
         <a class="tab" href="/login">登录</a>
       </nav>
       <div class="user-area">
+        <button class="sessions-toggle" :class="{ active: showSessions }" @click="showSessions = !showSessions">
+          ☰ 会话（{{ sessions.length }}）
+        </button>
         <span class="ws-badge" :class="{ online: sseStatus === '已连接' }">{{ sseStatus }}</span>
         <span class="name">你好，{{ user.name || '访客' }}</span>
-        <button class="import-btn" @click="openImport">＋ 导入代码</button>
         <button class="logout" @click="handleLogout">退出登录</button>
       </div>
     </header>
 
-    <section class="hero-banner" id="features">
-      <div class="hero-copy">
-        <div class="pill">✨ 灵犀官网主页 · 简洁 / 高级 / 现代</div>
-        <h1>构建更聪明的灵犀协作体验</h1>
-        <p>灵犀（LingXi）是面向开发者与团队协作的智能能力平台，支持对话式任务编排、实时事件流转与快速接入，让每一次交互都更高效、更顺滑。</p>
+    <!-- 会话管理面板：顶部栏下方弹出，纵向列表 -->
+    <div v-if="showSessions" class="session-panel">
+      <button class="new-session-btn" @click="newSession">＋ 新建会话</button>
+      <div class="session-list">
+        <div
+          v-for="s in sessions"
+          :key="s.sessionId"
+          class="session-item"
+          :class="{ active: s.sessionId === currentSessionId }"
+          @click="switchSession(s)"
+        >
+          <span class="session-name">{{ s.sessionName || s.sessionId.slice(0, 8) }}</span>
+          <span class="session-id">{{ s.sessionId.slice(0, 8) }}</span>
+        </div>
+        <div v-if="sessions.length === 0" class="session-empty">暂无会话，点击「新建会话」开始</div>
       </div>
-      <div class="hero-card">
-        <div class="hero-metric"><strong>实时</strong><span>SSE 事件流</span></div>
-        <div class="hero-metric"><strong>高效</strong><span>异步执行与回调</span></div>
-        <div class="hero-metric"><strong>优雅</strong><span>统一视觉与体验</span></div>
-      </div>
-    </section>
+    </div>
 
     <main class="chat-wrap">
       <div class="layout">
-        <!-- 会话侧边栏（临时 Map 存储） -->
-        <aside class="sidebar">
-          <button class="new-session-btn" @click="newSession">＋ 新建会话</button>
-          <div class="session-list">
-            <div
-              v-for="s in sessions"
-              :key="s.sessionId"
-              class="session-item"
-              :class="{ active: s.sessionId === currentSessionId }"
-              @click="switchSession(s)"
-            >
-              <span class="session-name">{{ s.sessionName || '新会话' }}</span>
-              <span class="session-id">{{ s.sessionId.slice(0, 8) }}</span>
-            </div>
-            <div v-if="sessions.length === 0" class="session-empty">暂无会话<br />点击「新建会话」开始</div>
-          </div>
-        </aside>
-
         <!-- 聊天面板 -->
-        <div class="chat-panel">
+        <div class="chat-panel" :class="{ empty: !hasChat }">
       <!-- 工作目录栏 -->
       <div class="workdir-bar">
         <span class="workdir-label">工作目录</span>
@@ -559,14 +626,17 @@ onBeforeUnmount(() => {
         </template>
       </div>
 
-      <!-- 消息列表 -->
-      <div ref="logRef" class="messages">
-        <div v-if="events.length === 0" class="empty-state">
+      <!-- 无消息时：欢迎语居中展示，输入框随之居于页面中心 -->
+      <div v-if="!hasChat" class="empty-hero">
+        <div class="empty-state">
           <div class="empty-icon">Hi</div>
           <h2>Nice to meet you!</h2>
           <p>输入一条指令，Agent 将通过工具调用自动完成任务</p>
         </div>
+      </div>
 
+      <!-- 消息列表 -->
+      <div v-show="hasChat" ref="logRef" class="messages">
         <template v-for="(item, index) in events" :key="index">
           <!-- 用户消息：右侧蓝色气泡 -->
           <div v-if="item.type === 'USER'" class="row row-user">
@@ -581,11 +651,23 @@ onBeforeUnmount(() => {
             <div class="avatar avatar-ai">L</div>
             <div class="ai-body">
               <div class="ai-name">LingXi</div>
-              <div v-if="item.thinking" class="bubble bubble-ai thinking-content">
-                <div class="thinking-label">Thinking</div>
-                <div class="thinking-text">
-                  <pre v-if="item.streaming" class="raw-text">{{ item.thinking }}</pre>
-                  <MarkdownContent v-else :text="item.thinking" />
+              <div v-if="item.thinking" class="tool-event thinking-event">
+                <div class="tool-card thinking-card" :class="{ open: item.thinkingOpen }">
+                  <button class="tool-head" @click="toggleThinking(item)">
+                    <span class="tool-icon" aria-hidden="true">💭</span>
+                    <span class="tool-name">Thinking</span>
+                    <span class="tool-status" :class="item.streaming ? 'running' : 'done'">
+                      <template v-if="item.streaming"><i></i><i></i><i></i><em>思考中</em></template>
+                      <template v-else>✓ 思考完成</template>
+                    </span>
+                    <span class="tool-chevron" :class="{ rotated: item.thinkingOpen }" aria-hidden="true">▾</span>
+                  </button>
+                  <div class="tool-body">
+                    <div class="tool-body-inner">
+                      <pre v-if="item.streaming" class="raw-text thinking-text">{{ item.thinking }}</pre>
+                      <MarkdownContent v-else class="thinking-text" :text="item.thinking" />
+                    </div>
+                  </div>
                 </div>
               </div>
               <div v-if="item.text" class="bubble bubble-ai">
@@ -625,14 +707,16 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <!-- 文件编辑 diff 卡片：点击头部展开 Monaco DiffEditor 对比修改前后 -->
+          <!-- 文件编辑 diff 卡片:点击头部展开 Monaco DiffEditor 对比修改前后;已应用待裁决 -->
           <div v-else-if="item.type === 'FILE_EDIT'" class="tool-event">
             <div class="tool-card diff-card" :class="{ open: item.open }">
               <button class="tool-head" @click="toggleTool(item)">
                 <span class="tool-icon" aria-hidden="true">✏️</span>
                 <span class="tool-name">文件修改</span>
                 <span class="tool-file" :title="item.filePath">{{ item.filePath }}</span>
-                <span class="tool-status done">✓ 已应用</span>
+                <span class="tool-status done">
+                  {{ item.decision === 'REJECTED' ? '↩ 已撤销' : item.decision === 'ACCEPTED' ? '✓ 已保留' : '✓ 已应用' }}
+                </span>
                 <span class="tool-chevron" :class="{ rotated: item.open }" aria-hidden="true">▾</span>
               </button>
               <div class="tool-body">
@@ -642,7 +726,7 @@ onBeforeUnmount(() => {
                     <FileDiff
                       v-if="item.open"
                       :file-path="item.filePath"
-                      :old-content="item.oldContent"
+                      :old-content="item.decision === 'REJECTED' ? item.newContent : item.oldContent"
                       :new-content="item.newContent"
                     />
                   </div>
@@ -684,6 +768,33 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <!-- 待裁决文件编辑下拉框:当前会话所有 PENDING 的 FileRecord -->
+      <div v-if="pendingEdits.length" class="pending-edits">
+        <button class="pending-head" @click="showPendingEdits = !showPendingEdits">
+          <span class="pending-dot" aria-hidden="true"></span>
+          <span class="pending-title">{{ pendingEdits.length }} 个文件修改待裁决</span>
+          <span class="pending-hint">已写入文件,请选择保留或撤销</span>
+          <span class="pending-chevron" :class="{ rotated: showPendingEdits }" aria-hidden="true">▾</span>
+        </button>
+        <div v-if="showPendingEdits" class="pending-list">
+          <div v-for="item in pendingEdits" :key="item.recordId" class="pending-item">
+            <span class="pending-file" :title="item.filePath">{{ fileNameOf(item.filePath) }}</span>
+            <span class="pending-lines">
+              <em class="plus">+{{ item.plusLines ?? 0 }}</em>
+              <em class="minus">-{{ item.minusLines ?? 0 }}</em>
+            </span>
+            <div class="decision-actions">
+              <button class="decision-btn keep" :disabled="item.deciding" @click="decideEdit(item, true)">保留</button>
+              <button class="decision-btn undo" :disabled="item.deciding" @click="decideEdit(item, false)">撤销</button>
+            </div>
+          </div>
+          <div class="pending-footer">
+            <button class="decision-btn keep" @click="decideAllPending(true)">全部保留</button>
+            <button class="decision-btn undo" @click="decideAllPending(false)">全部撤销</button>
+          </div>
+        </div>
+      </div>
+
       <!-- 底部输入框 -->
       <div class="input-area">
         <div class="input-box" :class="{ focused: inputFocused }">
@@ -712,40 +823,14 @@ onBeforeUnmount(() => {
     </main>
   </div>
 
-  <!-- 导入代码弹窗：点击「导入代码」按钮弹出 -->
-  <div v-if="showImportModal" class="modal-mask" @click.self="closeImport">
-    <div class="modal" role="dialog" aria-modal="true" aria-label="添加代码">
-      <div class="modal-header">
-        <h3>添加代码</h3>
-        <button class="modal-close" @click="closeImport" aria-label="关闭">✕</button>
-      </div>
-      <div class="modal-body">
-        <label class="field">
-          <span class="field-label">文件路径 <em>（可选，如 src/main/java/Hello.java）</em></span>
-          <input v-model="importPath" class="field-input" placeholder="留空则交由 Agent 判断保存位置" @keydown.esc="closeImport" />
-        </label>
-        <label class="field">
-          <span class="field-label">代码内容 <em>（必填）</em></span>
-          <textarea v-model="importCode" class="field-textarea" rows="10" spellcheck="false" placeholder="在此粘贴或输入要添加的代码..."></textarea>
-        </label>
-        <label class="field">
-          <span class="field-label">说明 <em>（可选）</em></span>
-          <input v-model="importDesc" class="field-input" placeholder="例如：实现登录接口" />
-        </label>
-      </div>
-      <div class="modal-footer">
-        <button class="btn-cancel" @click="closeImport">取消</button>
-        <button class="btn-submit" :disabled="!importCode.trim()" @click="submitImport">导入</button>
-      </div>
-    </div>
-  </div>
 </template>
 
 <style scoped>
 * { box-sizing: border-box; }
 
 .home {
-  min-height: 100vh;
+  /* 固定为视口高度:页面本身不滚动,消息列表在固定窗口内滚动 */
+  height: 100vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -753,8 +838,11 @@ onBeforeUnmount(() => {
   color: #262832;
 }
 
-/* ====== 顶部栏 ====== */
+/* ====== 顶部栏(含 tab,sticky 置顶) ====== */
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 70;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -828,65 +916,6 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
-/* ====== 官网头图 / Hero ====== */
-.hero-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 40px;
-  padding: 44px 24px;
-  max-width: 1100px;
-  margin: 0 auto;
-  border-bottom: 1px solid #f0f1f5;
-}
-.hero-copy { flex: 1; min-width: 0; }
-.pill {
-  display: inline-flex;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: #eef2ff;
-  color: #4d6bfe;
-  font-size: 12px;
-  font-weight: 600;
-}
-.hero-copy h1 {
-  margin: 16px 0 12px;
-  font-size: 34px;
-  line-height: 1.2;
-  color: #1f2232;
-}
-.hero-copy p {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.75;
-  color: #55586b;
-  max-width: 520px;
-}
-.hero-card {
-  flex-shrink: 0;
-  width: 240px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.hero-metric {
-  padding: 14px 16px;
-  border-radius: 12px;
-  background: #f7f8fa;
-  border: 1px solid #f0f1f5;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.hero-metric strong {
-  font-size: 18px;
-  color: #262832;
-}
-.hero-metric span {
-  font-size: 12px;
-  color: #8a8ca0;
-}
-
 /* ====== 主布局 ====== */
 .chat-wrap {
   flex: 1;
@@ -895,22 +924,40 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow: hidden;
 }
+.home { position: relative; }
 .layout { flex: 1; display: flex; min-height: 0; }
 
-/* ====== 会话侧边栏 ====== */
-.sidebar {
-  width: 230px;
-  flex-shrink: 0;
+/* ====== 会话管理面板（顶部栏下方弹出，纵向列表） ====== */
+.session-panel {
+  position: absolute;
+  top: 60px;
+  left: 16px;
+  z-index: 60;
+  width: 300px;
+  max-height: 65vh;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 14px 12px;
-  border-right: 1px solid #f0f1f5;
-  background: #fafbfc;
-  overflow: hidden;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid #e8eaf1;
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(30, 34, 60, 0.12);
 }
+.sessions-toggle {
+  padding: 6px 12px;
+  font-size: 13px;
+  color: #55586b;
+  background: transparent;
+  border: 1px solid #e4e6eb;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.sessions-toggle:hover { border-color: #4d6bfe; color: #4d6bfe; }
+.sessions-toggle.active { background: #eef2ff; border-color: #dbe2ff; color: #4d6bfe; font-weight: 600; }
 .new-session-btn {
-  flex-shrink: 0;
   width: 100%;
   padding: 9px 0;
   border: 1px solid #4d6bfe;
@@ -924,9 +971,6 @@ onBeforeUnmount(() => {
 }
 .new-session-btn:hover { background: #3a57e8; }
 .session-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -957,7 +1001,7 @@ onBeforeUnmount(() => {
   font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
 }
 .session-empty {
-  padding: 24px 8px;
+  padding: 20px 8px;
   text-align: center;
   font-size: 12px;
   line-height: 1.8;
@@ -1078,9 +1122,18 @@ onBeforeUnmount(() => {
 .messages::-webkit-scrollbar { width: 6px; }
 .messages::-webkit-scrollbar-thumb { background: #dfe1e8; border-radius: 3px; }
 
+/* 无消息时：欢迎语 + 输入框整体居中 */
+.empty-hero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 24px 16px 48px;
+}
+.chat-panel.empty .messages { display: none; }
 .empty-state {
   text-align: center;
-  padding-top: 12vh;
   color: #55586b;
 }
 .empty-icon {
@@ -1184,9 +1237,10 @@ onBeforeUnmount(() => {
 .event-line.error .ev-text,
 .event-line.error .ev-tag { color: #f56c6c; }
 
-.thinking-content { border-left: 3px solid #c5cadb; }
-.thinking-label { margin-bottom: 5px; color: #8a8ca0; font-size: 11px; font-weight: 600; }
-.thinking-text { color: #8a8ca0; font-size: 13px; }
+/* thinking 折叠卡片（与工具卡片同构，默认收起） */
+.thinking-event { margin: 4px 0; }
+.thinking-card .tool-name { color: #8a8ca0; }
+.thinking-text { color: #8a8ca0; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
 
 /* ====== 工具调用卡片（动态下拉） ====== */
 .tool-event { max-width: 780px; margin: 8px auto; }
@@ -1610,6 +1664,92 @@ onBeforeUnmount(() => {
 }
 .btn-submit:hover:not(:disabled) { background: #3a57e8; }
 .btn-submit:disabled { background: #dfe1e8; cursor: not-allowed; }
+
+/* 待裁决文件编辑下拉框:位于输入框上方 */
+.pending-edits {
+  flex-shrink: 0;
+  margin: 0 16px 6px;
+  border: 1px solid #eceef4;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(30, 34, 60, 0.06);
+  overflow: hidden;
+}
+.pending-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: #f8f9fc;
+  cursor: pointer;
+  font-size: 12px;
+  color: #262832;
+  text-align: left;
+}
+.pending-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f59e0b;
+  flex-shrink: 0;
+}
+.pending-title { font-weight: 600; }
+.pending-hint { color: #9ca3af; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pending-chevron { color: #9ca3af; transition: transform .2s; }
+.pending-chevron.rotated { transform: rotate(180deg); }
+.pending-list {
+  max-height: 220px;
+  overflow-y: auto;
+}
+.pending-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-top: 1px solid #f0f1f5;
+  font-size: 12px;
+}
+.pending-file {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #262832;
+  font-weight: 500;
+}
+.pending-lines { flex-shrink: 0; font-style: normal; }
+.pending-lines .plus { font-style: normal; color: #17803d; font-variant-numeric: tabular-nums; }
+.pending-lines .minus { font-style: normal; color: #b42318; font-variant-numeric: tabular-nums; }
+.pending-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 7px 12px;
+  border-top: 1px solid #f0f1f5;
+  background: #f8f9fc;
+}
+
+.decision-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.decision-btn {
+  border: none;
+  border-radius: 6px;
+  padding: 5px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all .2s;
+}
+.decision-btn.keep { background: #e8f7ee; color: #17803d; }
+.decision-btn.keep:hover { background: #d2f0de; }
+.decision-btn.undo { background: #fdeeee; color: #b42318; }
+.decision-btn.undo:hover { background: #fbdcdc; }
+.decision-btn:disabled { opacity: .5; cursor: not-allowed; }
 </style>
 
 

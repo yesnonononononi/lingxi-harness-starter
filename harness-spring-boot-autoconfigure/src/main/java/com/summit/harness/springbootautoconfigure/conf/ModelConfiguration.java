@@ -2,15 +2,15 @@ package com.summit.harness.springbootautoconfigure.conf;
 
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
 import com.summit.harness.springbootautoconfigure.properties.CompactContextModelProperties;
-import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
-import com.summit.harnesscore.model.ModelConfig;
-import com.summit.harnesscore.model.ModelInvoker;
-import com.summit.harnesscore.model.ModelProviderRegistry;
+import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.model.ModelConfig;
+import com.summit.core.model.ModelInvoker;
+import com.summit.core.model.ModelProviderRegistry;
 import com.summit.runtime.model.DefaultStreamingModelInvoker;
-import dev.langchain4j.model.TokenCountEstimator;
-import dev.langchain4j.model.chat.ChatModel;
-import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.openai.OpenAiTokenCountEstimator;
+import com.summit.adapter.langchain4j.codec.TokenEstimatorAdapter;
+import com.summit.core.adapter.TokenEstimator;
+import com.summit.core.model.ChatModel;
+import com.summit.core.model.StreamingChatModel;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -19,8 +19,8 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 
 /**
- * 三类模型独立配置：chat(推理,thinking)、stream(流式,thinking)、compact(上下文压缩,无thinking)。
- * 用户可配置 yaml 参数，或自实现 Provider 并通过 provider 字段指定。
+ * Three independently configured models: chat (reasoning, thinking), stream (streaming, thinking), compact (context compaction, no thinking).
+ * Users can configure via yaml properties, or implement their own Provider and select it through the provider field.
  */
 @Slf4j
 @AutoConfiguration
@@ -77,16 +77,16 @@ public class ModelConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public TokenCountEstimator tokenCountEstimator(AgentChatProperties agentChatProperties) {
+    public TokenEstimator tokenEstimator(AgentChatProperties agentChatProperties) {
         String modelName = agentChatProperties.getModelName();
         if (modelName == null || modelName.isBlank()) {
             modelName = "gpt-3.5-turbo"; // default cl100k_base
         }
         try {
-            return new OpenAiTokenCountEstimator(modelName);
+            return new TokenEstimatorAdapter(modelName);
         }catch (Exception e){
             log.error("Error creating token count estimator for model {}", modelName, e);
-            return new OpenAiTokenCountEstimator("gpt-3.5-turbo");
+            return new TokenEstimatorAdapter("gpt-3.5-turbo");
         }
     }
 

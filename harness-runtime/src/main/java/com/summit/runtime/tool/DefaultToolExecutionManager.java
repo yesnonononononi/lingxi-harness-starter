@@ -1,18 +1,18 @@
 package com.summit.runtime.tool;
 
-import com.summit.harnesscore.conversation.event.ToolCallEndEvent;
-import com.summit.harnesscore.conversation.event.ToolCallStartEvent;
-import com.summit.harnesscore.interceptor.InterceptorProcessor;
-import com.summit.harnesscore.interceptor.InvocationContext;
-import com.summit.harnesscore.tool.*;
+import com.summit.core.conversation.api.ToolCallRequest;
+import com.summit.core.conversation.event.ToolCallEndEvent;
+import com.summit.core.conversation.event.ToolCallStartEvent;
+import com.summit.core.interceptor.InterceptorProcessor;
+import com.summit.core.interceptor.InvocationContext;
+import com.summit.core.runtime.Workspace;
+import com.summit.core.tool.*;
 import com.summit.runtime.configs.CommonToolConfig;
-import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 
-import java.io.Serializable;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -41,17 +41,17 @@ public class DefaultToolExecutionManager implements ToolExecutionManager {
                         if (toolDef == null) {
                             return ToolExecuteResult.err(request.id(), null, "Tool not found");
                         }
-                        ToolExecuteResult result = this.executeTool(toolDef, createToolExecution(request, toolDef, toolExecuteCommand.sessionId()));
+                        ToolExecuteResult result = this.executeTool(toolDef, createToolExecution(request, toolDef, toolExecuteCommand));
 
-                        this.toolExecutionContext.runtimeEventPublisher().onToolCallOutput(new ToolCallEndEvent(toolExecuteCommand.executionId(),toolDef.toolSpecification().name(), request.arguments(),toolExecuteCommand.sessionId() ,formatEventToolOutput(result.getToolOutput())));
+                        this.toolExecutionContext.runtimeEventPublisher().onToolCallOutput(new ToolCallEndEvent(toolExecuteCommand.executionId(),toolDef.name(), request.arguments(),toolExecuteCommand.sessionId() ,formatEventToolOutput(result.getToolOutput())));
 
                         return result;
 
                     } catch (Throwable e) {
                         // keep the tool name in the error result so the model can tell which tool failed
                         ToolDefinition<?> toolDef = this.toolExecutionContext.toolRegistry().getTool(request.name());
-                        this.toolExecutionContext.runtimeEventPublisher().onToolCallOutput(new ToolCallEndEvent(toolExecuteCommand.executionId(), toolDef.toolSpecification().name(), request.arguments(),toolExecuteCommand.sessionId(), "Tool execution error" + e.getMessage()));
-                        return ToolExecuteResult.err(request.id(), toolDef.toolSpecification(), "Tool execution error" + e.getMessage());
+                        this.toolExecutionContext.runtimeEventPublisher().onToolCallOutput(new ToolCallEndEvent(toolExecuteCommand.executionId(), toolDef == null ? request.name() : toolDef.name(), request.arguments(),toolExecuteCommand.sessionId(), "Tool execution error" + e.getMessage()));
+                        return ToolExecuteResult.err(request.id(), toolDef, "Tool execution error" + e.getMessage());
                     }
                 })
 
@@ -64,12 +64,23 @@ public class DefaultToolExecutionManager implements ToolExecutionManager {
         return this.toolExecutionContext.toolRegistry();
     }
 
-    private ToolExecution createToolExecution(@NonNull ToolExecutionRequest request, ToolDefinition<?> tool, Serializable sessionId) {
+    /**
+     * Builds the per-call execution. The workspace ALWAYS comes from the
+     * originating {@link ToolExecuteCommand} (i.e. the {@code AgentRequest});
+     * a missing workspace is a programming error and fails the call.
+     */
+    private ToolExecution createToolExecution(@NonNull ToolCallRequest request, ToolDefinition<?> tool, ToolExecuteCommand command) {
+        Workspace workspace = command.workspace();
+        if (workspace == null) {
+            throw new IllegalStateException(
+                    "No workspace provided for tool '" + request.name() + "': AgentRequest.workspace is required");
+        }
         return ToolExecution.builder()
                 .id(request.id())
                 .toolDefinition(tool)
-                .sessionId(sessionId)
-                .workspace(this.toolExecutionContext.workspace())
+                .sessionId(command.sessionId())
+                .turnId(command.executionId())
+                .workspace(workspace)
                 .args(request.arguments())
                 .build();
     }
@@ -108,8 +119,8 @@ public class DefaultToolExecutionManager implements ToolExecutionManager {
             return future.get(timeoutSeconds, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             log.warn("tool [{}] execution timed out after {}s, returning error to model",
-                    toolDefinition.toolSpecification().name(), timeoutSeconds);
-            return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition().toolSpecification(),
+                    toolDefinition.name(), timeoutSeconds);
+            return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition(),
                     "tool execution timeout after " + timeoutSeconds + "s");
         }
     }

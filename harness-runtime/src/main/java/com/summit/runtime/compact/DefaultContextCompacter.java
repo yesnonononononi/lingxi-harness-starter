@@ -1,10 +1,10 @@
 package com.summit.runtime.compact;
 
-import com.summit.harnesscore.compact.ContextCompacter;
-import com.summit.harnesscore.compact.Tokenizer;
-import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.ToolExecutionResultMessage;
+import com.summit.core.compact.ContextCompacter;
+import com.summit.core.compact.Tokenizer;
+import com.summit.core.conversation.message.AiMessageEntity;
+import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.ToolMessageEntity;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -17,7 +17,7 @@ public class DefaultContextCompacter implements ContextCompacter {
     private static final int DEFAULT_ATTEMPT_NUM = 10;
     private final Tokenizer tokenizer;
 
-    public void compact( Integer expectedTokens, Integer attemptNum, List<ChatMessage> messages) {
+    public void compact( Integer expectedTokens, Integer attemptNum, List<Message> messages) {
         int originalTokens = this.tokenizer.count(messages);
         int maxAttempts = Math.max(
                 Objects.requireNonNullElse(attemptNum, DEFAULT_ATTEMPT_NUM),
@@ -25,7 +25,7 @@ public class DefaultContextCompacter implements ContextCompacter {
         );
 
         for (int attempt = 0; attempt < maxAttempts; attempt++) {
-            // 每次重新计算当前上下文 token，避免传入的 currentTokens 与真实值不一致
+            // recompute the current context token count on every attempt, in case the passed-in value is stale
             if (originalTokens <= expectedTokens) {
                 break;
             }
@@ -42,22 +42,22 @@ public class DefaultContextCompacter implements ContextCompacter {
         log.info("【context-squeeze】context squeezed from {} to {} tokens (expected {})", originalTokens, this.tokenizer.count(messages), expectedTokens);
     }
 
-    public void compact( Integer expectedTokens, List<ChatMessage> messages) {
+    public void compact( Integer expectedTokens, List<Message> messages) {
         this.compact(expectedTokens, DEFAULT_ATTEMPT_NUM, messages);
     }
 
     /**
-     * 成对删除最旧的一轮工具交互（AiMessage 及其紧随的 ToolExecutionResultMessage），
-     * 保证 tool call / tool result 配对完整，避免模型 API 因缺失 tool result 报错。
-     * 返回本次删除的消息 token 数；无可删时返回 0。
+     * Removes the oldest tool interaction round in pairs (an AiMessage plus its following ToolMessageEntity),
+     * keeping tool call / tool result pairs complete so the model API does not fail on missing tool results.
+     * Returns the token count removed in this pass; 0 when nothing can be removed.
      */
-    private int removeOldestToolRound(List<ChatMessage> messages) {
+    private int removeOldestToolRound(List<Message> messages) {
         for (int i = 1; i < messages.size(); i++) {
-            ChatMessage msg = messages.get(i);
-            if (msg instanceof AiMessage ai) {
+            Message msg = messages.get(i);
+            if (msg instanceof AiMessageEntity ai) {
                 int removedTokens = this.tokenizer.count(ai);
                 messages.remove(i);
-                while (i < messages.size() && messages.get(i) instanceof ToolExecutionResultMessage) {
+                while (i < messages.size() && messages.get(i) instanceof ToolMessageEntity) {
                     removedTokens += this.tokenizer.count(messages.get(i));
                     messages.remove(i);
                 }

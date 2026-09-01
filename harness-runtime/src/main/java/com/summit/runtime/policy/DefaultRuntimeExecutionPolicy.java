@@ -1,11 +1,11 @@
 package com.summit.runtime.policy;
 
-import com.summit.harnesscore.agent.Execution;
-import com.summit.harnesscore.compact.Tokenizer;
-import com.summit.harnesscore.conversation.ConversationManager;
+import com.summit.core.agent.Execution;
+import com.summit.core.compact.Tokenizer;
+import com.summit.core.conversation.ConversationManager;
 
-import com.summit.harnesscore.compact.ContextSqueezeRequest;
-import com.summit.harnesscore.runtime.RuntimeExecutionPolicy;
+import com.summit.core.compact.ContextSqueezeRequest;
+import com.summit.core.runtime.RuntimeExecutionPolicy;
 import com.summit.runtime.agent.AgentConfig;
 import lombok.AllArgsConstructor;
 
@@ -17,7 +17,7 @@ public class DefaultRuntimeExecutionPolicy implements RuntimeExecutionPolicy {
     public boolean shouldContinue(Execution execution, ConversationManager conversationManager) {
         Integer maxTokens = agentConfig.maxTokens();
         if (maxTokens == null) return true;
-        int accumulatedTokens = conversationManager.tokenUsage(execution.getSessionId()).totalTokenCount();
+        int accumulatedTokens = conversationManager.tokenUsage(execution.getSessionId()).getTotalTokens();
         int currentContextTokens = tokenizer.count(conversationManager.messages(execution.getSessionId()));
         return currentContextTokens < maxTokens;
    }

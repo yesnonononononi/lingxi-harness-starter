@@ -1,15 +1,15 @@
 package com.summit.harness.springbootautoconfigure.conf;
 
-import com.summit.harnesscore.compact.ContextCompacter;
-import com.summit.harnesscore.compact.Tokenizer;
-import com.summit.harnesscore.conversation.ConversationManager;
-import com.summit.harnesscore.conversation.ConversationStore;
-import com.summit.harnesscore.conversation.event.RuntimeEventPublisher;
+import com.summit.core.adapter.TokenEstimator;
+import com.summit.core.compact.ContextCompacter;
+import com.summit.core.compact.Tokenizer;
+import com.summit.core.conversation.ConversationManager;
+import com.summit.core.conversation.ConversationStore;
+import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.runtime.compact.DefaultContextCompacter;
 import com.summit.runtime.conversation.DefaultConversationManager;
 import com.summit.runtime.conversation.DefaultConversationStore;
 import com.summit.runtime.conversation.DefaultTokenizer;
-import dev.langchain4j.model.TokenCountEstimator;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
@@ -31,8 +31,8 @@ public class ConversationConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    public Tokenizer tokenizer(TokenCountEstimator tokenCountEstimator){
-        return new DefaultTokenizer(tokenCountEstimator);
+    public Tokenizer tokenizer(TokenEstimator tokenEstimator){
+        return new DefaultTokenizer(tokenEstimator);
     }
 
     @Bean

@@ -1,8 +1,8 @@
 package com.summit.runtime.utils;
 
-import com.summit.harnesscore.agent.*;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.UserMessage;
+import com.summit.core.agent.*;
+import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.UserMessageEntity;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -11,10 +11,10 @@ import java.util.UUID;
 
 public class ExecutionCreator {
     public static Execution create(AgentRequest agentRequest, Agent agent){
-        List<ChatMessage> messages = new ArrayList<>();
+        List<Message> messages = new ArrayList<>();
         String input = agentRequest.getInput();
         if (!input.isBlank()) {
-            messages.add(UserMessage.from(input));
+            messages.add(UserMessageEntity.from(input));
         }
         return Execution.builder()
                 .id(UUID.randomUUID().toString())

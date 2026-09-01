@@ -1,12 +1,11 @@
 package com.summit.harnessexample;
 
 
-import com.summit.harnesscore.tool.ToolRegistry;
+import com.summit.core.runtime.Workspace;
+import com.summit.core.tool.ToolRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-
-import java.util.Map;
 
 @SpringBootTest
 public class HarnessExampleApplicationTests {
@@ -22,9 +21,10 @@ public class HarnessExampleApplicationTests {
         //System.out.println(System.getenv().get("TAVILY_APIKEY"));
         //System.out.println(System.getenv().get("DEEPSEEK_APIKEY"));
         // System.out.println(toolRegistry);
+        Workspace workspace = new LocalWorkSpace();
         demo.chat("""
                 1
-                """,true);
+                """,true,null,null,workspace);
     }
 
 }
