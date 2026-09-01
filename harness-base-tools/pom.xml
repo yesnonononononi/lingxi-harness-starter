@@ -8,6 +8,7 @@
         <artifactId>lingXi-harness-agent</artifactId>
         <version>1.0.0</version>
     </parent>
+    <name>lingxi-harness-base-tools</name>
     <dependencies>
 
         <dependency>

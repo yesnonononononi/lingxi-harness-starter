@@ -10,7 +10,7 @@
 
     <name>LingXi-harness-project</name>
     <description>lingxi-harness-agent-starter</description>
-
+    <url>https://github.com/yesnonononononi/LingXi-starter</url>
     <packaging>pom</packaging>
 
     <licenses>

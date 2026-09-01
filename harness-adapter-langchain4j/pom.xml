@@ -9,6 +9,7 @@
         <artifactId>lingXi-harness-agent</artifactId>
         <version>1.0.0</version>
     </parent>
+    <name>harness-adapter-langchain4j</name>
 
     <dependencies>
         <dependency>

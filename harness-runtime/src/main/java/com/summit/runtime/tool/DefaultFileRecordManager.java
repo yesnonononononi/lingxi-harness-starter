@@ -9,24 +9,23 @@ import com.summit.core.tool.FileRecordStore;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
-import java.util.UUID;
 
 /**
- * Default {@link FileRecordManager}: applies the business rules (id/version
- * assignment, state transitions, hash-based conflict detection) on top of the
- * {@link FileRecordStore} and delegates the physical rollback to
- * {@link FileRecordRestorer}.
+ * Default {@link FileRecordManager}: applies the business rules (hash-based
+ * conflict detection, state transitions) on top of the {@link FileRecordStore}
+ * and delegates the physical rollback to {@link FileRecordRestorer}.
  *
- * <p>Public methods only orchestrate (load → decide → persist/restore); all
- * rules live in private helpers or {@link FileRecordRestorer}.</p>
+ * <p>Identity (id, per-file version) is assigned by the store in
+ * {@link FileRecordStore#put}; this class never generates ids and never scans
+ * the whole session to derive one. Public methods only orchestrate
+ * (load → decide → persist/restore); all rules live in private helpers or
+ * {@link FileRecordRestorer}.</p>
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -40,10 +39,10 @@ public class DefaultFileRecordManager implements FileRecordManager {
     public Serializable record(@NonNull Serializable sessionId, @NonNull Serializable turnId,
                                @NonNull FileRecord draft) throws FileModificationException {
         FileRecord normalized = this.normalize(sessionId, turnId, draft);
-        this.store.put(normalized);
+        FileRecord stored = this.store.put(normalized);
         log.info("Recorded file edit {} (turn {}) on {} [v{}]",
-                normalized.id(), turnId, normalized.filePath(), normalized.version());
-        return normalized.id();
+                stored.id(), turnId, stored.filePath(), stored.version());
+        return stored.id();
     }
 
     @Override
@@ -53,9 +52,7 @@ public class DefaultFileRecordManager implements FileRecordManager {
 
     @Override
     public List<FileRecord> listPendingRecords(@NonNull Serializable sessionId) {
-        return this.store.listBySessionFull(sessionId).stream()
-                .filter(FileRecord::isPending)
-                .toList();
+        return this.store.listPending(sessionId);
     }
 
     @Override
@@ -134,11 +131,10 @@ public class DefaultFileRecordManager implements FileRecordManager {
         if (draft.filePath() == null || draft.newContent() == null) {
             throw new FileModificationException("file record requires at least filePath and newContent");
         }
+        // id and version are assigned by the store on put
         return FileRecord.builder()
-                .id(UUID.randomUUID().toString())
                 .sessionId(sessionId)
                 .turnId(turnId)
-                .version(this.nextVersion(sessionId, draft.filePath()))
                 .oldContent(draft.oldContent())
                 .newContent(draft.newContent())
                 .diff(draft.diff())
@@ -150,22 +146,25 @@ public class DefaultFileRecordManager implements FileRecordManager {
                 .build();
     }
 
-    private int nextVersion(Serializable sessionId, String filePath) {
-        return this.store.listBySessionFull(sessionId).stream()
-                .filter(r -> Objects.equals(r.filePath(), filePath))
-                .mapToInt(r -> r.version() == null ? 0 : r.version())
-                .max().orElse(0) + 1;
-    }
-
+    /**
+     * Lists all pending records of the given session and turn.
+     */
     private List<FileRecord> pendingOfTurn(Serializable sessionId, Serializable turnId) {
-        return this.listPendingRecords(sessionId).stream()
-                .filter(r -> Objects.equals(r.turnId(), turnId))
-                .toList();
+        return this.store.listPendingByTurn(sessionId, turnId);
     }
+    /**
+     * Loads the record with the given id, or throws a {@link FileModificationException}
+     * if no such record exists.
+     */
 
     private FileRecord loadExisting(Serializable sessionId, Serializable recordId) {
         return this.store.get(sessionId, recordId).orElse(null);
     }
+    /**
+     * Transitions the given record to the given state, unless the record is already
+     * in the target state, in which case it is returned unchanged. If the record is
+     * already in the target state, a {@link FileModificationException} is thrown.
+     */
 
     private FileRecord transition(FileRecord record, FileRecord.State target) throws FileModificationException {
         return switch (record.state()) {
@@ -176,12 +175,20 @@ public class DefaultFileRecordManager implements FileRecordManager {
             case REJECTED -> this.conflict(record, "already rejected");
         };
     }
+    /**
+     * Restores the given record to its state before the edit was made, and transitions
+     * it to the REJECTED state.
+     */
 
     private FileRecord rollback(FileRecord record, Workspace workspace) throws FileModificationException {
         FileRecord rejected = this.transition(record, FileRecord.State.REJECTED);
         this.restorer.restore(record, workspace);
         return rejected;
     }
+    /**
+     * Creates a new record with the given state, copying all other properties
+     * from the given record.
+     */
 
     private FileRecord withState(FileRecord record, FileRecord.State state) {
         return FileRecord.builder()
@@ -192,6 +199,10 @@ public class DefaultFileRecordManager implements FileRecordManager {
                 .state(state).createAt(record.createAt())
                 .build();
     }
+    /**
+     * Throws a {@link FileModificationException} indicating that the given
+     * record is in a conflicting state.
+     */
 
     private FileRecord conflict(FileRecord record, String reason) throws FileModificationException {
         throw new FileModificationException(

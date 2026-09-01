@@ -24,14 +24,15 @@ public interface FileRecordManager {
     /**
      * Records an edit that has just been applied to the workspace. The draft
      * carries at least {@code filePath}, {@code oldContent}, {@code newContent}
-     * and {@code diff}; id, session/turn binding, per-file version, the
-     * content hashes and the {@link FileRecord.State#PENDING} state are filled
-     * in by the implementation.
+     * and {@code diff}; session/turn binding, the content hashes and the
+     * {@link FileRecord.State#PENDING} state are filled in by the
+     * implementation, while id and per-file version are assigned by the
+     * {@link FileRecordStore} on {@code put}.
      *
      * @param sessionId session id
      * @param turnId    id of the agent request this edit belongs to
      * @param draft     the not-yet-normalized record
-     * @return the generated record id
+     * @return the record id assigned by the store
      * @throws FileModificationException if the draft is not usable
      */
     Serializable record(@NonNull Serializable sessionId, @NonNull Serializable turnId,

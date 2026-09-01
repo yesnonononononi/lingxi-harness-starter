@@ -5,27 +5,30 @@ import com.summit.core.tool.FileRecordStore;
 import org.jspecify.annotations.NonNull;
 
 import java.io.Serializable;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.stream.Collectors;
 
 /**
  * In-memory {@link FileRecordStore}. Records of one session are kept in
  * insertion order; {@link #update} replaces a record in place so the record
  * order (and therefore the reject order) is stable.
+ *
+ * <p>Implements the identity contract: {@link #put} assigns the id via
+ * {@link #generateId()} and the per-file version (max of the same
+ * session + filePath, plus one) when the incoming record lacks them.</p>
  */
 public class DefaultFileRecordStore implements FileRecordStore {
     private final Map<Serializable, List<FileRecord>> records = new ConcurrentHashMap<>();
 
     @Override
-    public void put(@NonNull FileRecord record) {
-        Serializable id = record.id();
-        if (id == null) throw new IllegalArgumentException("record id cannot be null");
-        this.records.computeIfAbsent(record.sessionId(), k -> new CopyOnWriteArrayList<>()).add(record);
+    public FileRecord put(@NonNull FileRecord record) {
+        FileRecord stored = this.assignIdentity(record);
+        this.records.computeIfAbsent(stored.sessionId(), k -> new CopyOnWriteArrayList<>()).add(stored);
+        return stored;
     }
 
     @Override
@@ -33,19 +36,6 @@ public class DefaultFileRecordStore implements FileRecordStore {
         List<FileRecord> list = this.records.get(sessionId);
         return list == null ? Optional.empty()
                 : list.stream().filter(r -> recordId.equals(r.id())).findFirst();
-    }
-
-    @Override
-    public List<FileRecord> listBySessionFull(@NonNull Serializable sessionId) {
-        List<FileRecord> list = this.records.get(sessionId);
-        return list == null ? List.of() : List.copyOf(list);
-    }
-
-    @Override
-    public Collection<SimpleRecord> listBySessionId(Serializable sessionId) {
-        return this.listBySessionFull(sessionId).stream()
-                .map(r -> new SimpleRecord(r.id(), r.filePath(), plusLines(r), minusLines(r)))
-                .collect(Collectors.toList());
     }
 
     @Override
@@ -61,20 +51,20 @@ public class DefaultFileRecordStore implements FileRecordStore {
     }
 
     @Override
-    public void clearBySessionId(@NonNull Serializable sessionId) {
-        this.records.remove(sessionId);
-    }
-
-    @Override
     public boolean removeById(@NonNull Serializable sessionId, @NonNull Serializable recordId) {
         List<FileRecord> list = this.records.get(sessionId);
         return list != null && list.removeIf(r -> recordId.equals(r.id()));
     }
 
     @Override
-    public Map<Serializable, List<FileRecord>> getAll() {
-        return this.records.entrySet().stream()
-                .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> List.copyOf(e.getValue())));
+    public void clearBySessionId(@NonNull Serializable sessionId) {
+        this.records.remove(sessionId);
+    }
+
+    @Override
+    public List<FileRecord> listBySession(@NonNull Serializable sessionId) {
+        List<FileRecord> list = this.records.get(sessionId);
+        return list == null ? List.of() : List.copyOf(list);
     }
 
     @Override
@@ -82,15 +72,29 @@ public class DefaultFileRecordStore implements FileRecordStore {
         this.records.clear();
     }
 
-    private Integer plusLines(FileRecord record) {
-        return record.diff() == null ? null : countLines(record.diff(), '+');
+    /** Fills in the id and the per-file version when the incoming record lacks them. */
+    private FileRecord assignIdentity(FileRecord record) {
+        Serializable id = record.id() != null ? record.id() : this.generateId();
+        Integer version = record.version();
+        if (version == null) {
+            version = this.records.getOrDefault(record.sessionId(), List.<FileRecord>of()).stream()
+                    .filter(r -> Objects.equals(r.filePath(), record.filePath()))
+                    .mapToInt(r -> r.version() == null ? 0 : r.version())
+                    .max().orElse(0) + 1;
+        }
+        if (record.id() != null && version.equals(record.version())) {
+            return record;
+        }
+        return this.withIdentity(record, id, version);
     }
 
-    private Integer minusLines(FileRecord record) {
-        return record.diff() == null ? null : countLines(record.diff(), '-');
-    }
-
-    private int countLines(String diff, char marker) {
-        return (int) diff.lines().filter(l -> !l.isEmpty() && l.charAt(0) == marker).count();
+    private FileRecord withIdentity(FileRecord record, Serializable id, Integer version) {
+        return FileRecord.builder()
+                .id(id).sessionId(record.sessionId()).turnId(record.turnId())
+                .version(version).oldContent(record.oldContent()).newContent(record.newContent())
+                .diff(record.diff()).filePath(record.filePath())
+                .oldContentHash(record.oldContentHash()).newContentHash(record.newContentHash())
+                .state(record.state()).createAt(record.createAt())
+                .build();
     }
 }
