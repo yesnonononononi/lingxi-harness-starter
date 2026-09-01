@@ -1,7 +1,7 @@
 ```xml
     <dependency>
         <groupId>io.github.yesnonononononi</groupId>
-        <artifactId>lingXi-harness-agent</artifactId>
+        <artifactId>lingxi-harness-spring-boot-starter</artifactId>
         <version>1.0.0</version>
     </dependency>
 ```
