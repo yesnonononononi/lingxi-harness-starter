@@ -5,7 +5,7 @@
 
     <groupId>io.github.yesnonononononi</groupId>
     <artifactId>lingXi-harness-agent</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.2</version>
 
 
     <name>LingXi-harness-project</name>
@@ -45,7 +45,7 @@
 
     <properties>
         <java.version>21</java.version>
-        <lingxi-harness.version>1.0.0</lingxi-harness.version>
+        <lingxi-harness.version>1.0.2</lingxi-harness.version>
         <langchain4j.version>1.11.0</langchain4j.version>
         <lombok.version>1.18.46</lombok.version>
         <java-diff-utils.version>4.15</java-diff-utils.version>

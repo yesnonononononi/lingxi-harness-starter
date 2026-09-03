@@ -67,6 +67,14 @@ public class RuntimeEventPublisher {
 
     }
 
+    public void onExecutionCancelled(ExecutionCancelledEvent event) {
+        try {
+            listeners.forEach(listener -> listener.onExecutionCancelled(event));
+        } catch (Exception e) {
+            log.error("Error occurred while publishing execution cancelled event", e);
+        }
+    }
+
     public void onFileEdit(FileEditEvent event) {
         try {
             listeners.forEach(listener -> listener.onFileEdit(event));

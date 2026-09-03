@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.conversation.event.AgentMessageEvent;
 import com.summit.core.conversation.event.AgentPartialTextEvent;
 import com.summit.core.conversation.event.AgentPartialThinkingEvent;
+import com.summit.core.conversation.event.ExecutionCancelledEvent;
 import com.summit.core.conversation.event.ExecutionCompleteEvent;
 import com.summit.core.conversation.event.ExecutionErrorEvent;
 import com.summit.core.conversation.event.ExecutionStartEvent;
@@ -104,6 +105,13 @@ public class EventListener implements RuntimeListener {
             data.put("tokenUsage", event.getTokenInfo());
         }
         broadcast("EXECUTION_COMPLETED", event.executionId(), event.getSessionId(), data);
+    }
+
+    @Override
+    public void onExecutionCancelled(ExecutionCancelledEvent event) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("executionId", event.executionId());
+        broadcast("EXECUTION_CANCELLED", event.executionId(), event.getSessionId(), data);
     }
 
     @Override

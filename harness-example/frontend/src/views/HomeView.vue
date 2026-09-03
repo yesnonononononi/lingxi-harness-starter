@@ -16,6 +16,10 @@ const events = ref([])
 const input = ref('')
 const inputFocused = ref(false)
 const sending = ref(false)
+// ====== 执行控制（暂停/继续/停止，作用于当前会话） ======
+const executing = ref(false)
+const paused = ref(false)
+const ctlBusy = ref(false)
 const logRef = ref(null)
 const workdir = ref('')
 const editingDir = ref(false)
@@ -48,10 +52,11 @@ const eventTypeLabels = {
   TOOL_COMPLETED: '工具',
   AGENT_MESSAGE: '智能助手',
   EXECUTION_COMPLETED: '完成',
-  EXECUTION_FAILED: '失败'
+  EXECUTION_FAILED: '失败',
+  EXECUTION_CANCELLED: '取消'
 }
 
-const terminalEventTypes = new Set(['EXECUTION_COMPLETED', 'EXECUTION_FAILED'])
+const terminalEventTypes = new Set(['EXECUTION_COMPLETED', 'EXECUTION_FAILED', 'EXECUTION_CANCELLED'])
 
 // Normalize the token usage payload (any field naming style) into { input, output, total }
 function parseTokenUsage(tokenUsage) {
@@ -108,12 +113,15 @@ function settleMarkdown(executionId) {
   scrollToBottom()
 }
 
-// Find the most recent AGENT_MESSAGE of the given execution, used to accumulate
+// Find the most recent *open* AGENT_MESSAGE of the given execution, used to accumulate
 // streaming PARTIAL_THINKING / PARTIAL_TEXT chunks into a single message bubble.
+// A message body that was already finalized (closed=true, i.e. its round ended and the
+// thinking was completed) is never reused: a new think arriving afterwards must start a
+// fresh message body instead.
 function findLastAgentMessage(executionId) {
   for (let i = events.value.length - 1; i >= 0; i--) {
     const item = events.value[i]
-    if (item.type === 'AGENT_MESSAGE' && (!executionId || item.executionId === executionId)) {
+    if (item.type === 'AGENT_MESSAGE' && !item.closed && (!executionId || item.executionId === executionId)) {
       return item
     }
   }
@@ -230,6 +238,14 @@ function connectEvents() {
       }
       // 只展示当前会话的事件；切换会话后旧会话的延迟事件被忽略
       if (evt.sessionId && currentSessionId.value && evt.sessionId !== currentSessionId.value) return
+      // 跟踪当前会话执行状态：STARTED -> 运行中，结束事件 -> 空闲
+      if (evt.type === 'EXECUTION_STARTED') {
+        executing.value = true
+        paused.value = false
+      } else if (terminalEventTypes.has(evt.type)) {
+        executing.value = false
+        paused.value = false
+      }
       const item = { time: now(), type: evt.type, text: formatEvent(evt), executionId: evt.executionId || '' }
       if (evt.type === 'TOOL_STARTED') {
         item.toolName = evt.data?.toolName || ''
@@ -256,7 +272,7 @@ function connectEvents() {
         // (typewriter effect); create the bubble on first chunk if it does not exist yet
         let target = findLastAgentMessage(evt.executionId)
         if (!target) {
-          appendLog({ time: now(), type: 'AGENT_MESSAGE', executionId: evt.executionId || '', text: '', thinking: '', streaming: true, thinkingOpen: false })
+          appendLog({ time: now(), type: 'AGENT_MESSAGE', executionId: evt.executionId || '', text: '', thinking: '', streaming: true, thinkingOpen: false, closed: false })
           target = findLastAgentMessage(evt.executionId)
         }
         const chunk = evt.data?.text || ''
@@ -267,15 +283,20 @@ function connectEvents() {
         return
       }
       if (evt.type === 'AGENT_MESSAGE') {
-        // 流式模式下，最终全量消息的文本已经通过 PARTIAL_TEXT 累积到当前气泡里，
-        // 直接把气泡收尾即可；否则会额外多出一段重复的末尾消息
+        // 流式模式下，该轮完整消息的 thinking/text 已通过 PARTIAL_THINKING / PARTIAL_TEXT
+        // 累积进当前消息体，这里只负责收尾：把消息体标记为 closed（thinking 完成）。
+        // 收尾之后若再来新的 think/text（例如 agent 下一轮推理），将另起新的消息体，
+        // 不再向这个已完成的旧消息体追加。
         const inflight = findLastAgentMessage(evt.executionId)
-        if (inflight && inflight.streaming) {
+        if (inflight) {
           inflight.streaming = false
+          inflight.closed = true
           return
         }
+        // 非流式（无 PARTIAL 事件）的完整消息：直接作为独立消息体展示并标记已收尾
+        item.closed = true
       }
-      if (evt.type === 'EXECUTION_COMPLETED' || evt.type === 'EXECUTION_FAILED') {
+      if (evt.type === 'EXECUTION_COMPLETED' || evt.type === 'EXECUTION_FAILED' || evt.type === 'EXECUTION_CANCELLED') {
         // a round of execution is done: immediately settle any in-flight markdown
         settleMarkdown(evt.executionId || '')
       }
@@ -359,6 +380,8 @@ function formatEvent(evt) {
       return `executionId=${d.executionId || '-'}`
     case 'EXECUTION_FAILED':
       return d.error ? `${d.error}` : '执行失败'
+    case 'EXECUTION_CANCELLED':
+      return '已取消'
     default:
       return JSON.stringify(evt)
   }
@@ -370,7 +393,8 @@ function now() {
 
 async function sendMessage() {
   const text = input.value.trim()
-  if (!text || sending.value) return
+  // 执行/暂停期间发送位被“暂停/继续”占用，Enter 也不应触发新任务
+  if (!text || sending.value || executing.value || paused.value) return
 
   sending.value = true
   appendLog({ time: now(), type: 'USER', text })
@@ -395,6 +419,46 @@ async function sendMessage() {
   }
 }
 
+// ====== 执行控制 ======
+async function controlAgent(action) {
+  if (!currentSessionId.value || ctlBusy.value) return
+  ctlBusy.value = true
+  try {
+    const data = await request.post(`/agent/${action}`, null, {
+      params: { sessionId: currentSessionId.value },
+    })
+    const applied = !!data?.applied
+    appendLog({
+      time: now(),
+      type: 'SYS',
+      text: `已请求${actionLabel(action)}${applied ? '' : '（当前无运行中的执行，已忽略）'}`,
+    })
+    if (!applied) {
+      executing.value = false
+      paused.value = false
+      return
+    }
+    if (action === 'pause') paused.value = true
+    else if (action === 'resume') paused.value = false
+    else if (action === 'stop') {
+      // stop 在后端立即取消后台任务；EXECUTION_CANCELLED 事件随后会把状态归零
+      paused.value = false
+      executing.value = false
+    }
+  } catch (e) {
+    // 404：该会话此刻没有运行中的执行；其它错误原样提示
+    executing.value = false
+    paused.value = false
+    appendLog({ time: now(), type: 'ERROR', text: `${actionLabel(action)}失败：${e?.message || e}` })
+  } finally {
+    ctlBusy.value = false
+  }
+}
+
+function actionLabel(action) {
+  return { pause: '暂停', resume: '恢复', stop: '停止' }[action] || action
+}
+
 // ====== 会话管理 ======
 async function loadSessions() {
   try {
@@ -409,6 +473,8 @@ function newSession() {
   currentSessionId.value = ''
   currentSessionName.value = ''
   events.value = []
+  executing.value = false
+  paused.value = false
   showSessionRename.value = false
   appendLog({ time: now(), type: 'SYS', text: '已新建会话，发送消息后将自动创建 sessionId' })
 }
@@ -418,6 +484,9 @@ async function switchSession(session) {
   currentSessionId.value = session.sessionId
   currentSessionName.value = session.sessionName || session.sessionId.slice(0, 8)
   events.value = []
+  // 控制按钮只作用于当前会话：切换后重置执行状态
+  executing.value = false
+  paused.value = false
   showSessionRename.value = false
   try {
     // 拉取该会话的历史消息，映射为与实时事件相同的气泡模型
@@ -429,7 +498,7 @@ async function switchSession(session) {
         events.value.push({
           time: '', type: 'AGENT_MESSAGE', executionId: '',
           text: m.text || '', thinking: m.thinking || '',
-          streaming: false, thinkingOpen: false,
+          streaming: false, thinkingOpen: false, closed: true,
         })
       } else if (m.role === 'TOOL') {
         events.value.push({
@@ -548,51 +617,85 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="home">
-    <header class="topbar">
-      <div class="brand-area">
+    <!-- 左侧边栏：品牌 + 新建会话(sticky 吸顶) + 会话列表 + 左下角状态卡片（DeepSeek 式布局） -->
+    <aside class="sidebar" :class="{ collapsed: !showSessions }">
+      <!-- 品牌区 -->
+      <div class="sidebar-brand">
         <div class="logo">灵</div>
         <div class="brand-copy">
           <div class="brand-name">LingXi 灵犀</div>
-          <div class="brand-sub">智能协作与实时执行平台</div>
+          <div class="brand-sub">智能协作 · 实时执行</div>
         </div>
+        <button class="brand-collapse" title="收起侧边栏" @click="showSessions = false">‹</button>
       </div>
-      <nav class="tabs">
-        <a class="tab" href="/official">官网首页</a>
-        <a class="tab active" href="/home">工作台</a>
-        <a class="tab" href="/login">登录</a>
-      </nav>
-      <div class="user-area">
-        <button class="sessions-toggle" :class="{ active: showSessions }" @click="showSessions = !showSessions">
-          ☰ 会话（{{ sessions.length }}）
-        </button>
-        <span class="ws-badge" :class="{ online: sseStatus === '已连接' }">{{ sseStatus }}</span>
-        <span class="name">你好，{{ user.name || '访客' }}</span>
-        <button class="logout" @click="handleLogout">退出登录</button>
-      </div>
-    </header>
 
-    <!-- 会话管理面板：顶部栏下方弹出，纵向列表 -->
-    <div v-if="showSessions" class="session-panel">
-      <button class="new-session-btn" @click="newSession">＋ 新建会话</button>
-      <div class="session-list">
-        <div
-          v-for="s in sessions"
-          :key="s.sessionId"
-          class="session-item"
-          :class="{ active: s.sessionId === currentSessionId }"
-          @click="switchSession(s)"
-        >
-          <span class="session-name">{{ s.sessionName || s.sessionId.slice(0, 8) }}</span>
-          <span class="session-id">{{ s.sessionId.slice(0, 8) }}</span>
+      <!-- 会话区（内部可滚动），新建会话吸顶常驻 -->
+      <div class="session-scroll">
+        <div class="new-session-sticky">
+          <button class="new-session-btn" @click="newSession">
+            <span class="ns-icon" aria-hidden="true">✚</span>
+            <span>新建会话</span>
+          </button>
         </div>
-        <div v-if="sessions.length === 0" class="session-empty">暂无会话，点击「新建会话」开始</div>
+        <div class="session-list">
+          <div
+            v-for="s in sessions"
+            :key="s.sessionId"
+            class="session-item"
+            :class="{ active: s.sessionId === currentSessionId }"
+            @click="switchSession(s)"
+            :title="s.sessionName || s.sessionId"
+          >
+            <span class="session-icon" aria-hidden="true">💬</span>
+            <span class="session-name">{{ s.sessionName || s.sessionId.slice(0, 8) }}</span>
+          </div>
+          <div v-if="sessions.length === 0" class="session-empty">
+            <span class="se-icon" aria-hidden="true">✨</span>
+            <span>暂无会话<br />点击上方「新建会话」开始</span>
+          </div>
+        </div>
       </div>
-    </div>
+
+      <!-- 左下角状态卡片：连接状态 / 会话数 / 用户 / 操作 -->
+      <div class="sidebar-foot">
+        <div class="foot-box">
+          <div class="foot-row foot-status">
+            <span class="foot-dot" :class="{ online: sseStatus === '已连接' }"></span>
+            <span class="foot-status-text">链接：{{ sseStatus }}</span>
+            <span class="foot-count">{{ sessions.length }} 个会话</span>
+          </div>
+          <div class="foot-row foot-user">
+            <span class="foot-avatar">{{ (user.name || '客').slice(0, 1) }}</span>
+            <span class="foot-name">{{ user.name || '访客' }}</span>
+            <button class="foot-btn mini" :title="'收起侧边栏'" @click="showSessions = false">‹</button>
+          </div>
+          <div class="foot-actions">
+            <button class="foot-btn logout-danger" @click="handleLogout">退出登录</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 侧栏收起后的悬浮展开按钮 -->
+    <button v-if="!showSessions" class="sidebar-expand" title="展开侧边栏" @click="showSessions = true">☰</button>
 
     <main class="chat-wrap">
       <div class="layout">
         <!-- 聊天面板 -->
         <div class="chat-panel" :class="{ empty: !hasChat }">
+      <!-- 当前会话标题 + 重命名（置顶，仿 DeepSeek 顶部会话头） -->
+      <div class="session-header">
+        <template v-if="!showSessionRename">
+          <span class="session-title">{{ currentSessionName || '新会话' }}</span>
+          <button v-if="currentSessionId" class="rename-btn" @click="startRename" title="重命名会话">✎ 重命名</button>
+        </template>
+        <template v-else>
+          <input v-model="renameInput" class="rename-input" placeholder="输入会话名称" @keydown.enter="saveRename" @keydown.esc="cancelRename" />
+          <button class="rename-btn primary" @click="saveRename">保存</button>
+          <button class="rename-btn" @click="cancelRename">取消</button>
+        </template>
+      </div>
+
       <!-- 工作目录栏 -->
       <div class="workdir-bar">
         <span class="workdir-label">工作目录</span>
@@ -610,19 +713,6 @@ onBeforeUnmount(() => {
           />
           <button class="workdir-btn primary" :disabled="savingDir" @click="saveWorkdir">{{ savingDir ? '保存中...' : '保存' }}</button>
           <button class="workdir-btn" @click="cancelEditDir">取消</button>
-        </template>
-      </div>
-
-      <!-- 当前会话标题 + 重命名 -->
-      <div class="session-header">
-        <template v-if="!showSessionRename">
-          <span class="session-title">{{ currentSessionName || '新会话' }}</span>
-          <button v-if="currentSessionId" class="rename-btn" @click="startRename" title="重命名会话">✎ 重命名</button>
-        </template>
-        <template v-else>
-          <input v-model="renameInput" class="rename-input" placeholder="输入会话名称" @keydown.enter="saveRename" @keydown.esc="cancelRename" />
-          <button class="rename-btn primary" @click="saveRename">保存</button>
-          <button class="rename-btn" @click="cancelRename">取消</button>
         </template>
       </div>
 
@@ -749,6 +839,15 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
+          <!-- 一轮执行被取消（外部 stop / 中断） -->
+          <div v-else-if="item.type === 'EXECUTION_CANCELLED'" class="done-card cancelled">
+            <span class="done-check" aria-hidden="true">✕</span>
+            <div class="done-info">
+              <span class="done-title">本轮执行已取消</span>
+              <span v-if="item.executionId" class="done-id">{{ item.executionId }}</span>
+            </div>
+          </div>
+
           <!-- 其余系统 / 执行 / 错误等事件行（居中小字） -->
           <div v-else class="event-line" :class="item.type.toLowerCase()">
             <span class="ev-tag">{{ eventTypeLabels[item.type] || item.type }}</span>
@@ -795,6 +894,14 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <!-- 执行控制条：当前会话有运行/暂停中的 agent 执行时显示（暂停/继续已移入输入框发送位） -->
+      <div v-if="executing || paused" class="run-controls">
+        <span class="run-state" :class="{ paused }">
+          <i></i>{{ paused ? '已暂停，等待继续' : '执行中' }}
+        </span>
+        <button class="ctl-btn stop" :disabled="ctlBusy" @click="controlAgent('stop')">停止</button>
+      </div>
+
       <!-- 底部输入框 -->
       <div class="input-area">
         <div class="input-box" :class="{ focused: inputFocused }">
@@ -808,6 +915,17 @@ onBeforeUnmount(() => {
             @blur="inputFocused = false"
           ></textarea>
           <button
+            v-if="executing || paused"
+            class="input-ctl-btn"
+            :class="paused ? 'resume' : 'pause'"
+            :disabled="ctlBusy"
+            :title="paused ? '继续执行' : '暂停执行'"
+            @click="controlAgent(paused ? 'resume' : 'pause')"
+          >
+            {{ paused ? '继续' : '暂停' }}
+          </button>
+          <button
+            v-else
             class="send-btn"
             :disabled="sending || !input.trim()"
             @click="sendMessage"
@@ -832,88 +950,296 @@ onBeforeUnmount(() => {
   /* 固定为视口高度:页面本身不滚动,消息列表在固定窗口内滚动 */
   height: 100vh;
   display: flex;
-  flex-direction: column;
   overflow: hidden;
   background: #ffffff;
   color: #262832;
 }
 
-/* ====== 顶部栏(含 tab,sticky 置顶) ====== */
-.topbar {
-  position: sticky;
-  top: 0;
-  z-index: 70;
+/* ====== 左侧边栏（DeepSeek 式） ====== */
+.sidebar {
+  position: relative;
+  z-index: 20;
+  flex: 0 0 280px;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: #f7f7fa;
+  border-right: 1px solid #ececf1;
+  transition: margin-left 0.26s cubic-bezier(.4, 0, .2, 1);
+}
+.sidebar.collapsed { margin-left: -280px; }
+
+/* 品牌区 */
+.sidebar-brand {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px 24px;
-  border-bottom: 1px solid #f0f1f5;
-  background: #ffffff;
+  gap: 10px;
+  padding: 16px 16px 10px;
   flex-shrink: 0;
 }
-.logo { font-size: 17px; font-weight: 700; letter-spacing: 0.5px; color: #4d6bfe; }
-.user-area { display: flex; align-items: center; gap: 14px; }
-.name { font-size: 14px; color: #55586b; }
-.ws-badge {
-  font-size: 12px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  color: #f56c6c;
-  background: #fef0f0;
-}
-.ws-badge.online { color: #67c23a; background: #f0f9eb; }
-.logout {
-  padding: 6px 14px;
-  font-size: 13px;
-  color: #55586b;
-  background: transparent;
-  border: 1px solid #e4e6eb;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.logout:hover { border-color: #4d6bfe; color: #4d6bfe; }
-
-/* ====== 顶部栏内部品牌 / 导航 ====== */
-.brand-area {
+.logo {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
+  background: linear-gradient(135deg, #4d6bfe, #7a5cff);
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  box-shadow: 0 4px 10px rgba(77, 107, 254, .28);
 }
 .brand-copy {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  flex: 1;
+  min-width: 0;
 }
 .brand-name {
   font-size: 15px;
   font-weight: 700;
-  color: #262832;
-  letter-spacing: 0.3px;
+  color: #1f2232;
+  letter-spacing: .3px;
 }
 .brand-sub {
-  font-size: 12px;
-  color: #8a8ca0;
+  font-size: 11px;
+  color: #9a9db0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+.brand-collapse {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #a2a5b8;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all .2s;
+}
+.brand-collapse:hover { background: #ececf2; color: #4d6bfe; }
 
-.tabs {
+/* 会话列表滚动区 */
+.session-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 0 12px;
+}
+.session-scroll::-webkit-scrollbar { width: 6px; }
+.session-scroll::-webkit-scrollbar-thumb { background: #dfe1ea; border-radius: 3px; }
+.session-scroll::-webkit-scrollbar-thumb:hover { background: #cfd1dd; }
+
+/* 新建会话：吸顶（会话列表滚动时按钮始终留在顶部） */
+.new-session-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: 8px 0 10px;
+  background: linear-gradient(#f7f7fa 82%, rgba(247, 247, 250, 0));
+}
+.new-session-btn {
+  width: 100%;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-}
-.tab {
-  padding: 8px 14px;
-  border-radius: 8px;
-  color: #55586b;
-  font-size: 13px;
-  text-decoration: none;
-  transition: background 0.2s, color 0.2s;
-}
-.tab:hover { background: #f5f6fb; }
-.tab.active {
-  background: #eef2ff;
-  color: #4d6bfe;
+  padding: 11px 0;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #4d6bfe, #6a5cff);
+  color: #fff;
+  font-size: 14px;
   font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 6px 14px rgba(77, 107, 254, .22);
+  transition: all .2s;
+}
+.new-session-btn:hover {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(77, 107, 254, .3);
+}
+.new-session-btn:active { transform: translateY(0); }
+.ns-icon { font-size: 15px; font-weight: 400; }
+
+/* 会话列表 */
+.session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 12px;
+}
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 10px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all .18s;
+}
+.session-item:hover { background: #edeef5; }
+.session-item.active {
+  background: #ffffff;
+  border-color: #e6e8f1;
+  box-shadow: 0 2px 8px rgba(30, 34, 60, .06);
+}
+.session-icon { flex-shrink: 0; font-size: 13px; opacity: .8; }
+.session-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: #3a3d50;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-item.active .session-name { color: #4d6bfe; font-weight: 600; }
+.session-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 30px 8px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #b3b5c6;
+}
+.se-icon { font-size: 22px; opacity: .55; }
+
+/* ====== 左下角状态卡片 ====== */
+.sidebar-foot {
+  flex-shrink: 0;
+  padding: 8px 12px 14px;
+}
+.foot-box {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 10px 12px;
+  border: 1px solid #e7e8ee;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 4px 14px rgba(30, 34, 60, .05);
+}
+.foot-row { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.foot-status { font-size: 12px; color: #7d8096; }
+.foot-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f87171;
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, .14);
+}
+.foot-dot.online {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, .15);
+}
+.foot-status-text { flex-shrink: 0; }
+.foot-count {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  color: #a2a5b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.foot-avatar {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #4d6bfe, #6a5cff);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+.foot-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #262832;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.foot-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  color: #5f6378;
+  background: #f7f7fa;
+  border: 1px solid #e7e8ee;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all .2s;
+}
+.foot-btn:hover { border-color: #cfd3e6; color: #4d6bfe; background: #f0f2ff; }
+.foot-btn.mini {
+  flex-shrink: 0;
+  width: 24px;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  color: #a2a5b8;
+  font-size: 16px;
+}
+.foot-btn.mini:hover { background: #ececf2; color: #4d6bfe; }
+.foot-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid #f1f2f6;
+  padding-top: 8px;
+}
+.foot-actions .foot-btn { background: #fff; }
+.foot-btn.logout-danger:hover {
+  color: #e5533d;
+  border-color: #f3c6bd;
+  background: #fdf3f1;
+}
+
+/* ====== 侧栏收起后的悬浮展开按钮 ====== */
+.sidebar-expand {
+  position: fixed;
+  left: 12px;
+  top: 12px;
+  z-index: 30;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid #e7e8ee;
+  background: #ffffff;
+  color: #4d6bfe;
+  font-size: 16px;
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(30, 34, 60, .12);
+  transition: all .2s;
+}
+.sidebar-expand:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(30, 34, 60, .16);
 }
 
 /* ====== 主布局 ====== */
@@ -921,113 +1247,32 @@ onBeforeUnmount(() => {
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
-.home { position: relative; }
-.layout { flex: 1; display: flex; min-height: 0; }
-
-/* ====== 会话管理面板（顶部栏下方弹出，纵向列表） ====== */
-.session-panel {
-  position: absolute;
-  top: 60px;
-  left: 16px;
-  z-index: 60;
-  width: 300px;
-  max-height: 65vh;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-  background: #fff;
-  border: 1px solid #e8eaf1;
-  border-radius: 14px;
-  box-shadow: 0 12px 32px rgba(30, 34, 60, 0.12);
-}
-.sessions-toggle {
-  padding: 6px 12px;
-  font-size: 13px;
-  color: #55586b;
-  background: transparent;
-  border: 1px solid #e4e6eb;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.sessions-toggle:hover { border-color: #4d6bfe; color: #4d6bfe; }
-.sessions-toggle.active { background: #eef2ff; border-color: #dbe2ff; color: #4d6bfe; font-weight: 600; }
-.new-session-btn {
-  width: 100%;
-  padding: 9px 0;
-  border: 1px solid #4d6bfe;
-  border-radius: 10px;
-  background: #4d6bfe;
-  color: #fff;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.new-session-btn:hover { background: #3a57e8; }
-.session-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.session-item {
-  padding: 9px 10px;
-  border-radius: 10px;
-  border: 1px solid transparent;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  transition: all 0.2s;
-}
-.session-item:hover { background: #f0f2f8; }
-.session-item.active { background: #eef2ff; border-color: #dbe2ff; }
-.session-name {
-  font-size: 13px;
-  color: #262832;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.session-item.active .session-name { color: #4d6bfe; font-weight: 600; }
-.session-id {
-  font-size: 11px;
-  color: #a0a3b5;
-  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
-}
-.session-empty {
-  padding: 20px 8px;
-  text-align: center;
-  font-size: 12px;
-  line-height: 1.8;
-  color: #b0b3c4;
-}
+.layout { flex: 1; display: flex; min-width: 0; min-height: 0; }
 
 /* ====== 聊天面板 ====== */
 .chat-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 
-/* ====== 会话标题栏 ====== */
+/* ====== 会话标题栏（聊天区顶部） ====== */
 .session-header {
   flex-shrink: 0;
   width: 100%;
   max-width: 780px;
   margin: 0 auto;
-  padding: 12px 0 0;
+  padding: 20px 0 6px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 .session-title {
   flex: 1;
   min-width: 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: #262832;
+  font-size: 16px;
+  font-weight: 700;
+  color: #1f2232;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1063,7 +1308,7 @@ onBeforeUnmount(() => {
   width: 100%;
   max-width: 780px;
   margin: 0 auto;
-  padding: 8px 0 0;
+  padding: 4px 0 8px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1391,6 +1636,13 @@ onBeforeUnmount(() => {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+.done-card.cancelled {
+  border-color: #f0e2dd;
+  background: linear-gradient(135deg, #fbf8f6, #f6f1ee);
+}
+.done-card.cancelled .done-check {
+  background: #f2a97f;
+}
 .done-check {
   flex-shrink: 0;
   width: 24px;
@@ -1451,6 +1703,60 @@ onBeforeUnmount(() => {
 }
 
 
+/* ====== 执行控制条（暂停/继续/停止） ====== */
+.run-controls {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 780px;
+  margin: 0 auto 10px;
+  padding: 0 4px;
+}
+.run-state {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #4d6bfe;
+  background: #eef2ff;
+  padding: 5px 12px;
+  border-radius: 999px;
+}
+.run-state i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4d6bfe;
+  animation: event-pulse 1.1s infinite ease-in-out;
+}
+.run-state.paused { color: #b45309; background: #fef3c7; }
+.run-state.paused i { background: #f59e0b; animation: none; }
+.ctl-btn {
+  flex-shrink: 0;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 16px;
+  border-radius: 999px;
+  border: 1px solid #e4e6eb;
+  background: #fff;
+  color: #55586b;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.ctl-btn:hover:not(:disabled) { border-color: #4d6bfe; color: #4d6bfe; }
+.ctl-btn.pause { color: #4d6bfe; border-color: #ccd5f8; background: #eef2ff; }
+.ctl-btn.pause:hover:not(:disabled) { background: #dfe7ff; border-color: #b6c4fa; }
+.ctl-btn.resume { color: #17803d; border-color: #c8e6d3; background: #e8f7ee; }
+.ctl-btn.resume:hover:not(:disabled) { background: #d2f0de; }
+.ctl-btn.stop { color: #b42318; border-color: #f0d0cc; background: #fdeeee; }
+.ctl-btn.stop:hover:not(:disabled) { background: #fbdcdc; border-color: #e9b8b2; }
+.ctl-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* ====== 输入区 ====== */
 .input-area {
   flex-shrink: 0;
@@ -1502,6 +1808,28 @@ onBeforeUnmount(() => {
 }
 .send-btn:hover:not(:disabled) { background: #3a57e8; }
 .send-btn:disabled { background: #dfe1e8; cursor: not-allowed; }
+/* 执行/暂停期间占据发送位的胶囊按钮 */
+.input-ctl-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  min-width: 64px;
+  padding: 0 14px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.input-ctl-btn.pause { color: #4d6bfe; border-color: #ccd5f8; background: #eef2ff; }
+.input-ctl-btn.pause:hover:not(:disabled) { background: #dfe7ff; border-color: #b6c4fa; }
+.input-ctl-btn.resume { color: #17803d; border-color: #c8e6d3; background: #e8f7ee; }
+.input-ctl-btn.resume:hover:not(:disabled) { background: #d2f0de; }
+.input-ctl-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .tips {
   text-align: center;
   font-size: 12px;
@@ -1665,10 +1993,11 @@ onBeforeUnmount(() => {
 .btn-submit:hover:not(:disabled) { background: #3a57e8; }
 .btn-submit:disabled { background: #dfe1e8; cursor: not-allowed; }
 
-/* 待裁决文件编辑下拉框:位于输入框上方 */
+/* 待裁决文件编辑下拉框:位于输入框上方,与输入框同宽居中 */
 .pending-edits {
   flex-shrink: 0;
-  margin: 0 16px 6px;
+  max-width: 780px;
+  margin: 0 auto 6px;
   border: 1px solid #eceef4;
   border-radius: 10px;
   background: #fff;

@@ -9,7 +9,6 @@ import org.springframework.stereotype.Service;
 import java.io.Serializable;
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -48,26 +47,12 @@ public class RedisConversationStore implements ConversationStore {
         return conversationEntity;
     }
 
-    @Override
-    public void remove(@NonNull Serializable sessionId) {
-        redisTemplate.delete("session:id:" + sessionId);
-    }
 
-    @Override
-    public void clear() {
-        redisTemplate.delete("session:id");
-    }
-
-    @Override
-    public Collection<ConversationEntity> list() {
-        return redisTemplate.opsForValue().multiGet(redisTemplate.keys("session:id:*")).stream()
-                .filter(ConversationEntity.class::isInstance)
-                .map(ConversationEntity.class::cast)
-                .collect(Collectors.toList());
-    }
-
-    @Override
-    public Collection<SessionSummary> sessionSummaries() {
+    /**
+     * Example-scoped query-side helper: lightweight summaries (id + name) of
+     * all stored sessions. Not part of the {@code ConversationStore} SPI.
+     */
+    public List<SessionSummary> sessionSummaries() {
         Set<String> keys = redisTemplate.keys("session:id:*");
         if (keys == null || keys.isEmpty()) {
             return List.of();

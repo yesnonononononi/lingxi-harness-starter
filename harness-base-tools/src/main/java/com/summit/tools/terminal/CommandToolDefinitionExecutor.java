@@ -37,9 +37,10 @@ public class CommandToolDefinitionExecutor implements ToolExecutor {
             if (request.getCommand() == null || request.getCommand().isBlank())
                 return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition(), "instruction is empty");
 
-            // ensure the instruction is accessible
-            if (!InstructionGuard.process(request.getCommand())) {
-                return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition(), "instruction is not accessible");
+            // ensure the instruction is accessible (blacklist check against the actual shell)
+            ShellType shellType = toolExecution.getWorkspace().runtimeEnvironment().shellType();
+            if (!CommandGuard.isAllowed(request.getCommand(), shellType)) {
+                return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition(), "instruction is not accessible: dangerous command blocked");
             }
 
             // execute

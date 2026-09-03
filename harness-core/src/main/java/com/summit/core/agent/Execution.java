@@ -70,6 +70,8 @@ public class Execution {
      */
     private boolean streaming;
 
+    private int maxSteps;
+
 
     public void cancel(){
         this.executionState = ExecutionState.CANCELLED;

@@ -7,6 +7,13 @@ spring:
 lingxi:
   agent:
     workspace: docker
+    # Docker sandbox: container created on demand (reused if the name exists),
+    # host project dir bind-mounted into the container to share files.
+    container-name: agent-sandbox
+    container-image: alpine
+    container-port: ""                # optional: publish -p 8080:8080, leave blank to skip
+    container-workdir: /workspace     # in-container working directory (mount point)
+    workspace-dir: ""                 # host project directory; blank = app launch dir
     runtime:
       tool:
         common:

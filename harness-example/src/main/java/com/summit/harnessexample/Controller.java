@@ -3,12 +3,14 @@ package com.summit.harnessexample;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.conversation.ConversationEntity;
-import com.summit.core.conversation.ConversationStore;
 import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.ToolMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
+import com.summit.core.runtime.LifeStyleCommandRegistry;
 import com.summit.core.runtime.Workspace;
+import com.summit.harnessexample.session_policy.RedisConversationStore;
+import com.summit.harnessexample.session_policy.SessionSummary;
 import com.summit.runtime.sandbox.DockerWorkspace;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -29,6 +32,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Entry point for the simple coding agent.
@@ -46,15 +50,29 @@ public class Controller {
 
     private final Demo demo;
     private final SseEventPublisher sseEventPublisher;
-    private final ConversationStore conversationStore;
-    /** The active workspace bean: local (host) or Docker sandbox, per lingxi.agent.workspace. */
+    private final RedisConversationStore conversationStore;
+    /**
+     * The active workspace bean: local (host) or Docker sandbox, per lingxi.agent.workspace.
+     */
     private final Workspace workspace;
     private final ObjectMapper objectMapper;
+    /**
+     * Per-session lifecycle command registry. Every execution registers a fresh,
+     * dedicated command store under its sessionId (see DefaultRuntimeFactory), so
+     * pause/resume/stop issued here target exactly that session/execution and can
+     * never leak into another execution's queue.
+     */
+    private final LifeStyleCommandRegistry lifeStyleCommandRegistry;
+    /**
+     * In-flight agent tasks (sessionId -> future), so a task can be stopped/cancelled
+     * later and its running state queried by the control endpoints.
+     */
+    private final Map<String, CompletableFuture<Void>> runningTasks = new ConcurrentHashMap<>();
 
 
-
-
-    /** Opens a Server-Sent Events stream; runtime events are pushed onto it. */
+    /**
+     * Opens a Server-Sent Events stream; runtime events are pushed onto it.
+     */
     @GetMapping(value = "/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter events() {
         return sseEventPublisher.connect();
@@ -87,7 +105,9 @@ public class Controller {
         // Run the coding agent asynchronously; events are pushed via SSE.
         String finalSessionId = sessionId;
         String finalSessionName = sessionName;
-        CompletableFuture.runAsync(() -> demo.chat(input, streaming, finalSessionId, finalSessionName, workspace));
+        CompletableFuture<Void> task = CompletableFuture.runAsync(() -> demo.chat(input, streaming, finalSessionId, finalSessionName, workspace));
+        runningTasks.put(finalSessionId, task);
+        task.whenComplete((result, error) -> runningTasks.remove(finalSessionId, task));
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("input", input);
@@ -96,6 +116,7 @@ public class Controller {
         data.put("sessionName", sessionName);
         data.put("newSession", newSession);
         data.put("sseClients", sseEventPublisher.connectedCount());
+        data.put("runningSessions", runningTasks.size());
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("code", 200);
@@ -104,11 +125,115 @@ public class Controller {
         return ResponseEntity.ok(response);
     }
 
-    /** Returns all conversations persisted in the conversation store (lightweight summaries). */
+    /**
+     * Pauses an agent-loop at its next checkpoint. Without {@code sessionId}
+     * every running session is paused; with a {@code sessionId} only that
+     * session's execution is paused. A paused loop blocks until {@link #resume}
+     * or {@link #stop} is called for the same session.
+     */
+    @PostMapping("/pause")
+    public ResponseEntity<Map<String, Object>> pause(@RequestParam(value = "sessionId", required = false) String sessionId) {
+        return control("pause", sessionId);
+    }
+
+    /**
+     * Resumes a paused agent-loop. Without {@code sessionId} every paused
+     * session is resumed; with a {@code sessionId} only that session.
+     */
+    @PostMapping("/resume")
+    public ResponseEntity<Map<String, Object>> resume(@RequestParam(value = "sessionId", required = false) String sessionId) {
+        return control("resume", sessionId);
+    }
+
+    /**
+     * Stops agent execution. Without {@code sessionId} every running loop is
+     * stopped; with a {@code sessionId} only that session's execution (its
+     * background task is cancelled first for immediate effect while paused).
+     *
+     * <p>Stopping is cooperative: a loop observes the command at its next
+     * checkpoint, i.e. after the current model/tool step returns. The execution
+     * is then reported as CANCELLED via SSE ({@code EXECUTION_CANCELLED}).</p>
+     */
+    @PostMapping("/stop")
+    public ResponseEntity<Map<String, Object>> stop(@RequestParam(value = "sessionId", required = false) String sessionId) {
+        return control("stop", sessionId);
+    }
+
+    private ResponseEntity<Map<String, Object>> control(String action, String sessionId) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        if (sessionId != null && !runningTasks.containsKey(sessionId)) {
+            Map<String, Object> error = new LinkedHashMap<>();
+            error.put("code", 404);
+            error.put("message", "no running execution for sessionId: " + sessionId);
+            error.put("data", Map.of("sessionId", sessionId, "runningSessions", runningTasks.size()));
+            return ResponseEntity.status(404).body(error);
+        }
+
+        if (sessionId == null && runningTasks.isEmpty()) {
+            // no live agent-loop: do NOT enqueue the command, it would leak into
+            // the next execution started later
+            data.put("action", action);
+            data.put("runningSessions", 0);
+            data.put("applied", false);
+            data.put("message", "no running agent execution, command ignored");
+            Map<String, Object> response = new LinkedHashMap<>();
+            response.put("code", 200);
+            response.put("message", "ok");
+            response.put("data", data);
+            return ResponseEntity.ok(response);
+        }
+
+        if ("stop".equals(action) && sessionId != null) {
+            // interrupt the loop thread; the checkpointer turns the interrupt
+            // into a CANCELLED state while paused, otherwise it is best-effort
+            runningTasks.get(sessionId).cancel(true);
+        }
+
+        if (sessionId != null) {
+            switch (action) {
+                case "pause" -> lifeStyleCommandRegistry.pause(sessionId);
+                case "resume" -> lifeStyleCommandRegistry.resume(sessionId);
+                case "stop" -> lifeStyleCommandRegistry.stop(sessionId);
+                default -> {
+                    Map<String, Object> error = new LinkedHashMap<>();
+                    error.put("code", 400);
+                    error.put("message", "unsupported control action: " + action);
+                    return ResponseEntity.badRequest().body(error);
+                }
+            }
+        } else {
+            switch (action) {
+                case "pause" -> lifeStyleCommandRegistry.pauseAll();
+                case "resume" -> lifeStyleCommandRegistry.resumeAll();
+                case "stop" -> lifeStyleCommandRegistry.stopAll();
+                default -> {
+                    Map<String, Object> error = new LinkedHashMap<>();
+                    error.put("code", 400);
+                    error.put("message", "unsupported control action: " + action);
+                    return ResponseEntity.badRequest().body(error);
+                }
+            }
+        }
+
+        data.put("action", action);
+        data.put("runningSessions", runningTasks.size());
+        data.put("applied", true);
+        data.put("sessionId", sessionId);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("code", 200);
+        response.put("message", action + " command enqueued, will take effect at the next loop checkpoint");
+        response.put("data", data);
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Returns all conversations persisted in the conversation store (lightweight summaries).
+     */
     @GetMapping("/sessions")
     public ResponseEntity<Map<String, Object>> sessions() {
         List<Map<String, Object>> list = new ArrayList<>();
-        for (ConversationStore.SessionSummary summary : conversationStore.sessionSummaries()) {
+        for (SessionSummary summary : conversationStore.sessionSummaries()) {
             Map<String, Object> session = new LinkedHashMap<>();
             session.put("sessionId", summary.sessionId());
             session.put("sessionName", summary.sessionName() == null || summary.sessionName().isBlank()
@@ -173,7 +298,9 @@ public class Controller {
         return ResponseEntity.ok(response);
     }
 
-    /** Simple liveness probe for the example app. */
+    /**
+     * Simple liveness probe for the example app.
+     */
     @GetMapping("/health")
     public ResponseEntity<Map<String, Object>> health() {
         Map<String, Object> data = new LinkedHashMap<>();
@@ -188,37 +315,18 @@ public class Controller {
         return ResponseEntity.ok(response);
     }
 
-    /** Deletes a conversation from the conversation store. */
+    /**
+     * Deletes a conversation from the conversation store.
+     */
     @PostMapping("/sessions/delete")
     public ResponseEntity<Map<String, Object>> deleteSession(@RequestBody Map<String, String> body) {
-        String sessionId = body == null ? null : body.get("sessionId");
 
-        if (sessionId == null || sessionId.isBlank()) {
-            Map<String, Object> error = new LinkedHashMap<>();
-            error.put("code", 400);
-            error.put("message", "sessionId must not be blank");
-            return ResponseEntity.badRequest().body(error);
-        }
-        Optional<ConversationEntity> removed = conversationStore.removeAndReturn(sessionId);
-        if (removed.isEmpty()) {
-            Map<String, Object> error = new LinkedHashMap<>();
-            error.put("code", 404);
-            error.put("message", "session not found: " + sessionId);
-            return ResponseEntity.status(404).body(error);
-        }
-
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("sessionId", sessionId);
-        data.put("sessionName", removed.get().sessionName());
-
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("code", 200);
-        response.put("message", "ok");
-        response.put("data", data);
-        return ResponseEntity.ok(response);
+        return null;
     }
 
-    /** Renames an existing conversation (in-memory map only for now). */
+    /**
+     * Renames an existing conversation (in-memory map only for now).
+     */
     @PostMapping("/sessions/rename")
     public ResponseEntity<Map<String, Object>> renameSession(@RequestBody Map<String, String> body) {
         String sessionId = body == null ? null : body.get("sessionId");
@@ -255,7 +363,9 @@ public class Controller {
         return name.length() > 20 ? name.substring(0, 20) + "..." : name;
     }
 
-    /** Returns the agent's current working directory. */
+    /**
+     * Returns the agent's current working directory.
+     */
     @GetMapping("/workdir")
     public ResponseEntity<Map<String, Object>> workdir() {
         Map<String, Object> data = new LinkedHashMap<>();
@@ -315,7 +425,9 @@ public class Controller {
         return ResponseEntity.ok(response);
     }
 
-    /** Normalizes a user-supplied in-container path to an absolute POSIX path ("/app", "app" → "/app"). */
+    /**
+     * Normalizes a user-supplied in-container path to an absolute POSIX path ("/app", "app" → "/app").
+     */
     private String normalizeContainerPath(String workdir) {
         String p = workdir.trim();
         if (!p.startsWith("/")) {

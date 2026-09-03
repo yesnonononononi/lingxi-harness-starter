@@ -18,8 +18,8 @@ public class AgentRequest {
     private @NonNull String input;
     private String systemPrompt;
     private @NonNull Workspace workspace ;
-    private boolean thinking;
     private boolean streaming;
+
 
     public Serializable sessionIdOrDefault() {
         return sessionId != null ? sessionId : DEFAULT_SESSION_ID;

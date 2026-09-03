@@ -38,15 +38,10 @@ public class ChatModelAdapter implements ChatModel {
 
     @Override
     public ChatResponseEntity chat(ChatRequestEntity request) {
-        ChatRequest.Builder builder = ChatRequest.builder()
-                .messages(messageCodec.toFramework(request.getMessages()));
-        if (request.getTools() != null && !request.getTools().isEmpty()) {
-            List<ToolSpecification> toolSpecifications = request.getTools().stream()
-                    .map(toolCodec::toFrameworkTool)
-                    .toList();
-            builder.toolSpecifications(toolSpecifications);
-        }
-        ChatResponse response = delegate.chat(builder.build());
-        return messageCodec.toChatResponseEntity(response);
+        ChatRequest chatRequest = ChatRequestBuilder.buildRequest(request, messageCodec, toolCodec);
+        ChatResponse chatResponse = delegate.chat(chatRequest);
+        return messageCodec.toChatResponseEntity(chatResponse);
     }
+
+
 }

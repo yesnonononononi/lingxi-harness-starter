@@ -1,10 +1,8 @@
 package com.summit.runtime.sandbox;
 
-import com.summit.core.runtime.OsType;
-import com.summit.core.runtime.RuntimeEnvironment;
-import com.summit.core.runtime.ShellType;
-import com.summit.core.runtime.Workspace;
-import com.summit.core.runtime.WorkspaceBridge;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.summit.core.runtime.*;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
@@ -12,6 +10,7 @@ import lombok.Setter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.UUID;
 
 /**
  * A {@link Workspace} whose file system and shell live inside a Docker
@@ -23,10 +22,11 @@ import java.nio.file.Paths;
  * container through {@link DockerWorkspaceBridge}. The host only ever talks
  * to the Docker CLI — tool code is completely unaware of the sandbox.</p>
  *
- * <p>Typical usage: start the container with the project directory mounted
- * at {@code workspaceRoot} (e.g. {@code docker run -v
- * D:\work\project:/workspace ...}), then hand this workspace to the agent
- * request.</p>
+ * <p>Typical usage: {@link #newInstance(String, String, String, String, String)}
+ * creates the workspace backed by a container that is started on demand
+ * (reused when one with the same name already exists) with the host project
+ * directory bind-mounted at the working directory, then hand this workspace
+ * to the agent request.</p>
  */
 @Getter
 public class DockerWorkspace implements Workspace {
@@ -35,17 +35,26 @@ public class DockerWorkspace implements Workspace {
     private String id;
     @Setter
     private String containerId;
-    /** Container-internal absolute path of the agent's working directory. */
+    /**
+     * Container-internal absolute path of the agent's working directory.
+     */
     @Setter
-    private String workspaceRoot = "/workspace";
-    /** Lazily (re)built from {@link #containerId}; also survives Jackson round-trips. */
+    private String workspaceRoot;
+    /**
+     * Lazily (re)built from {@link #containerId}; also survives Jackson round-trips.
+     */
     private transient WorkspaceBridge bridge;
 
-    /** No-args constructor for serialization frameworks (session persistence). */
-    public DockerWorkspace() {
-    }
 
-    public DockerWorkspace(String id, @NonNull String containerId,@NonNull String workspaceRoot) {
+    /**
+     * Deserialization support: a persisted {@link ConversationEntity} carries the
+     * session workspace (id + containerId + root). The bridge is transient and
+     * lazily re-created against the restored container on first tool IO.
+     */
+    @JsonCreator
+    private DockerWorkspace(@JsonProperty("id") String id,
+                            @JsonProperty("containerId") @NonNull String containerId,
+                            @JsonProperty("workspaceRoot") @NonNull String workspaceRoot) {
         if (containerId.isBlank()) {
             throw new IllegalArgumentException("containerId must not be blank");
         }
@@ -59,6 +68,76 @@ public class DockerWorkspace implements Workspace {
         this.workspaceRoot = workspaceRoot.endsWith("/") && workspaceRoot.length() > 1
                 ? workspaceRoot.substring(0, workspaceRoot.length() - 1)
                 : workspaceRoot;
+    }
+
+
+    public  static  DockerWorkspace newInstance(String id,String workDir,String name,String port) {
+        String containerId = DockerWorkspaceBridge.initContainer(name, port);
+        return new DockerWorkspace(id, containerId, workDir);
+    }
+
+    /**
+     * Creates a workspace backed by a Docker container that is created on
+     * demand and reused when one with the same {@code name} already exists.
+     *
+     * @param id          workspace id
+     * @param workDir     in-container working directory; also the mount point when {@code hostDir} is set
+     * @param name        container name; an existing container with this name is reused as-is
+     * @param port        optional port to publish (e.g. "8080"); {@code null} or blank to skip
+     * @param hostDir     optional host directory bind-mounted into the container to share project files; {@code null} or blank to skip
+     * @param image       container image; defaults to "alpine" when {@code null} or blank
+     */
+    public  static  DockerWorkspace newInstance(String id, String workDir, String name, String port, String hostDir, String image) {
+        String containerId = DockerWorkspaceBridge.initContainer(name, port, hostDir, workDir, image);
+        return new DockerWorkspace(id, containerId, workDir);
+    }
+
+    /**
+     * Convenience overload of
+     * {@link #newInstance(String, String, String, String, String, String)}
+     * with a random workspace id.
+     */
+    public  static  DockerWorkspace newInstance(String workDir, String name, String port, String hostDir, String image) {
+        return newInstance(UUID.randomUUID().toString(), workDir, name, port, hostDir, image);
+    }
+
+
+    public  static  DockerWorkspace newInstance(String workDir,String name,String port) {
+        return newInstance(UUID.randomUUID().toString(),workDir,name,port);
+    }
+
+
+    public  static  DockerWorkspace newInstance(String name,String port) {
+        return newInstance("/",name,port);
+    }
+
+
+    public  static  DockerWorkspace newInstance(String name) {
+        return newInstance(name,null);
+    }
+
+
+    public  static  DockerWorkspace newInstance() {
+       return newInstance(UUID.randomUUID().toString());
+    }
+
+    /**
+     * Restores a {@link DockerWorkspace} around an already-existing container
+     * instead of creating a new one.
+     *
+     * <p>Unlike the {@code newInstance(...)} factories, this never starts or
+     * creates a container. The caller is responsible for the container actually existing
+     * (e.g. one created by a previous session whose {@code containerId} was
+     * persisted). The container is reached lazily via {@link #bridge()} on first
+     * tool IO / command execution, so a stale id only fails at that point.</p>
+     *
+     * @param id            workspace id
+     * @param containerId   id of an existing container to reuse
+     * @param workspaceRoot in-container absolute working directory
+     * @return a workspace backed by the existing container
+     */
+    public static DockerWorkspace attach(String id, @NonNull String containerId, @NonNull String workspaceRoot) {
+        return new DockerWorkspace(id, containerId, workspaceRoot);
     }
 
     @Override
@@ -113,15 +192,8 @@ public class DockerWorkspace implements Workspace {
     }
 
     /**
-     * ensure the workspace root path does not end with a slash
-     * @return the workspace root path without a trailing slash
-     */
-    private String subLastSlash() {
-        return workspaceRoot.endsWith("/") ? workspaceRoot.substring(0, workspaceRoot.length() - 1) : workspaceRoot;
-    }
-
-    /**
      * check if the path is accessible
+     *
      * @param path the path to check
      * @param root the root path
      * @return true if the path is accessible

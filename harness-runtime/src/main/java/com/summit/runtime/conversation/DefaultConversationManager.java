@@ -98,7 +98,7 @@ public class DefaultConversationManager implements ConversationManager {
         String summary = contextSummary.getSummary();
         try {
             log.info("【context-rebuild】 rebuilding context with summary: {}", summary);
-            SystemMessageEntity systemMessage = conversation.SystemMessageEntity();
+            SystemMessageEntity systemMessage = conversation.systemMessageEntity();
             List<Message> latestToolMessageAndAiMessage = findLatestInteraction(conversation);
             conversation.messages().clear();
            conversation.messages().addAll(List.of(systemMessage, SystemMessageEntity.builder().text(

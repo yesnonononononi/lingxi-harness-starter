@@ -24,7 +24,6 @@ public class ExecutionCreator {
                 .createAt(Instant.now())
                 .executionState(ExecutionState.CREATED)
                 .messages(messages)
-                .thinking(agentRequest.isThinking())
                 .streaming(agentRequest.isStreaming())
                 .build();
     }

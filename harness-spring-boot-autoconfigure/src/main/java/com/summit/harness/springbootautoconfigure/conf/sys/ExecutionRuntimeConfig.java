@@ -4,12 +4,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
-import com.summit.core.runtime.RuntimeExecutionPolicy;
+import com.summit.core.runtime.LifeStyleCommandRegistry;
+import com.summit.core.runtime.LifeStyleHandler;
 import com.summit.core.runtime.RuntimeFactory;
 import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.tool.ToolExecutionManager;
+import com.summit.runtime.DefaultLifeStyleCommandRegistry;
+import com.summit.runtime.DefaultLifeStyleHandler;
 import com.summit.runtime.agent.AgentConfig;
-import com.summit.runtime.policy.DefaultRuntimeExecutionPolicy;
 import com.summit.runtime.DefaultRuntimeFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -21,22 +23,36 @@ import java.util.List;
 public class ExecutionRuntimeConfig {
     @Bean
     @ConditionalOnMissingBean
-    public RuntimeFactory defaultRuntimeFactory(RuntimeEventPublisher defaultRuntimeListener, ConversationManager conversationManager, ToolExecutionManager defaultToolExecutionManager, AgentConfig agentConfig, ObjectMapper objectMapper, RuntimeExecutionPolicy runtimeExecutionPolicy){
+    public RuntimeFactory defaultRuntimeFactory(RuntimeEventPublisher defaultRuntimeListener,
+                                                ConversationManager conversationManager,
+                                                ToolExecutionManager defaultToolExecutionManager,
+                                                AgentConfig agentConfig, ObjectMapper objectMapper,
+                                                LifeStyleHandler lifeStyleHandler,
+                                                Tokenizer tokenizer,
+                                                LifeStyleCommandRegistry lifeStyleCommandRegistry){
         return DefaultRuntimeFactory.builder()
-                .runtimeExecutionPolicy(runtimeExecutionPolicy)
                 .toolExecutionManager(defaultToolExecutionManager)
                 .runtimeEventPublisher(defaultRuntimeListener)
                 .conversationManager(conversationManager)
                 .objectMapper(objectMapper)
-                .maxIterations(agentConfig.maxIterations())
+                .lifeStyleHandler(lifeStyleHandler)
+                .tokenizer(tokenizer)
+                .lifeStyleCommandRegistry(lifeStyleCommandRegistry)
+                .agentConfig(agentConfig)
                 .build();
     }
 
 
     @Bean
     @ConditionalOnMissingBean
-    public RuntimeExecutionPolicy runtimeExecutionPolicy(AgentConfig agentConfig, Tokenizer tokenizer){
-        return new DefaultRuntimeExecutionPolicy(agentConfig,tokenizer);
+    public LifeStyleHandler defaultLifeStyleHandler(){
+        return new DefaultLifeStyleHandler();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public LifeStyleCommandRegistry lifeStyleCommandRegistry(){
+        return new DefaultLifeStyleCommandRegistry();
     }
 
     @Bean

@@ -6,7 +6,7 @@
     <parent>
         <groupId>io.github.yesnonononononi</groupId>
         <artifactId>lingXi-harness-agent</artifactId>
-        <version>1.0.0</version>
+        <version>1.0.2</version>
     </parent>
     <name>lingxi-harness-runtime</name>
     <dependencies>

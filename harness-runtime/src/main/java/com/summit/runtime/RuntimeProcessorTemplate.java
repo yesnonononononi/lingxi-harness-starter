@@ -1,19 +1,22 @@
 package com.summit.runtime;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.summit.core.agent.Execution;
-import com.summit.core.compact.ContextSqueezeRequest;
+import com.summit.core.agent.ExecutionState;
+import com.summit.core.compact.CompactSummaryResolver;
 import com.summit.core.compact.ContextSummary;
 import com.summit.core.conversation.api.ChatRequestEntity;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.context.RuntimeContext;
 import com.summit.core.conversation.event.AgentMessageEvent;
+import com.summit.core.conversation.event.ExecutionCancelledEvent;
 import com.summit.core.conversation.event.ExecutionCompleteEvent;
 import com.summit.core.conversation.event.ExecutionErrorEvent;
 import com.summit.core.conversation.event.ExecutionStartEvent;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.model.ModelChatCommand;
 import com.summit.core.runtime.ExecutionRuntime;
+import com.summit.core.runtime.LifeStyleCommandRegistry;
+import com.summit.core.runtime.LifeStyleCommandStore;
 import com.summit.core.tool.ToolExecuteCommand;
 import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolResultType;
@@ -23,6 +26,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.io.Serializable;
 import java.sql.Timestamp;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 @AllArgsConstructor
@@ -34,28 +38,17 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
     public Execution execute(Execution execution) {
         String executionId = execution.getId();
         Serializable sessionId = execution.getSessionId();
-        ContextSqueezeRequest contextSqueezeRequest;
+
         context.getRuntimeEventPublisher().onExecutionStart(new ExecutionStartEvent(executionId, sessionId));
         context.getConversationManager().startConversation(execution.getAgentRequest());
+
         execution.start();
-        int iterations = 0;
-        int maxIterations = context.getMaxIterations();
+
         try {
 
             while (true) {
-                // ensure interaction loop does not exceed max iterations
-                if (++iterations > maxIterations) {
-                    log.warn("【Agent】reached max iterations {}, stop execution to avoid context explosion", maxIterations);
-                    break;
-                }
-                contextSqueezeRequest = context.getRuntimeExecutionPolicy().shouldSqueezeContext(this.context.getConversationManager(), execution);
-                if (contextSqueezeRequest.shouldSqueeze()) {
-                    log.info("【context-squeeze】current context over limit, squeezing to {} tokens", contextSqueezeRequest.expectTokens());
-                    context.getConversationManager().squeezeContext(contextSqueezeRequest.expectTokens(), null,sessionId);
-                }
-
-                if (!context.getRuntimeExecutionPolicy().shouldContinue(execution, this.context.getConversationManager())) {
-                    log.warn("【Agent】context still over limit after squeezing, stop execution to avoid context explosion");
+                if(!context.getCheckPointer().beforeCheckpoint(execution)){
+                    log.warn("【agent-loop】 process is stopped due to notConforming condition: {}", executionId);
                     break;
                 }
 
@@ -73,7 +66,7 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
                     break;
                 }
 
-                var toolResMessages = context.getToolExecutionManager().execute(
+                List<ToolExecuteResult> toolResMessages = context.getToolExecutionManager().execute(
                         new ToolExecuteCommand(chatResponse.getAiMessageEntity().getToolCalls(), executionId, sessionId, context.getWorkspace()));
 
                 // if the tool call is context compact, rebuild the context
@@ -85,9 +78,22 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
 
                 // add the tool calls to the conversation
                 context.getConversationManager().addMessage(sessionId,chatResponse, toolResMessages);
+
+                if (!context.getCheckPointer().afterCheckpoint(execution)) {
+                    log.warn("【agent-loop】 process is stopped due to lifestyle changed: {}", executionId);
+                    break;
+                }
             }
 
             save(execution);
+
+
+            if (execution.getExecutionState() == ExecutionState.CANCELLED) {
+                log.warn("【agent-loop】 process is cancelled: {}", executionId);
+                context.getConversationManager().endConversation(sessionId);
+                context.getRuntimeEventPublisher().onExecutionCancelled(new ExecutionCancelledEvent(executionId, sessionId));
+                return execution;
+            }
 
             execution.complete();
 
@@ -102,6 +108,23 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
             context.getConversationManager().endConversation(sessionId);
             execution.fail(e.getMessage());
             return execution;
+        } finally {
+            releaseCommandStore(sessionId);
+        }
+    }
+
+    /**
+     * Releases the per-execution command store bound by the runtime factory:
+     * unregisters it from the per-session registry (identity-guarded, so a newer
+     * store registered by a later execution of the same session is untouched)
+     * and clears its command queue.
+     */
+    private void releaseCommandStore(Serializable sessionId) {
+        LifeStyleCommandStore store = context.getLifeStyleCommandStore();
+        LifeStyleCommandRegistry registry = context.getLifeStyleCommandRegistry();
+        if (store != null && registry != null) {
+            registry.unregister(sessionId, store);
+            store.destroy();
         }
     }
 
@@ -118,9 +141,14 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
 
     private ContextSummary resolveContextSummary(ToolExecuteResult toolExecuteResult) {
         try {
-            return this.context.getObjectMapper().readValue(toolExecuteResult.getToolOutput(), ContextSummary.class);
-        } catch (JsonProcessingException jsonProcessingException) {
-            log.error("【context-summary】Error occurred while resolving context summary", jsonProcessingException);
+            
+            ContextSummary summary = CompactSummaryResolver.resolve(toolExecuteResult.getToolOutput());
+            if (summary == null) {
+                log.warn("【context-summary】compact model returned no usable summary, context rebuild is skipped");
+            }
+            return summary;
+        } catch (Exception unexpected) {
+            log.error("【context-summary】Unexpected error occurred while resolving context summary", unexpected);
             return null;
         }
     }

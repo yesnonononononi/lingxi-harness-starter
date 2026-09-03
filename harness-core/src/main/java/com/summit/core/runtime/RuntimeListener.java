@@ -36,6 +36,9 @@ public interface RuntimeListener {
 
     ;
 
+    default void onExecutionCancelled(ExecutionCancelledEvent event) {
+    }
+
     default void onFileEdit(FileEditEvent event) {
     }
 

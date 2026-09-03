@@ -21,7 +21,9 @@ public class OpenAiChatModelProvider implements ChatModelProvider {
                 .returnThinking(config.isReturnThinking())
                 .maxTokens(config.getMaxTokens())
                 .reasoningEffort(config.getReasoningEffort())
+                .returnThinking(config.isReturnThinking())
                 .modelName(config.getModelName())
+                .sendThinking(config.isSendThinking())
                 .timeout(config.getTimeout())
                 .build());
     }

@@ -44,15 +44,8 @@ public class StreamingChatModelAdapter implements StreamingChatModel {
 
     @Override
     public void chat(ChatRequestEntity request, StreamingChatResponseHandler handler) {
-        ChatRequest.Builder builder = ChatRequest.builder()
-                .messages(messageCodec.toFramework(request.getMessages()));
-        if (request.getTools() != null && !request.getTools().isEmpty()) {
-            List<ToolSpecification> toolSpecifications = request.getTools().stream()
-                    .map(toolCodec::toFrameworkTool)
-                    .toList();
-            builder.toolSpecifications(toolSpecifications);
-        }
-        delegate.chat(builder.build(), new StreamingHandlerBridge(handler, messageCodec));
+        ChatRequest chatRequest = ChatRequestBuilder.buildRequest(request, messageCodec, toolCodec);
+        delegate.chat(chatRequest, new StreamingHandlerBridge(handler, messageCodec));
     }
 
     private static class StreamingHandlerBridge implements dev.langchain4j.model.chat.response.StreamingChatResponseHandler {
