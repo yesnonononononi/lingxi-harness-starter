@@ -1,16 +1,11 @@
 package com.summit.harnessexample;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.core.conversation.event.AgentMessageEvent;
-import com.summit.core.conversation.event.AgentPartialTextEvent;
-import com.summit.core.conversation.event.AgentPartialThinkingEvent;
-import com.summit.core.conversation.event.ExecutionCancelledEvent;
-import com.summit.core.conversation.event.ExecutionCompleteEvent;
-import com.summit.core.conversation.event.ExecutionErrorEvent;
-import com.summit.core.conversation.event.ExecutionStartEvent;
-import com.summit.core.conversation.event.FileEditEvent;
-import com.summit.core.conversation.event.ToolCallEndEvent;
-import com.summit.core.conversation.event.ToolCallStartEvent;
+import com.summit.core.compact.ContextUsageMetric;
+import com.summit.core.conversation.event.*;
+import com.summit.core.plan.PlanDecision;
+import com.summit.core.plan.PlanState;
+import com.summit.core.plan.PlanStep;
 import com.summit.core.runtime.RuntimeListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,6 +13,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.Serializable;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -89,6 +85,17 @@ public class EventListener implements RuntimeListener {
     }
 
     @Override
+    public void onWaitCommandCheck(WaitCommandCheckEvent waitCommandCheckEvent) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("toolExecutionId", waitCommandCheckEvent.getToolExecutionId());
+        data.put("command", waitCommandCheckEvent.getFormatedToolCommand());
+        data.put("status", "PENDING");
+        data.put("approveUrl", "/agent/commands/" + waitCommandCheckEvent.getToolExecutionId() + "/approve");
+        data.put("rejectUrl", "/agent/commands/" + waitCommandCheckEvent.getToolExecutionId() + "/reject");
+        broadcast("WAIT_COMMAND_CHECK", waitCommandCheckEvent.getExecutionId(), waitCommandCheckEvent.getSessionId(), data);
+    }
+
+    @Override
     public void onExecutionError(ExecutionErrorEvent event) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("error", event.getErr() == null ? "unknown error" : event.getErr().getMessage());
@@ -112,6 +119,48 @@ public class EventListener implements RuntimeListener {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("executionId", event.executionId());
         broadcast("EXECUTION_CANCELLED", event.executionId(), event.getSessionId(), data);
+    }
+
+    @Override
+    public void onPlanDecision(PlanDecisionEvent event) {
+        PlanDecision decision = event.getPlanDecision();
+        Map<String, Object> data = new LinkedHashMap<>();
+        if (decision != null) {
+            data.put("title", decision.title());
+            List<Map<String, Object>> steps = decision.steps() == null
+                    ? List.of()
+                    : decision.steps().stream().map(step -> {
+                        Map<String, Object> stepJson = new LinkedHashMap<>();
+                        stepJson.put("id", step.id());
+                        stepJson.put("description", step.description());
+                        stepJson.put("status", step.status() == null ? null : step.status().name());
+                        return stepJson;
+                    }).toList();
+            data.put("steps", steps);
+        }
+        // The plan now waits for human approval; expose the approve/reject URLs so
+        // the front-end plan card can call them (same pattern as WAIT_COMMAND_CHECK).
+        String executionId = event.executionId();
+        data.put("approveUrl", executionId == null ? null : "/agent/plans/" + executionId + "/approve");
+        data.put("rejectUrl", executionId == null ? null : "/agent/plans/" + executionId + "/reject");
+        // A freshly captured plan is always UN_APPROVED (waiting for the human decision).
+        data.put("state", PlanState.UN_APPROVED.name());
+        data.put("stateLabel", PlanState.UN_APPROVED.getLabel());
+        broadcast("PLAN_DECISION", executionId, event.getSessionId(), data);
+    }
+
+    @Override
+    public void onContextUpdate(ContextUpdateEvent event) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("phase", event.getPhase() == null ? null : event.getPhase().name());
+        ContextUsageMetric usage = event.getUsage();
+        if (usage != null) {
+            data.put("tokenCount", usage.tokenCount());
+            data.put("maxTokens", usage.maxTokens());
+            data.put("ratio", usage.ratio());
+        }
+        data.put("message", event.getMessage());
+        broadcast("CONTEXT_UPDATE", event.executionId(), event.getSessionId(), data);
     }
 
     @Override

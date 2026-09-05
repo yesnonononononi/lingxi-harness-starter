@@ -5,9 +5,12 @@ import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
 import com.summit.core.runtime.Workspace;
+import com.summit.core.tool.CommandConfirmLevel;
+import com.summit.core.tool.LoopBoundary;
 import com.summit.runtime.agent.ChatAgent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Component;
 
 import java.io.Serializable;
@@ -24,7 +27,9 @@ public class Demo {
      * The workspace is caller-supplied (local or a per-project sandbox) and
      * passed straight into the AgentRequest — there is no default fallback.
      */
-    public void chat(String input, boolean streaming, Serializable sessionId, String sessionName, Workspace workspace) {
+    public void chat(String input, boolean streaming, Serializable sessionId, String sessionName, Workspace workspace,
+                     CommandConfirmLevel commandConfirmLevel,
+                     @Nullable String systemPrompt, @Nullable LoopBoundary loopBoundary) {
 
         // 1. validate input
         if (input == null || input.isBlank()) {
@@ -45,6 +50,9 @@ public class Demo {
                 .streaming(streaming)
                 .sessionId(sessionId)
                 .sessionName(sessionName)
+                .commandConfirmLevel(commandConfirmLevel)
+                .systemPrompt(systemPrompt)
+                .loopBoundary(loopBoundary)
                 .build()
         );
 

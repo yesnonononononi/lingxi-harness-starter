@@ -15,7 +15,8 @@ public record ToolDefinition<T extends ToolExecutor>(
         @NonNull Serializable id,
         @NonNull String name,
         String description,
-        String parametersJsonSchema
-        ) {
+        String parametersJsonSchema,
+        boolean readOnly
+) {
 
 }

@@ -17,4 +17,7 @@ public class ToolExecution {
     /** Id of the agent request (turn) this tool call belongs to. */
     private String turnId;
     private Workspace workspace;
+    private final LoopBoundary loopBoundary;
+    @Builder.Default
+    private final CommandConfirmLevel commandConfirmLevel = CommandConfirmLevel.PRE_EXEC_CONFIRM;
 }

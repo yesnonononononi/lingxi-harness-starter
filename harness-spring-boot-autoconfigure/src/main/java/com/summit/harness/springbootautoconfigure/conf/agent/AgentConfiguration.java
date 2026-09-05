@@ -30,7 +30,12 @@ public class AgentConfiguration {
     @Bean
     public AgentConfig agentConfig(AgentChatProperties agentProperties){
         return AgentConfig.builder()
-                .squeezeThreshold(agentProperties.getSqueezeThreshold())
+                .squeezeThreshold(new AgentConfig.ProgressiveSqueezePolicy(
+                        new AgentConfig.OriginalSqueeze(
+                                agentProperties.getTruncateSqueezeThreshold(),
+                                agentProperties.getExpectTruncateTurn()),
+                        new AgentConfig.ModelSqueeze(
+                                agentProperties.getModelSqueezeThreshold())))
                 .maxTokens(agentProperties.getMaxTokens())
                 .maxIterations(agentProperties.getMaxIterations())
                 .systemPrompt(agentProperties.getSystemPrompt())

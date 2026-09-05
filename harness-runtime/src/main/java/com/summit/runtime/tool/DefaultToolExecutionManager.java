@@ -23,9 +23,13 @@ import java.util.concurrent.TimeoutException;
 @AllArgsConstructor
 @Getter
 public class DefaultToolExecutionManager implements ToolExecutionManager {
+    /** Max time to wait for human approval of a command; a timeout is treated as a rejection (prevents a session from holding the agent loop thread forever). */
+    private static final long CONFIRM_AWAIT_TIMEOUT_SECONDS = 300L;
+
     private final ToolExecutionContext toolExecutionContext;
-    private final InterceptorProcessor<ToolInterceptor, ToolExecution> interceptorProcessor;
+    private final InterceptorProcessor<ToolExecution> interceptorProcessor;
     private final CommonToolConfig commonToolConfig;
+    private final CommandConfirmRegistry commandConfirmRegistry;
 
 
     @Override
@@ -41,7 +45,17 @@ public class DefaultToolExecutionManager implements ToolExecutionManager {
                         if (toolDef == null) {
                             return ToolExecuteResult.err(request.id(), null, "Tool not found");
                         }
-                        ToolExecuteResult result = this.executeTool(toolDef, createToolExecution(request, toolDef, toolExecuteCommand));
+                        if (!this.toolExecutionContext.allowToolExecution(toolDef, toolExecuteCommand.loopBoundary())) {
+                            return ToolExecuteResult.err(request.id(), toolDef,
+                                    "Tool '" + toolDef.name() + "' is not allowed in the current loop boundary: "
+                                            + "read-only boundary (PLANNING) only permits read-only tools");
+                        }
+                        ToolExecution toolExecution = createToolExecution(request, toolDef, toolExecuteCommand);
+
+                        ToolExecuteResult result = this.executeTool(toolDef, toolExecution);
+
+
+                        result = awaitConfirmationIfNeeded(toolDef, toolExecution, result);
 
                         this.toolExecutionContext.runtimeEventPublisher().onToolCallOutput(new ToolCallEndEvent(toolExecuteCommand.executionId(),toolDef.name(), request.arguments(),toolExecuteCommand.sessionId() ,formatEventToolOutput(result.getToolOutput())));
 
@@ -64,6 +78,15 @@ public class DefaultToolExecutionManager implements ToolExecutionManager {
         return this.toolExecutionContext.toolRegistry();
     }
 
+
+
+
+
+
+
+
+
+
     /**
      * Builds the per-call execution. The workspace ALWAYS comes from the
      * originating {@link ToolExecuteCommand} (i.e. the {@code AgentRequest});
@@ -82,6 +105,8 @@ public class DefaultToolExecutionManager implements ToolExecutionManager {
                 .turnId(command.executionId())
                 .workspace(workspace)
                 .args(request.arguments())
+                .commandConfirmLevel(command.commandConfirmLevel())
+                .loopBoundary(command.loopBoundary())
                 .build();
     }
 
@@ -122,6 +147,68 @@ public class DefaultToolExecutionManager implements ToolExecutionManager {
                     toolDefinition.name(), timeoutSeconds);
             return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition(),
                     "tool execution timeout after " + timeoutSeconds + "s");
+        }
+    }
+
+    /**
+     * After the executor suspends a command (returns
+     * {@link ToolResultType#CONFIRM_REQUIRED}), waits on the agent loop thread
+     * for the user/admin approval decision:
+     *
+     * <ul>
+     *   <li>APPROVE: re-executes with the same {@link ToolExecution} — the executor
+     *       sees the gate is approved and actually runs the command;</li>
+     *   <li>REJECT: returns a rejection error;</li>
+     *   <li>timeout: treated as a rejection so the loop thread is never held forever;</li>
+     *   <li>thread interruption (e.g. /stop cancellation): restores the interrupt
+     *       flag and returns, letting the loop reach its checkpoint and consume the
+     *       STOP command to complete the cancellation.</li>
+     * </ul>
+     *
+     * <p>The wait does not happen on the tool thread, so it is not cut short by the
+     * {@code ToolDefinition.timeout()} execution timeout; the gate is always removed
+     * once the wait finishes, so nothing leaks.</p>
+     */
+    private ToolExecuteResult awaitConfirmationIfNeeded(ToolDefinition<?> toolDefinition, ToolExecution toolExecution, ToolExecuteResult result) throws Throwable {
+        if (result == null || result.getToolResultType() != ToolResultType.CONFIRM_REQUIRED) {
+            return result;
+        }
+        String toolExecutionId = toolExecution.getId();
+        CommandConfirmGate gate = commandConfirmRegistry.get(toolExecutionId);
+        if (gate == null) {
+            return result;
+        }
+        log.info("【confirm】 waiting for approval of toolExecution={}, command={}", toolExecutionId, gate.getCommand());
+
+        CommandDecision decision;
+        try {
+            decision = gate.awaitDecision(CONFIRM_AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            commandConfirmRegistry.unregister(toolExecutionId);
+            log.warn("【confirm】 interrupted while waiting for approval, toolExecution={}", toolExecutionId);
+            return ToolExecuteResult.err(toolExecutionId, toolDefinition,
+                    "waiting for command approval was interrupted, command was NOT executed: " + gate.getCommand());
+        }
+        if (decision == null) {
+            commandConfirmRegistry.unregister(toolExecutionId);
+            log.warn("【confirm】 approval timed out after {}s, toolExecution={}", CONFIRM_AWAIT_TIMEOUT_SECONDS, toolExecutionId);
+            return ToolExecuteResult.err(toolExecutionId, toolDefinition,
+                    "command approval timed out after " + CONFIRM_AWAIT_TIMEOUT_SECONDS + "s, command was NOT executed: " + gate.getCommand());
+        }
+        if (decision == CommandDecision.REJECT) {
+            commandConfirmRegistry.unregister(toolExecutionId);
+            log.info("【confirm】 command rejected by user, toolExecution={}", toolExecutionId);
+            return ToolExecuteResult.err(toolExecutionId, toolDefinition,
+                    "command was rejected by the user and NOT executed: " + gate.getCommand());
+        }
+
+        // APPROVE: re-execute — the executor sees the gate is approved and actually runs the command
+        log.info("【confirm】 command approved, re-executing toolExecution={}", toolExecutionId);
+        try {
+            return this.executeTool(toolDefinition, toolExecution);
+        } finally {
+            commandConfirmRegistry.unregister(toolExecutionId);
         }
     }
 

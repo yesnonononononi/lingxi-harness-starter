@@ -11,7 +11,23 @@ public class AgentChatProperties {
     private String baseUrl;
     private  String apiKey;
     private String modelName;
-    private double squeezeThreshold = 0.85;
+    /**
+     * Threshold for the local progressive (truncate) squeeze: when the context token ratio reaches this
+     * value, the oldest tool rounds start being truncated.
+     * Maps to lingxi.agent.model.conf.chat.truncate-squeeze-threshold
+     */
+    private double truncateSqueezeThreshold = 0.7;
+    /**
+     * Old tool rounds processed per local squeeze pass (no longer derived from expectTokens).
+     * Maps to lingxi.agent.model.conf.chat.expect-truncate-turn
+     */
+    private int expectTruncateTurn = 5;
+    /**
+     * Threshold for the model deep compaction (compact_context): when the context token ratio reaches
+     * this value, the compact model is expected to summarize the context.
+     * Maps to lingxi.agent.model.conf.chat.model-squeeze-threshold
+     */
+    private double modelSqueezeThreshold = 0.85;
     private Integer maxIterations = 50;
     private int maxTokens = 102400;
     // `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` a

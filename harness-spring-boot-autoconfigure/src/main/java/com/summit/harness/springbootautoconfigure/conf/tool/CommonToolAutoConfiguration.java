@@ -9,7 +9,9 @@ import com.summit.harness.springbootautoconfigure.properties.tool.WebSearchToolP
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.interceptor.InterceptorProcessor;
 import com.summit.core.model.ChatModel;
+import com.summit.core.plan.PlanStore;
 import com.summit.core.tool.*;
+import com.summit.runtime.tool.DefaultCommandConfirmRegistry;
 import com.summit.runtime.tool.DefaultToolExecutionManager;
 import com.summit.runtime.configs.CommonToolConfig;
 import com.summit.tools.compact.ContextCompactToolExecutor;
@@ -44,6 +46,7 @@ public class CommonToolAutoConfiguration {
         ToolDefinition<CommandToolDefinitionExecutor> definition = ToolDefinition.<CommandToolDefinitionExecutor>builder()
                 .executor(new CommandToolDefinitionExecutor(objectMapper))
                 .id(name)
+                .readOnly(true)
                 .name(name)
                 .description("""
                         Execute a terminal command. Only use it when you really need to run a command (build/run/install/git/start server/network check).
@@ -76,10 +79,11 @@ public class CommonToolAutoConfiguration {
             name = "enabled",
             havingValue = "true"
     )
-    public ToolDefinition<ContextCompactToolExecutor> contextCompactToolDefinition(ToolRegistry toolRegistry, @Qualifier("defaultContextCompactModel") ChatModel defaultContextCompactModel, ContextCompactToolProperties contextCompactToolProperties, CommonToolProperties commonToolProperties) {
+    public ToolDefinition<ContextCompactToolExecutor> contextCompactToolDefinition(ToolRegistry toolRegistry, @Qualifier("defaultContextCompactModel") ChatModel defaultContextCompactModel, PlanStore planStore, ContextCompactToolProperties contextCompactToolProperties, CommonToolProperties commonToolProperties) {
         String name = "compact_context";
         ToolDefinition<ContextCompactToolExecutor> definition = ToolDefinition.<ContextCompactToolExecutor>builder()
-                .executor(new ContextCompactToolExecutor(defaultContextCompactModel))
+                .executor(new ContextCompactToolExecutor(defaultContextCompactModel, planStore))
+                .readOnly(true)
                 .id(name)
                 .name(name)
                 .description("""
@@ -127,6 +131,7 @@ public class CommonToolAutoConfiguration {
                           }
                         }
                         """).formatted(String.valueOf(webSearchToolProperties.getMaxResult())))
+                .readOnly(true)
                 .maxOutput(Objects.requireNonNullElseGet(webSearchToolProperties.getMaxOutput(), commonToolProperties::getMaxOutput))
                 .timeout(Objects.requireNonNullElseGet(webSearchToolProperties.getTimeout(), commonToolProperties::getTimeout))
                 .build();
@@ -159,16 +164,26 @@ public class CommonToolAutoConfiguration {
         return new ToolRegistry();
     }
 
+    /**
+     * Registry of commands awaiting human approval (shared by execute_command
+     * suspension and host approve / reject).
+     */
+    @Bean
+    public CommandConfirmRegistry commandConfirmRegistry() {
+        return new DefaultCommandConfirmRegistry();
+    }
+
 
     @Bean
-    public ToolExecutionManager defaultToolExecutionManager(ToolRegistry toolRegistry, RuntimeEventPublisher runtimeEventPublisher, CommonToolConfig commonToolConfig,  InterceptorProcessor<ToolInterceptor,ToolExecution> interceptorProcessor) {
+    public ToolExecutionManager defaultToolExecutionManager(ToolRegistry toolRegistry, RuntimeEventPublisher runtimeEventPublisher, CommonToolConfig commonToolConfig,  InterceptorProcessor<ToolExecution> interceptorProcessor, CommandConfirmRegistry commandConfirmRegistry) {
         return new DefaultToolExecutionManager(
                 ToolExecutionContext.builder()
                         .toolRegistry(toolRegistry)
                         .runtimeEventPublisher(runtimeEventPublisher)
                         .build(),
                 interceptorProcessor,
-                commonToolConfig
+                commonToolConfig,
+                commandConfirmRegistry
         );
     }
 

@@ -8,11 +8,15 @@ import com.summit.core.runtime.LifeStyleCommandRegistry;
 import com.summit.core.runtime.LifeStyleHandler;
 import com.summit.core.runtime.RuntimeFactory;
 import com.summit.core.runtime.RuntimeListener;
+import com.summit.core.tool.PlanApprovalRegistry;
 import com.summit.core.tool.ToolExecutionManager;
-import com.summit.runtime.DefaultLifeStyleCommandRegistry;
-import com.summit.runtime.DefaultLifeStyleHandler;
+import com.summit.runtime.lifeStyle.DefaultLifeStyleCommandRegistry;
+import com.summit.runtime.lifeStyle.DefaultLifeStyleHandler;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.DefaultRuntimeFactory;
+import com.summit.runtime.compact.DefaultManualCompacter;
+import com.summit.runtime.compact.DefaultModelCompacter;
+import com.summit.runtime.tool.DefaultPlanApprovalRegistry;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
@@ -23,13 +27,22 @@ import java.util.List;
 public class ExecutionRuntimeConfig {
     @Bean
     @ConditionalOnMissingBean
+    public PlanApprovalRegistry planApprovalRegistry() {
+        return new DefaultPlanApprovalRegistry();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public RuntimeFactory defaultRuntimeFactory(RuntimeEventPublisher defaultRuntimeListener,
                                                 ConversationManager conversationManager,
                                                 ToolExecutionManager defaultToolExecutionManager,
                                                 AgentConfig agentConfig, ObjectMapper objectMapper,
                                                 LifeStyleHandler lifeStyleHandler,
                                                 Tokenizer tokenizer,
-                                                LifeStyleCommandRegistry lifeStyleCommandRegistry){
+                                                LifeStyleCommandRegistry lifeStyleCommandRegistry,
+                                                PlanApprovalRegistry planApprovalRegistry,
+                                                DefaultManualCompacter manualCompacter,
+                                                DefaultModelCompacter modelCompacter){
         return DefaultRuntimeFactory.builder()
                 .toolExecutionManager(defaultToolExecutionManager)
                 .runtimeEventPublisher(defaultRuntimeListener)
@@ -38,7 +51,10 @@ public class ExecutionRuntimeConfig {
                 .lifeStyleHandler(lifeStyleHandler)
                 .tokenizer(tokenizer)
                 .lifeStyleCommandRegistry(lifeStyleCommandRegistry)
+                .planApprovalRegistry(planApprovalRegistry)
                 .agentConfig(agentConfig)
+                .manualCompacter(manualCompacter)
+                .modelCompacter(modelCompacter)
                 .build();
     }
 

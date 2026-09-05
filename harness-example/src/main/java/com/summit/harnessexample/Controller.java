@@ -9,6 +9,13 @@ import com.summit.core.conversation.message.ToolMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.runtime.LifeStyleCommandRegistry;
 import com.summit.core.runtime.Workspace;
+import com.summit.core.tool.CommandConfirmGate;
+import com.summit.core.tool.CommandConfirmLevel;
+import com.summit.core.tool.CommandConfirmRegistry;
+import com.summit.core.tool.CommandDecision;
+import com.summit.core.tool.LoopBoundary;
+import com.summit.core.tool.PlanApprovalGate;
+import com.summit.core.tool.PlanApprovalRegistry;
 import com.summit.harnessexample.session_policy.RedisConversationStore;
 import com.summit.harnessexample.session_policy.SessionSummary;
 import com.summit.runtime.sandbox.DockerWorkspace;
@@ -52,9 +59,10 @@ public class Controller {
     private final SseEventPublisher sseEventPublisher;
     private final RedisConversationStore conversationStore;
     /**
-     * The active workspace bean: local (host) or Docker sandbox, per lingxi.agent.workspace.
+     * Resolves the currently active workspace (local or Docker sandbox). The
+     * "select workspace" flow (WorkspaceSandboxService) may swap it globally.
      */
-    private final Workspace workspace;
+    private final ActiveWorkspace activeWorkspace;
     private final ObjectMapper objectMapper;
     /**
      * Per-session lifecycle command registry. Every execution registers a fresh,
@@ -63,6 +71,16 @@ public class Controller {
      * never leak into another execution's queue.
      */
     private final LifeStyleCommandRegistry lifeStyleCommandRegistry;
+    /**
+     * Registry of commands awaiting human approval; the approve/reject endpoints
+     * write their decisions into it by toolExecutionId.
+     */
+    private final CommandConfirmRegistry commandConfirmRegistry;
+    /**
+     * Registry of plans awaiting human approval; the approve/reject endpoints
+     * write their decisions into it by plan execution id.
+     */
+    private final PlanApprovalRegistry planApprovalRegistry;
     /**
      * In-flight agent tasks (sessionId -> future), so a task can be stopped/cancelled
      * later and its running state queried by the control endpoints.
@@ -80,9 +98,11 @@ public class Controller {
 
     @PostMapping("/chat")
     public ResponseEntity<Map<String, Object>> chat(@RequestBody Map<String, String> body) {
-
         String input = body == null ? null : body.get("input");
         boolean streaming = body != null && Boolean.parseBoolean(body.getOrDefault("streaming", "false"));
+        CommandConfirmLevel commandConfirmLevel = parseCommandConfirmLevel(body);
+        String systemPrompt = body == null ? null : body.get("systemPrompt");
+        LoopBoundary loopBoundary = parseLoopBoundary(body);
 
         if (input == null || input.isBlank()) {
             Map<String, Object> error = new LinkedHashMap<>();
@@ -105,13 +125,16 @@ public class Controller {
         // Run the coding agent asynchronously; events are pushed via SSE.
         String finalSessionId = sessionId;
         String finalSessionName = sessionName;
-        CompletableFuture<Void> task = CompletableFuture.runAsync(() -> demo.chat(input, streaming, finalSessionId, finalSessionName, workspace));
+        CompletableFuture<Void> task = CompletableFuture.runAsync(() -> demo.chat(input, streaming, finalSessionId, finalSessionName, activeWorkspace.get(), commandConfirmLevel, systemPrompt, loopBoundary));
         runningTasks.put(finalSessionId, task);
         task.whenComplete((result, error) -> runningTasks.remove(finalSessionId, task));
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("input", input);
         data.put("streaming", streaming);
+        data.put("commandConfirmLevel", commandConfirmLevel == null ? null : commandConfirmLevel.name());
+        data.put("systemPrompt", systemPrompt);
+        data.put("loopBoundary", loopBoundary == null ? null : loopBoundary.name());
         data.put("sessionId", sessionId);
         data.put("sessionName", sessionName);
         data.put("newSession", newSession);
@@ -157,6 +180,121 @@ public class Controller {
     @PostMapping("/stop")
     public ResponseEntity<Map<String, Object>> stop(@RequestParam(value = "sessionId", required = false) String sessionId) {
         return control("stop", sessionId);
+    }
+
+    /**
+     * Approves a command that is waiting for human approval. Once the decision is
+     * written, the agent loop thread is woken up and the command executes for real
+     * without interception; the result is returned to the model as usual.
+     */
+    @PostMapping("/commands/{toolExecutionId}/approve")
+    public ResponseEntity<Map<String, Object>> approveCommand(@PathVariable("toolExecutionId") String toolExecutionId) {
+        return decideCommand(toolExecutionId, CommandDecision.APPROVE);
+    }
+
+    /**
+     * Rejects a command that is waiting for human approval. The command never runs
+     * and the agent loop continues with the rejection reason.
+     */
+    @PostMapping("/commands/{toolExecutionId}/reject")
+    public ResponseEntity<Map<String, Object>> rejectCommand(@PathVariable("toolExecutionId") String toolExecutionId) {
+        return decideCommand(toolExecutionId, CommandDecision.REJECT);
+    }
+
+    /**
+     * Approves a plan that is waiting for human approval (PLANING mode). Once the
+     * decision is written, the agent loop thread is woken up and implements the
+     * plan under the EXECUTE boundary for real.
+     */
+    @PostMapping("/plans/{planExecutionId}/approve")
+    public ResponseEntity<Map<String, Object>> approvePlan(@PathVariable("planExecutionId") String planExecutionId) {
+        return decidePlan(planExecutionId, CommandDecision.APPROVE, null);
+    }
+
+    /**
+     * Rejects a plan that is waiting for human approval. The plan is never
+     * implemented: the agent loop finishes without running any write tool, so the
+     * user can follow up with a new instruction / revised plan.
+     */
+    @PostMapping("/plans/{planExecutionId}/reject")
+    public ResponseEntity<Map<String, Object>> rejectPlan(@PathVariable("planExecutionId") String planExecutionId,
+            @RequestBody(required = false) Map<String, Object> body) {
+        String reason = body == null ? null
+                : (body.get("reason") == null ? null : String.valueOf(body.get("reason")));
+        return decidePlan(planExecutionId, CommandDecision.REJECT, reason);
+    }
+
+    private ResponseEntity<Map<String, Object>> decideCommand(String toolExecutionId, CommandDecision decision) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        CommandConfirmGate gate = commandConfirmRegistry.get(toolExecutionId);
+        if (gate == null) {
+            Map<String, Object> error = new LinkedHashMap<>();
+            error.put("code", 404);
+            error.put("message", "no pending command found for toolExecutionId: " + toolExecutionId);
+            error.put("data", Map.of("toolExecutionId", toolExecutionId, "pendingCommands", commandConfirmRegistry.size()));
+            return ResponseEntity.status(404).body(error);
+        }
+        if (!gate.isPending()) {
+            Map<String, Object> error = new LinkedHashMap<>();
+            error.put("code", 409);
+            error.put("message", "command already decided: " + gate.getDecision());
+            error.put("data", Map.of("toolExecutionId", toolExecutionId, "command", gate.getCommand(), "decision", String.valueOf(gate.getDecision())));
+            return ResponseEntity.status(409).body(error);
+        }
+        boolean applied = commandConfirmRegistry.decide(toolExecutionId, decision);
+        if (!applied) {
+            Map<String, Object> error = new LinkedHashMap<>();
+            error.put("code", 409);
+            error.put("message", "command decision failed, it may have already been decided");
+            error.put("data", Map.of("toolExecutionId", toolExecutionId));
+            return ResponseEntity.status(409).body(error);
+        }
+        data.put("code", 200);
+        data.put("message", "decision recorded: " + decision.name() + ", agent loop will be woken up");
+        data.put("data", Map.of("toolExecutionId", toolExecutionId, "command", gate.getCommand(),
+                "decision", decision.name(), "pendingCommands", commandConfirmRegistry.size()));
+        return ResponseEntity.ok(data);
+    }
+
+    private ResponseEntity<Map<String, Object>> decidePlan(String planExecutionId, CommandDecision decision, String rejectReason) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        PlanApprovalGate gate = planApprovalRegistry.get(planExecutionId);
+        if (gate == null) {
+            Map<String, Object> error = new LinkedHashMap<>();
+            error.put("code", 404);
+            error.put("message", "no pending plan approval found for planExecutionId: " + planExecutionId);
+            error.put("data", Map.of("planExecutionId", planExecutionId, "pendingPlans", planApprovalRegistry.size()));
+            return ResponseEntity.status(404).body(error);
+        }
+        if (!gate.isPending()) {
+            Map<String, Object> error = new LinkedHashMap<>();
+            error.put("code", 409);
+            error.put("message", "plan already decided: " + gate.getDecision());
+            error.put("data", Map.of("planExecutionId", planExecutionId,
+                    "title", String.valueOf(gate.getPlanTitle()),
+                    "decision", String.valueOf(gate.getDecision())));
+            return ResponseEntity.status(409).body(error);
+        }
+        boolean applied = planApprovalRegistry.decide(planExecutionId, decision);
+        if (!applied) {
+            Map<String, Object> error = new LinkedHashMap<>();
+            error.put("code", 409);
+            error.put("message", "plan decision failed, it may have already been decided");
+            error.put("data", Map.of("planExecutionId", planExecutionId));
+            return ResponseEntity.status(409).body(error);
+        }
+        // Attach the optional rejection reason after the REJECT was actually written.
+        if (decision == CommandDecision.REJECT && rejectReason != null && !rejectReason.isBlank()) {
+            gate.setRejectReason(rejectReason);
+        }
+        data.put("code", 200);
+        data.put("message", "plan decision recorded: " + decision.name() + ", agent loop will be woken up");
+        data.put("data", Map.of("planExecutionId", planExecutionId,
+                "title", String.valueOf(gate.getPlanTitle()),
+                "decision", decision.name(),
+                "rejectReason", decision == CommandDecision.REJECT ? gate.getRejectReason() : null,
+                "pendingPlans", planApprovalRegistry.size()));
+        return ResponseEntity.ok(data);
     }
 
     private ResponseEntity<Map<String, Object>> control(String action, String sessionId) {
@@ -369,7 +507,7 @@ public class Controller {
     @GetMapping("/workdir")
     public ResponseEntity<Map<String, Object>> workdir() {
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("workdir", workspace.workDir());
+        data.put("workdir", activeWorkspace.get().workDir());
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("code", 200);
@@ -393,13 +531,14 @@ public class Controller {
             return ResponseEntity.badRequest().body(error);
         }
 
+        Workspace current = activeWorkspace.get();
         try {
-            if (workspace instanceof DockerWorkspace docker) {
+            if (current instanceof DockerWorkspace docker) {
                 // Sandbox workspace: switch the in-container working root (the
                 // directory need not exist yet — the agent can create it itself
                 // via edit_file / mkdir inside the container).
                 docker.setWorkspaceRoot(normalizeContainerPath(workdir));
-            } else if (workspace instanceof LocalWorkSpace local) {
+            } else if (current instanceof LocalWorkSpace local) {
                 // Local workspace: switch to an existing host directory.
                 local.updateWorkDir(workdir);
             } else {
@@ -412,11 +551,11 @@ public class Controller {
             return ResponseEntity.badRequest().body(error);
         }
 
-        String current = workspace.workDir();
-        broadcastWorkdir(current);
+        String workdirNow = activeWorkspace.get().workDir();
+        broadcastWorkdir(workdirNow);
 
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("workdir", current);
+        data.put("workdir", workdirNow);
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("code", 200);
@@ -440,6 +579,34 @@ public class Controller {
             throw new IllegalArgumentException("invalid container path: " + workdir);
         }
         return p;
+    }
+
+    private CommandConfirmLevel parseCommandConfirmLevel(Map<String, String> body) {
+        String value = body == null ? null : body.get("commandConfirmLevel");
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return CommandConfirmLevel.valueOf(value.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Parses the optional {@code loopBoundary} field (PLANING / EXECUTE) leniently:
+     * an illegal or absent value is ignored and treated as the default EXECUTE mode.
+     */
+    private LoopBoundary parseLoopBoundary(Map<String, String> body) {
+        String value = body == null ? null : body.get("loopBoundary");
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return LoopBoundary.valueOf(value.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     private void broadcastWorkdir(String workdir) {

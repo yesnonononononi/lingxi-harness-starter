@@ -19,4 +19,6 @@ public interface Tokenizer {
      *                  estimate does not exceed this budget are returned unchanged.
      */
     String truncate(String output, int maxOutput);
+
+    double calcCurrentTokenRatio(List<Message> messages, int maxTokens);
 }

@@ -10,4 +10,22 @@ import lombok.Builder;
  */
 @Builder
 public record ToolExecutionContext(RuntimeEventPublisher runtimeEventPublisher, ToolRegistry toolRegistry) {
+
+    /**
+     * Checks whether the given tool may be executed under the current loop boundary:
+     * <ul>
+     *   <li>read-only tools are always allowed (also during PLANNING);</li>
+     *   <li>modifying tools are only allowed when the boundary permits execution
+     *       ({@link LoopBoundary#allowExecute}, {@code null} = EXECUTE).</li>
+     * </ul>
+     */
+    public boolean allowToolExecution(ToolDefinition<?> tool, LoopBoundary boundary) {
+        if (tool == null) {
+            return false;
+        }
+        if (tool.readOnly()) {
+            return true;
+        }
+        return LoopBoundary.allowExecute(boundary);
+    }
 }

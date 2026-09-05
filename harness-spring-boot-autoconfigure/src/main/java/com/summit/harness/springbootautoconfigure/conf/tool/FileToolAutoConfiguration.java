@@ -78,6 +78,7 @@ public class FileToolAutoConfiguration {
                           }
                         }
                         """)
+                .readOnly(true)
                 .maxOutput(Objects.requireNonNullElseGet(readFileProperties.getMaxOutput(), commonToolProperties::getMaxOutput))
                 .timeout(Objects.requireNonNullElseGet(readFileProperties.getTimeout(), commonToolProperties::getTimeout))
                 .build();

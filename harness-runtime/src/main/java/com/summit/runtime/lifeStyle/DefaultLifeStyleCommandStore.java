@@ -1,4 +1,4 @@
-package com.summit.runtime;
+package com.summit.runtime.lifeStyle;
 
 import com.summit.core.runtime.LifeStyleCommandStore;
 import com.summit.core.runtime.LoopCommand;

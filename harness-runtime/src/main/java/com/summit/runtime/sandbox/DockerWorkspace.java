@@ -2,6 +2,7 @@ package com.summit.runtime.sandbox;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.summit.core.conversation.ConversationEntity;
 import com.summit.core.runtime.*;
 import lombok.Getter;
 import lombok.NonNull;

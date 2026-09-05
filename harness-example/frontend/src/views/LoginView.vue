@@ -403,4 +403,39 @@ async function handleLogin() {
 @media (max-height: 700px) {
   .bear-box { width: clamp(260px, 34vh, 420px); }
 }
+
+/* ===== 深蓝主色覆盖（蓝紫 → 深蓝） ===== */
+.login-page {
+  background:
+    radial-gradient(ellipse 60% 50% at 20% 8%, rgba(29, 78, 216, 0.10), transparent 60%),
+    radial-gradient(ellipse 55% 45% at 88% 18%, rgba(34, 211, 238, 0.09), transparent 60%),
+    radial-gradient(ellipse 60% 55% at 72% 96%, rgba(236, 72, 153, 0.08), transparent 60%),
+    linear-gradient(135deg, #ffffff 0%, #f6f8ff 55%, #eaf0fb 100%);
+}
+.orb-a { background: radial-gradient(circle, rgba(29, 78, 216, 0.22), transparent 70%); }
+.speech { border: 1px solid rgba(29, 78, 216, 0.12); }
+.speech .dot { background: #2563eb; }
+.brand-tag .logo-badge {
+  background: linear-gradient(135deg, #1d4ed8, #2563eb);
+  box-shadow: 0 10px 22px rgba(29, 78, 216, 0.42);
+}
+.login-card {
+  box-shadow: 0 30px 70px rgba(30, 64, 175, 0.12), 0 12px 32px rgba(30, 41, 59, 0.10);
+}
+.field input:focus {
+  border-color: #1d4ed8;
+  box-shadow: 0 0 0 4px rgba(29, 78, 216, 0.14);
+}
+.check input:checked + .box {
+  background: linear-gradient(135deg, #1d4ed8, #1e40af);
+  border-color: transparent;
+}
+.forgot,
+.hint a { color: #1d4ed8; }
+.forgot:hover,
+.hint a:hover { color: #1e40af; }
+.btn {
+  background: linear-gradient(135deg, #1d4ed8, #1e40af);
+  box-shadow: 0 12px 26px rgba(30, 64, 175, 0.40);
+}
 </style>

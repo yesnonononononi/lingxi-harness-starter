@@ -15,9 +15,9 @@ import java.util.List;
  * valid JSON. In practice the model frequently emits:
  * <ul>
  *   <li>unescaped control characters inside strings (raw newlines / tabs) — previously this made
- *       Jackson throw {@code Illegal unquoted character (CTRL-CHAR, code 10)} in
- *       {@code RuntimeProcessorTemplate#resolveContextSummary}, which then returned {@code null}
- *       and caused {@code DefaultConversationManager#rebuildContext} to silently skip the rebuild.
+ *       Jackson throw {@code Illegal unquoted character (CTRL-CHAR, code 10)}, which led to a
+ *       {@code null} summary and caused {@code DefaultConversationManager#rebuildContext} to
+ *       silently skip the rebuild.
  *       The agent loop kept invoking {@code compact_context} without the context ever shrinking,
  *       retrying (and paying tokens) until the model happened to produce parseable output;</li>
  *   <li>JSON wrapped in {@code ```json} fences or surrounded by explanatory prose;</li>

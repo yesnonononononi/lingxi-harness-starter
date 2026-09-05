@@ -26,8 +26,9 @@ public class ChatAgent implements Agent {
     @Override
     public Execution execute(AgentRequest agentRequest) {
 
-        agentRequest.setSystemPrompt(this.agentConfig.systemPrompt());
-
+        // NOTE: AgentRequest.systemPrompt is a user-supplied custom prompt and must be passed
+        // through verbatim; the framework default template is assembled by SystemPromptAssembler
+        // inside DefaultConversationManager (start segment), so it is NOT forced here anymore.
 
         Workspace workspace = agentRequest.getWorkspace();
 

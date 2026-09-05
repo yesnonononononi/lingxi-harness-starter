@@ -89,4 +89,10 @@ public class DefaultTokenizer implements Tokenizer {
                 + "\n...[OUTPUT_TRUNCATED]...\n"
                 + output.substring(output.length() - tailChars);
     }
+
+    @Override
+    public double calcCurrentTokenRatio(List<Message> messages, int maxTokens) {
+        int currentTokens = this.count(messages);
+        return currentTokens / (double) maxTokens;
+    }
 }

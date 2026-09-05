@@ -2,7 +2,6 @@ package com.summit.harnessexample;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.core.runtime.Workspace;
 import com.summit.core.tool.DiffResult;
 import com.summit.core.tool.FileRecord;
 import com.summit.core.tool.FileRecordManager;
@@ -34,7 +33,7 @@ import java.util.*;
 public class FileEditController {
 
     private final FileRecordManager fileRecordManager;
-    private final Workspace workspace;
+    private final ActiveWorkspace activeWorkspace;
     private final SseEventPublisher sseEventPublisher;
     private final ObjectMapper objectMapper;
 
@@ -89,7 +88,7 @@ public class FileEditController {
         try {
             boolean handled = accept
                     ? fileRecordManager.accept(sessionId, recordId)
-                    : fileRecordManager.reject(sessionId, recordId, workspace);
+                    : fileRecordManager.reject(sessionId, recordId, activeWorkspace.get());
             if (!handled) {
                 return notFound("edit record not found: " + recordId);
             }
@@ -110,7 +109,7 @@ public class FileEditController {
         try {
             int count = accept
                     ? fileRecordManager.acceptTurn(sessionId, turnId)
-                    : fileRecordManager.rejectTurn(sessionId, turnId, workspace);
+                    : fileRecordManager.rejectTurn(sessionId, turnId, activeWorkspace.get());
             broadcastDecision(sessionId, null, turnId, accept ? "ACCEPTED" : "REJECTED", count);
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("turnId", turnId);

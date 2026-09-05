@@ -47,5 +47,15 @@ public interface RuntimeListener {
 
     default void onPartialThinking(AgentPartialThinkingEvent event) {
     }
+
+    default void onWaitCommandCheck(WaitCommandCheckEvent waitCommandCheckEvent){};
+
+    default void onPlanDecision(PlanDecisionEvent event) {
+    }
+    ;
+
+    default void onContextUpdate(ContextUpdateEvent event) {
+    }
+    ;
 }
 

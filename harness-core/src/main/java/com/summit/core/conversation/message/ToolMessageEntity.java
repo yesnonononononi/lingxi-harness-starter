@@ -10,6 +10,7 @@ import java.io.Serializable;
 @NoArgsConstructor
 @AllArgsConstructor
 @Getter
+@Setter
 public class ToolMessageEntity implements Message{
     private Serializable id;
     private String name;

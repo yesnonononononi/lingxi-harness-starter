@@ -5,26 +5,29 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.runtime.ShellType;
 import com.summit.core.runtime.Workspace;
 import com.summit.core.runtime.WorkspaceBridge;
-import com.summit.core.tool.ToolDefinition;
-import com.summit.core.tool.ToolExecuteResult;
-import com.summit.core.tool.ToolExecution;
-import com.summit.core.tool.ToolExecutor;
-
+import com.summit.core.tool.*;
 import com.summit.tools.arguments.ExecuteCommandRequest;
 import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 
 import java.io.IOException;
 
+/**
+ * The pure executor of the command tool: only parses arguments and runs the command.
+ *
+ * <p>Human approval (PRE_EXEC_CONFIRM / DANGEROUS_BLOCK) has been decoupled from
+ * this class into {@link CommandApprovalToolInterceptor} — whether a command needs
+ * confirmation and when to suspend or let it through are all decided by the generic
+ * tool interceptor chain before this executor is invoked.</p>
+ */
 @Slf4j
 @Getter
+@RequiredArgsConstructor
 public class CommandToolDefinitionExecutor implements ToolExecutor {
     private final ObjectMapper objectMapper;
 
-    public CommandToolDefinitionExecutor(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
-    }
 
     @Override
     public @NonNull ToolExecuteResult execute(ToolExecution toolExecution) {
@@ -33,18 +36,10 @@ public class CommandToolDefinitionExecutor implements ToolExecutor {
             ExecuteCommandRequest request = resolveArgs(toolExecution);
             log.info("【ToolCall】 {}", request.getCommand());
 
-
             if (request.getCommand() == null || request.getCommand().isBlank())
                 return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition(), "instruction is empty");
 
-            // ensure the instruction is accessible (blacklist check against the actual shell)
-            ShellType shellType = toolExecution.getWorkspace().runtimeEnvironment().shellType();
-            if (!CommandGuard.isAllowed(request.getCommand(), shellType)) {
-                return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition(), "instruction is not accessible: dangerous command blocked");
-            }
-
             // execute
-
             return process(request, toolExecution.getWorkspace(), toolExecution, toolExecution.getToolDefinition());
 
         } catch (Exception e) {
@@ -52,6 +47,9 @@ public class CommandToolDefinitionExecutor implements ToolExecutor {
         }
     }
 
+    /**
+     * execute tools
+     */
     public ToolExecuteResult process(ExecuteCommandRequest request, Workspace workspace, ToolExecution toolExecution, ToolDefinition<?> toolDefinition) throws IOException, InterruptedException {
 
         ShellType shellType = workspace.runtimeEnvironment().shellType();
@@ -85,10 +83,14 @@ public class CommandToolDefinitionExecutor implements ToolExecutor {
         return ToolExecuteResult.success(toolExecution.getId(), toolExecution.getToolDefinition(), processResult);
     }
 
+    /**
+     * resolve the tool args of agent
+     * str -> toolExecution
+     * @param toolExecution execution
+     */
     private ExecuteCommandRequest resolveArgs(ToolExecution toolExecution) throws JsonProcessingException {
         String args = toolExecution.getArgs();
         return objectMapper.readValue(args, ExecuteCommandRequest.class);
     }
-
 
 }

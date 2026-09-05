@@ -4,8 +4,10 @@ import { useRouter } from 'vue-router'
 import { getUser, removeToken } from '../utils/auth'
 import request from '../utils/request'
 import { acceptEdit, rejectEdit, acceptTurn, rejectTurn, listPendingEdits } from '../api/fileEdit'
+import { listDirs, selectWorkspace, getCurrentWorkspace } from '../api/workspace'
 import FileDiff from '../components/FileDiff.vue'
 import MarkdownContent from '../components/MarkdownContent.vue'
+import WelcomeWidget from '../components/WelcomeWidget.vue'
 
 const router = useRouter()
 const user = ref(getUser() || { name: '' })
@@ -16,6 +18,47 @@ const events = ref([])
 const input = ref('')
 const inputFocused = ref(false)
 const sending = ref(false)
+// ====== 命令审批（ack）模式 ======
+// 工具执行前的人工确认级别：随 /agent/chat 提交，作用于该轮 agent 每次命令执行
+const ACK_MODE_KEY = 'lingxi_ack_mode'
+const ACK_MODES = [
+  { value: 'FULL_ACCESS', label: '完全访问', short: '无需确认', desc: '所有命令自动执行，不进行人工确认' },
+  { value: 'PRE_EXEC_CONFIRM', label: '执行前确认', short: '全部确认', desc: '所有命令执行前都需人工批准' },
+  { value: 'DANGEROUS_BLOCK', label: '危险命令确认', short: '危险拦截', desc: '仅危险命令执行前需人工确认' },
+]
+const ackMode = ref(localStorage.getItem(ACK_MODE_KEY) || 'FULL_ACCESS')
+const ackOpen = ref(false)
+const ackPickerEl = ref(null)
+const currentAck = computed(() => ACK_MODES.find((m) => m.value === ackMode.value) || ACK_MODES[0])
+function setAckMode(mode) {
+  ackMode.value = mode
+  ackOpen.value = false
+  try {
+    localStorage.setItem(ACK_MODE_KEY, mode)
+  } catch {
+    // ignore storage errors (e.g. private mode)
+  }
+}
+// ====== 执行模式（craft / plan） ======
+// 随 /agent/chat 提交 loopBoundary：craft = 直接执行(EXECUTE，默认)；plan = 先规划后执行(PLANING)
+const AGENT_MODE_KEY = 'lingxi_agent_mode'
+const AGENT_MODES = [
+  { value: 'craft', short: 'craft', desc: '直接执行任务，等价后端 EXECUTE' },
+  { value: 'plan', short: 'plan', desc: '先输出实施计划，再执行，等价后端 PLANING' },
+]
+const agentMode = ref(localStorage.getItem(AGENT_MODE_KEY) || 'craft')
+const modeOpen = ref(false)
+const modePickerEl = ref(null)
+const currentMode = computed(() => AGENT_MODES.find((m) => m.value === agentMode.value) || AGENT_MODES[0])
+function setAgentMode(mode) {
+  agentMode.value = mode
+  modeOpen.value = false
+  try {
+    localStorage.setItem(AGENT_MODE_KEY, mode)
+  } catch {
+    // ignore storage errors (e.g. private mode)
+  }
+}
 // ====== 执行控制（暂停/继续/停止，作用于当前会话） ======
 const executing = ref(false)
 const paused = ref(false)
@@ -25,6 +68,18 @@ const workdir = ref('')
 const editingDir = ref(false)
 const dirInput = ref('')
 const savingDir = ref(false)
+// ====== 当前工作区（宿主目录 / 容器 / 模式） ======
+const workspaceHost = ref('')
+const workspaceContainer = ref('')
+const workspaceMode = ref('') // 'docker' | 'local' | ''
+// ====== “选择工作区”目录树弹窗 ======
+const dirPickerOpen = ref(false)
+const pickerPath = ref('') // 当前浏览的宿主机绝对路径；'' 表示盘符根视图
+const pickerParent = ref(null)
+const pickerDirs = ref([])
+const pickerLoading = ref(false)
+const pickerError = ref('')
+const pickerSelecting = ref(false)
 let es = null
 // ====== 会话管理（后端临时 Map 存储，仅示例） ======
 const sessions = ref([])
@@ -53,7 +108,9 @@ const eventTypeLabels = {
   AGENT_MESSAGE: '智能助手',
   EXECUTION_COMPLETED: '完成',
   EXECUTION_FAILED: '失败',
-  EXECUTION_CANCELLED: '取消'
+  EXECUTION_CANCELLED: '取消',
+  WAIT_COMMAND_CHECK: '命令审批',
+  PLAN_DECISION: '计划审批'
 }
 
 const terminalEventTypes = new Set(['EXECUTION_COMPLETED', 'EXECUTION_FAILED', 'EXECUTION_CANCELLED'])
@@ -199,6 +256,95 @@ async function decideAllPending(accept) {
   }
 }
 
+// ====== 命令审批（工具执行前 ack） ======
+// WAIT_COMMAND_CHECK 卡片：批准后 agent 循环被唤醒，命令以同一执行真正运行；
+// 拒绝则命令不会执行，agent 带着拒绝原因继续
+async function decideCommandAck(item, approve) {
+  if (!item.toolExecutionId || item.decision || item.deciding) return
+  item.deciding = true
+  try {
+    await request.post(`/agent/commands/${item.toolExecutionId}/${approve ? 'approve' : 'reject'}`)
+    item.decision = approve ? 'ACCEPTED' : 'REJECTED'
+  } catch (err) {
+    const msg = err?.response?.data?.message || err?.message || err
+    appendLog({ time: now(), type: 'ERROR', text: `命令审批失败：${msg}` })
+    // 404/409：命令已不存在或已被其他端决断，标记为失效避免重复操作
+    if (err?.response?.status === 404 || err?.response?.status === 409) {
+      item.decision = 'STALE'
+    }
+  } finally {
+    item.deciding = false
+  }
+}
+
+// ====== 计划审批（PLANING → 等待批准 → EXECUTE 实施） ======
+// PLAN_DECISION 卡片：计划产出后 agent 挂起等待人工批准；批准后 agent 循环被
+// 唤醒并以 EXECUTE 边界实施该计划，拒绝则本轮结束且不会实施任何改动
+async function decidePlanAck(item, approve) {
+  if (!item.executionId || item.decision || item.deciding) return
+  item.deciding = true
+  try {
+    await request.post(`/agent/plans/${item.executionId}/${approve ? 'approve' : 'reject'}`)
+    item.decision = approve ? 'ACCEPTED' : 'REJECTED'
+    // 计划状态机（最终一致）：批准通过 -> 已批准；本轮正常收尾 -> 已完成（见 terminal 处理）
+    if (approve) item.state = 'APPROVED'
+  } catch (err) {
+    const msg = err?.response?.data?.message || err?.message || err
+    appendLog({ time: now(), type: 'ERROR', text: `计划审批失败：${msg}` })
+    // 404/409：计划已不存在（超时/会话结束）或已被其他端决断，标记为失效避免重复操作
+    if (err?.response?.status === 404 || err?.response?.status === 409) {
+      item.decision = 'STALE'
+    }
+  } finally {
+    item.deciding = false
+  }
+}
+
+function planCardTitle(item) {
+  if (item.decision === 'ACCEPTED') return '计划已批准'
+  if (item.decision === 'REJECTED') return '计划已拒绝'
+  if (item.decision === 'STALE') return '审批已失效'
+  return '等待计划批准'
+}
+
+function planCardSub(item) {
+  if (item.decision === 'ACCEPTED') return 'agent 将按此计划开始实施，请留意后续工具动作'
+  if (item.decision === 'REJECTED') return '本轮不会实施该计划，可直接发送新指令调整'
+  if (item.decision === 'STALE') return '该计划已结束（超时/被其他端处理），此卡片仅作记录'
+  return 'agent 已产出计划并暂停，批准后才开始实施'
+}
+
+// 计划级状态机标签（后端 PlanEntity.state）：未批准 → 已批准 → 已完成
+function planStateLabel(state) {
+  if (state === 'UN_APPROVED') return '未批准'
+  if (state === 'APPROVED') return '已批准'
+  if (state === 'COMPLETED') return '已完成'
+  return ''
+}
+
+function ackTitle(item) {
+  if (item.decision === 'ACCEPTED') return '命令已批准'
+  if (item.decision === 'REJECTED') return '命令已拒绝'
+  if (item.decision === 'STALE') return '审批已失效'
+  return '等待命令审批'
+}
+
+function ackSub(item) {
+  if (item.decision === 'ACCEPTED') return 'agent 将唤醒并重新执行该命令，结果稍后返回'
+  if (item.decision === 'REJECTED') return '该命令不会执行，agent 将带着拒绝原因继续'
+  if (item.decision === 'STALE') return '该命令已被其他端处理，此卡片仅作记录'
+  return 'agent 已暂停，请决定是否允许执行'
+}
+
+function onDocClick(e) {
+  if (ackPickerEl.value && !ackPickerEl.value.contains(e.target)) {
+    ackOpen.value = false
+  }
+  if (modePickerEl.value && !modePickerEl.value.contains(e.target)) {
+    modeOpen.value = false
+  }
+}
+
 // thinking 卡片默认收起，点击头部展开/收起（与工具卡片交互一致）
 function toggleThinking(item) {
   item.thinkingOpen = !item.thinkingOpen
@@ -232,6 +378,11 @@ function connectEvents() {
   es.onmessage = (e) => {
     try {
       const evt = JSON.parse(e.data)
+      if (evt.type === 'WORKSPACE_CHANGED') {
+        // 工作区（容器/宿主目录）被切换：同步状态；多页面通过 SSE 保持展示一致
+        applyWorkspace(evt.data)
+        return
+      }
       if (evt.type === 'WORKDIR_CHANGED') {
         workdir.value = evt.data?.workdir || workdir.value
         return
@@ -299,6 +450,20 @@ function connectEvents() {
       if (evt.type === 'EXECUTION_COMPLETED' || evt.type === 'EXECUTION_FAILED' || evt.type === 'EXECUTION_CANCELLED') {
         // a round of execution is done: immediately settle any in-flight markdown
         settleMarkdown(evt.executionId || '')
+        // 本轮结束（计划状态最终收敛）：
+        // - 已批准且正常收尾(EXECUTION_COMPLETED)的计划 → 已完成
+        // - 仍未决断的计划审批卡片 → 失效（其 gate 已被释放，无法再审批）
+        // - 批准后中止(FAILED/CANCELLED)的计划停留在“已批准”（后端同理，不前置到已完成）
+        const finishedExecutionId = evt.executionId || ''
+        events.value.forEach((entry) => {
+          if (entry.type !== 'PLAN_DECISION'
+            || (finishedExecutionId && entry.executionId !== finishedExecutionId)) return
+          if (!entry.decision) {
+            entry.decision = 'STALE'
+          } else if (entry.decision === 'ACCEPTED' && evt.type === 'EXECUTION_COMPLETED') {
+            entry.state = 'COMPLETED'
+          }
+        })
       }
       if (evt.type === 'FILE_EDIT') {
         // render a Monaco DiffEditor card showing the file change;
@@ -317,6 +482,53 @@ function connectEvents() {
           decision: evt.data?.recordId ? 'pending' : 'none',
           deciding: false,
           open: false,
+        })
+        return
+      }
+      if (evt.type === 'WAIT_COMMAND_CHECK') {
+        // 命令被挂起等待人工审批（execute_command ack）：渲染审批卡片；
+        // 批准/拒绝写入决策后 agent 循环线程被唤醒
+        appendLog({
+          time: now(),
+          type: 'WAIT_COMMAND_CHECK',
+          executionId: evt.executionId || '',
+          toolExecutionId: evt.data?.toolExecutionId || '',
+          command: evt.data?.command || '',
+          decision: '',
+          deciding: false,
+        })
+        return
+      }
+      if (evt.type === 'PLAN_DECISION') {
+        // plan 模式产出计划：agent 挂起等待人工批准/拒绝，批准后以 EXECUTE 实施。
+        // 该轮产出计划前 AI 的最后一条回复正文就是计划全文（后端把同一份 aiMessage
+        // 解析成 PlanDecision 再广播），这里把它并入审批卡片 —— 消息流中不再把计划
+        // 书重复展示一遍，思考过程与完整计划都收敛成卡片内的可折叠区块。
+        const planExec = evt.executionId || ''
+        let planFullText = ''
+        let planThinking = ''
+        for (let i = events.value.length - 1; i >= 0; i--) {
+          const prev = events.value[i]
+          if (prev.type !== 'AGENT_MESSAGE') continue
+          if (planExec && prev.executionId !== planExec) continue
+          planFullText = prev.text || ''
+          planThinking = prev.thinking || ''
+          prev.merged = true
+          break
+        }
+        appendLog({
+          time: now(),
+          type: 'PLAN_DECISION',
+          executionId: planExec,
+          title: evt.data?.title || '',
+          steps: Array.isArray(evt.data?.steps) ? evt.data.steps : [],
+          state: evt.data?.state || 'UN_APPROVED',
+          decision: '',
+          deciding: false,
+          planFullText,
+          planThinking,
+          thinkingOpen: false,
+          planTextOpen: false,
         })
         return
       }
@@ -401,7 +613,12 @@ async function sendMessage() {
   input.value = ''
 
   try {
-    const body = { input: text, streaming: true }
+    const body = {
+      input: text,
+      streaming: true,
+      commandConfirmLevel: ackMode.value,
+      loopBoundary: agentMode.value === 'plan' ? 'PLANING' : 'EXECUTE',
+    }
     if (currentSessionId.value) body.sessionId = currentSessionId.value
     if (currentSessionName.value) body.sessionName = currentSessionName.value
     const data = await request.post('/agent/chat', body)
@@ -566,7 +783,7 @@ function handleLogout() {
 }
 
 
-// ====== 工作目录 ======
+// ====== 工作目录 / 工作区 ======
 async function loadWorkdir() {
   try {
     const data = await request.get('/agent/workdir')
@@ -574,6 +791,36 @@ async function loadWorkdir() {
   } catch (e) {
     workdir.value = ''
   }
+}
+
+// 拉取当前工作区状态（宿主目录 / 容器 / 模式），供启动时初始化展示
+async function loadWorkspace() {
+  try {
+    applyWorkspace(await getCurrentWorkspace())
+  } catch (e) {
+    // 后端尚未支持该接口时不阻断主流程
+  }
+}
+
+function applyWorkspace(data) {
+  if (!data) return
+  workspaceHost.value = data.hostDir || ''
+  workspaceContainer.value = data.containerName || ''
+  workspaceMode.value = data.mode || ''
+  if (data.workDir) workdir.value = data.workDir
+}
+
+// 工作目录栏展示：docker 模式优先显示宿主挂载目录，local 模式即工作目录本身
+function displayedDir() {
+  if (workspaceHost.value && workspaceHost.value !== workdir.value) return workspaceHost.value
+  return workdir.value || ''
+}
+
+function dirFullTitle() {
+  const parts = []
+  if (workspaceHost.value) parts.push(`宿主目录：${workspaceHost.value}`)
+  if (workdir.value && workdir.value !== workspaceHost.value) parts.push(`容器内目录：${workdir.value}`)
+  return parts.join('\n')
 }
 
 function startEditDir() {
@@ -601,10 +848,73 @@ async function saveWorkdir() {
   }
 }
 
+// ====== 选择工作区（目录树弹窗） ======
+async function openDirPicker() {
+  pickerError.value = ''
+  dirPickerOpen.value = true
+  await browseDirs('')
+}
+
+async function browseDirs(path) {
+  pickerLoading.value = true
+  pickerError.value = ''
+  try {
+    const data = await listDirs(path)
+    pickerPath.value = data?.path || ''
+    pickerParent.value = data?.parent || null
+    pickerDirs.value = data?.directories || []
+  } catch (e) {
+    pickerError.value = e?.message || '读取目录失败'
+    pickerDirs.value = []
+  } finally {
+    pickerLoading.value = false
+  }
+}
+
+async function pickerGoUp() {
+  // 非根目录 -> 父级；盘符根 -> 回盘符列表
+  if (pickerParent.value) await browseDirs(pickerParent.value)
+  else await browseDirs('')
+}
+
+async function pickerEnterDir(dir) {
+  if (!dir || !dir.path) return
+  await browseDirs(dir.path)
+}
+
+async function pickerSelectCurrent() {
+  if (pickerSelecting.value) return
+  if (!pickerPath.value) {
+    pickerError.value = '请进入一个文件夹后再选择'
+    return
+  }
+  pickerSelecting.value = true
+  pickerError.value = ''
+  try {
+    const data = await selectWorkspace(pickerPath.value)
+    applyWorkspace(data)
+    // 同步容器内工作目录并记录系统日志
+    await loadWorkdir()
+    dirPickerOpen.value = false
+    const action = data?.reused ? '复用已有容器' : '新建沙箱容器'
+    appendLog({
+      time: now(),
+      type: 'SYS',
+      text: `工作区已切换：${data?.hostDir || pickerPath.value}${data?.containerName ? `（${data.containerName}，${action}）` : ''}`,
+    })
+  } catch (e) {
+    pickerError.value = e?.message || '工作区切换失败'
+  } finally {
+    pickerSelecting.value = false
+  }
+}
+
 onMounted(() => {
   connectEvents()
   loadWorkdir()
+  loadWorkspace()
   loadSessions()
+  document.addEventListener('click', onDocClick)
 })
 
 onBeforeUnmount(() => {
@@ -612,6 +922,7 @@ onBeforeUnmount(() => {
   if (es) {
     es.close()
   }
+  document.removeEventListener('click', onDocClick)
 })
 </script>
 
@@ -696,18 +1007,27 @@ onBeforeUnmount(() => {
         </template>
       </div>
 
-      <!-- 工作目录栏 -->
+      <!-- 工作目录栏：宿主工作区 + 容器内工作目录 -->
       <div class="workdir-bar">
-        <span class="workdir-label">工作目录</span>
+        <span class="workdir-label">工作区</span>
         <template v-if="!editingDir">
-          <span class="workdir-path" :title="workdir">{{ workdir || '未设置' }}</span>
-          <button class="workdir-btn" @click="startEditDir">修改</button>
+          <span v-if="workspaceContainer" class="ws-tag" :title="`沙箱容器：${workspaceContainer}`">{{ workspaceContainer }}</span>
+          <span v-else-if="workspaceMode === 'local'" class="ws-tag">local</span>
+          <span class="workdir-path" :title="dirFullTitle()">{{ displayedDir() || '未设置' }}</span>
+          <button
+            class="workdir-btn primary"
+            :disabled="pickerSelecting"
+            @click="openDirPicker"
+            title="选择宿主机文件夹作为沙箱工作区；docker 模式将复用或新建挂载该目录的容器"
+          >选择工作区</button>
+          <button class="workdir-btn" @click="startEditDir" title="修改容器内的工作目录">修改</button>
         </template>
         <template v-else>
+          <span class="ws-tag edit" :title="workspaceHost">容器内</span>
           <input
             v-model="dirInput"
             class="workdir-input"
-            placeholder="请输入新工作目录的绝对路径"
+            placeholder="请输入容器内工作目录的绝对路径"
             @keydown.enter="saveWorkdir"
             @keydown.esc="cancelEditDir"
           />
@@ -716,13 +1036,9 @@ onBeforeUnmount(() => {
         </template>
       </div>
 
-      <!-- 无消息时：欢迎语居中展示，输入框随之居于页面中心 -->
+      <!-- 无消息时：欢迎小组件居中展示（带交互动画），输入框随之居于页面中心 -->
       <div v-if="!hasChat" class="empty-hero">
-        <div class="empty-state">
-          <div class="empty-icon">Hi</div>
-          <h2>Nice to meet you!</h2>
-          <p>输入一条指令，Agent 将通过工具调用自动完成任务</p>
-        </div>
+        <WelcomeWidget />
       </div>
 
       <!-- 消息列表 -->
@@ -737,7 +1053,8 @@ onBeforeUnmount(() => {
           </div>
 
           <!-- 模型 thinking / 回复 -->
-          <div v-else-if="item.type === 'AGENT_MESSAGE'" class="row row-ai">
+          <!-- merged：该消息是计划产出的正文，已并入对应 PLAN_DECISION 卡片，不再独立展示 -->
+          <div v-else-if="item.type === 'AGENT_MESSAGE' && !item.merged" class="row row-ai">
             <div class="avatar avatar-ai">L</div>
             <div class="ai-body">
               <div class="ai-name">LingXi</div>
@@ -761,6 +1078,13 @@ onBeforeUnmount(() => {
                 </div>
               </div>
               <div v-if="item.text" class="bubble bubble-ai">
+                <div class="ide-bar">
+                  <span class="ide-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <span class="ide-bar-name">LingXi · assistant.md</span>
+                  <span class="ide-bar-spacer"></span>
+                  <span v-if="item.streaming" class="ide-bar-tag streaming">● typing</span>
+                  <span v-else class="ide-bar-tag">ai</span>
+                </div>
                 <pre v-if="item.streaming" class="raw-text">{{ item.text }}</pre>
                 <MarkdownContent v-else :text="item.text" />
               </div>
@@ -821,6 +1145,83 @@ onBeforeUnmount(() => {
                     />
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 命令人工审批卡片：execute_command 等待用户批准/拒绝（ack） -->
+          <div v-else-if="item.type === 'WAIT_COMMAND_CHECK'" class="tool-event ack-event">
+            <div class="ack-card" :class="{ decided: !!item.decision }">
+              <div class="ack-head">
+                <span class="ack-icon" aria-hidden="true">{{ item.decision === 'ACCEPTED' ? '✅' : item.decision === 'REJECTED' ? '⛔' : '🔐' }}</span>
+                <div class="ack-info">
+                  <span class="ack-title">{{ ackTitle(item) }}</span>
+                  <span class="ack-sub">{{ ackSub(item) }}</span>
+                </div>
+              </div>
+              <pre class="ack-command">{{ item.command || '（无命令内容）' }}</pre>
+              <div v-if="!item.decision" class="ack-actions">
+                <button class="decision-btn keep" :disabled="item.deciding" @click="decideCommandAck(item, true)">批准执行</button>
+                <button class="decision-btn undo" :disabled="item.deciding" @click="decideCommandAck(item, false)">拒绝</button>
+              </div>
+              <div v-else class="ack-result" :class="item.decision">
+                {{ item.decision === 'ACCEPTED' ? '已批准，命令将继续执行' : item.decision === 'REJECTED' ? '已拒绝，命令不会执行' : '该命令已被其他端处理' }}
+              </div>
+            </div>
+          </div>
+
+          <!-- 计划审批卡片：plan 模式产出计划后挂起等待人工批准/拒绝（批准后才实施）。
+               计划产出时 AI 的最后一条回复（计划全文）会并入本卡，不再重复展示。 -->
+          <div v-else-if="item.type === 'PLAN_DECISION'" class="tool-event ack-event">
+            <div class="ack-card plan-card" :class="{ decided: !!item.decision }">
+              <div class="ack-head">
+                <span class="ack-icon" aria-hidden="true">{{ item.decision === 'ACCEPTED' ? '✅' : item.decision === 'REJECTED' ? '⛔' : item.decision === 'STALE' ? '⌛' : '📋' }}</span>
+                <div class="ack-info">
+                  <div class="ack-title-line">
+                    <span class="ack-title">{{ planCardTitle(item) }}</span>
+                    <span v-if="planStateLabel(item.state)" class="plan-state-chip" :class="String(item.state).toLowerCase()">{{ planStateLabel(item.state) }}</span>
+                  </div>
+                  <span class="ack-sub">{{ planCardSub(item) }}</span>
+                </div>
+              </div>
+              <!-- 未决断：展示计划概览供审阅；决断后收敛成一行结论，避免大段计划长期占据消息流 -->
+              <template v-if="!item.decision">
+                <div v-if="item.title" class="plan-title">{{ item.title }}</div>
+                <ol v-if="item.steps && item.steps.length" class="plan-steps">
+                  <li v-for="(step, si) in item.steps" :key="step.id || si" class="plan-step">
+                    <span class="plan-step-num" aria-hidden="true">{{ si + 1 }}</span>
+                    <span class="plan-step-text">{{ step.description }}</span>
+                  </li>
+                </ol>
+                <div v-if="item.planThinking || item.planFullText" class="plan-folds">
+                  <div v-if="item.planThinking" class="plan-fold">
+                    <button type="button" class="plan-fold-head" @click="toggleThinking(item)">
+                      <span class="plan-fold-icon" aria-hidden="true">💭</span>
+                      <span class="plan-fold-title">思考过程</span>
+                      <span class="tool-chevron" :class="{ rotated: item.thinkingOpen }" aria-hidden="true">▾</span>
+                    </button>
+                    <div v-show="item.thinkingOpen" class="plan-fold-body">
+                      <MarkdownContent class="thinking-text" :text="item.planThinking" />
+                    </div>
+                  </div>
+                  <div v-if="item.planFullText" class="plan-fold">
+                    <button type="button" class="plan-fold-head" @click="item.planTextOpen = !item.planTextOpen">
+                      <span class="plan-fold-icon" aria-hidden="true">📄</span>
+                      <span class="plan-fold-title">完整计划（AI 原文）</span>
+                      <span class="tool-chevron" :class="{ rotated: item.planTextOpen }" aria-hidden="true">▾</span>
+                    </button>
+                    <div v-show="item.planTextOpen" class="plan-fold-body plan-full">
+                      <MarkdownContent :text="item.planFullText" />
+                    </div>
+                  </div>
+                </div>
+                <div class="ack-actions">
+                  <button class="decision-btn keep" :disabled="item.deciding" @click="decidePlanAck(item, true)">批准，开始实施</button>
+                  <button class="decision-btn undo" :disabled="item.deciding" @click="decidePlanAck(item, false)">拒绝</button>
+                </div>
+              </template>
+              <div v-else class="ack-result" :class="item.decision">
+                {{ item.decision === 'ACCEPTED' ? '已批准，agent 开始按计划实施' : item.decision === 'REJECTED' ? '已拒绝，本轮不会实施' : '该计划已结束或已被其他端处理' }}
               </div>
             </div>
           </div>
@@ -904,6 +1305,80 @@ onBeforeUnmount(() => {
 
       <!-- 底部输入框 -->
       <div class="input-area">
+        <!-- 输入框上方工具条：命令审批 / 执行模式两个按钮，紧贴输入框顶部左对齐 -->
+        <div class="input-tools">
+          <!-- 命令审批(ack)模式上拉框 -->
+          <div class="ack-picker" ref="ackPickerEl">
+            <button
+              type="button"
+              class="ack-trigger"
+              :class="{ open: ackOpen }"
+              :title="`${currentAck.label}：${currentAck.desc}`"
+              @click.stop="ackOpen = !ackOpen"
+            >
+              <span class="ack-trigger-icon" aria-hidden="true">🛡</span>
+              <span class="ack-trigger-text">{{ currentAck.short }}</span>
+              <span class="ack-trigger-chevron" :class="{ rotated: ackOpen }" aria-hidden="true">▾</span>
+            </button>
+            <transition name="ack-pop">
+              <div v-if="ackOpen" class="ack-menu">
+                <div class="ack-menu-title">命令执行前确认级别</div>
+                <button
+                  v-for="m in ACK_MODES"
+                  :key="m.value"
+                  type="button"
+                  class="ack-option"
+                  :class="{ active: m.value === ackMode }"
+                  @click="setAckMode(m.value)"
+                >
+                  <span class="ack-option-main">
+                    <span class="ack-option-label">{{ m.label }}</span>
+                    <span class="ack-option-value">{{ m.value }}</span>
+                  </span>
+                  <span class="ack-option-desc">{{ m.desc }}</span>
+                  <span v-if="m.value === ackMode" class="ack-check" aria-hidden="true">✓</span>
+                </button>
+                <div class="ack-menu-hint">选择后对后续新一轮对话生效</div>
+              </div>
+            </transition>
+          </div>
+          <!-- 执行模式上拉框（craft = 直接执行 / plan = 先规划后执行） -->
+          <div class="ack-picker" ref="modePickerEl">
+            <button
+              type="button"
+              class="ack-trigger"
+              :class="{ open: modeOpen }"
+              :title="`执行模式 ${currentMode.value}：${currentMode.desc}`"
+              @click.stop="modeOpen = !modeOpen"
+            >
+              <span class="ack-trigger-text">{{ currentMode.short }}</span>
+              <span class="ack-trigger-chevron" :class="{ rotated: modeOpen }" aria-hidden="true">▾</span>
+            </button>
+            <transition name="ack-pop">
+              <div v-if="modeOpen" class="ack-menu narrow">
+                <div class="ack-menu-title">执行模式（对新一轮对话生效）</div>
+                <button
+                  v-for="m in AGENT_MODES"
+                  :key="m.value"
+                  type="button"
+                  class="ack-option"
+                  :class="{ active: m.value === agentMode }"
+                  @click="setAgentMode(m.value)"
+                >
+                  <span class="ack-option-main">
+                    <span class="ack-option-label">{{ m.short }}</span>
+                    <span class="ack-option-value">{{ m.value === 'plan' ? 'PLANING' : 'EXECUTE' }}</span>
+                  </span>
+                  <span class="ack-option-desc">{{ m.desc }}</span>
+                  <span v-if="m.value === agentMode" class="ack-check" aria-hidden="true">✓</span>
+                </button>
+                <div class="ack-menu-hint">plan 先规划再执行，craft 直接执行</div>
+              </div>
+            </transition>
+          </div>
+        </div>
+
+        <!-- 输入框（两个模式按钮已上移至 .input-tools） -->
         <div class="input-box" :class="{ focused: inputFocused }">
           <textarea
             v-model="input"
@@ -939,6 +1414,50 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </main>
+
+    <!-- 选择工作区：宿主目录树弹窗（选中文件夹后后端复用/新建挂载该目录的沙箱容器） -->
+    <transition name="fade">
+      <div v-if="dirPickerOpen" class="picker-overlay" @click.self="dirPickerOpen = false">
+        <div class="picker-modal">
+          <div class="picker-head">
+            <span class="picker-title">选择工作区目录</span>
+            <button type="button" class="picker-close" :disabled="pickerSelecting" @click="dirPickerOpen = false" aria-label="关闭">✕</button>
+          </div>
+          <div class="picker-nav">
+            <button type="button" class="picker-up" :disabled="pickerLoading || pickerSelecting" @click="pickerGoUp" title="上一级">↑ 上一级</button>
+            <span class="picker-path" :title="pickerPath">{{ pickerPath || '（选择磁盘 / 根目录）' }}</span>
+          </div>
+          <div class="picker-body">
+            <div v-if="pickerLoading" class="picker-state">加载中…</div>
+            <div v-else-if="pickerDirs.length" class="picker-dirs">
+              <button
+                v-for="(dir, di) in pickerDirs"
+                :key="dir.path || di"
+                type="button"
+                class="picker-dir"
+                @click="pickerEnterDir(dir)"
+              >
+                <span class="picker-dir-icon" aria-hidden="true">📁</span>
+                <span class="picker-dir-name" :title="dir.path">{{ dir.name }}</span>
+                <span class="picker-dir-arrow" aria-hidden="true">›</span>
+              </button>
+            </div>
+            <div v-else class="picker-state">{{ pickerError || '该目录下没有可进入的子文件夹' }}</div>
+          </div>
+          <div class="picker-foot">
+            <button type="button" class="workdir-btn" :disabled="pickerSelecting" @click="dirPickerOpen = false">取消</button>
+            <button
+              type="button"
+              class="workdir-btn primary"
+              :disabled="pickerSelecting || !pickerPath"
+              @click="pickerSelectCurrent"
+            >
+              {{ pickerSelecting ? '切换中…' : '选择当前文件夹' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 
 </template>
@@ -959,8 +1478,8 @@ onBeforeUnmount(() => {
 .sidebar {
   position: relative;
   z-index: 20;
-  flex: 0 0 280px;
-  width: 280px;
+  flex: 0 0 220px;
+  width: 220px;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -969,27 +1488,27 @@ onBeforeUnmount(() => {
   border-right: 1px solid #ececf1;
   transition: margin-left 0.26s cubic-bezier(.4, 0, .2, 1);
 }
-.sidebar.collapsed { margin-left: -280px; }
+.sidebar.collapsed { margin-left: -220px; }
 
 /* 品牌区 */
 .sidebar-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 16px 16px 10px;
+  gap: 8px;
+  padding: 12px 12px 8px;
   flex-shrink: 0;
 }
 .logo {
   flex-shrink: 0;
-  width: 36px;
-  height: 36px;
-  border-radius: 11px;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: linear-gradient(135deg, #4d6bfe, #7a5cff);
   color: #fff;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 700;
   letter-spacing: .5px;
   box-shadow: 0 4px 10px rgba(77, 107, 254, .28);
@@ -1002,13 +1521,13 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 .brand-name {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   color: #1f2232;
   letter-spacing: .3px;
 }
 .brand-sub {
-  font-size: 11px;
+  font-size: 10.5px;
   color: #9a9db0;
   white-space: nowrap;
   overflow: hidden;
@@ -1016,13 +1535,13 @@ onBeforeUnmount(() => {
 }
 .brand-collapse {
   flex-shrink: 0;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border: none;
   border-radius: 6px;
   background: transparent;
   color: #a2a5b8;
-  font-size: 17px;
+  font-size: 15px;
   line-height: 1;
   cursor: pointer;
   transition: all .2s;
@@ -1036,7 +1555,7 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  padding: 0 12px;
+  padding: 0 10px;
 }
 .session-scroll::-webkit-scrollbar { width: 6px; }
 .session-scroll::-webkit-scrollbar-thumb { background: #dfe1ea; border-radius: 3px; }
@@ -1047,7 +1566,7 @@ onBeforeUnmount(() => {
   position: sticky;
   top: 0;
   z-index: 5;
-  padding: 8px 0 10px;
+  padding: 6px 0 8px;
   background: linear-gradient(#f7f7fa 82%, rgba(247, 247, 250, 0));
 }
 .new-session-btn {
@@ -1056,12 +1575,12 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 11px 0;
+  padding: 9px 0;
   border: none;
-  border-radius: 10px;
+  border-radius: 9px;
   background: linear-gradient(135deg, #4d6bfe, #6a5cff);
   color: #fff;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   box-shadow: 0 6px 14px rgba(77, 107, 254, .22);
@@ -1073,21 +1592,21 @@ onBeforeUnmount(() => {
   box-shadow: 0 8px 18px rgba(77, 107, 254, .3);
 }
 .new-session-btn:active { transform: translateY(0); }
-.ns-icon { font-size: 15px; font-weight: 400; }
+.ns-icon { font-size: 14px; font-weight: 400; }
 
 /* 会话列表 */
 .session-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding-bottom: 12px;
+  gap: 3px;
+  padding-bottom: 10px;
 }
 .session-item {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 10px 10px;
-  border-radius: 10px;
+  gap: 8px;
+  padding: 8px 8px;
+  border-radius: 9px;
   border: 1px solid transparent;
   cursor: pointer;
   transition: all .18s;
@@ -1098,11 +1617,11 @@ onBeforeUnmount(() => {
   border-color: #e6e8f1;
   box-shadow: 0 2px 8px rgba(30, 34, 60, .06);
 }
-.session-icon { flex-shrink: 0; font-size: 13px; opacity: .8; }
+.session-icon { flex-shrink: 0; font-size: 12px; opacity: .8; }
 .session-name {
   flex: 1;
   min-width: 0;
-  font-size: 13px;
+  font-size: 12px;
   color: #3a3d50;
   white-space: nowrap;
   overflow: hidden;
@@ -1113,36 +1632,36 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 30px 8px;
+  gap: 6px;
+  padding: 24px 8px;
   text-align: center;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.7;
   color: #b3b5c6;
 }
-.se-icon { font-size: 22px; opacity: .55; }
+.se-icon { font-size: 19px; opacity: .55; }
 
 /* ====== 左下角状态卡片 ====== */
 .sidebar-foot {
   flex-shrink: 0;
-  padding: 8px 12px 14px;
+  padding: 6px 10px 12px;
 }
 .foot-box {
   display: flex;
   flex-direction: column;
-  gap: 9px;
-  padding: 10px 12px;
+  gap: 7px;
+  padding: 8px 10px;
   border: 1px solid #e7e8ee;
-  border-radius: 14px;
+  border-radius: 12px;
   background: #ffffff;
   box-shadow: 0 4px 14px rgba(30, 34, 60, .05);
 }
 .foot-row { display: flex; align-items: center; gap: 7px; min-width: 0; }
-.foot-status { font-size: 12px; color: #7d8096; }
+.foot-status { font-size: 11px; color: #7d8096; }
 .foot-dot {
   flex-shrink: 0;
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: #f87171;
   box-shadow: 0 0 0 3px rgba(248, 113, 113, .14);
@@ -1163,21 +1682,21 @@ onBeforeUnmount(() => {
 }
 .foot-avatar {
   flex-shrink: 0;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   background: linear-gradient(135deg, #4d6bfe, #6a5cff);
   color: #fff;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
 }
 .foot-name {
   flex: 1;
   min-width: 0;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: #262832;
   white-space: nowrap;
@@ -1185,8 +1704,8 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
 }
 .foot-btn {
-  padding: 5px 12px;
-  font-size: 12px;
+  padding: 4px 10px;
+  font-size: 11px;
   color: #5f6378;
   background: #f7f7fa;
   border: 1px solid #e7e8ee;
@@ -1197,12 +1716,12 @@ onBeforeUnmount(() => {
 .foot-btn:hover { border-color: #cfd3e6; color: #4d6bfe; background: #f0f2ff; }
 .foot-btn.mini {
   flex-shrink: 0;
-  width: 24px;
+  width: 22px;
   padding: 2px 0;
   border: none;
   background: transparent;
   color: #a2a5b8;
-  font-size: 16px;
+  font-size: 14px;
 }
 .foot-btn.mini:hover { background: #ececf2; color: #4d6bfe; }
 .foot-actions {
@@ -1211,7 +1730,7 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
   gap: 8px;
   border-top: 1px solid #f1f2f6;
-  padding-top: 8px;
+  padding-top: 7px;
 }
 .foot-actions .foot-btn { background: #fff; }
 .foot-btn.logout-danger:hover {
@@ -1226,13 +1745,13 @@ onBeforeUnmount(() => {
   left: 12px;
   top: 12px;
   z-index: 30;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
   border: 1px solid #e7e8ee;
   background: #ffffff;
   color: #4d6bfe;
-  font-size: 16px;
+  font-size: 15px;
   cursor: pointer;
   box-shadow: 0 6px 16px rgba(30, 34, 60, .12);
   transition: all .2s;
@@ -1260,9 +1779,9 @@ onBeforeUnmount(() => {
 .session-header {
   flex-shrink: 0;
   width: 100%;
-  max-width: 780px;
+  max-width: 720px;
   margin: 0 auto;
-  padding: 20px 0 6px;
+  padding: 14px 0 4px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1270,7 +1789,7 @@ onBeforeUnmount(() => {
 .session-title {
   flex: 1;
   min-width: 0;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   color: #1f2232;
   white-space: nowrap;
@@ -1306,9 +1825,9 @@ onBeforeUnmount(() => {
 .workdir-bar {
   flex-shrink: 0;
   width: 100%;
-  max-width: 780px;
+  max-width: 720px;
   margin: 0 auto;
-  padding: 4px 0 8px;
+  padding: 2px 0 6px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1357,71 +1876,210 @@ onBeforeUnmount(() => {
 .workdir-btn.primary:hover:not(:disabled) { background: #3a57e8; }
 .workdir-btn.primary:disabled { opacity: 0.6; cursor: not-allowed; }
 
+/* 工作区容器标签（docker：容器名；local：模式名） */
+.ws-tag {
+  flex-shrink: 0;
+  max-width: 150px;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--blue);
+  background: var(--blue-bg);
+  border: 1px solid var(--blue-border);
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ws-tag.edit { color: #55586b; background: #f7f8fa; border-color: #eceef4; }
+
+/* ====== 选择工作区目录树弹窗 ====== */
+.fade-enter-active,
+.fade-leave-active { transition: opacity .18s ease; }
+.fade-enter-from,
+.fade-leave-to { opacity: 0; }
+
+.picker-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(23, 27, 40, .42);
+}
+.picker-modal {
+  display: flex;
+  flex-direction: column;
+  width: 540px;
+  max-width: calc(100vw - 48px);
+  height: 480px;
+  max-height: calc(100vh - 96px);
+  background: #fff;
+  border: 1px solid #e2e5ee;
+  border-radius: 8px;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, .22);
+}
+.picker-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid #eef0f5;
+}
+.picker-title { font-size: 14px; font-weight: 600; color: #262832; }
+.picker-close {
+  border: none;
+  background: transparent;
+  color: #8a8ca0;
+  font-size: 14px;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all .18s;
+}
+.picker-close:hover { background: #eceef4; color: #262832; }
+.picker-close:disabled { opacity: .5; cursor: not-allowed; }
+
+.picker-nav {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 4px;
+}
+.picker-up {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 5px 10px;
+  border: 1px solid #e4e6eb;
+  border-radius: 6px;
+  background: #fff;
+  color: #55586b;
+  cursor: pointer;
+  transition: all .18s;
+}
+.picker-up:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+.picker-up:disabled { opacity: .5; cursor: not-allowed; }
+.picker-path {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  color: #55586b;
+  background: #f7f8fa;
+  border: 1px solid #eceef4;
+  border-radius: 6px;
+  padding: 6px 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.picker-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 8px 14px;
+  border: 1px solid #eef0f5;
+  border-radius: 6px;
+  background: #fbfcfe;
+}
+.picker-body::-webkit-scrollbar { width: 6px; }
+.picker-body::-webkit-scrollbar-thumb { background: #dfe1ea; border-radius: 3px; }
+
+.picker-state {
+  padding: 26px 14px;
+  text-align: center;
+  font-size: 12px;
+  color: #a2a5b8;
+}
+
+.picker-dirs { display: flex; flex-direction: column; padding: 6px; gap: 2px; }
+.picker-dir {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.picker-dir:hover { background: var(--blue-bg); border-color: var(--blue-border); }
+.picker-dir-icon { flex-shrink: 0; font-size: 14px; line-height: 1; opacity: .8; }
+.picker-dir-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  font-size: 12.5px;
+  color: #262832;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.picker-dir-arrow { flex-shrink: 0; color: #a2a5b8; font-size: 15px; }
+
+.picker-foot {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px 14px;
+}
+
 /* ====== 消息列表 ====== */
 .messages {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 24px 16px 16px;
+  padding: 18px 14px 12px;
 }
 .messages::-webkit-scrollbar { width: 6px; }
 .messages::-webkit-scrollbar-thumb { background: #dfe1e8; border-radius: 3px; }
 
-/* 无消息时：欢迎语 + 输入框整体居中 */
+/* 无消息时：欢迎小组件 + 输入框整体居中 */
 .empty-hero {
   flex: 1;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  padding: 24px 16px 48px;
+  padding: 24px 16px 40px;
 }
 .chat-panel.empty .messages { display: none; }
-.empty-state {
-  text-align: center;
-  color: #55586b;
-}
-.empty-icon {
-  width: 64px;
-  height: 64px;
-  margin: 0 auto 18px;
-  border-radius: 18px;
-  background: #4d6bfe;
-  color: #fff;
-  font-size: 22px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.empty-state h2 { margin: 0 0 8px; font-size: 20px; color: #262832; }
-.empty-state p { margin: 0; font-size: 14px; color: #8a8ca0; }
 
-.row { display: flex; gap: 12px; max-width: 780px; margin: 0 auto 24px; }
+.row { display: flex; gap: 10px; max-width: 720px; margin: 0 auto 18px; }
 .row-user { justify-content: flex-end; }
 
 .avatar {
   flex-shrink: 0;
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
 }
 .avatar-user { background: #4d6bfe; color: #fff; order: 2; }
 .avatar-ai { background: #ffffff; border: 1px solid #e4e6eb; color: #4d6bfe; }
 
-.ai-body { max-width: calc(100% - 46px); }
-.ai-name { font-size: 13px; color: #8a8ca0; margin-bottom: 6px; }
+.ai-body { max-width: calc(100% - 40px); }
+.ai-name { font-size: 12px; color: #8a8ca0; margin-bottom: 4px; }
 
 .bubble {
-  padding: 12px 16px;
+  padding: 10px 14px;
   border-radius: 12px;
-  font-size: 15px;
-  line-height: 1.65;
+  font-size: 14px;
+  line-height: 1.6;
 }
 .bubble-text { white-space: pre-wrap; word-break: break-word; }
 /* 流式打字机期间的纯文本渲染（稳定后切换 MarkdownContent） */
@@ -1462,9 +2120,9 @@ onBeforeUnmount(() => {
 
 /* 事件行（工具调用 / 系统） */
 .event-line {
-  max-width: 780px;
-  margin: 0 auto 14px;
-  font-size: 13px;
+  max-width: 720px;
+  margin: 0 auto 12px;
+  font-size: 12.5px;
   line-height: 1.6;
   display: flex;
   align-items: baseline;
@@ -1485,10 +2143,10 @@ onBeforeUnmount(() => {
 /* thinking 折叠卡片（与工具卡片同构，默认收起） */
 .thinking-event { margin: 4px 0; }
 .thinking-card .tool-name { color: #8a8ca0; }
-.thinking-text { color: #8a8ca0; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+.thinking-text { color: #8a8ca0; font-size: 12.5px; white-space: pre-wrap; word-break: break-word; }
 
 /* ====== 工具调用卡片（动态下拉） ====== */
-.tool-event { max-width: 780px; margin: 8px auto; }
+.tool-event { max-width: 720px; margin: 6px auto; }
 .tool-card {
   border: 1px solid #eceef4;
   border-radius: 12px;
@@ -1504,7 +2162,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 14px;
+  padding: 8px 12px;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -1516,15 +2174,15 @@ onBeforeUnmount(() => {
 
 .tool-icon {
   flex-shrink: 0;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   border-radius: 8px;
   background: #eef2ff;
   color: #4d6bfe;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
+  font-size: 12px;
 }
 .tool-head.read .tool-icon { background: #eef7f3; }
 
@@ -1596,9 +2254,9 @@ onBeforeUnmount(() => {
   overflow: hidden;
   min-height: 0;
   border-top: 1px solid #eceef4;
-  margin: 0 14px;
+  margin: 0 12px;
 }
-.tool-section { padding: 10px 0; }
+.tool-section { padding: 8px 0; }
 .tool-section + .tool-section { border-top: 1px dashed #eceef4; }
 .tool-section-title {
   font-size: 11px;
@@ -1621,12 +2279,12 @@ onBeforeUnmount(() => {
 
 /* ====== 一轮执行完成：token 统计卡片 ====== */
 .done-card {
-  max-width: 780px;
-  margin: 20px auto;
+  max-width: 720px;
+  margin: 14px auto;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: 10px;
+  padding: 10px 14px;
   border: 1px solid #e6edf5;
   border-radius: 12px;
   background: linear-gradient(135deg, #f7fafc, #f0f5fb);
@@ -1710,8 +2368,8 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  max-width: 780px;
-  margin: 0 auto 10px;
+  max-width: 720px;
+  margin: 0 auto 8px;
   padding: 0 4px;
 }
 .run-state {
@@ -1760,16 +2418,25 @@ onBeforeUnmount(() => {
 /* ====== 输入区 ====== */
 .input-area {
   flex-shrink: 0;
-  padding: 0 16px 14px;
+  padding: 0 14px 12px;
   background: linear-gradient(to top, #ffffff 70%, rgba(255,255,255,0));
 }
+/* 输入框上方工具条：与输入框同宽居中，模式按钮左对齐、紧贴输入框顶部 */
+.input-tools {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 6px;
+}
 .input-box {
-  max-width: 780px;
+  max-width: 720px;
   margin: 0 auto;
   display: flex;
   align-items: flex-end;
   gap: 10px;
-  padding: 10px 12px 10px 18px;
+  padding: 8px 10px 8px 16px;
   border: 1px solid #e4e6eb;
   border-radius: 16px;
   background: #f7f8fa;
@@ -1786,7 +2453,7 @@ onBeforeUnmount(() => {
   outline: none;
   resize: none;
   background: transparent;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.6;
   color: #262832;
   max-height: 160px;
@@ -1996,7 +2663,7 @@ onBeforeUnmount(() => {
 /* 待裁决文件编辑下拉框:位于输入框上方,与输入框同宽居中 */
 .pending-edits {
   flex-shrink: 0;
-  max-width: 780px;
+  max-width: 720px;
   margin: 0 auto 6px;
   border: 1px solid #eceef4;
   border-radius: 10px;
@@ -2079,6 +2746,433 @@ onBeforeUnmount(() => {
 .decision-btn.undo { background: #fdeeee; color: #b42318; }
 .decision-btn.undo:hover { background: #fbdcdc; }
 .decision-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ====== 命令审批(ack)模式选择器：输入框上方工具条左端上拉框 ====== */
+.ack-picker {
+  position: relative;
+  flex-shrink: 0;
+  z-index: 30;
+}
+.ack-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid #e2e5ec;
+  border-radius: 8px;
+  background: #fff;
+  color: #5a6172;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.ack-trigger:hover,
+.ack-trigger.open {
+  border-color: #b9c6fb;
+  color: #4d6bfe;
+  background: #eef2ff;
+}
+.ack-trigger-icon { line-height: 1; }
+.ack-trigger-text { font-weight: 500; }
+.ack-trigger-chevron { color: #9ca3af; font-size: 10px; transition: transform 0.2s; }
+.ack-trigger-chevron.rotated { transform: rotate(180deg); }
+.ack-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  width: 272px;
+  z-index: 60;
+  background: #fff;
+  border: 1px solid #eceef4;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(30, 34, 60, 0.14);
+  padding: 6px;
+}
+.ack-menu.narrow { width: 236px; }
+.ack-menu-title {
+  padding: 6px 8px 8px;
+  font-size: 11px;
+  color: #9ca3af;
+  border-bottom: 1px solid #f0f1f5;
+  margin-bottom: 4px;
+}
+.ack-option {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 30px 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+.ack-option:hover { background: #f5f7ff; }
+.ack-option.active { background: #eef2ff; }
+.ack-option-main { display: flex; align-items: baseline; gap: 6px; }
+.ack-option-label { font-size: 13px; font-weight: 600; color: #262832; }
+.ack-option-value { font-size: 10px; color: #a8abc0; letter-spacing: 0.3px; }
+.ack-option-desc { font-size: 11.5px; color: #8b90a0; line-height: 1.4; }
+.ack-check {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #4d6bfe;
+  font-weight: 700;
+}
+.ack-menu-hint {
+  padding: 6px 8px 2px;
+  font-size: 11px;
+  color: #c0c2cf;
+  border-top: 1px solid #f0f1f5;
+  margin-top: 4px;
+}
+.ack-pop-enter-active,
+.ack-pop-leave-active { transition: opacity 0.12s ease, transform 0.12s ease; }
+.ack-pop-enter-from,
+.ack-pop-leave-to { opacity: 0; transform: translateY(4px); }
+
+/* ====== 命令审批卡片（消息流中等待批准/拒绝） ====== */
+.ack-event { display: flex; }
+.ack-card {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #e8e9f0;
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px 12px;
+  box-shadow: 0 2px 10px rgba(30, 34, 60, 0.05);
+}
+.ack-card.decided { background: #fafbfc; }
+.ack-head { display: flex; align-items: center; gap: 10px; }
+.ack-icon { font-size: 18px; line-height: 1; }
+.ack-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ack-title { font-size: 13px; font-weight: 600; color: #262832; }
+.ack-sub { font-size: 12px; color: #9ca3af; }
+.ack-command {
+  margin: 8px 0 0;
+  padding: 6px 9px;
+  background: #f4f5f8;
+  border: 1px solid #eceef4;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #333a4d;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Courier New', monospace;
+}
+.ack-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+.ack-result { margin-top: 10px; font-size: 12px; }
+.ack-result.ACCEPTED { color: #17803d; }
+.ack-result.REJECTED { color: #b42318; }
+.ack-result.STALE { color: #9ca3af; }
+
+/* ---------- 计划审批卡片（PLAN_DECISION） ---------- */
+.plan-card { border-color: #c7d4f5; background: linear-gradient(180deg, #f8faff, #ffffff); }
+.plan-card .plan-title {
+  margin: 10px 0 0;
+  padding-bottom: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e3a8a;
+  border-bottom: 1px dashed #dbe3f5;
+}
+.plan-steps {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.plan-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 2px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #3b4256;
+  border-bottom: 1px solid #eef1f8;
+}
+.plan-step:last-child { border-bottom: none; }
+.plan-step-num {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #e8eefc;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+.plan-step-text { flex: 1; min-width: 0; word-break: break-word; }
+
+/* 计划卡内可折叠区块：思考过程 / 完整计划（AI 原文），默认收起保持卡片简洁 */
+.plan-folds {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.plan-fold {
+  border: 1px solid #e3e8f4;
+  border-radius: 6px;
+  background: #fff;
+  overflow: hidden;
+}
+.plan-fold-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: none;
+  background: #f5f8ff;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: background 0.15s;
+}
+.plan-fold-head:hover { background: #edf3ff; }
+.plan-fold-icon { font-size: 13px; line-height: 1; }
+.plan-fold-title { flex: 1; font-size: 12px; font-weight: 600; color: #3b4256; }
+.plan-fold-body {
+  padding: 6px 10px 8px;
+  border-top: 1px solid #eef1f8;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.plan-fold-body .md-content { font-size: 12.5px; line-height: 1.7; }
+.plan-fold-body .thinking-text { color: #57606a; }
+
+.plan-card .ack-result { margin-top: 6px; color: #1e3a8a; }
+.plan-card .ack-result.ACCEPTED { color: #17803d; }
+.plan-card .ack-result.REJECTED { color: #b42318; }
+.plan-card .ack-result.STALE { color: #9ca3af; }
+
+/* 计划状态机标签：未批准 / 已批准 / 正在构建 */
+.ack-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.plan-state-chip {
+  display: inline-block;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 3px 8px;
+  border-radius: 10px;
+  color: #fff;
+  background: #9ca3af;
+}
+.plan-state-chip.un_approved { background: #b45309; }
+.plan-state-chip.approved { background: #1d4ed8; }
+.plan-state-chip.completed { background: #17803d; }
+
+/* ================================================================
+   Coding-IDE 主题覆盖（深蓝主色 · 少圆角 · 消息体面板化）
+   置于样式末尾，按 CSS 级联规则覆盖上文同名规则。
+   ================================================================ */
+.home {
+  --blue: #1d4ed8;        /* 主深蓝 */
+  --blue-deep: #1e40af;   /* 悬停加深 */
+  --blue-ink: #1e3a8a;    /* 更深 */
+  --blue-bg: #e8eefc;     /* 浅蓝底 */
+  --blue-border: #a9bef0; /* 浅蓝描边 */
+  --line: #d7dce6;        /* IDE 分隔线 */
+  --ink: #24292f;         /* 正文墨色 */
+}
+
+/* ---------- 少圆角：全局方角化 ---------- */
+.logo,
+.new-session-btn,
+.session-item,
+.sidebar-expand,
+.foot-box,
+.rename-btn,
+.rename-input,
+.workdir-path,
+.workdir-input,
+.workdir-btn,
+.done-card,
+.ack-card,
+.pending-edits,
+.modal,
+.import-btn,
+.ack-trigger,
+.pending-head { border-radius: 6px; }
+.brand-collapse,
+.tool-icon,
+.tool-status,
+.ack-command,
+.decision-btn,
+.token-chip,
+.field-input,
+.field-textarea { border-radius: 4px; }
+.input-box { border-radius: 8px; }
+.foot-btn { border-radius: 5px; }
+.avatar { border-radius: 6px; }            /* 头像方形化 */
+.send-btn { border-radius: 6px; }
+.empty-icon { border-radius: 8px; }
+.run-state,
+.ctl-btn,
+.input-ctl-btn { border-radius: 6px; }
+.bubble { border-radius: 6px; }
+
+/* ---------- 主色：蓝紫 → 深蓝 ---------- */
+.logo { background: var(--blue); box-shadow: 0 2px 8px rgba(29, 78, 216, .25); }
+.avatar-ai { color: var(--blue); border-color: var(--line); background: #fff; }
+.avatar-user { background: var(--blue); }
+.new-session-btn { background: var(--blue); box-shadow: 0 3px 8px rgba(29, 78, 216, .22); }
+.new-session-btn:hover { filter: brightness(1.08); }
+.brand-collapse:hover,
+.foot-btn.mini:hover,
+.sidebar-expand { color: var(--blue); }
+.session-item.active .session-name { color: var(--blue); }
+.foot-btn:hover { color: var(--blue); border-color: var(--blue-border); background: var(--blue-bg); }
+.foot-avatar { background: var(--blue); }
+.rename-btn:hover,
+.workdir-btn:hover { color: var(--blue); border-color: var(--blue); }
+.rename-btn.primary,
+.workdir-btn.primary { background: var(--blue); border-color: var(--blue); }
+.rename-btn.primary:hover,
+.workdir-btn.primary:hover:not(:disabled),
+.send-btn:hover:not(:disabled),
+.btn-submit:hover:not(:disabled),
+.import-btn:hover { background: var(--blue-deep); }
+.rename-input,
+.workdir-input { border-color: var(--blue); }
+.input-box.focused { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(29, 78, 216, .10); }
+.field-input:focus,
+.field-textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(29, 78, 216, .10); }
+.send-btn,
+.btn-submit,
+.import-btn,
+.empty-icon { background: var(--blue); }
+.tool-name,
+.tool-chevron.rotated,
+.ack-check { color: var(--blue); }
+.tool-icon { background: var(--blue-bg); color: var(--blue); }
+.tool-range { background: rgba(29, 78, 216, .08); color: var(--blue); }
+.tool-card.open { border-color: var(--blue-border); box-shadow: 0 4px 14px rgba(29, 78, 216, .08); }
+.tool-status.running,
+.run-state,
+.ctl-btn.pause,
+.input-ctl-btn.pause,
+.ack-option.active { color: var(--blue); background: var(--blue-bg); }
+.ctl-btn.pause,
+.input-ctl-btn.pause { border-color: var(--blue-border); }
+.ctl-btn.pause:hover:not(:disabled),
+.input-ctl-btn.pause:hover:not(:disabled) { background: #d9e3fb; border-color: #93adf0; }
+.ctl-btn:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+.token-input { color: var(--blue); background: var(--blue-bg); }
+.ack-trigger:hover,
+.ack-trigger.open { border-color: var(--blue-border); color: var(--blue); background: var(--blue-bg); }
+.event-loading i,
+.tool-status i { background: currentColor; }
+.tool-status.running i { background: var(--blue); }
+.event-loading i { background: var(--blue); }
+.run-state i { background: var(--blue); }
+
+/* ---------- 消息体：IDE 面板化 ---------- */
+.avatar {
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  font-weight: 600;
+}
+
+/* AI 消息：编辑器标签栏 + 白色代码面板 */
+.bubble-ai {
+  padding: 0;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(27, 31, 36, .06);
+  overflow: hidden;
+}
+.bubble-ai.thinking { padding: 8px 14px; }
+.ai-name { display: none; }
+.ide-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  background: #f3f5f8;
+  border-bottom: 1px solid var(--line);
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  font-size: 11px;
+  color: #57606a;
+}
+.ide-dots { display: inline-flex; gap: 5px; }
+.ide-dots i { width: 9px; height: 9px; border-radius: 50%; background: #ff5f56; }
+.ide-dots i:nth-child(2) { background: #ffbd2e; }
+.ide-dots i:nth-child(3) { background: #27c93f; }
+.ide-bar-name { font-weight: 600; color: #3a4454; white-space: nowrap; }
+.ide-bar-spacer { flex: 1; }
+.ide-bar-tag {
+  font-size: 10px;
+  color: #6e7681;
+  border: 1px solid #d5dbe4;
+  background: #fff;
+  padding: 1px 6px;
+  border-radius: 4px;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.ide-bar-tag.streaming { color: var(--blue); border-color: var(--blue-border); background: var(--blue-bg); animation: ide-blink 1.2s ease infinite; }
+@keyframes ide-blink { 50% { opacity: .45; } }
+
+.bubble-ai > .md-content,
+.bubble-ai > .raw-text { padding: 10px 14px; color: var(--ink); }
+
+/* 用户消息：右侧深蓝命令块（终端式） */
+.bubble-user {
+  background: var(--blue);
+  color: #fff;
+  border: none;
+  border-top-right-radius: 2px;
+  box-shadow: 0 2px 6px rgba(29, 78, 216, .18);
+}
+.bubble-user .bubble-text { color: #fff; }
+
+/* 工具 / 思考卡片：面板式工具行 */
+.tool-card { background: #fbfcfe; }
+.tool-head { border-bottom: 1px solid #e6e9f0; background: #f4f6f9; }
+.tool-card.open .tool-head { background: #eef1f6; border-bottom: none; }
+.tool-head:hover { background: #eceff4; }
+.tool-name { font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace; font-weight: 700; }
+.thinking-card .tool-icon,
+.thinking-card .tool-name { color: #6e7781; }
+.thinking-card .tool-icon { background: #e9ecf2; }
+.tool-body-inner { background: #fbfcfe; }
+.tool-code { font: 12px/1.6 ui-monospace, 'SFMono-Regular', Consolas, monospace; }
+
+/* 事件行小字转等宽，接近终端日志 */
+.event-line { font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace; }
 </style>
 
 

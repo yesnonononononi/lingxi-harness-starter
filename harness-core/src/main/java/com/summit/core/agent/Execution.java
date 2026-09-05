@@ -2,6 +2,8 @@ package com.summit.core.agent;
 
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.TokenUsageEntity;
+import com.summit.core.plan.PlanDecision;
+import com.summit.core.tool.LoopBoundary;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NonNull;
@@ -72,6 +74,13 @@ public class Execution {
 
     private int maxSteps;
 
+    private LoopBoundary loopBoundary;
+
+    /**
+     * The structured plan decision produced by a PLANNING execution, if any.
+     * Back-filled by the runtime when the execution ends.
+     */
+    private PlanDecision planDecision;
 
     public void cancel(){
         this.executionState = ExecutionState.CANCELLED;

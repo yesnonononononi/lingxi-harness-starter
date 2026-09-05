@@ -3,12 +3,15 @@ package com.summit.tools.compact;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.summit.core.compact.ContextCompactionPrompt;
 import com.summit.core.conversation.api.ChatRequestEntity;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.model.ChatModel;
+import com.summit.core.plan.PlanEntity;
+import com.summit.core.plan.PlanStore;
 import com.summit.core.tool.ToolResultType;
 import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolExecution;
@@ -20,36 +23,34 @@ import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 
 
+import java.io.Serializable;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Optional;
 
 @Slf4j
 @AllArgsConstructor
 public class ContextCompactToolExecutor implements ToolExecutor {
     private final ChatModel chatModel;
+    private final PlanStore planStore;
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     @Override
     public @NonNull ToolExecuteResult execute(ToolExecution toolExecution) {
         String context = extractContext(toolExecution.getArgs());
+        Optional<PlanEntity> sessionPlan = planOf(toolExecution.getSessionId());
+
+        StringBuilder systemPrompt = new StringBuilder(ContextCompactionPrompt.BASE_COMPACTION_PROMPT);
+        sessionPlan.ifPresent(plan -> systemPrompt.append("\n").append(ContextCompactionPrompt.PLAN_PROTECTION_PROMPT));
+
         List<Message> messages = new LinkedList<>();
-        messages.add(SystemMessageEntity.builder().text("""
-                                                       You are a context compression assistant. Compress the given conversation history into a concise but complete summary so the conversation can be continued seamlessly.
-                                                       Keep all important facts, decisions, user requirements, tool calls and their results, and the current task state.
-                                                       Write the summary in the same language as the conversation.
-                                                       Reply with EXACTLY ONE valid JSON object and nothing else: no markdown code fences, no explanation, no surrounding text.
-                                                       Escape every newline and tab inside string values as \\n / \\t, so each string occupies a single line.
-                                                       Schema (field names must be exactly as below, "completed"/"pending" are arrays of strings):
-                                                       {
-                                                         "goal": "the goal of the conversation",
-                                                         "summary": "a detailed but compact summary of the conversation history",
-                                                         "completed": ["task 1", "task 2"],
-                                                         "pending": ["task 1", "task 2"],
-                                                         "state": "DONE"
-                                                       }
-                                                        Value of "state" must be one of: DONE or FAILED.
-                                                       """).build());
-        messages.add(UserMessageEntity.from(context));
+        messages.add(SystemMessageEntity.builder().text(systemPrompt.toString()).build());
+        // The raw plan is attached to the compression input so it never gets lost,
+        // even when the main model truncated the tool args.
+        String payload = sessionPlan
+                .map(plan -> context + ContextCompactionPrompt.PROTECTED_PLAN_MARKER + plan.text())
+                .orElse(context);
+        messages.add(UserMessageEntity.from(payload));
         ChatRequestEntity request = ChatRequestEntity.builder()
                 .messages(messages)
                 .build();
@@ -63,6 +64,13 @@ public class ContextCompactToolExecutor implements ToolExecutor {
                 response.getAiMessageEntity().text(),
                 ToolResultType.CONTEXT_COMPACT
         );
+    }
+
+    private Optional<PlanEntity> planOf(Serializable sessionId) {
+        if (sessionId == null) {
+            return Optional.empty();
+        }
+        return this.planStore.findBySession(sessionId);
     }
 
     private String extractContext(String args) {

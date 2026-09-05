@@ -10,6 +10,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @Getter
+@Setter
 public class AiMessageEntity implements Message{
     private String text;
     private String thinking;

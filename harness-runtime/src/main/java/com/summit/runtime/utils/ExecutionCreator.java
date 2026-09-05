@@ -25,6 +25,7 @@ public class ExecutionCreator {
                 .executionState(ExecutionState.CREATED)
                 .messages(messages)
                 .streaming(agentRequest.isStreaming())
+                .loopBoundary(agentRequest.getLoopBoundary())
                 .build();
     }
 }

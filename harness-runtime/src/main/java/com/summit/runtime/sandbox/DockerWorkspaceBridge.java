@@ -4,6 +4,7 @@ import com.summit.core.runtime.ProcessRunner;
 import com.summit.core.runtime.WorkspaceBridge;
 import lombok.extern.slf4j.Slf4j;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -12,6 +13,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
 
 /**
  * {@link WorkspaceBridge} that routes file IO and command execution into a
@@ -89,11 +92,6 @@ public class DockerWorkspaceBridge implements WorkspaceBridge {
             cmd.add(hostMountPath(hostDir) + ":" + mountTarget);
         }
         cmd.add(image == null || image.isBlank() ? "alpine" : image);
-        // Keep the container alive: an image without a long-running foreground
-        // process (e.g. alpine, whose default command /bin/sh exits immediately
-        // when there is no stdin/tty) would stop right after `docker run`,
-        // making every subsequent `docker exec` fail with "container is not
-        // running".
         cmd.add("tail");
         cmd.add("-f");
         cmd.add("/dev/null");
@@ -105,6 +103,106 @@ public class DockerWorkspaceBridge implements WorkspaceBridge {
 
     public static String initContainer(String name, String port) {
         return initContainer(name, port, null, null, null);
+    }
+
+    /**
+     * A container found by {@link #findContainerByMount(String)}.
+     *
+     * @param containerId       the container id (short or full)
+     * @param containerName     the container name without the leading '/'
+     * @param mountDestination  in-container absolute path the host directory is mounted at
+     */
+    public record ContainerMount(String containerId, String containerName, String mountDestination) {
+    }
+
+    /**
+     * Looks up any existing container (running or stopped) that bind-mounts the
+     * given host directory.
+     *
+     * <p>The directory is matched against {@code docker inspect} mount sources
+     * after two-sided path normalization ({@code \} to {@code /}, trailing
+     * slashes stripped). On a Windows host the comparison is case-insensitive,
+     * because both docker's reported source and the caller-supplied path may
+     * differ in drive-letter casing. The first hit is returned together with
+     * the in-container mount destination, so the caller can {@link
+     * DockerWorkspace#attach} the container without re-creating it.</p>
+     *
+     * @param hostDir the host directory to search for in containers' bind mounts
+     * @return the first container mounting {@code hostDir}, or empty when none does
+     * @throws RuntimeException when docker cannot be queried
+     */
+    public static Optional<ContainerMount> findContainerByMount(String hostDir) {
+        if (hostDir == null || hostDir.isBlank()) {
+            throw new IllegalArgumentException("host directory must not be blank");
+        }
+        String target = normalizeHostPath(Paths.get(hostDir).toAbsolutePath().normalize().toString());
+        if (target.isEmpty()) {
+            throw new IllegalArgumentException("host directory must not be blank");
+        }
+
+        List<String> containerIds;
+        try {
+            byte[] bytes = runForOutput(List.of("docker", "ps", "-a", "-q"));
+            String out = new String(bytes, StandardCharsets.UTF_8).trim();
+            if (out.isEmpty()) {
+                return Optional.empty();
+            }
+            containerIds = List.of(out.split("\\R"));
+        } catch (IOException e) {
+            throw new RuntimeException("failed to list docker containers", e);
+        }
+
+        for (String containerId : containerIds) {
+            String inspect;
+            try {
+                // One line per container: "<name>|<source> => <destination>;..." per mount.
+                byte[] bytes = runForOutput(List.of("docker", "inspect", "-f",
+                        "{{.Name}}|{{range .Mounts}}{{.Source}} => {{.Destination}};{{end}}", containerId));
+                inspect = new String(bytes, StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                // The container may have been removed concurrently — skip it.
+                log.debug("skipping container {} during mount lookup: {}", containerId, e.getMessage());
+                continue;
+            }
+            int separator = inspect.indexOf('|');
+            if (separator < 0) {
+                continue;
+            }
+            String name = inspect.substring(0, separator).trim();
+            if (name.startsWith("/")) {
+                name = name.substring(1);
+            }
+            String mounts = inspect.substring(separator + 1);
+            for (String mount : mounts.split(";")) {
+                int arrow = mount.indexOf(" => ");
+                if (arrow <= 0) {
+                    continue;
+                }
+                String source = normalizeHostPath(mount.substring(0, arrow));
+                if (source.isEmpty() || !hostPathEquals(source, target)) {
+                    continue;
+                }
+                String destination = mount.substring(arrow + 4).trim();
+                return Optional.of(new ContainerMount(containerId, name, destination));
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Ensures a container is running, starting it when necessary.
+     *
+     * <p>{@code docker start} is a no-op for an already-running container, so
+     * this method is idempotent.</p>
+     *
+     * @param containerId the container id to start
+     * @throws RuntimeException when the container cannot be started
+     */
+    public static void ensureRunning(String containerId) {
+        if (containerId == null || containerId.isBlank()) {
+            throw new IllegalArgumentException("container id must not be blank");
+        }
+        runOrThrow(List.of("docker", "start", containerId));
     }
 
     /**
@@ -128,6 +226,80 @@ public class DockerWorkspaceBridge implements WorkspaceBridge {
     private static String hostMountPath(String hostDir) {
         Path p = Paths.get(hostDir).toAbsolutePath().normalize();
         return p.toString().replace('\\', '/');
+    }
+
+    /**
+     * Normalizes a host path for comparison: translates docker-for-Windows
+     * internal mount prefixes back to their native drive form, converts
+     * backslashes to forward slashes and strips trailing slashes (keeping a
+     * single slash for the filesystem root). Both sides of a mount comparison
+     * must pass through this method before being compared.
+     */
+    private static String normalizeHostPath(String path) {
+        String norm = translateDockerHostPath(path.trim());
+        norm = norm.replace('\\', '/');
+        while (norm.endsWith("/") && norm.length() > 1) {
+            norm = norm.substring(0, norm.length() - 1);
+        }
+        return norm;
+    }
+
+    /**
+     * Docker Desktop (WSL2 / legacy Hyper-V backend) reports bind-mount sources
+     * in an internal form such as {@code /run/desktop/mnt/host/d/Code/...} or
+     * {@code /host_mnt/d/Code/...}. Those are mapped back to {@code D:/Code/...}
+     * so they can be compared with a native Windows path supplied by the user.
+     * The {@code /mnt/<drive>} form is only translated on a Windows host, where
+     * it cannot be a genuine Linux directory.
+     */
+    private static String translateDockerHostPath(String path) {
+        if (path.startsWith("/run/desktop/mnt/host/")) {
+            return toDrivePath(path, "/run/desktop/mnt/host/".length());
+        }
+        if (path.startsWith("/host_mnt/")) {
+            return toDrivePath(path, "/host_mnt/".length());
+        }
+        if (isWindowsHost() && path.startsWith("/mnt/")) {
+            return toDrivePath(path, "/mnt/".length());
+        }
+        return path;
+    }
+
+    /**
+     * Converts an internal docker host path whose mount prefix ends just before
+     * a drive letter into its native form ({@code /run/desktop/mnt/host/d/...}
+     * -&gt; {@code D:/...}). Returns the input unchanged when the character after
+     * the prefix is not a drive letter.
+     */
+    private static String toDrivePath(String path, int driveIndex) {
+        if (driveIndex >= path.length()) {
+            return path;
+        }
+        char drive = path.charAt(driveIndex);
+        boolean isLetter = (drive >= 'a' && drive <= 'z') || (drive >= 'A' && drive <= 'Z');
+        if (!isLetter) {
+            return path;
+        }
+        if (driveIndex + 1 < path.length() && path.charAt(driveIndex + 1) != '/') {
+            return path;
+        }
+        String rest = driveIndex + 1 < path.length() ? path.substring(driveIndex + 1) : "/";
+        return Character.toUpperCase(drive) + ":" + rest;
+    }
+
+    /**
+     * Compares two normalized host paths. On a Windows host the comparison is
+     * case-insensitive (docker may report {@code D:\...} while the caller
+     * supplies {@code d:/...}); elsewhere it is case-sensitive.
+     */
+    private static boolean hostPathEquals(String a, String b) {
+        return isWindowsHost()
+                ? a.toLowerCase(Locale.ROOT).equals(b.toLowerCase(Locale.ROOT))
+                : a.equals(b);
+    }
+
+    private static boolean isWindowsHost() {
+        return File.separatorChar == '\\';
     }
 
     /**

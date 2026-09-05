@@ -23,6 +23,15 @@ public class RuntimeEventPublisher {
         }
     }
 
+    public void onCommandCheck(WaitCommandCheckEvent waitCommandCheckEvent){
+        try {
+            listeners.forEach(listener -> listener.onWaitCommandCheck(waitCommandCheckEvent));
+        }catch (Exception e){
+            log.error("Error occurred while publishing execution command tool check event", e);
+        }
+    }
+
+
     public void onToolCall(ToolCallStartEvent event) {
         try {
             listeners.forEach(listener -> listener.onToolCall(event));
@@ -96,6 +105,22 @@ public class RuntimeEventPublisher {
             listeners.forEach(listener -> listener.onPartialThinking(event));
         } catch (Exception e) {
             log.error("Error occurred while publishing partial thinking event", e);
+        }
+    }
+
+    public void onPlanDecision(PlanDecisionEvent event) {
+        try {
+            listeners.forEach(listener -> listener.onPlanDecision(event));
+        } catch (Exception e) {
+            log.error("Error occurred while publishing plan decision event", e);
+        }
+    }
+
+    public void onContextUpdate(ContextUpdateEvent event) {
+        try {
+            listeners.forEach(listener -> listener.onContextUpdate(event));
+        } catch (Exception e) {
+            log.error("Error occurred while publishing context update event", e);
         }
     }
 }
