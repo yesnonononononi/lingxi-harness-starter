@@ -4,12 +4,12 @@ package com.summit.core.conversation.context;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.internalUtils.PlanLoopHook;
 import com.summit.core.model.ModelInvoker;
 import com.summit.core.runtime.CheckPointer;
 import com.summit.core.runtime.LifeStyleCommandRegistry;
 import com.summit.core.runtime.LifeStyleCommandStore;
 import com.summit.core.runtime.Workspace;
-import com.summit.core.tool.PlanApprovalRegistry;
 import com.summit.core.tool.ToolExecutionManager;
 import lombok.Getter;
 import lombok.experimental.SuperBuilder;
@@ -31,11 +31,10 @@ public class RuntimeContext
     /** Registry the execution registered its store in, released on exit (optional). */
     private final LifeStyleCommandRegistry lifeStyleCommandRegistry;
     /**
-     * Registry of plans awaiting human approval, used by the plan-level approval
-     * gate (PLANING -&gt; user APPROVE/REJECT -&gt; EXECUTE). Optional: when absent,
-     * a captured plan is auto-approved (legacy behaviour).
+     * Plan-mode integration point of the agent loop (created by the plan kernel configuration).
+     * Optional: when absent, the loop behaves exactly as before — no plan lifecycle at all.
      */
-    private final PlanApprovalRegistry planApprovalRegistry;
+    private final PlanLoopHook planLoopHook;
     private static final int DEFAULT_MAX_ITERATIONS = 10;
     public int getMaxIterations() {
         return maxIterations != null ? maxIterations : DEFAULT_MAX_ITERATIONS;

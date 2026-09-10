@@ -13,13 +13,11 @@ import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.conversation.message.ToolMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
-import com.summit.core.plan.PlanDecision;
-import com.summit.core.plan.PlanEntity;
-import com.summit.core.plan.PlanStepStatus;
+import com.summit.core.plan.PlanOutline;
+import com.summit.core.plan.PlanStore;
 import com.summit.core.runtime.Workspace;
 import com.summit.core.tool.LoopBoundary;
 import com.summit.core.tool.ToolExecuteResult;
-import com.summit.runtime.plan.PlanCoordinator;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -38,7 +36,8 @@ public class DefaultConversationManager implements ConversationManager {
     private final RuntimeEventPublisher runtimeEventPublisher;
     private final SystemPromptAssembler systemPromptAssembler;
     private final String defaultSystemPrompt;
-    private final PlanCoordinator planCoordinator;
+    /** Session plans, used to protect the plan from being squeezed away by a context rebuild. */
+    private final PlanStore planStore;
 
 
     @Override
@@ -92,23 +91,13 @@ public class DefaultConversationManager implements ConversationManager {
     }
 
     @Override
-    public Optional<PlanDecision> capturePlan(Serializable sessionId, String executionId, String aiText, LoopBoundary boundary) {
-        return this.planCoordinator.capture(sessionId, executionId, aiText, boundary);
-    }
-
-    @Override
-    public Optional<PlanEntity> planOf(Serializable sessionId) {
-        return this.planCoordinator.planOf(sessionId);
-    }
-
-    @Override
-    public Optional<PlanEntity> appendPlanStep(Serializable sessionId, String description) {
-        return this.planCoordinator.appendStep(sessionId, description);
-    }
-
-    @Override
-    public Optional<PlanEntity> updatePlanSteps(Serializable sessionId, PlanStepStatus status) {
-        return this.planCoordinator.markSteps(sessionId, status);
+    public void appendUserMessage(Serializable sessionId, String text) {
+        if (text == null || text.isBlank()) {
+            return;
+        }
+        ConversationEntity conversation = getConversationEntity(sessionId);
+        conversation.messages().add(UserMessageEntity.from(text));
+        this.conversationStore.save(sessionId, conversation);
     }
 
     @Override
@@ -134,7 +123,7 @@ public class DefaultConversationManager implements ConversationManager {
 
             List<Message> rebuilt = new ArrayList<>();
             rebuilt.add(systemMessage);
-            // Protection: re-attach the session plan verbatim (or, as a fallback, the first
+            // Protection: re-attach the rendered session plan (or, as a fallback, the first
             // pure-text AI message of the history) so the produced plan survives compaction.
             if (planText != null && !planText.isBlank()) {
                 rebuilt.add(AiMessageEntity.builder().text(planText).build());
@@ -174,14 +163,15 @@ public class DefaultConversationManager implements ConversationManager {
 
     /**
      * Resolves the plan text to re-attach after a context rebuild:
-     * 1. the raw plan stored in the session {@link PlanStore}, when present;
+     * 1. the rendered plan of the session {@link PlanStore}, when present — rendered through
+     *    {@link PlanOutline} so every consumer sees the exact same plan text;
      * 2. otherwise the first pure-text (tool-call-free) AI message in the history
-     *    (the message that originally proposed the plan).
+     *    (the message that originally proposed the work).
      */
     private String planTextForRebuild(Serializable sessionId, ConversationEntity conversation) {
-        Optional<PlanEntity> plan = this.planCoordinator.planOf(sessionId);
-        if (plan.isPresent() && plan.get().text() != null && !plan.get().text().isBlank()) {
-            return plan.get().text();
+        String planText = this.planStore.findBySession(sessionId).map(PlanOutline::render).orElse(null);
+        if (planText != null && !planText.isBlank()) {
+            return planText;
         }
         for (Message message : conversation.messages()) {
             if (message instanceof AiMessageEntity ai
@@ -248,10 +238,10 @@ public class DefaultConversationManager implements ConversationManager {
     }
 
 
-    /**
-     * Get the assembled system message for the given agent request.
-     * The three-part prompt (default template + custom prompt + loop boundary)
-     * is assembled by {@link SystemPromptAssembler}.
+    /*
+      Get the assembled system message for the given agent request.
+      The three-part prompt (default template + custom prompt + loop boundary)
+      is assembled by {@link SystemPromptAssembler}.
      */
     /**
      * Assembles the three-part system prompt text for the given workspace / custom
@@ -273,7 +263,7 @@ public class DefaultConversationManager implements ConversationManager {
      *
      * <p>Only rebuilds when the assembled text actually changed. Legacy conversations
      * whose leading message is not a system message get the system message inserted
-     * at index 0. The {@link ConversationEntity#systemMessageEntity} field is kept in
+     * at index 0. The  field is kept in
      * sync so later context rebuilds reuse the same message.</p>
      */
     private void refreshSystemMessage(AgentRequest agentRequest, ConversationEntity conversation) {
@@ -283,19 +273,19 @@ public class DefaultConversationManager implements ConversationManager {
     /**
      * Puts the given system message at index 0 of the conversation message stream
      * (replacing an existing leading system message, or inserting one for legacy
-     * conversations), keeps {@link ConversationEntity#systemMessageEntity} in sync and
+     * conversations), keeps  in sync and
      * persists the change. No-op when the leading message already carries the same text.
      */
     private void setLeadingSystemMessage(ConversationEntity conversation, SystemMessageEntity systemMessage, Serializable sessionId) {
         List<Message> messages = conversation.messages();
-        Message first = messages.isEmpty() ? null : messages.get(0);
+        Message first = messages.isEmpty() ? null : messages.getFirst();
         if (first instanceof SystemMessageEntity existing && existing.text().equals(systemMessage.text())) {
             return;
         }
         if (first instanceof SystemMessageEntity) {
             messages.set(0, systemMessage);
         } else {
-            messages.add(0, systemMessage);
+            messages.addFirst(systemMessage);
         }
         ConversationEntity refreshed = new ConversationEntity(conversation.sessionId(), conversation.sessionName(),
                 messages, conversation.tokenUsageEntity(), systemMessage, conversation.workspace());

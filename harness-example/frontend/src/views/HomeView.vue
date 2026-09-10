@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { getUser, removeToken } from '../utils/auth'
 import request from '../utils/request'
-import { acceptEdit, rejectEdit, acceptTurn, rejectTurn, listPendingEdits } from '../api/fileEdit'
+import { acceptEdit, rejectEdit, acceptTurn, rejectTurn, listPendingEdits, getEditDetail } from '../api/fileEdit'
 import { listDirs, selectWorkspace, getCurrentWorkspace } from '../api/workspace'
 import FileDiff from '../components/FileDiff.vue'
 import MarkdownContent from '../components/MarkdownContent.vue'
@@ -110,7 +110,7 @@ const eventTypeLabels = {
   EXECUTION_FAILED: '失败',
   EXECUTION_CANCELLED: '取消',
   WAIT_COMMAND_CHECK: '命令审批',
-  PLAN_DECISION: '计划审批'
+  PLAN_UPDATE: '计划卡片'
 }
 
 const terminalEventTypes = new Set(['EXECUTION_COMPLETED', 'EXECUTION_FAILED', 'EXECUTION_CANCELLED'])
@@ -256,6 +256,32 @@ async function decideAllPending(accept) {
   }
 }
 
+// 按需拉取单条编辑的完整旧/新内容(SSE 卡片已内联内容,此处仅兜底历史回放)
+async function loadEditContent(item) {
+  if (item.loaded || item.loading || !item.recordId) return
+  item.loading = true
+  try {
+    const data = await getEditDetail(currentSessionId.value, item.recordId)
+    item.filePath = data?.filePath || item.filePath
+    item.oldContent = data?.oldContent ?? ''
+    item.newContent = data?.newContent ?? ''
+    item.plusLines = data?.plusLines ?? item.plusLines
+    item.minusLines = data?.minusLines ?? item.minusLines
+    item.loaded = true
+  } catch (err) {
+    item.loaded = false
+    appendLog({ time: now(), type: 'ERROR', text: `加载文件 diff 失败:${err.message || err}` })
+  } finally {
+    item.loading = false
+  }
+}
+
+// 点击条目:展开/收起并懒加载 diff(时间线卡片与待裁决列表共用)
+async function toggleEditDiff(item) {
+  item.open = !item.open
+  if (item.open) await loadEditContent(item)
+}
+
 // ====== 命令审批（工具执行前 ack） ======
 // WAIT_COMMAND_CHECK 卡片：批准后 agent 循环被唤醒，命令以同一执行真正运行；
 // 拒绝则命令不会执行，agent 带着拒绝原因继续
@@ -277,49 +303,275 @@ async function decideCommandAck(item, approve) {
   }
 }
 
-// ====== 计划审批（PLANING → 等待批准 → EXECUTE 实施） ======
-// PLAN_DECISION 卡片：计划产出后 agent 挂起等待人工批准；批准后 agent 循环被
-// 唤醒并以 EXECUTE 边界实施该计划，拒绝则本轮结束且不会实施任何改动
-async function decidePlanAck(item, approve) {
-  if (!item.executionId || item.decision || item.deciding) return
+// ====== 计划内核卡片（PLANING → 批准 / 重新规划 / 拒绝 → EXECUTE 实施） ======
+// 计划由内核工具（create_plan / update_plan / update_task / complete_task）创建与推进，
+// 后端每次变更都会广播一条 PLAN_UPDATE（携带整份计划快照）。批准前 agent 挂起等待人工
+// 决策：用户可就地编辑任务的「验收标准 / 描述」，再批准执行、重新规划或拒绝。
+async function approvePlanItem(item) {
+  if (!canDecidePlan(item)) return
   item.deciding = true
   try {
-    await request.post(`/agent/plans/${item.executionId}/${approve ? 'approve' : 'reject'}`)
-    item.decision = approve ? 'ACCEPTED' : 'REJECTED'
-    // 计划状态机（最终一致）：批准通过 -> 已批准；本轮正常收尾 -> 已完成（见 terminal 处理）
-    if (approve) item.state = 'APPROVED'
+    await request.post(planActionUrl(item, 'approve'))
+    item.decision = 'ACCEPTED'
+    item.folded = true
   } catch (err) {
-    const msg = err?.response?.data?.message || err?.message || err
-    appendLog({ time: now(), type: 'ERROR', text: `计划审批失败：${msg}` })
-    // 404/409：计划已不存在（超时/会话结束）或已被其他端决断，标记为失效避免重复操作
-    if (err?.response?.status === 404 || err?.response?.status === 409) {
-      item.decision = 'STALE'
-    }
+    handlePlanError(item, err, '批准计划失败')
   } finally {
     item.deciding = false
   }
 }
 
+// 重新规划：把修改意见（可选）与当前计划一起交给 agent；agent 回到 PLANING 重做计划，
+// 新计划会以新的 PLAN_UPDATE 卡片出现，本卡片收敛为「已发起重新规划」
+async function revisePlanItem(item) {
+  if (!canDecidePlan(item)) return
+  item.deciding = true
+  try {
+    const message = (item.reviseMessage || '').trim()
+    await request.post(planActionUrl(item, 'revise'), message ? { message } : {})
+    item.decision = 'REVISED'
+    item.folded = true
+  } catch (err) {
+    handlePlanError(item, err, '重新规划失败')
+  } finally {
+    item.deciding = false
+  }
+}
+
+async function rejectPlanItem(item) {
+  if (!canDecidePlan(item)) return
+  item.deciding = true
+  try {
+    await request.post(planActionUrl(item, 'reject'), {})
+    item.decision = 'REJECTED'
+    item.folded = true
+  } catch (err) {
+    handlePlanError(item, err, '拒绝计划失败')
+  } finally {
+    item.deciding = false
+  }
+}
+
+// 只有后端仍在等待决断的草稿计划（门尚未被写入）才能被操作
+function canDecidePlan(item) {
+  return !!item.planId && !item.decision && !item.deciding
+}
+
+// 决断地址优先用后端随事件下发的 URL，缺失时按 planId 兜底拼装
+function planActionUrl(item, action) {
+  return item[`${action}Url`] || `/agent/plans/${item.planId}/${action}`
+}
+
+function handlePlanError(item, err, prefix) {
+  const msg = err?.response?.data?.message || err?.message || err
+  appendLog({ time: now(), type: 'ERROR', text: `${prefix}：${msg}` })
+  // 404/409：计划已不存在（超时/会话结束）或已被其他端决断，标记为失效避免重复操作
+  if (err?.response?.status === 404 || err?.response?.status === 409) {
+    item.decision = 'STALE'
+    item.folded = true
+  }
+}
+
+const PLAN_STATUS_LABEL = { DRAFT: '草稿', APPROVED: '已批准', EXECUTING: '执行中', DONE: '已完成' }
+const TASK_STATUS_LABEL = { TODO: '待开始', DOING: '进行中', BLOCKED: '受阻', DONE: '已完成' }
+
+function normalizePlanTask(task) {
+  const status = task?.status || 'TODO'
+  return {
+    id: task?.id || '',
+    title: task?.title || '',
+    description: task?.description || '',
+    status,
+    statusLabel: task?.statusLabel || TASK_STATUS_LABEL[status] || status,
+    dependencies: Array.isArray(task?.dependencies) ? task.dependencies : [],
+    priority: typeof task?.priority === 'number' ? task.priority : null,
+    acceptance: task?.acceptance || '',
+    // 就地编辑态：编辑草稿、保存中、错误提示与「已保存」轻提示
+    editing: false,
+    draftAcceptance: '',
+    draftDescription: '',
+    saving: false,
+    saveError: '',
+    savedFlash: false,
+    open: false,
+  }
+}
+
+// 后端整份计划快照 → 卡片；同一任务正在编辑的草稿被保留，避免事件刷新打断用户输入
+function applyPlanSnapshot(item, data) {
+  if (!data) return
+  item.planId = data.id || item.planId
+  item.version = data.version || item.version
+  item.title = data.title || item.title
+  item.summaryMarkdown = data.summaryMarkdown || ''
+  item.outline = data.outline || ''
+  item.status = data.status || item.status
+  item.statusLabel = data.statusLabel || item.statusLabel
+  item.doneTasks = typeof data.doneTasks === 'number' ? data.doneTasks : item.doneTasks
+  item.totalTasks = typeof data.totalTasks === 'number' ? data.totalTasks : item.totalTasks
+  item.progress = data.progress || item.progress
+  item.approveUrl = data.approveUrl || ''
+  item.reviseUrl = data.reviseUrl || ''
+  item.rejectUrl = data.rejectUrl || ''
+  if (data.state) item.state = data.state
+  // 计划已被决断（可能是本端点击，也可能是其他端 / 等待超时）：卡片同步收敛为结论行
+  if (!item.decision) {
+    if (data.state === 'APPROVED') { item.decision = 'ACCEPTED'; item.folded = true }
+    else if (data.state === 'REVISED') { item.decision = 'REVISED'; item.folded = true }
+    else if (data.state === 'REJECTED') { item.decision = 'REJECTED'; item.folded = true }
+  }
+  if (!Array.isArray(data.tasks)) return
+  const previousById = new Map((item.tasks || []).map((task) => [task.id, task]))
+  item.tasks = data.tasks
+    .map((task) => {
+      const draft = previousById.get(task.id) || {}
+      return {
+        ...normalizePlanTask(task),
+        editing: !!draft.editing,
+        draftAcceptance: draft.editing ? draft.draftAcceptance || '' : '',
+        draftDescription: draft.editing ? draft.draftDescription || '' : '',
+        saving: !!draft.saving,
+        open: !!draft.open,
+      }
+    })
+    // 低优先级数值优先展示（与后端 PlanOutline 的排序一致），缺省排在最后
+    .sort((a, b) => (a.priority ?? Number.MAX_SAFE_INTEGER) - (b.priority ?? Number.MAX_SAFE_INTEGER))
+}
+
+// 一条 PLAN_UPDATE(整份计划快照)：同一 planId 就地合并到已有卡片，避免任务推进过程中堆卡片
+function applyPlanUpdate(evt) {
+  const data = evt.data || {}
+  const planId = data.id || ''
+  if (!planId) return null
+  const existing = events.value.filter((entry) => entry.type === 'PLAN_UPDATE' && entry.planId === planId).pop()
+  if (existing) {
+    applyPlanSnapshot(existing, data)
+    return existing
+  }
+  const item = {
+    time: now(),
+    type: 'PLAN_UPDATE',
+    executionId: evt.executionId || '',
+    sessionId: evt.sessionId || '',
+    planId,
+    version: data.version || 1,
+    title: '',
+    summaryMarkdown: '',
+    outline: '',
+    status: 'DRAFT',
+    statusLabel: '',
+    doneTasks: 0,
+    totalTasks: 0,
+    progress: '0/0',
+    tasks: [],
+    state: data.state || '',
+    decision: '',
+    deciding: false,
+    reviseOpen: false,
+    reviseMessage: '',
+    folded: false,
+    planTextOpen: false,
+  }
+  applyPlanSnapshot(item, data)
+  events.value.push(item)
+  scrollToBottom()
+  return item
+}
+
+function planTaskOf(item, taskId) {
+  return (item.tasks || []).find((task) => task.id === taskId) || null
+}
+
+// 批准前（草稿且未决断）才允许编辑任务与决断
+function canEditPlanTasks(item) {
+  return item.status === 'DRAFT' && !item.decision
+}
+
+function startEditPlanTask(task) {
+  task.editing = true
+  task.saveError = ''
+  task.draftAcceptance = task.acceptance || ''
+  task.draftDescription = task.description || ''
+}
+
+function cancelEditPlanTask(task) {
+  task.editing = false
+  task.saveError = ''
+  task.draftAcceptance = ''
+  task.draftDescription = ''
+}
+
+// 保存任务补丁：携带卡片渲染时的 plan version，后端做乐观并发校验；
+// 版本冲突（409）时回填后端返回的最新计划，用户可基于最新内容重试。
+async function savePlanTask(item, task) {
+  const taskId = task.id
+  if (task.saving || !item.sessionId || !item.planId) return
+  task.saving = true
+  task.saveError = ''
+  try {
+    const plan = await request.put(
+      `/agent/sessions/${item.sessionId}/plans/${item.planId}/tasks/${taskId}`,
+      {
+        version: item.version,
+        acceptance: (task.draftAcceptance || '').trim(),
+        description: (task.draftDescription || '').trim(),
+      },
+    )
+    applyPlanSnapshot(item, plan)
+    const saved = planTaskOf(item, taskId)
+    if (saved) {
+      saved.editing = false
+      saved.savedFlash = true
+      setTimeout(() => { saved.savedFlash = false }, 2000)
+    }
+  } catch (err) {
+    const body = err?.response?.data
+    const msg = body?.message || err?.message || err
+    // 先用后端返回的最新计划刷新卡片（版本冲突时内容已被他人变更），再回填错误提示
+    if (body?.data?.latest) applyPlanSnapshot(item, body.data.latest)
+    const failed = planTaskOf(item, taskId)
+    if (failed) failed.saveError = msg
+    appendLog({ time: now(), type: 'ERROR', text: `保存任务失败：${msg}` })
+  } finally {
+    const current = planTaskOf(item, taskId)
+    if (current) current.saving = false
+    else task.saving = false
+  }
+}
+
+function planCardIcon(item) {
+  if (item.decision === 'ACCEPTED') return 'OK'
+  if (item.decision === 'REVISED') return 'REVISE'
+  if (item.decision === 'REJECTED') return 'REJECT'
+  if (item.decision === 'STALE') return 'STALE'
+  if (item.status === 'DONE') return 'DONE'
+  if (item.status === 'EXECUTING') return 'RUN'
+  return 'PLAN'
+}
+
 function planCardTitle(item) {
-  if (item.decision === 'ACCEPTED') return '计划已批准'
+  if (item.decision === 'ACCEPTED') return '已批准执行'
+  if (item.decision === 'REVISED') return '已发起重新规划'
   if (item.decision === 'REJECTED') return '计划已拒绝'
-  if (item.decision === 'STALE') return '审批已失效'
+  if (item.decision === 'STALE') return '计划卡片已失效'
+  if (item.status === 'EXECUTING') return '计划执行中'
+  if (item.status === 'DONE') return '计划已完成'
   return '等待计划批准'
 }
 
 function planCardSub(item) {
-  if (item.decision === 'ACCEPTED') return 'agent 将按此计划开始实施，请留意后续工具动作'
+  if (item.decision === 'ACCEPTED') return `agent 正按计划实施 · ${item.progress} 任务完成`
+  if (item.decision === 'REVISED') return 'agent 已带着你的修改意见重新规划，新计划稍后以新卡片给出'
   if (item.decision === 'REJECTED') return '本轮不会实施该计划，可直接发送新指令调整'
   if (item.decision === 'STALE') return '该计划已结束（超时/被其他端处理），此卡片仅作记录'
-  return 'agent 已产出计划并暂停，批准后才开始实施'
+  if (item.status === 'EXECUTING') return `agent 正在实施该计划 · ${item.progress} 任务完成`
+  if (item.status === 'DONE') return `计划已全部完成 · ${item.progress}`
+  return 'agent 已产出计划并暂停：可编辑任务的验收标准，再批准执行、重新规划或拒绝'
 }
 
-// 计划级状态机标签（后端 PlanEntity.state）：未批准 → 已批准 → 已完成
-function planStateLabel(state) {
-  if (state === 'UN_APPROVED') return '未批准'
-  if (state === 'APPROVED') return '已批准'
-  if (state === 'COMPLETED') return '已完成'
-  return ''
+// 计划级状态标签：草稿 / 已批准 / 执行中 / 已完成
+function planStatusLabel(item) {
+  return item.statusLabel || PLAN_STATUS_LABEL[item.status] || ''
 }
 
 function ackTitle(item) {
@@ -456,12 +708,18 @@ function connectEvents() {
         // - 批准后中止(FAILED/CANCELLED)的计划停留在“已批准”（后端同理，不前置到已完成）
         const finishedExecutionId = evt.executionId || ''
         events.value.forEach((entry) => {
-          if (entry.type !== 'PLAN_DECISION'
+          if (entry.type !== 'PLAN_UPDATE'
             || (finishedExecutionId && entry.executionId !== finishedExecutionId)) return
           if (!entry.decision) {
-            entry.decision = 'STALE'
-          } else if (entry.decision === 'ACCEPTED' && evt.type === 'EXECUTION_COMPLETED') {
-            entry.state = 'COMPLETED'
+            // 仍是草稿且审批门已被释放（等待超时/会话结束）：本卡片失效，不能再决断
+            if (entry.status === 'DRAFT') {
+              entry.decision = 'STALE'
+              entry.folded = true
+            }
+            return
+          }
+          if (entry.decision === 'ACCEPTED' && evt.type === 'EXECUTION_COMPLETED') {
+            entry.status = 'DONE'
           }
         })
       }
@@ -482,6 +740,8 @@ function connectEvents() {
           decision: evt.data?.recordId ? 'pending' : 'none',
           deciding: false,
           open: false,
+          loaded: true,
+          loading: false,
         })
         return
       }
@@ -499,37 +759,10 @@ function connectEvents() {
         })
         return
       }
-      if (evt.type === 'PLAN_DECISION') {
-        // plan 模式产出计划：agent 挂起等待人工批准/拒绝，批准后以 EXECUTE 实施。
-        // 该轮产出计划前 AI 的最后一条回复正文就是计划全文（后端把同一份 aiMessage
-        // 解析成 PlanDecision 再广播），这里把它并入审批卡片 —— 消息流中不再把计划
-        // 书重复展示一遍，思考过程与完整计划都收敛成卡片内的可折叠区块。
-        const planExec = evt.executionId || ''
-        let planFullText = ''
-        let planThinking = ''
-        for (let i = events.value.length - 1; i >= 0; i--) {
-          const prev = events.value[i]
-          if (prev.type !== 'AGENT_MESSAGE') continue
-          if (planExec && prev.executionId !== planExec) continue
-          planFullText = prev.text || ''
-          planThinking = prev.thinking || ''
-          prev.merged = true
-          break
-        }
-        appendLog({
-          time: now(),
-          type: 'PLAN_DECISION',
-          executionId: planExec,
-          title: evt.data?.title || '',
-          steps: Array.isArray(evt.data?.steps) ? evt.data.steps : [],
-          state: evt.data?.state || 'UN_APPROVED',
-          decision: '',
-          deciding: false,
-          planFullText,
-          planThinking,
-          thinkingOpen: false,
-          planTextOpen: false,
-        })
+      if (evt.type === 'PLAN_UPDATE') {
+        // 计划内核（create_plan / update_plan / update_task / complete_task / 审批流转）每次
+        // 变更都会广播整份计划快照：同一 planId 就地合并刷新同一张卡片，任务推进不再堆卡片。
+        applyPlanUpdate(evt)
         return
       }
       if (evt.type === 'FILE_EDIT_DECISION') {
@@ -738,6 +971,7 @@ async function switchSession(session) {
           filePath: e.filePath, oldContent: '', newContent: '',
           plusLines: e.plusLines ?? 0, minusLines: e.minusLines ?? 0,
           decision: 'pending', deciding: false, open: false,
+          loaded: false, loading: false,
         })
       }
     } catch (err) {
@@ -930,23 +1164,30 @@ onBeforeUnmount(() => {
   <div class="home">
     <!-- 左侧边栏：品牌 + 新建会话(sticky 吸顶) + 会话列表 + 左下角状态卡片（DeepSeek 式布局） -->
     <aside class="sidebar" :class="{ collapsed: !showSessions }">
-      <!-- 品牌区 -->
+      <!-- 品牌区（IDE 标题栏） -->
       <div class="sidebar-brand">
-        <div class="logo">灵</div>
+        <div class="logo">LX</div>
         <div class="brand-copy">
-          <div class="brand-name">LingXi 灵犀</div>
-          <div class="brand-sub">智能协作 · 实时执行</div>
+          <div class="brand-name">lingxi-harness</div>
+          <div class="brand-sub">coding agent</div>
         </div>
         <button class="brand-collapse" title="收起侧边栏" @click="showSessions = false">‹</button>
       </div>
 
-      <!-- 会话区（内部可滚动），新建会话吸顶常驻 -->
+      <!-- 资源管理器工具条：新建会话（常驻，不随列表滚动） -->
+      <div class="explorer-actions">
+        <button class="new-session-btn" @click="newSession">
+          <span class="ns-icon" aria-hidden="true">+</span>
+          <span>新建会话</span>
+        </button>
+      </div>
+
+      <!-- 会话区（IDE 资源管理器树） -->
       <div class="session-scroll">
-        <div class="new-session-sticky">
-          <button class="new-session-btn" @click="newSession">
-            <span class="ns-icon" aria-hidden="true">✚</span>
-            <span>新建会话</span>
-          </button>
+        <div class="side-section-label">
+          <span class="caret" aria-hidden="true">▾</span>
+          <span class="label-text">sessions</span>
+          <span class="label-count">{{ sessions.length }}</span>
         </div>
         <div class="session-list">
           <div
@@ -957,32 +1198,28 @@ onBeforeUnmount(() => {
             @click="switchSession(s)"
             :title="s.sessionName || s.sessionId"
           >
-            <span class="session-icon" aria-hidden="true">💬</span>
+            <span class="session-icon" aria-hidden="true">◇</span>
             <span class="session-name">{{ s.sessionName || s.sessionId.slice(0, 8) }}</span>
+            <span class="session-id">{{ s.sessionId.slice(0, 6) }}</span>
           </div>
           <div v-if="sessions.length === 0" class="session-empty">
-            <span class="se-icon" aria-hidden="true">✨</span>
-            <span>暂无会话<br />点击上方「新建会话」开始</span>
+            <span>暂无会话，点击上方「新建会话」开始</span>
           </div>
         </div>
       </div>
 
-      <!-- 左下角状态卡片：连接状态 / 会话数 / 用户 / 操作 -->
+      <!-- 底部状态栏（IDE status bar） -->
       <div class="sidebar-foot">
-        <div class="foot-box">
-          <div class="foot-row foot-status">
+        <div class="statusbar">
+          <span class="sb-item">
             <span class="foot-dot" :class="{ online: sseStatus === '已连接' }"></span>
-            <span class="foot-status-text">链接：{{ sseStatus }}</span>
-            <span class="foot-count">{{ sessions.length }} 个会话</span>
-          </div>
-          <div class="foot-row foot-user">
-            <span class="foot-avatar">{{ (user.name || '客').slice(0, 1) }}</span>
-            <span class="foot-name">{{ user.name || '访客' }}</span>
-            <button class="foot-btn mini" :title="'收起侧边栏'" @click="showSessions = false">‹</button>
-          </div>
-          <div class="foot-actions">
-            <button class="foot-btn logout-danger" @click="handleLogout">退出登录</button>
-          </div>
+            <span>{{ sseStatus }}</span>
+          </span>
+          <span class="sb-item">{{ sessions.length }} sessions</span>
+          <span class="sb-spacer"></span>
+          <span class="sb-user" :title="user.name || '访客'">{{ (user.name || '客').slice(0, 1) }}</span>
+          <button class="sb-btn" title="收起侧边栏" @click="showSessions = false">‹</button>
+          <button class="sb-btn danger" title="退出登录" @click="handleLogout">退出</button>
         </div>
       </div>
     </aside>
@@ -998,7 +1235,7 @@ onBeforeUnmount(() => {
       <div class="session-header">
         <template v-if="!showSessionRename">
           <span class="session-title">{{ currentSessionName || '新会话' }}</span>
-          <button v-if="currentSessionId" class="rename-btn" @click="startRename" title="重命名会话">✎ 重命名</button>
+          <button v-if="currentSessionId" class="rename-btn" @click="startRename" title="重命名会话">重命名</button>
         </template>
         <template v-else>
           <input v-model="renameInput" class="rename-input" placeholder="输入会话名称" @keydown.enter="saveRename" @keydown.esc="cancelRename" />
@@ -1044,28 +1281,25 @@ onBeforeUnmount(() => {
       <!-- 消息列表 -->
       <div v-show="hasChat" ref="logRef" class="messages">
         <template v-for="(item, index) in events" :key="index">
-          <!-- 用户消息：右侧蓝色气泡 -->
+          <!-- 用户消息：终端命令行（等宽 + 左侧强调条） -->
           <div v-if="item.type === 'USER'" class="row row-user">
             <div class="bubble bubble-user">
+              <span class="prompt-glyph" aria-hidden="true">❯</span>
               <div class="bubble-text">{{ item.text }}</div>
             </div>
-            <div class="avatar avatar-user">{{ (user.name || '客').slice(0, 1) }}</div>
           </div>
 
           <!-- 模型 thinking / 回复 -->
-          <!-- merged：该消息是计划产出的正文，已并入对应 PLAN_DECISION 卡片，不再独立展示 -->
-          <div v-else-if="item.type === 'AGENT_MESSAGE' && !item.merged" class="row row-ai">
-            <div class="avatar avatar-ai">L</div>
+          <div v-else-if="item.type === 'AGENT_MESSAGE'" class="row row-ai">
             <div class="ai-body">
-              <div class="ai-name">LingXi</div>
               <div v-if="item.thinking" class="tool-event thinking-event">
                 <div class="tool-card thinking-card" :class="{ open: item.thinkingOpen }">
                   <button class="tool-head" @click="toggleThinking(item)">
-                    <span class="tool-icon" aria-hidden="true">💭</span>
-                    <span class="tool-name">Thinking</span>
+                    <span class="tool-icon" aria-hidden="true">THINK</span>
+                    <span class="tool-name">思考过程</span>
                     <span class="tool-status" :class="item.streaming ? 'running' : 'done'">
                       <template v-if="item.streaming"><i></i><i></i><i></i><em>思考中</em></template>
-                      <template v-else>✓ 思考完成</template>
+                      <template v-else>完成</template>
                     </span>
                     <span class="tool-chevron" :class="{ rotated: item.thinkingOpen }" aria-hidden="true">▾</span>
                   </button>
@@ -1079,11 +1313,11 @@ onBeforeUnmount(() => {
               </div>
               <div v-if="item.text" class="bubble bubble-ai">
                 <div class="ide-bar">
-                  <span class="ide-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-                  <span class="ide-bar-name">LingXi · assistant.md</span>
+                  <span class="ide-bar-name">assistant</span>
+                  <span class="ide-bar-tag">markdown</span>
                   <span class="ide-bar-spacer"></span>
-                  <span v-if="item.streaming" class="ide-bar-tag streaming">● typing</span>
-                  <span v-else class="ide-bar-tag">ai</span>
+                  <span v-if="item.streaming" class="ide-bar-tag streaming">● generating</span>
+                  <span v-else class="ide-bar-tag">ready</span>
                 </div>
                 <pre v-if="item.streaming" class="raw-text">{{ item.text }}</pre>
                 <MarkdownContent v-else :text="item.text" />
@@ -1095,14 +1329,14 @@ onBeforeUnmount(() => {
           <div v-else-if="item.type === 'TOOL_STARTED'" class="tool-event">
             <div class="tool-card" :class="{ open: item.open }">
               <button class="tool-head" :class="{ read: isReadTool(item) }" @click="toggleTool(item)">
-                <span class="tool-icon" aria-hidden="true">{{ isReadTool(item) ? '📖' : '🛠' }}</span>
+                <span class="tool-icon" aria-hidden="true">{{ isReadTool(item) ? 'READ' : 'EXEC' }}</span>
                 <span class="tool-name">{{ item.toolName }}</span>
                 <span v-if="item.fileName" class="tool-file" :title="item.fileName">{{ item.fileName }}<span v-if="item.fileRange" class="tool-range">{{ item.fileRange }}</span></span>
                 <span class="tool-status" :class="item.status">
                   <template v-if="item.status === 'running'">
                     <i></i><i></i><i></i><em>执行中</em>
                   </template>
-                  <template v-else>✓ 完成</template>
+                  <template v-else>完成</template>
                 </span>
                 <span class="tool-chevron" :class="{ rotated: item.open }" aria-hidden="true">▾</span>
               </button>
@@ -1124,12 +1358,12 @@ onBeforeUnmount(() => {
           <!-- 文件编辑 diff 卡片:点击头部展开 Monaco DiffEditor 对比修改前后;已应用待裁决 -->
           <div v-else-if="item.type === 'FILE_EDIT'" class="tool-event">
             <div class="tool-card diff-card" :class="{ open: item.open }">
-              <button class="tool-head" @click="toggleTool(item)">
-                <span class="tool-icon" aria-hidden="true">✏️</span>
+              <button class="tool-head" @click="toggleEditDiff(item)">
+                <span class="tool-icon" aria-hidden="true">EDIT</span>
                 <span class="tool-name">文件修改</span>
                 <span class="tool-file" :title="item.filePath">{{ item.filePath }}</span>
                 <span class="tool-status done">
-                  {{ item.decision === 'REJECTED' ? '↩ 已撤销' : item.decision === 'ACCEPTED' ? '✓ 已保留' : '✓ 已应用' }}
+                  {{ item.decision === 'REJECTED' ? '已撤销' : item.decision === 'ACCEPTED' ? '已保留' : '已应用' }}
                 </span>
                 <span class="tool-chevron" :class="{ rotated: item.open }" aria-hidden="true">▾</span>
               </button>
@@ -1137,8 +1371,9 @@ onBeforeUnmount(() => {
                 <div class="tool-body-inner">
                   <div class="tool-section diff-section">
                     <div class="tool-section-title">变更对比</div>
+                    <div v-if="item.open && item.loading" class="diff-loading">正在加载 diff…</div>
                     <FileDiff
-                      v-if="item.open"
+                      v-else-if="item.open && item.loaded"
                       :file-path="item.filePath"
                       :old-content="item.decision === 'REJECTED' ? item.newContent : item.oldContent"
                       :new-content="item.newContent"
@@ -1153,7 +1388,7 @@ onBeforeUnmount(() => {
           <div v-else-if="item.type === 'WAIT_COMMAND_CHECK'" class="tool-event ack-event">
             <div class="ack-card" :class="{ decided: !!item.decision }">
               <div class="ack-head">
-                <span class="ack-icon" aria-hidden="true">{{ item.decision === 'ACCEPTED' ? '✅' : item.decision === 'REJECTED' ? '⛔' : '🔐' }}</span>
+                <span class="ack-icon" aria-hidden="true">{{ item.decision === 'ACCEPTED' ? 'OK' : item.decision === 'REJECTED' ? 'DENY' : 'AUTH' }}</span>
                 <div class="ack-info">
                   <span class="ack-title">{{ ackTitle(item) }}</span>
                   <span class="ack-sub">{{ ackSub(item) }}</span>
@@ -1170,65 +1405,111 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <!-- 计划审批卡片：plan 模式产出计划后挂起等待人工批准/拒绝（批准后才实施）。
-               计划产出时 AI 的最后一条回复（计划全文）会并入本卡，不再重复展示。 -->
-          <div v-else-if="item.type === 'PLAN_DECISION'" class="tool-event ack-event">
+          <!-- 计划内核卡片（PLAN_UPDATE）：create_plan 产出计划后 agent 挂起等待人工
+               「批准执行 / 重新规划 / 拒绝」；批准前可就地编辑任务的验收标准与描述。
+               同一 planId 的后续事件（任务推进、计划完成）就地刷新本卡；一经决断收敛为一行结论，
+               需要时展开仍可查看完整计划书与任务快照。 -->
+          <div v-else-if="item.type === 'PLAN_UPDATE'" class="tool-event ack-event">
             <div class="ack-card plan-card" :class="{ decided: !!item.decision }">
               <div class="ack-head">
-                <span class="ack-icon" aria-hidden="true">{{ item.decision === 'ACCEPTED' ? '✅' : item.decision === 'REJECTED' ? '⛔' : item.decision === 'STALE' ? '⌛' : '📋' }}</span>
+                <span class="ack-icon" aria-hidden="true">{{ planCardIcon(item) }}</span>
                 <div class="ack-info">
                   <div class="ack-title-line">
                     <span class="ack-title">{{ planCardTitle(item) }}</span>
-                    <span v-if="planStateLabel(item.state)" class="plan-state-chip" :class="String(item.state).toLowerCase()">{{ planStateLabel(item.state) }}</span>
+                    <span class="plan-version-chip">v{{ item.version }}</span>
+                    <span v-if="planStatusLabel(item)" class="plan-state-chip" :class="String(item.status || 'draft').toLowerCase()">{{ planStatusLabel(item) }}</span>
+                    <span v-if="item.totalTasks" class="plan-progress-chip">{{ item.progress }}</span>
                   </div>
                   <span class="ack-sub">{{ planCardSub(item) }}</span>
                 </div>
+                <button type="button" class="plan-fold-toggle" @click="item.folded = !item.folded">
+                  {{ item.folded ? '展开' : '折叠' }}
+                </button>
               </div>
-              <!-- 未决断：展示计划概览供审阅；决断后收敛成一行结论，避免大段计划长期占据消息流 -->
-              <template v-if="!item.decision">
+
+              <template v-if="!item.folded">
                 <div v-if="item.title" class="plan-title">{{ item.title }}</div>
-                <ol v-if="item.steps && item.steps.length" class="plan-steps">
-                  <li v-for="(step, si) in item.steps" :key="step.id || si" class="plan-step">
-                    <span class="plan-step-num" aria-hidden="true">{{ si + 1 }}</span>
-                    <span class="plan-step-text">{{ step.description }}</span>
+
+                <!-- 计划书：默认最多 6 行，可展开查看完整 Markdown -->
+                <template v-if="item.summaryMarkdown">
+                  <div class="plan-doc" :class="{ clamped: !item.planTextOpen }">
+                    <MarkdownContent :text="item.summaryMarkdown" />
+                  </div>
+                  <button type="button" class="plan-doc-toggle" @click="item.planTextOpen = !item.planTextOpen">
+                    {{ item.planTextOpen ? '收起计划书' : '查看完整计划书' }}
+                  </button>
+                </template>
+
+                <!-- 任务清单：按优先级排序，状态徽标 + 依赖/优先级标签 -->
+                <ul v-if="item.tasks && item.tasks.length" class="plan-tasks">
+                  <li v-for="task in item.tasks" :key="task.id" class="plan-task"
+                    :class="'status-' + String(task.status || 'TODO').toLowerCase()">
+                    <div class="plan-task-row">
+                      <span class="plan-task-badge" :class="String(task.status || 'TODO').toLowerCase()">{{ task.statusLabel }}</span>
+                      <button type="button" class="plan-task-title" :class="{ done: task.status === 'DONE' }"
+                        @click="task.open = !task.open">{{ task.title }}</button>
+                      <span v-if="task.priority !== null" class="plan-task-chip">P{{ task.priority }}</span>
+                      <span v-for="dep in task.dependencies" :key="dep" class="plan-task-chip dep">依赖 {{ dep }}</span>
+                      <button v-if="canEditPlanTasks(item) && !task.editing" type="button" class="plan-task-edit"
+                        @click="startEditPlanTask(task)">编辑验收</button>
+                    </div>
+
+                    <!-- 就地编辑：验收标准 + 描述，保存成功绿色轻提示，冲突红色提示并刷新 -->
+                    <div v-if="task.editing" class="plan-task-editbox">
+                      <label class="plan-task-field">
+                        <span>验收标准</span>
+                        <textarea v-model="task.draftAcceptance" rows="2" :disabled="task.saving"
+                          placeholder="完成任务需要满足的可验证条件，例如：单测覆盖新增分支且 mvn test 通过"></textarea>
+                      </label>
+                      <label class="plan-task-field">
+                        <span>描述</span>
+                        <textarea v-model="task.draftDescription" rows="2" :disabled="task.saving"
+                          placeholder="实现要点、影响范围或注意事项"></textarea>
+                      </label>
+                      <div class="plan-task-actions">
+                        <button type="button" class="plan-prompt-btn ok" :disabled="task.saving"
+                          @click="savePlanTask(item, task)">{{ task.saving ? '保存中…' : '保存' }}</button>
+                        <button type="button" class="plan-prompt-btn" :disabled="task.saving"
+                          @click="cancelEditPlanTask(task)">取消</button>
+                        <span v-if="task.saveError" class="plan-task-error">{{ task.saveError }}</span>
+                        <span v-else-if="task.savedFlash" class="plan-task-saved">已保存</span>
+                      </div>
+                    </div>
+
+                    <div v-else-if="task.open" class="plan-task-detail">
+                      <p v-if="task.description" class="plan-task-desc">{{ task.description }}</p>
+                      <p v-if="task.acceptance" class="plan-task-accept">
+                        <span class="label">验收</span>{{ task.acceptance }}
+                      </p>
+                      <p v-if="!task.description && !task.acceptance" class="plan-task-empty">该任务未填写描述与验收标准</p>
+                    </div>
                   </li>
-                </ol>
-                <div v-if="item.planThinking || item.planFullText" class="plan-folds">
-                  <div v-if="item.planThinking" class="plan-fold">
-                    <button type="button" class="plan-fold-head" @click="toggleThinking(item)">
-                      <span class="plan-fold-icon" aria-hidden="true">💭</span>
-                      <span class="plan-fold-title">思考过程</span>
-                      <span class="tool-chevron" :class="{ rotated: item.thinkingOpen }" aria-hidden="true">▾</span>
-                    </button>
-                    <div v-show="item.thinkingOpen" class="plan-fold-body">
-                      <MarkdownContent class="thinking-text" :text="item.planThinking" />
-                    </div>
-                  </div>
-                  <div v-if="item.planFullText" class="plan-fold">
-                    <button type="button" class="plan-fold-head" @click="item.planTextOpen = !item.planTextOpen">
-                      <span class="plan-fold-icon" aria-hidden="true">📄</span>
-                      <span class="plan-fold-title">完整计划（AI 原文）</span>
-                      <span class="tool-chevron" :class="{ rotated: item.planTextOpen }" aria-hidden="true">▾</span>
-                    </button>
-                    <div v-show="item.planTextOpen" class="plan-fold-body plan-full">
-                      <MarkdownContent :text="item.planFullText" />
-                    </div>
-                  </div>
+                </ul>
+                <div v-else class="plan-empty">该计划暂无任务</div>
+
+                <!-- 修改意见：点「重新规划」后展开，随计划一起交给 agent -->
+                <div v-if="item.reviseOpen && canEditPlanTasks(item)" class="plan-revise">
+                  <textarea v-model="item.reviseMessage" class="plan-revise-input" rows="2"
+                    placeholder="修改意见（可选）：例如“任务 2 改用 Maven 构建并补充单测”"></textarea>
                 </div>
-                <div class="ack-actions">
-                  <button class="decision-btn keep" :disabled="item.deciding" @click="decidePlanAck(item, true)">批准，开始实施</button>
-                  <button class="decision-btn undo" :disabled="item.deciding" @click="decidePlanAck(item, false)">拒绝</button>
+                <div v-if="canEditPlanTasks(item)" class="ack-actions">
+                  <button class="decision-btn keep" :disabled="item.deciding" @click="approvePlanItem(item)">批准执行</button>
+                  <button v-if="!item.reviseOpen" class="decision-btn replan" :disabled="item.deciding"
+                    @click="item.reviseOpen = true">重新规划</button>
+                  <button v-else class="decision-btn replan" :disabled="item.deciding"
+                    @click="revisePlanItem(item)">提交重新规划</button>
+                  <button class="decision-btn undo" :disabled="item.deciding" @click="rejectPlanItem(item)">拒绝</button>
+                </div>
+                <div v-else-if="item.status === 'EXECUTING'" class="plan-running">
+                  agent 正按计划实施，任务状态会随实施进展实时刷新
                 </div>
               </template>
-              <div v-else class="ack-result" :class="item.decision">
-                {{ item.decision === 'ACCEPTED' ? '已批准，agent 开始按计划实施' : item.decision === 'REJECTED' ? '已拒绝，本轮不会实施' : '该计划已结束或已被其他端处理' }}
-              </div>
             </div>
           </div>
 
           <!-- 一轮执行完成：token 统计卡片 -->
           <div v-else-if="item.type === 'EXECUTION_COMPLETED'" class="done-card">
-            <span class="done-check" aria-hidden="true">✓</span>
+            <span class="done-check" aria-hidden="true">OK</span>
             <div class="done-info">
               <span class="done-title">本轮执行完成</span>
               <span v-if="item.executionId" class="done-id">{{ item.executionId }}</span>
@@ -1242,7 +1523,7 @@ onBeforeUnmount(() => {
 
           <!-- 一轮执行被取消（外部 stop / 中断） -->
           <div v-else-if="item.type === 'EXECUTION_CANCELLED'" class="done-card cancelled">
-            <span class="done-check" aria-hidden="true">✕</span>
+            <span class="done-check" aria-hidden="true">CANCEL</span>
             <div class="done-info">
               <span class="done-title">本轮执行已取消</span>
               <span v-if="item.executionId" class="done-id">{{ item.executionId }}</span>
@@ -1261,7 +1542,6 @@ onBeforeUnmount(() => {
 
         <!-- 发送中的等待动画 -->
         <div v-if="sending" class="row row-ai">
-          <div class="avatar avatar-ai">L</div>
           <div class="ai-body">
             <div class="bubble bubble-ai thinking"><span></span><span></span><span></span></div>
           </div>
@@ -1276,16 +1556,36 @@ onBeforeUnmount(() => {
           <span class="pending-hint">已写入文件,请选择保留或撤销</span>
           <span class="pending-chevron" :class="{ rotated: showPendingEdits }" aria-hidden="true">▾</span>
         </button>
-        <div v-if="showPendingEdits" class="pending-list">
-          <div v-for="item in pendingEdits" :key="item.recordId" class="pending-item">
-            <span class="pending-file" :title="item.filePath">{{ fileNameOf(item.filePath) }}</span>
-            <span class="pending-lines">
-              <em class="plus">+{{ item.plusLines ?? 0 }}</em>
-              <em class="minus">-{{ item.minusLines ?? 0 }}</em>
-            </span>
-            <div class="decision-actions">
-              <button class="decision-btn keep" :disabled="item.deciding" @click="decideEdit(item, true)">保留</button>
-              <button class="decision-btn undo" :disabled="item.deciding" @click="decideEdit(item, false)">撤销</button>
+        <div v-if="showPendingEdits" class="pending-list" :class="{ 'has-open': pendingEdits.some((e) => e.open) }">
+          <div v-for="item in pendingEdits" :key="item.recordId" class="pending-item" :class="{ open: item.open }">
+            <div class="pending-row">
+              <button
+                type="button"
+                class="pending-toggle"
+                :title="item.open ? '收起 diff' : '点击查看 diff'"
+                @click="toggleEditDiff(item)"
+              >
+                <span class="pending-chevron" :class="{ rotated: item.open }" aria-hidden="true">▾</span>
+                <span class="pending-file" :title="item.filePath">{{ fileNameOf(item.filePath) }}</span>
+              </button>
+              <span class="pending-lines">
+                <em class="plus">+{{ item.plusLines ?? 0 }}</em>
+                <em class="minus">-{{ item.minusLines ?? 0 }}</em>
+              </span>
+              <div class="decision-actions">
+                <button class="decision-btn keep" :disabled="item.deciding" @click="decideEdit(item, true)">保留</button>
+                <button class="decision-btn undo" :disabled="item.deciding" @click="decideEdit(item, false)">撤销</button>
+              </div>
+            </div>
+            <div v-if="item.open" class="pending-diff">
+              <div v-if="item.loading" class="diff-loading">正在加载 diff…</div>
+              <FileDiff
+                v-else-if="item.loaded"
+                :file-path="item.filePath"
+                :old-content="item.oldContent"
+                :new-content="item.newContent"
+              />
+              <div v-else class="diff-loading">无法加载 diff 内容</div>
             </div>
           </div>
           <div class="pending-footer">
@@ -1316,7 +1616,7 @@ onBeforeUnmount(() => {
               :title="`${currentAck.label}：${currentAck.desc}`"
               @click.stop="ackOpen = !ackOpen"
             >
-              <span class="ack-trigger-icon" aria-hidden="true">🛡</span>
+              <span class="ack-trigger-icon" aria-hidden="true">ACK</span>
               <span class="ack-trigger-text">{{ currentAck.short }}</span>
               <span class="ack-trigger-chevron" :class="{ rotated: ackOpen }" aria-hidden="true">▾</span>
             </button>
@@ -1406,7 +1706,7 @@ onBeforeUnmount(() => {
             @click="sendMessage"
             title="发送"
           >
-            ➤
+            ↵
           </button>
         </div>
         <p class="tips">内容由 AI 生成，请仔细甄别</p>
@@ -1437,7 +1737,7 @@ onBeforeUnmount(() => {
                 class="picker-dir"
                 @click="pickerEnterDir(dir)"
               >
-                <span class="picker-dir-icon" aria-hidden="true">📁</span>
+                <span class="picker-dir-icon" aria-hidden="true">▸</span>
                 <span class="picker-dir-name" :title="dir.path">{{ dir.name }}</span>
                 <span class="picker-dir-arrow" aria-hidden="true">›</span>
               </button>
@@ -2745,6 +3045,8 @@ onBeforeUnmount(() => {
 .decision-btn.keep:hover { background: #d2f0de; }
 .decision-btn.undo { background: #fdeeee; color: #b42318; }
 .decision-btn.undo:hover { background: #fbdcdc; }
+.decision-btn.replan { background: #eef2ff; color: #1d4ed8; }
+.decision-btn.replan:hover { background: #e2e8ff; }
 .decision-btn:disabled { opacity: .5; cursor: not-allowed; }
 
 /* ====== 命令审批(ack)模式选择器：输入框上方工具条左端上拉框 ====== */
@@ -2881,8 +3183,12 @@ onBeforeUnmount(() => {
 .ack-result.REJECTED { color: #b42318; }
 .ack-result.STALE { color: #9ca3af; }
 
-/* ---------- 计划审批卡片（PLAN_DECISION） ---------- */
-.plan-card { border-color: #c7d4f5; background: linear-gradient(180deg, #f8faff, #ffffff); }
+/* ---------- 计划内核卡片（PLAN_UPDATE）：任务清单 + 验收标准就地编辑 ---------- */
+.plan-card {
+  border-color: #c7d4f5;
+  background: linear-gradient(180deg, #f8faff, #ffffff);
+  animation: planCardIn 0.22s ease-out;
+}
 .plan-card .plan-title {
   margin: 10px 0 0;
   padding-bottom: 6px;
@@ -2891,87 +3197,255 @@ onBeforeUnmount(() => {
   color: #1e3a8a;
   border-bottom: 1px dashed #dbe3f5;
 }
-.plan-steps {
-  margin: 4px 0 0;
+/* 任务清单：按优先级排列，状态徽标 + 依赖/优先级标签 + 验收标准就地编辑 */
+.plan-tasks {
+  margin: 8px 0 0;
   padding: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
-  max-height: 260px;
+  gap: 5px;
+  max-height: 340px;
   overflow-y: auto;
 }
-.plan-step {
+.plan-task {
+  border: 1px solid #eef1f8;
+  border-left: 3px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+.plan-task:hover { box-shadow: 0 2px 8px rgba(30, 58, 138, 0.07); }
+.plan-task.status-todo { border-left-color: #cbd5e1; }
+.plan-task.status-doing { border-left-color: #0ea5e9; }
+.plan-task.status-blocked { border-left-color: #f59e0b; }
+.plan-task.status-done { border-left-color: #16a34a; }
+.plan-task-row {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 5px 2px;
-  font-size: 12.5px;
-  line-height: 1.6;
-  color: #3b4256;
-  border-bottom: 1px solid #eef1f8;
-}
-.plan-step:last-child { border-bottom: none; }
-.plan-step-num {
-  flex: none;
-  width: 18px;
-  height: 18px;
-  margin-top: 1px;
-  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: #e8eefc;
-  color: #1d4ed8;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
+  gap: 8px;
+  padding: 6px 8px;
 }
-.plan-step-text { flex: 1; min-width: 0; word-break: break-word; }
-
-/* 计划卡内可折叠区块：思考过程 / 完整计划（AI 原文），默认收起保持卡片简洁 */
-.plan-folds {
+.plan-task-badge {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 9px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.6;
+  color: #fff;
+  background: #94a3b8;
+  transition: background 0.18s;
+}
+.plan-task-badge.doing { background: #0ea5e9; }
+.plan-task-badge.blocked { background: #f59e0b; }
+.plan-task-badge.done { background: #16a34a; }
+.plan-task-title {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.6;
+  color: #24292f;
+  text-align: left;
+  border: none;
+  background: none;
+  cursor: pointer;
+  word-break: break-word;
+  transition: color 0.15s;
+}
+.plan-task-title:hover { color: #1d4ed8; }
+.plan-task-title.done { color: #94a3b8; text-decoration: line-through; }
+.plan-task-chip {
+  flex: none;
+  padding: 1px 6px;
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: #475569;
+  border: 1px solid #dbe3f5;
+  border-radius: 9px;
+  background: #f8fafc;
+}
+.plan-task-chip.dep { color: #1d4ed8; border-color: #cfdbf7; background: #f4f7ff; }
+.plan-task-edit {
+  flex: none;
+  padding: 2px 8px;
+  font-family: inherit;
+  font-size: 11px;
+  color: #1d4ed8;
+  border: 1px solid #cfdbf7;
+  border-radius: 5px;
+  background: #fff;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.plan-task-edit:hover { background: #eef3ff; }
+.plan-task-detail {
+  padding: 0 10px 8px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: #475569;
+}
+.plan-task-desc,
+.plan-task-accept { margin: 2px 0; white-space: pre-wrap; word-break: break-word; }
+.plan-task-accept .label {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  font-size: 10.5px;
+  color: #17803d;
+  border: 1px solid #b7d7c0;
+  border-radius: 9px;
+  background: #f2fbf5;
+}
+.plan-task-empty { margin: 2px 0; color: #94a3b8; }
+.plan-task-editbox {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-top: 8px;
+  padding: 0 10px 9px;
+  animation: planEditIn 0.18s ease-out;
 }
-.plan-fold {
+.plan-task-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11.5px;
+  color: #475569;
+}
+.plan-task-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 7px;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #24292f;
+  border: 1px solid #dbe3f5;
+  border-radius: 6px;
+  background: #fff;
+  resize: vertical;
+}
+.plan-task-field textarea:focus { outline: none; border-color: #1d4ed8; }
+.plan-task-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.plan-task-error { font-size: 11px; color: #b42318; }
+.plan-task-saved { font-size: 11px; color: #17803d; }
+.plan-empty { margin-top: 8px; font-size: 12px; color: #94a3b8; }
+.plan-running { margin-top: 8px; font-size: 12px; color: #1d4ed8; }
+
+/* 计划书：默认最多约 6 行，展开后完整渲染 Markdown */
+.plan-doc {
+  margin-top: 8px;
+  padding: 8px 10px;
   border: 1px solid #e3e8f4;
   border-radius: 6px;
   background: #fff;
-  overflow: hidden;
 }
-.plan-fold-head {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border: none;
-  background: #f5f8ff;
-  cursor: pointer;
+.plan-doc .md-content { font-size: 12.5px; line-height: 1.7; }
+.plan-doc.clamped {
+  max-height: 132px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 62%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 62%, transparent 100%);
+}
+.plan-doc-toggle {
+  margin-top: 4px;
+  padding: 0;
   font-family: inherit;
-  text-align: left;
+  font-size: 11.5px;
+  color: #1d4ed8;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+.plan-doc-toggle:hover { text-decoration: underline; }
+
+/* 任务动作按钮（保存 / 取消） */
+.plan-prompt-btn {
+  flex: none;
+  padding: 3px 8px;
+  font-family: inherit;
+  font-size: 11px;
+  color: #3b4256;
+  border: 1px solid #d6def0;
+  border-radius: 5px;
+  background: #fff;
+  cursor: pointer;
   transition: background 0.15s;
 }
-.plan-fold-head:hover { background: #edf3ff; }
-.plan-fold-icon { font-size: 13px; line-height: 1; }
-.plan-fold-title { flex: 1; font-size: 12px; font-weight: 600; color: #3b4256; }
-.plan-fold-body {
-  padding: 6px 10px 8px;
-  border-top: 1px solid #eef1f8;
-  max-height: 320px;
-  overflow-y: auto;
+.plan-prompt-btn:hover { background: #eef3ff; }
+.plan-prompt-btn.ok { border-color: #b7d7c0; color: #17803d; }
+.plan-prompt-btn.danger { border-color: #f0c6c2; color: #b42318; }
+.plan-prompt-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* 修改意见输入（仅在「重新规划」时随计划一起交给 agent） */
+.plan-revise { margin-top: 8px; }
+.plan-revise-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #3b4256;
+  border: 1px solid #dbe3f5;
+  border-radius: 6px;
+  background: #fff;
+  resize: vertical;
 }
-.plan-fold-body .md-content { font-size: 12.5px; line-height: 1.7; }
-.plan-fold-body .thinking-text { color: #57606a; }
+.plan-revise-input:focus { outline: none; border-color: #1d4ed8; }
 
-.plan-card .ack-result { margin-top: 6px; color: #1e3a8a; }
-.plan-card .ack-result.ACCEPTED { color: #17803d; }
-.plan-card .ack-result.REJECTED { color: #b42318; }
-.plan-card .ack-result.STALE { color: #9ca3af; }
+/* 微动效：卡片轻微上浮淡入、任务编辑区展开 */
+@keyframes planCardIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes planEditIn {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
-/* 计划状态机标签：未批准 / 已批准 / 正在构建 */
+/* 计划卡头部附加信息：版本 / 进度 / 折叠 */
+.plan-version-chip {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.6;
+  color: #1e3a8a;
+  border: 1px solid #cfdbf7;
+  border-radius: 9px;
+  background: #f4f7ff;
+}
+.plan-progress-chip {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.6;
+  color: #17803d;
+  border: 1px solid #b7d7c0;
+  border-radius: 9px;
+  background: #f2fbf5;
+}
+.plan-fold-toggle {
+  flex: none;
+  margin-left: auto;
+  padding: 2px 8px;
+  font-family: inherit;
+  font-size: 11px;
+  color: #475569;
+  border: 1px solid #d6def0;
+  border-radius: 5px;
+  background: #fff;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.plan-fold-toggle:hover { background: #eef3ff; }
+
+/* 计划状态标签：草稿 / 已批准 / 执行中 / 已完成 */
 .ack-title-line {
   display: flex;
   align-items: center;
@@ -2989,9 +3463,18 @@ onBeforeUnmount(() => {
   color: #fff;
   background: #9ca3af;
 }
-.plan-state-chip.un_approved { background: #b45309; }
+.plan-state-chip.draft { background: #b45309; }
 .plan-state-chip.approved { background: #1d4ed8; }
-.plan-state-chip.completed { background: #17803d; }
+.plan-state-chip.executing { background: #0ea5e9; }
+.plan-state-chip.done { background: #17803d; }
+
+/* 窄屏：任务行纵向堆叠、编辑区满宽 */
+@media (max-width: 640px) {
+  .plan-task-row { flex-wrap: wrap; }
+  .plan-task-title { flex: 1 0 100%; }
+  .plan-task-detail,
+  .plan-task-editbox { padding-right: 8px; padding-left: 8px; }
+}
 
 /* ================================================================
    Coding-IDE 主题覆盖（深蓝主色 · 少圆角 · 消息体面板化）
@@ -3173,6 +3656,413 @@ onBeforeUnmount(() => {
 
 /* 事件行小字转等宽，接近终端日志 */
 .event-line { font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace; }
+/* ================================================================
+   IDE 主题（VS Code 浅色风 · 紧凑 · 面板化）
+   置于样式末尾，按 CSS 级联规则覆盖上文同名规则。
+   重点：左侧「资源管理器」会话列表 + 编辑器风格消息体。
+   ================================================================ */
+.home {
+  --blue: #1d4ed8;        /* 主深蓝 */
+  --blue-deep: #1e40af;   /* 加深 */
+  --blue-ink: #1e3a8a;    /* 更深 */
+  --blue-bg: #e8eefc;     /* 浅蓝底 */
+  --blue-border: #a9bef0; /* 浅蓝描边 */
+  --line: #d7dce6;        /* IDE 分隔线 */
+  --line-soft: #e6e9ef;
+  --chrome: #f3f4f6;      /* 侧栏 chrome 灰 */
+  --chrome-hover: #e7e9ee;
+  --ink: #24292f;         /* 正文墨色 */
+  --ink-dim: #57606a;
+  --mono: ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Consolas, 'Courier New', monospace;
+}
+
+/* ---------- 全局方角化：贴近编辑器（几乎无圆角） ---------- */
+.logo, .new-session-btn, .session-item, .sidebar-expand, .rename-btn,
+.rename-input, .workdir-path, .workdir-input, .workdir-btn, .done-card, .ack-card,
+.pending-edits, .modal, .import-btn, .ack-trigger, .pending-head { border-radius: 4px; }
+.brand-collapse, .tool-icon, .tool-status, .ack-command, .decision-btn, .token-chip,
+.field-input, .field-textarea { border-radius: 3px; }
+.input-box { border-radius: 6px; }
+.foot-btn { border-radius: 3px; }
+.avatar { border-radius: 4px; }
+.send-btn { border-radius: 4px; }
+.run-state, .ctl-btn, .input-ctl-btn { border-radius: 4px; }
+.bubble { border-radius: 4px; }
+
+/* ---------- 主色：蓝紫 → 深蓝 ---------- */
+.logo { background: var(--blue); box-shadow: none; }
+.avatar-ai { color: var(--blue); border-color: var(--line); background: #fff; }
+.avatar-user { background: var(--blue); }
+.brand-collapse:hover,
+.foot-btn.mini:hover,
+.sidebar-expand { color: var(--blue); }
+.session-item.active .session-name { color: var(--blue-ink); }
+.foot-btn:hover { color: var(--blue); border-color: var(--blue-border); background: var(--blue-bg); }
+.foot-avatar { background: var(--blue); }
+.rename-btn:hover,
+.workdir-btn:hover { color: var(--blue); border-color: var(--blue); }
+.rename-btn.primary,
+.workdir-btn.primary { background: var(--blue); border-color: var(--blue); }
+.rename-btn.primary:hover,
+.workdir-btn.primary:hover:not(:disabled),
+.send-btn:hover:not(:disabled),
+.btn-submit:hover:not(:disabled),
+.import-btn:hover { background: var(--blue-deep); }
+.rename-input,
+.workdir-input { border-color: var(--blue); }
+.input-box.focused { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(29, 78, 216, .10); }
+.field-input:focus,
+.field-textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(29, 78, 216, .10); }
+.send-btn,
+.btn-submit,
+.import-btn { background: var(--blue); }
+.tool-name,
+.tool-chevron.rotated,
+.ack-check { color: var(--blue); }
+.tool-icon { background: var(--blue-bg); color: var(--blue); }
+.tool-range { background: rgba(29, 78, 216, .08); color: var(--blue); }
+.tool-status.running,
+.run-state,
+.ctl-btn.pause,
+.input-ctl-btn.pause,
+.ack-option.active { color: var(--blue); background: var(--blue-bg); }
+.ctl-btn.pause,
+.input-ctl-btn.pause { border-color: var(--blue-border); }
+.ctl-btn.pause:hover:not(:disabled),
+.input-ctl-btn.pause:hover:not(:disabled) { background: #d9e3fb; border-color: #93adf0; }
+.ctl-btn:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+.token-input { color: var(--blue); background: var(--blue-bg); }
+.ack-trigger:hover,
+.ack-trigger.open { border-color: var(--blue-border); color: var(--blue); background: var(--blue-bg); }
+.event-loading i,
+.tool-status i { background: currentColor; }
+.tool-status.running i { background: var(--blue); }
+.event-loading i { background: var(--blue); }
+.run-state i { background: var(--blue); }
+
+/* ================================================================
+   一、左侧边栏 → IDE「资源管理器」
+   ================================================================ */
+.sidebar {
+  flex: 0 0 246px;
+  width: 246px;
+  background: var(--chrome);
+  border-right: 1px solid var(--line);
+}
+.sidebar.collapsed { margin-left: -246px; }
+
+/* 品牌区：紧凑标题栏 */
+.sidebar-brand {
+  gap: 8px;
+  padding: 10px;
+  background: #eceef2;
+  border-bottom: 1px solid var(--line);
+}
+.logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  font-size: 11px;
+  letter-spacing: .4px;
+  font-family: var(--mono);
+}
+.brand-name { font-size: 12.5px; letter-spacing: 0; font-family: var(--mono); }
+.brand-sub { font-size: 10px; letter-spacing: .6px; text-transform: uppercase; }
+.brand-collapse { width: 20px; height: 20px; font-size: 14px; }
+
+/* 资源管理器工具条 */
+.explorer-actions { flex-shrink: 0; padding: 8px 10px 2px; }
+.new-session-btn {
+  justify-content: flex-start;
+  gap: 7px;
+  padding: 6px 10px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  color: #30363d;
+  font-family: var(--mono);
+  font-size: 12px;
+  box-shadow: none;
+}
+.new-session-btn:hover {
+  background: var(--blue-bg);
+  border-color: var(--blue-border);
+  color: var(--blue);
+  filter: none;
+  transform: none;
+  box-shadow: none;
+}
+.ns-icon { color: var(--blue); font-weight: 700; }
+
+/* 会话区 */
+.session-scroll { padding: 0 6px; }
+.side-section-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px 4px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .8px;
+  color: #6b7280;
+  text-transform: uppercase;
+}
+.side-section-label .caret { font-size: 9px; color: #9aa1ad; }
+.side-section-label .label-text { flex: 1; min-width: 0; }
+.side-section-label .label-count {
+  padding: 0 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #6b7280;
+  background: #e2e4ea;
+  border-radius: 8px;
+}
+.session-list { gap: 1px; padding-bottom: 10px; }
+.session-item {
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 3px;
+  border-left: 2px solid transparent;
+}
+.session-item:hover { background: var(--chrome-hover); }
+.session-item.active {
+  background: #dbe4fb;
+  border-color: transparent;
+  border-left-color: var(--blue);
+  box-shadow: none;
+}
+.session-icon { flex-shrink: 0; font-size: 9px; color: #9aa1ad; }
+.session-item.active .session-icon { color: var(--blue); }
+.session-name {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: #30363d;
+}
+.session-item.active .session-name { color: var(--blue-ink); font-weight: 600; }
+.session-id {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: #a8adb8;
+}
+.session-item.active .session-id { color: var(--blue); }
+.session-empty { padding: 18px 8px; font-family: var(--mono); font-size: 11px; }
+
+/* 底部状态栏：IDE 蓝色状态条 */
+.sidebar-foot { padding: 0; }
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 26px;
+  padding: 0 10px;
+  background: var(--blue-deep);
+  color: #dce4fb;
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+.statusbar .sb-item { display: inline-flex; align-items: center; gap: 5px; }
+.statusbar .foot-dot { width: 7px; height: 7px; box-shadow: none; background: #ff8080; }
+.statusbar .foot-dot.online { background: #7ee787; box-shadow: none; }
+.statusbar .sb-spacer { flex: 1; }
+.statusbar .sb-user {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, .18);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+.statusbar .sb-btn {
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  color: #cdd7f5;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.statusbar .sb-btn:hover { color: #fff; }
+.statusbar .sb-btn.danger:hover { color: #ffb4a8; }
+
+/* ================================================================
+   二、消息体 → 编辑器工作区
+   ================================================================ */
+/* 顶部会话头 / 工作区栏 / 消息 / 输入：统一 900px 编辑器宽度 */
+.session-header,
+.workdir-bar,
+.run-controls,
+.pending-edits,
+.input-tools,
+.input-box { max-width: 900px; }
+
+.messages { padding: 18px 14px 14px; }
+/* 消息行 / 工具卡 / 日志行 / 完成卡：统一 900px 编辑器宽度，左对齐一致 */
+.row { max-width: 900px; margin: 0 auto 10px; }
+
+/* 用户消息：终端命令行（等宽 + 左侧蓝色强调条） */
+.bubble-user {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  background: #f6f8fa;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--blue);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  box-shadow: none;
+  border-top-right-radius: 4px;
+}
+.bubble-user .prompt-glyph {
+  flex-shrink: 0;
+  color: var(--blue);
+  font-weight: 700;
+  user-select: none;
+}
+.bubble-user .bubble-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink);
+}
+
+/* AI 消息：编辑器标签栏 + 内容面板 */
+.ai-body { width: 100%; max-width: 100%; }
+.ai-name { display: none; }
+.bubble-ai {
+  padding: 0;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  box-shadow: none;
+  overflow: hidden;
+}
+.bubble-ai.thinking { padding: 8px 14px; }
+.ide-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  background: #eceef2;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+.ide-bar-name { font-weight: 700; color: #3a4454; }
+.ide-bar-spacer { flex: 1; }
+.ide-bar-tag {
+  font-size: 9.5px;
+  color: #6e7681;
+  border: 1px solid #d5dbe4;
+  background: #fff;
+  padding: 1px 6px;
+  border-radius: 3px;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.ide-bar-tag.streaming {
+  color: var(--blue);
+  border-color: var(--blue-border);
+  background: var(--blue-bg);
+  animation: ide-blink 1.2s ease infinite;
+}
+@keyframes ide-blink { 50% { opacity: .45; } }
+.bubble-ai > .md-content,
+.bubble-ai > .raw-text { padding: 12px 14px; color: var(--ink); }
+
+/* 工具 / 思考卡片：IDE 折叠面板 */
+.tool-event {
+  max-width: 900px;
+  margin: 6px auto;
+}
+.tool-card { background: #fff; border: 1px solid var(--line); border-radius: 4px; }
+.tool-card:hover { border-color: #c3c9d4; }
+.tool-card.open { border-color: var(--blue-border); box-shadow: none; }
+.tool-head { gap: 8px; padding: 6px 10px; background: #f6f7f9; }
+.tool-head:hover { background: #eef0f4; }
+.tool-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+}
+.tool-name { font-family: var(--mono); font-size: 12px; font-weight: 700; }
+.tool-file { font-family: var(--mono); font-size: 11.5px; }
+.tool-status { font-family: var(--mono); font-size: 10px; border-radius: 3px; }
+.tool-chevron { font-size: 10px; }
+.tool-body-inner { margin: 0 10px; }
+.tool-code { font-size: 11.5px; }
+.tool-section-title { font-family: var(--mono); font-size: 10.5px; }
+.thinking-card .tool-icon { background: #e9ecf2; color: #6e7781; }
+
+/* 事件行 → 终端日志行 */
+.event-line {
+  max-width: 900px;
+  margin: 0 auto 8px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+.ev-tag { font-family: var(--mono); font-size: 10px; border-radius: 3px; }
+
+/* 完成 / 取消卡片 */
+.done-card { max-width: 900px; border-radius: 4px; }
+.done-check { border-radius: 4px; width: 22px; height: 22px; font-size: 11px; font-family: var(--mono); }
+.done-title, .done-id { font-family: var(--mono); }
+
+/* 命令审批 / 计划卡片：面板化 */
+.ack-card { border-radius: 4px; box-shadow: none; }
+
+/* ---------- 待裁决文件编辑：点击条目展开 diff ---------- */
+.pending-item { display: block; padding: 0; }
+.pending-item.open { background: #f8f9fb; }
+.pending-list { max-height: 260px; }
+.pending-list.has-open { max-height: min(62vh, 580px); }
+.pending-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+}
+.pending-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.pending-toggle .pending-chevron { font-size: 10px; color: #9aa1ad; transition: transform .2s; }
+.pending-toggle .pending-chevron.rotated { transform: rotate(180deg); }
+.pending-toggle .pending-file { font-family: var(--mono); font-size: 12px; }
+.pending-toggle:hover .pending-file { color: var(--blue); }
+.pending-diff { padding: 0 12px 10px; }
+.pending-diff :deep(.file-diff) { height: 320px; }
+.diff-loading {
+  padding: 10px 2px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-dim);
+}
+.ack-icon { font-family: var(--mono); font-size: 10px; font-weight: 700; padding: 3px 6px; border-radius: 3px; background: var(--blue-bg); color: var(--blue); }
+.ack-command, .plan-task-title, .plan-task-detail { font-family: var(--mono); }
 </style>
 
 

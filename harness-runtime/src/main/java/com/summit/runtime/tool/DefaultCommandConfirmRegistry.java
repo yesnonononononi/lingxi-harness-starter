@@ -1,5 +1,6 @@
 package com.summit.runtime.tool;
 
+import com.summit.core.tool.AbstractApprovalGate;
 import com.summit.core.tool.CommandConfirmGate;
 import com.summit.core.tool.CommandConfirmRegistry;
 import com.summit.core.tool.CommandDecision;

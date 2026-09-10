@@ -8,7 +8,7 @@ import com.summit.core.conversation.event.ExecutionCompleteEvent;
 import com.summit.core.conversation.event.ExecutionErrorEvent;
 import com.summit.core.conversation.event.ExecutionStartEvent;
 import com.summit.core.conversation.message.TokenUsageEntity;
-import com.summit.core.plan.PlanStepStatus;
+import com.summit.core.internalUtils.PlanLoopHook;
 import com.summit.core.runtime.ExecutionRuntime;
 import com.summit.core.runtime.LifeStyleCommandRegistry;
 import com.summit.core.runtime.LifeStyleCommandStore;
@@ -46,7 +46,7 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
                 context.getRuntimeEventPublisher().onExecutionCancelled(new ExecutionCancelledEvent(execution.getId(), sessionId));
                 return execution;
             }
-            markCompletedIfPlanImplemented(execution, sessionId, agentLoop);
+            finalizePlan(execution, sessionId, agentLoop);
 
             execution.complete();
             context.getConversationManager().endConversation(sessionId);
@@ -65,14 +65,19 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
     }
 
     /**
-     * When the plan really ran write tools and the execution closed with plain text, the plan is deemed
-     * implemented: mark every step of the session plan as COMPLETED.
+     * Plan finalisation: the plan hook closes the plan when the approved plan was really implemented.
+     * Guarded so a hook failure can never turn a successful execution into a failed one.
      */
-    private void markCompletedIfPlanImplemented(Execution execution, Serializable sessionId, AgentLoopRunner agentLoop) {
-        if (agentLoop.isExecutedWriteSuccessfully() && agentLoop.isClosedByPlainText()
-                && context.getConversationManager().planOf(sessionId).isPresent()) {
-            context.getConversationManager().updatePlanSteps(sessionId, PlanStepStatus.COMPLETED);
-            log.info("【agent-loop】plan steps marked COMPLETED: executionId={}", execution.getId());
+    private void finalizePlan(Execution execution, Serializable sessionId, AgentLoopRunner agentLoop) {
+        PlanLoopHook hook = context.getPlanLoopHook();
+        if (hook == null) {
+            return;
+        }
+        try {
+            hook.onExecutionFinished(execution, sessionId,
+                    agentLoop.isExecutedWriteSuccessfully(), agentLoop.isClosedByPlainText());
+        } catch (Exception e) {
+            log.warn("【agent-loop】plan finalisation failed: executionId={}, error={}", execution.getId(), e.getMessage());
         }
     }
 

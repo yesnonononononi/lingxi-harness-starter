@@ -15,9 +15,6 @@ import com.summit.runtime.conversation.DefaultConversationManager;
 import com.summit.runtime.conversation.DefaultConversationStore;
 import com.summit.runtime.conversation.DefaultTokenizer;
 import com.summit.runtime.conversation.SystemPromptAssembler;
-import com.summit.runtime.plan.DefaultPlanStore;
-import com.summit.runtime.plan.PlanCoordinator;
-import com.summit.runtime.plan.PlanTextParser;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -28,9 +25,9 @@ import org.springframework.context.annotation.Bean;
 public class ConversationConfig {
     @Bean
     @ConditionalOnMissingBean
-    public ConversationManager conversationManager(ConversationStore conversationStore, RuntimeEventPublisher runtimeEventPublisher, AgentChatProperties agentChatProperties, PlanCoordinator planCoordinator){
+    public ConversationManager conversationManager(ConversationStore conversationStore, RuntimeEventPublisher runtimeEventPublisher, AgentChatProperties agentChatProperties, PlanStore planStore){
         return new DefaultConversationManager(conversationStore,runtimeEventPublisher,
-                new SystemPromptAssembler(), agentChatProperties.getSystemPrompt(), planCoordinator);
+                new SystemPromptAssembler(), agentChatProperties.getSystemPrompt(), planStore);
     }
 
     @Bean
@@ -67,23 +64,5 @@ public class ConversationConfig {
                                                 Tokenizer tokenizer, AgentConfig agentConfig,
                                                 RuntimeEventPublisher runtimeEventPublisher) {
         return new DefaultModelCompacter(compactModel, conversationManager, planStore, tokenizer, agentConfig, runtimeEventPublisher);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public PlanStore planStore() {
-        return new DefaultPlanStore();
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public PlanTextParser planTextParser() {
-        return new PlanTextParser();
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public PlanCoordinator planCoordinator(PlanStore planStore, PlanTextParser planTextParser, RuntimeEventPublisher runtimeEventPublisher) {
-        return new PlanCoordinator(planStore, planTextParser, runtimeEventPublisher);
     }
 }

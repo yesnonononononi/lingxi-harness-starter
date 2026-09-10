@@ -10,7 +10,8 @@ import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.model.ChatModel;
-import com.summit.core.plan.PlanEntity;
+import com.summit.core.plan.Plan;
+import com.summit.core.plan.PlanOutline;
 import com.summit.core.plan.PlanStore;
 import com.summit.core.tool.ToolResultType;
 import com.summit.core.tool.ToolExecuteResult;
@@ -38,17 +39,17 @@ public class ContextCompactToolExecutor implements ToolExecutor {
     @Override
     public @NonNull ToolExecuteResult execute(ToolExecution toolExecution) {
         String context = extractContext(toolExecution.getArgs());
-        Optional<PlanEntity> sessionPlan = planOf(toolExecution.getSessionId());
+        Optional<Plan> sessionPlan = planOf(toolExecution.getSessionId());
 
         StringBuilder systemPrompt = new StringBuilder(ContextCompactionPrompt.BASE_COMPACTION_PROMPT);
         sessionPlan.ifPresent(plan -> systemPrompt.append("\n").append(ContextCompactionPrompt.PLAN_PROTECTION_PROMPT));
 
         List<Message> messages = new LinkedList<>();
         messages.add(SystemMessageEntity.builder().text(systemPrompt.toString()).build());
-        // The raw plan is attached to the compression input so it never gets lost,
+        // The rendered plan is attached to the compression input so it never gets lost,
         // even when the main model truncated the tool args.
         String payload = sessionPlan
-                .map(plan -> context + ContextCompactionPrompt.PROTECTED_PLAN_MARKER + plan.text())
+                .map(plan -> context + ContextCompactionPrompt.PROTECTED_PLAN_MARKER + PlanOutline.render(plan))
                 .orElse(context);
         messages.add(UserMessageEntity.from(payload));
         ChatRequestEntity request = ChatRequestEntity.builder()
@@ -66,7 +67,7 @@ public class ContextCompactToolExecutor implements ToolExecutor {
         );
     }
 
-    private Optional<PlanEntity> planOf(Serializable sessionId) {
+    private Optional<Plan> planOf(Serializable sessionId) {
         if (sessionId == null) {
             return Optional.empty();
         }

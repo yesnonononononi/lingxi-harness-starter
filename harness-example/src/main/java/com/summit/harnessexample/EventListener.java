@@ -3,9 +3,9 @@ package com.summit.harnessexample;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.compact.ContextUsageMetric;
 import com.summit.core.conversation.event.*;
-import com.summit.core.plan.PlanDecision;
-import com.summit.core.plan.PlanState;
-import com.summit.core.plan.PlanStep;
+import com.summit.core.plan.Plan;
+import com.summit.core.plan.PlanOutline;
+import com.summit.core.plan.Task;
 import com.summit.core.runtime.RuntimeListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,7 +13,6 @@ import org.springframework.stereotype.Component;
 
 import java.io.Serializable;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -23,7 +22,7 @@ import java.util.Map;
  * <p>Each event is serialized into the following JSON envelope:</p>
  * <pre>
  * {
- *   "type": "AGENT_MESSAGE" | "TOOL_STARTED" | "TOOL_COMPLETED" |
+ *   "type": "AGENT_MESSAGE" | "TOOL_STARTED" | "TOOL_COMPLETED" | "PLAN_UPDATE" |
  *           "EXECUTION_STARTED" | "EXECUTION_COMPLETED" | "EXECUTION_FAILED",
  *   "executionId": "...",
  *   "sessionId": "...",
@@ -122,31 +121,44 @@ public class EventListener implements RuntimeListener {
     }
 
     @Override
-    public void onPlanDecision(PlanDecisionEvent event) {
-        PlanDecision decision = event.getPlanDecision();
+    public void onPlanUpdate(PlanUpdateEvent event) {
+        Plan plan = event.getPlan();
         Map<String, Object> data = new LinkedHashMap<>();
-        if (decision != null) {
-            data.put("title", decision.title());
-            List<Map<String, Object>> steps = decision.steps() == null
-                    ? List.of()
-                    : decision.steps().stream().map(step -> {
-                        Map<String, Object> stepJson = new LinkedHashMap<>();
-                        stepJson.put("id", step.id());
-                        stepJson.put("description", step.description());
-                        stepJson.put("status", step.status() == null ? null : step.status().name());
-                        return stepJson;
-                    }).toList();
-            data.put("steps", steps);
+        if (plan != null) {
+            data.put("id", plan.id());
+            data.put("version", plan.version());
+            data.put("title", plan.title());
+            data.put("summaryMarkdown", plan.summaryMarkdown());
+            data.put("outline", PlanOutline.render(plan));
+            data.put("status", plan.status().name());
+            data.put("statusLabel", plan.status().getLabel());
+            data.put("doneTasks", plan.doneTaskCount());
+            data.put("totalTasks", plan.tasks().size());
+            data.put("progress", PlanOutline.progress(plan));
+            data.put("tasks", plan.tasks().stream().map(this::taskJson).toList());
+            // The card addresses the plan by id: approve / revise / reject are plan-id scoped, and
+            // the task edit endpoint only needs the sessionId already carried by the SSE envelope.
+            data.put("approveUrl", "/agent/plans/" + plan.id() + "/approve");
+            data.put("reviseUrl", "/agent/plans/" + plan.id() + "/revise");
+            data.put("rejectUrl", "/agent/plans/" + plan.id() + "/reject");
         }
-        // The plan now waits for human approval; expose the approve/reject URLs so
-        // the front-end plan card can call them (same pattern as WAIT_COMMAND_CHECK).
-        String executionId = event.executionId();
-        data.put("approveUrl", executionId == null ? null : "/agent/plans/" + executionId + "/approve");
-        data.put("rejectUrl", executionId == null ? null : "/agent/plans/" + executionId + "/reject");
-        // A freshly captured plan is always UN_APPROVED (waiting for the human decision).
-        data.put("state", PlanState.UN_APPROVED.name());
-        data.put("stateLabel", PlanState.UN_APPROVED.getLabel());
-        broadcast("PLAN_DECISION", executionId, event.getSessionId(), data);
+        // Card state of this event: WAITING_APPROVAL / APPROVED / REVISED / REJECTED / UPDATED / DONE.
+        data.put("state", event.getState());
+        broadcast("PLAN_UPDATE", event.executionId(), event.getSessionId(), data);
+    }
+
+    /** One task of the plan card: id, status badge, dependencies/priority and the editable fields. */
+    private Map<String, Object> taskJson(Task task) {
+        Map<String, Object> taskJson = new LinkedHashMap<>();
+        taskJson.put("id", task.id());
+        taskJson.put("title", task.title());
+        taskJson.put("description", task.description());
+        taskJson.put("status", task.status().name());
+        taskJson.put("statusLabel", task.status().getLabel());
+        taskJson.put("dependencies", task.dependencies());
+        taskJson.put("priority", task.priority());
+        taskJson.put("acceptance", task.acceptance());
+        return taskJson;
     }
 
     @Override

@@ -39,18 +39,27 @@ public interface RuntimeListener {
     default void onExecutionCancelled(ExecutionCancelledEvent event) {
     }
 
+    ;
+
     default void onFileEdit(FileEditEvent event) {
     }
+
+    ;
 
     default void onPartialText(AgentPartialTextEvent event) {
     }
 
+    ;
+
     default void onPartialThinking(AgentPartialThinkingEvent event) {
     }
 
+    ;
+
     default void onWaitCommandCheck(WaitCommandCheckEvent waitCommandCheckEvent){};
 
-    default void onPlanDecision(PlanDecisionEvent event) {
+    /** A plan was created or mutated by the plan kernel tools (front-end card refresh). */
+    default void onPlanUpdate(PlanUpdateEvent event) {
     }
     ;
 
@@ -58,4 +67,3 @@ public interface RuntimeListener {
     }
     ;
 }
-

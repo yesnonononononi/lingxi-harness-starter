@@ -1,8 +1,7 @@
 package com.summit.core.compact;
 
-import com.fasterxml.jackson.core.json.JsonReadFeature;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.summit.core.json.LenientJsonReader;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
@@ -28,10 +27,10 @@ import java.util.List;
  *
  * <p><b>Solution.</b> Instead of strict parsing:
  * <ol>
- *   <li>locate the first balanced JSON object (string/escape aware) and extract it, tolerating
- *       markdown fences and surrounding prose;</li>
- *   <li>parse the extracted span with a lenient {@link JsonMapper} that allows unescaped control
- *       characters, single quotes, unquoted field names, trailing commas and comments;</li>
+ *   <li>delegate the tolerant read to {@link LenientJsonReader}, which locates the first balanced
+ *       JSON object (string/escape aware, tolerating markdown fences and surrounding prose) and
+ *       parses it with a lenient mapper that allows unescaped control characters, single quotes,
+ *       unquoted field names, trailing commas and comments;</li>
  *   <li>normalize known key aliases ({@code completed[]}/{@code pending[]} etc.) and the
  *       {@code state} value;</li>
  *   <li>if the model did not return a JSON object at all (e.g. a plain-text summary), fall back to
@@ -44,15 +43,6 @@ public final class CompactSummaryResolver {
 
     private CompactSummaryResolver() {
     }
-
-    /** Lenient mapper: tolerates unescaped control chars / single quotes / unquoted fields / trailing commas / comments. */
-    private static final JsonMapper LENIENT_MAPPER = JsonMapper.builder()
-            .enable(JsonReadFeature.ALLOW_UNESCAPED_CONTROL_CHARS)
-            .enable(JsonReadFeature.ALLOW_SINGLE_QUOTES)
-            .enable(JsonReadFeature.ALLOW_UNQUOTED_FIELD_NAMES)
-            .enable(JsonReadFeature.ALLOW_TRAILING_COMMA)
-            .enable(JsonReadFeature.ALLOW_JAVA_COMMENTS)
-            .build();
 
     /** Upper bound of the fallback summary text (prevents dumping an over-long raw output into the rebuilt session). */
     private static final int MAX_FALLBACK_LENGTH = 20_000;
@@ -71,12 +61,9 @@ public final class CompactSummaryResolver {
         }
         String trimmed = rawOutput.trim();
 
-        // 1) Extract the balanced JSON object span (tolerates ```json fences and surrounding prose)
-        JsonNode node = tryParse(extractJsonObject(trimmed));
-        // 2) Fall back to parsing the whole text as-is
-        if (node == null) {
-            node = tryParse(trimmed);
-        }
+        // Tolerant read: the first balanced JSON object (tolerating ```json fences and prose),
+        // with the whole text as a fallback.
+        JsonNode node = LenientJsonReader.readFirstObject(trimmed);
         if (node != null && node.isObject()) {
             return toSummary(node, trimmed);
         }
@@ -95,54 +82,6 @@ public final class CompactSummaryResolver {
     // ------------------------------------------------------------------
     // helpers
     // ------------------------------------------------------------------
-
-    /** Tries to parse the given text with the lenient mapper; returns {@code null} on failure. */
-    private static JsonNode tryParse(String text) {
-        if (text == null || text.isBlank()) {
-            return null;
-        }
-        try {
-            return LENIENT_MAPPER.readTree(text);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    /**
-     * Extracts the first balanced JSON object from arbitrary text.
-     * The scan is string-aware (double quotes and escapes), so braces inside a string value
-     * do not break brace matching.
-     */
-    private static String extractJsonObject(String raw) {
-        int start = raw.indexOf('{');
-        if (start < 0) {
-            return null;
-        }
-        int depth = 0;
-        boolean inString = false;
-        boolean escaped = false;
-        for (int i = start; i < raw.length(); i++) {
-            char c = raw.charAt(i);
-            if (inString) {
-                if (escaped) {
-                    escaped = false;
-                } else if (c == '\\') {
-                    escaped = true;
-                } else if (c == '"') {
-                    inString = false;
-                }
-                continue;
-            }
-            if (c == '"') {
-                inString = true;
-            } else if (c == '{') {
-                depth++;
-            } else if (c == '}' && --depth == 0) {
-                return raw.substring(start, i + 1);
-            }
-        }
-        return null;
-    }
 
     private static ContextSummary toSummary(JsonNode obj, String rawFallback) {
         String summary = text(obj, "summary");

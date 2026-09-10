@@ -19,7 +19,8 @@ import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.ToolMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.model.ChatModel;
-import com.summit.core.plan.PlanEntity;
+import com.summit.core.plan.Plan;
+import com.summit.core.plan.PlanOutline;
 import com.summit.core.plan.PlanStore;
 import com.summit.runtime.agent.AgentConfig;
 import lombok.RequiredArgsConstructor;
@@ -64,13 +65,13 @@ public class DefaultModelCompacter implements ContextCompacter {
             publish(sessionId, request.executionId(), ContextUpdateEvent.Phase.SQUEEZE_STARTED,
                     usage(messages), "模型深度压缩已开始");
 
-            Optional<PlanEntity> sessionPlan = planStore.findBySession(sessionId);
+            Optional<Plan> sessionPlan = planStore.findBySession(sessionId);
             StringBuilder systemPrompt = new StringBuilder(ContextCompactionPrompt.BASE_COMPACTION_PROMPT);
             sessionPlan.ifPresent(plan -> systemPrompt.append("\n").append(ContextCompactionPrompt.PLAN_PROTECTION_PROMPT));
 
             String history = renderConversation(messages);
             String payload = sessionPlan
-                    .map(plan -> history + ContextCompactionPrompt.PROTECTED_PLAN_MARKER + plan.text())
+                    .map(plan -> history + ContextCompactionPrompt.PROTECTED_PLAN_MARKER + PlanOutline.render(plan))
                     .orElse(history);
 
             List<Message> compactMessages = new ArrayList<>();

@@ -10,6 +10,11 @@ export function listPendingEdits(sessionId) {
   return request.get(`/agent/sessions/${sessionId}/edits`)
 }
 
+// 单条编辑详情(含旧/新全文):点击条目查看 diff 时按需加载
+export function getEditDetail(sessionId, recordId) {
+  return request.get(`/agent/sessions/${sessionId}/edits/${recordId}`)
+}
+
 // 保留单条编辑(纯状态变更,无文件 IO)
 export function acceptEdit(sessionId, recordId) {
   return request.post('/agent/edits/accept', { sessionId, recordId })

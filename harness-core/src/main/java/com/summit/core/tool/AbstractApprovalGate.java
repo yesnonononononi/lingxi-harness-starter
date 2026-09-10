@@ -1,5 +1,6 @@
 package com.summit.core.tool;
 
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -16,11 +17,12 @@ import java.util.concurrent.TimeoutException;
  * identical for every use:
  * <ul>
  *   <li>APPROVE: the guarded action may go ahead;</li>
- *   <li>REJECT: the guarded action is cancelled and never executed;</li>
+ *   <li>REJECT: the guarded action is canceled and never executed;</li>
  *   <li>timeout / interruption: the caller treats it as an aborted approval.</li>
  * </ul>
  */
 public abstract class AbstractApprovalGate {
+
 
     /** Completed means decided (APPROVE / REJECT); still pending until completed. */
     private final CompletableFuture<CommandDecision> decision = new CompletableFuture<>();

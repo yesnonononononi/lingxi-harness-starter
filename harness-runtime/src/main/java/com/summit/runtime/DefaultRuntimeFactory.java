@@ -5,9 +5,9 @@ import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.context.RuntimeContext;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.internalUtils.PlanLoopHook;
 import com.summit.core.model.ModelInvoker;
 import com.summit.core.runtime.*;
-import com.summit.core.tool.PlanApprovalRegistry;
 import com.summit.core.tool.ToolExecutionManager;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.compact.DefaultManualCompacter;
@@ -28,7 +28,8 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
     private final AgentConfig agentConfig;
     private final LifeStyleHandler lifeStyleHandler;
     private final LifeStyleCommandRegistry lifeStyleCommandRegistry;
-    private final PlanApprovalRegistry planApprovalRegistry;
+    /** Plan-mode integration point of the loop; {@code null} when no plan kernel is configured. */
+    private final PlanLoopHook planLoopHook;
     /** Manual per-round truncation compaction (shouldSqueeze band). */
     private final DefaultManualCompacter manualCompacter;
     /** Model deep compaction (expectAdvanceSqueeze band). */
@@ -64,7 +65,7 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
                         .maxIterations(agentConfig.maxIterations())
                         .lifeStyleCommandStore(commandStore)
                         .lifeStyleCommandRegistry(lifeStyleCommandRegistry)
-                        .planApprovalRegistry(planApprovalRegistry)
+                        .planLoopHook(planLoopHook)
                         .checkPointer(
                                 new RuntimeCheckPointer(lifeStyleHandler, agentConfig, tokenizer, conversationManager,
                                         commandStore, manualCompacter, modelCompacter

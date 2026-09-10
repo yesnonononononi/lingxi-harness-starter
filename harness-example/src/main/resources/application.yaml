@@ -37,6 +37,9 @@ lingxi:
           max-result: 3
         context-compact:
           enabled: true
+        plan:
+          enabled: true
+          approval-timeout-seconds: 600
 
     model:
       conf:

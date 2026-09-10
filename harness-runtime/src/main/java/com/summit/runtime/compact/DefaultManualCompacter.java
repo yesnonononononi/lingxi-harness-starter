@@ -11,7 +11,7 @@ import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.ToolMessageEntity;
-import com.summit.core.plan.PlanEntity;
+import com.summit.core.plan.PlanOutline;
 import com.summit.core.plan.PlanStore;
 import com.summit.runtime.agent.AgentConfig;
 import lombok.RequiredArgsConstructor;
@@ -65,8 +65,9 @@ public class DefaultManualCompacter implements ContextCompacter {
             return false;
         }
 
-        // A produced plan must be kept verbatim and can never be truncated away
-        String protectedPlanText = planStore.findBySession(sessionId).map(PlanEntity::text).orElse(null);
+        // A produced plan must be kept verbatim and can never be truncated away; it is rendered
+        // through the shared PlanOutline so every consumer sees the same text.
+        String protectedPlanText = planStore.findBySession(sessionId).map(PlanOutline::render).orElse(null);
 
         publish(sessionId, request.executionId(), ContextUpdateEvent.Phase.SQUEEZE_STARTED,
                 usage(conversation.messages()), "本地手动压缩（按轮截断）已开始");

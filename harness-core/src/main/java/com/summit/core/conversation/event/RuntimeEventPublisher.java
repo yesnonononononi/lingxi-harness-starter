@@ -108,11 +108,11 @@ public class RuntimeEventPublisher {
         }
     }
 
-    public void onPlanDecision(PlanDecisionEvent event) {
+    public void onPlanUpdate(PlanUpdateEvent event) {
         try {
-            listeners.forEach(listener -> listener.onPlanDecision(event));
+            listeners.forEach(listener -> listener.onPlanUpdate(event));
         } catch (Exception e) {
-            log.error("Error occurred while publishing plan decision event", e);
+            log.error("Error occurred while publishing plan update event", e);
         }
     }
 

@@ -15,6 +15,9 @@ import org.jspecify.annotations.Nullable;
  *       so the model knows whether it is in a read-only PLANNING phase or in EXECUTE.</li>
  * </ol>
  *
+ * <p>The plan contract is <b>not</b> injected here: it lives in the descriptions / JSON schemas of
+ * the plan kernel tools, so there is a single definition of how a plan is written.</p>
+ *
  * <p>All optional parts are skipped when absent, which keeps the legacy behaviour
  * (default template only) fully intact.</p>
  */
@@ -44,6 +47,8 @@ public class SystemPromptAssembler {
             result.append("\n\n## 当前执行边界 (Current Execution Boundary)")
                     .append("\n边界: ").append(loopBoundary.name())
                     .append(" — ").append(loopBoundary.description);
+            // No plan contract is appended here anymore: the plan contract is carried by the
+            // create_plan / update_plan tool descriptions, which the model always sees.
         }
         return result.toString();
     }

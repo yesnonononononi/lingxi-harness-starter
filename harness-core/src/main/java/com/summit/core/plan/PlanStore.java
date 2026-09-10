@@ -4,53 +4,43 @@ import java.io.Serializable;
 import java.util.Optional;
 
 /**
- * Session-scoped plan store (one plan per session).
+ * Session-scoped plan store: one active plan per session, addressable by plan id as well.
  *
- * <p>The interface lives in harness-core so both harness-runtime (conversation /
- * context rebuild) and harness-base-tools (compact_context executor) can share it
- * without a cyclic module dependency. Implementations (in-memory, Redis, ...) live
- * in the consuming modules and are pluggable via Spring {@code @ConditionalOnMissingBean}.</p>
+ * <p>The interface lives in harness-core so both harness-runtime (kernel tools, approval,
+ * context rebuild) and plugins can share it without a cyclic module dependency. Implementations
+ * (in-memory, Redis, ...) are pluggable through Spring {@code @ConditionalOnMissingBean}.</p>
+ *
+ * <p>Deliberately a plain persistence port: <b>no business rule lives here</b>. Version
+ * arbitration, status transitions and event publication are owned by the runtime plan kernel,
+ * which is the single write path.</p>
  */
 public interface PlanStore {
 
     /**
-     * Returns the plan registered for the given session, if any.
+     * Returns the plan with the given id, if any.
      *
-     * @return the plan entity, or {@link Optional#empty()} when the session has no plan yet
+     * @return the stored plan, or {@link Optional#empty()} when the id is unknown
      */
-    Optional<PlanEntity> findBySession(Serializable sessionId);
+    Optional<Plan> findById(String planId);
 
     /**
-     * Stores the plan under its {@code sessionId}, replacing any previous plan of the session.
+     * Returns the active plan of the session, if any.
+     *
+     * @return the stored plan, or {@link Optional#empty()} when the session has no plan yet
+     */
+    Optional<Plan> findBySession(Serializable sessionId);
+
+    /**
+     * Stores the plan as the active plan of the session, replacing any previous plan.
      *
      * @return the stored plan
      */
-    PlanEntity save(PlanEntity plan);
+    Plan save(Serializable sessionId, Plan plan);
 
     /**
-     * Appends a new PENDING implementation step to the plan of the given session.
-     *
-     * @return the updated plan, or {@link Optional#empty()} when the session has no plan
-     */
-    Optional<PlanEntity> appendStep(Serializable sessionId, String description);
-
-    /**
-     * Transitions every step of the session plan to the given status (e.g. all steps to
-     * {@code IN_PROGRESS} when an execution starts implementing the plan, or to
-     * {@code COMPLETED} when the execution finishes normally after actually running tools).
-     * Implementations should <b>also advance the plan-level {@link PlanState} machine</b>
-     * on these same transitions (IN_PROGRESS -&gt; {@code APPROVED}, COMPLETED -&gt;
-     * {@code COMPLETED}) instead of requiring separate write calls, keeping the state
-     * machine final-consistent with minimal churn. A no-op when the session has no plan.
-     *
-     * @return the updated plan, or {@link Optional#empty()} when the session has no plan
-     */
-    Optional<PlanEntity> markSteps(Serializable sessionId, PlanStepStatus status);
-
-    /**
-     * Removes the plan of the given session.
+     * Removes the active plan of the session.
      *
      * @return the removed plan, or {@link Optional#empty()} when nothing was stored
      */
-    Optional<PlanEntity> delete(Serializable sessionId);
+    Optional<Plan> delete(Serializable sessionId);
 }
