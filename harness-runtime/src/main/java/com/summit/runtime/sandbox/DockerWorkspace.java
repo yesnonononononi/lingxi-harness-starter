@@ -89,7 +89,24 @@ public class DockerWorkspace implements Workspace {
      * @param image       container image; defaults to "alpine" when {@code null} or blank
      */
     public  static  DockerWorkspace newInstance(String id, String workDir, String name, String port, String hostDir, String image) {
-        String containerId = DockerWorkspaceBridge.initContainer(name, port, hostDir, workDir, image);
+        return newInstance(id, workDir, name, port, hostDir, image, null);
+    }
+
+    /**
+     * Same as {@link #newInstance(String, String, String, String, String, String)} but also joins
+     * a docker network.
+     *
+     * <p>Joining a user-defined network is additive and gives the sandbox two things it does not
+     * have on the default bridge: DNS resolution of the other containers attached to it by name /
+     * alias, and reachability of the ports they expose. That is how a sandbox image can drive a
+     * {@code node} / {@code python} / {@code java} environment living in a sibling container. A
+     * network that does not exist yet is created; a reused container is attached to it as well.</p>
+     *
+     * @param network docker network to join; {@code null} or blank keeps the default bridge
+     */
+    public  static  DockerWorkspace newInstance(String id, String workDir, String name, String port,
+                                                String hostDir, String image, String network) {
+        String containerId = DockerWorkspaceBridge.initContainer(name, port, hostDir, workDir, image, network);
         return new DockerWorkspace(id, containerId, workDir);
     }
 

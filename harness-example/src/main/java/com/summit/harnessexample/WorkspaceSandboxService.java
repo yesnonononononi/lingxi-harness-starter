@@ -39,6 +39,12 @@ import java.util.UUID;
  * plain local working-directory switch ({@link LocalWorkSpace#updateWorkDir}),
  * because there is no container to create or reuse.</p>
  *
+ * <p>Every sandbox is placed on the docker network configured through
+ * {@code lingxi.agent.container-network} (when set): a new container joins it
+ * at creation time and a reused container is attached to it, so the sandbox can
+ * always resolve and reach the sibling containers that provide the node /
+ * python / java environments.</p>
+ *
  * <p>Boundary: an agent task that is already running when the workspace is
  * switched keeps its original {@link Workspace} reference until that task
  * finishes; all subsequent requests use the new sandbox.</p>
@@ -69,6 +75,8 @@ public class WorkspaceSandboxService {
     private String containerPort;
     @Value("${lingxi.agent.container-workdir:/workspace}")
     private String containerWorkdir;
+    @Value("${lingxi.agent.container-network:}")
+    private String containerNetwork;
     @Value("${lingxi.agent.workspace-dir:}")
     private String configuredWorkspaceDir;
 
@@ -142,6 +150,10 @@ public class WorkspaceSandboxService {
         if (existing.isPresent()) {
             ContainerMount hit = existing.get();
             DockerWorkspaceBridge.ensureRunning(hit.containerId());
+            // A container created before the network was configured (or by another
+            // tool) must still end up on it, otherwise a reused sandbox silently
+            // lacks the node / python / java environments.
+            DockerWorkspaceBridge.ensureNetwork(hit.containerId(), containerNetwork);
             String destination = mountRoot(hit.mountDestination());
             DockerWorkspace workspace = DockerWorkspace.attach(UUID.randomUUID().toString(),
                     hit.containerId(), destination);
@@ -158,7 +170,8 @@ public class WorkspaceSandboxService {
                 name,
                 containerPort,
                 hostDir,
-                containerImage);
+                containerImage,
+                containerNetwork);
         activeWorkspace.swap(workspace);
         log.info("workspace switched (docker, new container '{}' {}): host {} -> container {}",
                 name, workspace.getContainerId(), hostDir, workspace.workDir());

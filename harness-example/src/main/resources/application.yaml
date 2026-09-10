@@ -12,6 +12,9 @@ lingxi:
     container-name: agent-sandbox
     container-image: alpine
     container-port: ""                # optional: publish -p 8080:8080, leave blank to skip
+    container-network: code           # docker network the sandbox joins (created if missing);
+                                      # gives DNS + reachability to sibling containers such as
+                                      # code-py-node (node/python) and code-java, blank = default bridge
     container-workdir: /workspace     # in-container working directory (mount point)
     workspace-dir: ""                 # host project directory; blank = app launch dir
     runtime:

@@ -57,9 +57,11 @@ public class DockerWorkspaceBridge implements WorkspaceBridge {
      * <ul>
      *   <li>If a container with the exact same name already exists (running or
      *       stopped), it is started and reused as-is — no second run, no
-     *       re-mount.</li>
+     *       re-mount. When {@code network} is set the reused container is
+     *       attached to that network too, so a sandbox created before the
+     *       network was configured still gains access to it.</li>
      *   <li>Otherwise it is created with:
-     *       {@code docker run -d --name <name> [-p <port>:<port>] [-v <hostDir>:<containerDir>] <image>}</li>
+     *       {@code docker run -d --name <name> [--network <network>] [-p <port>:<port>] [-v <hostDir>:<containerDir>] <image>}</li>
      * </ul>
      *
      * @param name         container name (the reuse key); must not be blank
@@ -67,9 +69,12 @@ public class DockerWorkspaceBridge implements WorkspaceBridge {
      * @param hostDir      optional host directory bind-mounted into the container to share project files; skipped when blank
      * @param containerDir in-container mount point for {@code hostDir}; when blank defaults to "/workspace"
      * @param image        container image; when blank defaults to "alpine"
+     * @param network      optional docker network the sandbox joins (created when missing), which lets it
+     *                     reach the other containers on that network by name; skipped when blank
      * @return the container id (short or full id)
      */
-    public static String initContainer(String name, String port, String hostDir, String containerDir, String image) {
+    public static String initContainer(String name, String port, String hostDir, String containerDir,
+                                       String image, String network) {
         if (name == null || name.isBlank()) {
             throw new IllegalArgumentException("container name must not be blank");
         }
@@ -77,11 +82,17 @@ public class DockerWorkspaceBridge implements WorkspaceBridge {
         if (existing != null) {
             // Reuse: make sure it is running; `docker start` is a no-op on a running container.
             runOrThrow(List.of("docker", "start", existing));
+            ensureNetwork(existing, network, name);
             log.info("Reusing existing docker container '{}' ({})", name, existing);
             return existing;
         }
 
         List<String> cmd = new ArrayList<>(List.of("docker", "run", "-d", "--name", name));
+        if (network != null && !network.isBlank()) {
+            ensureNetworkExists(network.trim());
+            cmd.add("--network");
+            cmd.add(network.trim());
+        }
         if (port != null && !port.isBlank()) {
             cmd.add("-p");
             cmd.add(port + ":" + port);
@@ -97,12 +108,89 @@ public class DockerWorkspaceBridge implements WorkspaceBridge {
         cmd.add("/dev/null");
 
         String containerId = runOrThrow(cmd);
-        log.info("Started docker container '{}' ({})", name, containerId);
+        log.info("Started docker container '{}' ({}){}", name, containerId,
+                network == null || network.isBlank() ? "" : " on network '" + network.trim() + "'");
         return containerId;
     }
 
     public static String initContainer(String name, String port) {
-        return initContainer(name, port, null, null, null);
+        return initContainer(name, port, null, null, null, null);
+    }
+
+    /**
+     * Attaches a container to a docker network, creating the network when it
+     * does not exist yet.
+     *
+     * <p>Idempotent: a container that is already a member of the network is left
+     * untouched, so this is safe to call on every workspace switch — including
+     * for reused containers, which would otherwise keep the networking they were
+     * created with. Attaching is additive: the container's other networks are
+     * preserved.</p>
+     *
+     * @param containerId container to attach
+     * @param network     docker network name; blank is a no-op
+     * @throws RuntimeException when the network cannot be created or the container cannot be attached
+     */
+    public static void ensureNetwork(String containerId, String network) {
+        ensureNetwork(containerId, network, null);
+    }
+
+    private static void ensureNetwork(String containerId, String network, String containerName) {
+        if (network == null || network.isBlank()) {
+            return;
+        }
+        if (containerId == null || containerId.isBlank()) {
+            throw new IllegalArgumentException("container id must not be blank");
+        }
+        String net = network.trim();
+        String label = containerName == null ? containerId : containerName + "' (" + containerId + ")";
+        if (containerNetworks(containerId).contains(net)) {
+            log.debug("container '{}' is already attached to network '{}'", label, net);
+            return;
+        }
+        ensureNetworkExists(net);
+        runOrThrow(List.of("docker", "network", "connect", net, containerId));
+        log.info("Attached container '{}' to docker network '{}'", label, net);
+    }
+
+    /**
+     * Lists the names of the docker networks a container is attached to.
+     *
+     * @param containerId the container to inspect
+     * @return network names, empty when the container has no network yet
+     * @throws RuntimeException when docker cannot be queried
+     */
+    public static List<String> containerNetworks(String containerId) {
+        if (containerId == null || containerId.isBlank()) {
+            throw new IllegalArgumentException("container id must not be blank");
+        }
+        try {
+            byte[] bytes = runForOutput(List.of("docker", "inspect", "-f",
+                    "{{range $name, $net := .NetworkSettings.Networks}}{{$name}} {{end}}", containerId));
+            String out = new String(bytes, StandardCharsets.UTF_8).trim();
+            return out.isEmpty() ? List.of() : List.of(out.split("\\s+"));
+        } catch (IOException e) {
+            throw new RuntimeException("failed to inspect networks of docker container " + containerId, e);
+        }
+    }
+
+    /**
+     * Creates a docker network when it does not exist yet; existing networks
+     * (docker's own {@code bridge} / {@code host} / {@code none} included) are
+     * left untouched.
+     */
+    private static void ensureNetworkExists(String network) {
+        try {
+            byte[] bytes = runForOutput(List.of("docker", "network", "ls", "-q",
+                    "--filter", "name=^" + network + "$"));
+            if (!new String(bytes, StandardCharsets.UTF_8).trim().isEmpty()) {
+                return;
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("failed to list docker networks", e);
+        }
+        runOrThrow(List.of("docker", "network", "create", network));
+        log.info("Created docker network '{}'", network);
     }
 
     /**
