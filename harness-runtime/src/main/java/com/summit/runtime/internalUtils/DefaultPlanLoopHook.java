@@ -53,24 +53,36 @@ public class DefaultPlanLoopHook implements PlanLoopHook {
             return PlanTurnResult.none();
         }
         PlanApprovalResult decision = waiter.await(plan, sessionId, execution.getId());
+        // The wait lasts until the human decides, and the plan card lets them edit task description /
+        // acceptance in the meantime. Every branch therefore has to work on the revision that is
+        // stored *now*: acting on the pre-wait snapshot would both hide those edits from the model
+        // (the directive renders the plan it is given) and, for the approval path, write the stale
+        // snapshot back over the user's revision.
+        Plan decided = kernel.planOf(sessionId).orElse(plan);
+        if (decided.version() != plan.version()) {
+            log.info("{} plan edited while awaiting approval, continuing from the latest revision: "
+                            + "planId={}, version=v{} -> v{}, executionId={}",
+                    LOG_PREFIX, decided.id(), plan.version(), decided.version(), execution.getId());
+        }
+        execution.setPlan(decided);
         return switch (decision.outcome()) {
-            case APPROVED -> onApproved(plan, execution, sessionId);
-            case REVISED -> onRevised(plan, decision.feedback(), execution, sessionId);
+            case APPROVED -> onApproved(decided, execution, sessionId);
+            case REVISED -> onRevised(decided, decision.feedback(), execution, sessionId);
             case INTERRUPTED -> {
                 log.warn("{} approval interrupted, cancelling the execution: planId={}, executionId={}",
-                        LOG_PREFIX, plan.id(), execution.getId());
+                        LOG_PREFIX, decided.id(), execution.getId());
                 yield PlanTurnResult.cancel();
             }
             case REJECTED -> {
-                kernel.publish(sessionId, execution.getId(), plan, PlanUpdateEvent.STATE_REJECTED);
+                kernel.publish(sessionId, execution.getId(), decided, PlanUpdateEvent.STATE_REJECTED);
                 log.info("{} plan rejected, execution finishes without implementing it: planId={}, executionId={}",
-                        LOG_PREFIX, plan.id(), execution.getId());
+                        LOG_PREFIX, decided.id(), execution.getId());
                 yield PlanTurnResult.stop();
             }
             case TIMEOUT -> {
-                kernel.publish(sessionId, execution.getId(), plan, PlanUpdateEvent.STATE_REJECTED);
+                kernel.publish(sessionId, execution.getId(), decided, PlanUpdateEvent.STATE_REJECTED);
                 log.warn("{} plan approval timed out, execution finishes without implementing it: planId={}, executionId={}",
-                        LOG_PREFIX, plan.id(), execution.getId());
+                        LOG_PREFIX, decided.id(), execution.getId());
                 yield PlanTurnResult.stop();
             }
         };

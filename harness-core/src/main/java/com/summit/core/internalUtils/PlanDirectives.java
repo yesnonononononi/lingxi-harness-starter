@@ -19,6 +19,9 @@ public final class PlanDirectives {
                 The user APPROVED plan %s. Implement it now under the EXECUTE boundary.
 
                 Rules:
+                - the approved plan below is the authoritative revision: the user may have edited task
+                  descriptions or acceptance criteria while reviewing it, so re-read it instead of
+                  relying on the draft you wrote earlier;
                 - work task by task; honour every task's acceptance criterion and dependencies;
                 - keep the plan up to date with `update_task` (status=doing when you start a task);
                 - call `complete_task` right after a task is really finished;
