@@ -1,11 +1,12 @@
 <script setup>
 // 工具调用图标：
 //   read    -> 眼睛（读取文件）
-//   edit    -> 环形（修改文件）
+//   edit    -> 环形（修改文件）：执行中与 command 一致匀速旋转，完成后静止
 //   command -> 执行中：环形 loading 旋转；完成：√
 defineProps({
   kind: { type: String, default: 'command' },
-  // 仅 command 使用：running 时转成旋转的 loading，其余（done）显示 √
+  // command：running 时转成旋转的 loading，done 显示 √
+  // edit：running 时同样旋转（动画样式对齐 command），done 保持环形
   status: { type: String, default: 'done' },
 })
 </script>
@@ -57,10 +58,11 @@ defineProps({
     <path d="M912 190h-69.9c-9.8 0-19.1 4.5-25.1 12.2L404.7 724.5 212.6 487.9c-6-7.7-15.3-12.2-25.1-12.2H117.4c-11.9 0-18.6 13.9-11.3 22.9L381.9 824.5c12.1 15.1 35 15.1 47.2 0l494.2-611.6c7.3-9-.6-22.9-11.3-22.9z" />
   </svg>
 
-  <!-- 其余（修改文件等）：环形 -->
+  <!-- 其余（修改文件等）：环形；执行中的「修改文件」复用与「执行命令」完全相同的旋转动画 -->
   <svg
     v-else
     class="tool-svg"
+    :class="{ spin: kind === 'edit' && status === 'running' }"
     viewBox="0 0 1024 1024"
     width="14"
     height="14"
