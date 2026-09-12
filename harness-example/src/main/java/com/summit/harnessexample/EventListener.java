@@ -100,6 +100,8 @@ public class EventListener implements RuntimeListener {
         data.put("toolExecutionId", event.getToolExecutionId());
         data.put("question", event.getQuestion());
         data.put("choices", event.getChoices());
+        // 候选项只是建议：允许前端额外提供"自定义输入"，用户可直接输入任意内容作为选择
+        data.put("allowCustomInput", event.isAllowCustomInput());
         data.put("status", "PENDING");
         data.put("decideUrl", "/agent/choices/" + event.getToolExecutionId() + "/decide");
         broadcast("WAIT_USER_CHOICE", event.executionId(), event.getSessionId(), data);

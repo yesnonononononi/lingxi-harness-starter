@@ -16,10 +16,16 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Executor of the {@code require_choice} tool: it lets the model ask the user an explicit
  * question with a set of options instead of guessing.
+ *
+ * <p>The options are only a recommendation: the user may always answer with their own
+ * free-form text instead of picking one of them. In that case the executor hands the custom
+ * answer back to the model, explicitly marked as a custom answer (not as one of the options),
+ * so the model follows what the user actually said.</p>
  *
  * <p>It reuses the very same human-in-the-loop mechanics as command approval
  * ({@link ChoiceDecideGate} + {@link DecideRegistry} + the loop-boundary wait inside
@@ -71,13 +77,38 @@ public class ExplicitMeanToolExecutor implements ToolExecutor {
                         ToolResultType.CHOICE_REQUIRED);
             }
 
-            log.info("{} user chose '{}' for toolExecution={}", LOG_PREFIX, decision, toolExecutionId);
+            String answer = decision.trim();
+            boolean offeredOption = isOfferedOption(answer, choices);
+            log.info("{} user decided '{}' for toolExecution={}, offeredOption={}",
+                    LOG_PREFIX, answer, toolExecutionId, offeredOption);
             return ToolExecuteResult.success(toolExecutionId, toolExecution.getToolDefinition(),
-                    "the user chose: " + decision);
+                    offeredOption
+                            ? "the user chose: " + answer
+                            : customAnswerOutput(answer, choices));
         } catch (JsonProcessingException e) {
             return ToolExecuteResult.err(toolExecutionId, toolExecution.getToolDefinition(),
                     "failed to parse require_choice arguments: " + e);
         }
+    }
+
+    /** Whether the answer is one of the options offered by the model (surrounding blanks ignored). */
+    private static boolean isOfferedOption(String answer, List<String> choices) {
+        return choices.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .anyMatch(answer::equals);
+    }
+
+    /**
+     * The user did not pick any option and typed their own answer: tell the model in plain words
+     * that this is a custom answer (the offered options are kept as context) and that it must be
+     * treated as the user's explicit decision.
+     */
+    private static String customAnswerOutput(String answer, List<String> choices) {
+        return "the user did not pick any of the offered options and answered with their own custom choice: "
+                + answer
+                + (choices.isEmpty() ? "" : " (the offered options were: " + choices + ")")
+                + ". Treat the custom choice as the user's explicit decision and continue with it.";
     }
 
     private void publishWaitChoice(ToolExecution toolExecution, String question, List<String> choices) {
@@ -87,6 +118,9 @@ public class ExplicitMeanToolExecutor implements ToolExecutor {
                 String.valueOf(toolExecution.getSessionId()),
                 question,
                 choices,
+                // the options are a recommendation only: the front-end may offer an extra
+                // free-form input and the user's custom answer is accepted as well
+                true,
                 Instant.now()
         ));
     }

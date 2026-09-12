@@ -352,13 +352,32 @@ async function decideCommandAck(item, approve) {
 
 // ====== 需求选择（require_choice）======
 // WAIT_USER_CHOICE 卡片：模型在执行中发现用户诉求语义模糊、需要用户拍板时，主动
-// 提问并给出若干可选方案，agent 循环挂起等待；用户点选后写入决策，循环被唤醒并按所选方案继续
+// 提问并给出若干可选方案，agent 循环挂起等待。候选方案只是模型的建议，用户可以点选，
+// 也可以直接输入自己的方案；两种答案后端一视同仁（只区分 offeredOption / custom），
+// 写入决策后 agent 循环被唤醒并按该答案继续。
+const MAX_CHOICE_LEN = 1000
+
 async function decideUserChoice(item, choice) {
   if (!item.toolExecutionId || item.decision || item.deciding) return
+  // 自定义方案先做非空 / 长度校验（后端上限同为 1000），避免无谓的 400
+  const answer = String(choice ?? '').trim()
+  if (!answer) {
+    item.inputError = '请先输入你的方案'
+    return
+  }
+  if (answer.length > MAX_CHOICE_LEN) {
+    item.inputError = `自定义方案最多 ${MAX_CHOICE_LEN} 个字符（当前 ${answer.length}）`
+    return
+  }
   item.deciding = true
+  item.inputError = ''
   try {
-    await request.post(`/agent/choices/${item.toolExecutionId}/decide`, { choice })
-    item.choice = choice
+    const data = await request.post(`/agent/choices/${item.toolExecutionId}/decide`, { choice: answer })
+    item.choice = data?.choice || answer
+    // 后端返回 custom=true 表示这是候选项之外的自定义答案；老接口无该字段时本地判定
+    item.custom = 'custom' in (data || {})
+      ? !!data.custom
+      : !(item.choices || []).includes(answer)
     item.decision = 'DECIDED'
   } catch (err) {
     const msg = err?.response?.data?.message || err?.message || err
@@ -366,10 +385,23 @@ async function decideUserChoice(item, choice) {
     // 404/409：选择已不存在（超时/会话结束）或已被其他端决断，标记为失效避免重复操作
     if (err?.response?.status === 404 || err?.response?.status === 409) {
       item.decision = 'STALE'
+    } else if (err?.response?.status === 400) {
+      // 答案被后端拒绝（如超长），提示后仍可修改重试
+      item.inputError = msg
     }
   } finally {
     item.deciding = false
   }
+}
+
+// 输入框「提交 / 回车」：把自定义内容作为选择提交
+function submitCustomChoice(item) {
+  decideUserChoice(item, item.customInput)
+}
+
+// 输入框内容非空才允许提交
+function canSubmitCustom(item) {
+  return !item.deciding && !!String(item.customInput || '').trim()
 }
 
 // ====== 计划内核卡片（PLANING → 批准 / 重新规划 / 拒绝 → EXECUTE 实施） ======
@@ -667,9 +699,11 @@ function choiceTitle(item) {
 }
 
 function choiceSub(item) {
-  if (item.decision === 'DECIDED') return 'agent 将按你选择的方案继续执行'
+  if (item.decision === 'DECIDED') {
+    return item.custom ? 'agent 将按你补充的自定义方案继续执行' : 'agent 将按你选择的方案继续执行'
+  }
   if (item.decision === 'STALE') return '该选择已被其他端处理或本轮执行已结束'
-  return 'agent 已暂停，请选择一个方案以继续'
+  return 'agent 已暂停，请选择一个方案，或直接输入你自己的方案'
 }
 
 function onDocClick(e) {
@@ -883,7 +917,7 @@ function connectEvents() {
       }
       if (evt.type === 'WAIT_USER_CHOICE') {
         // require_choice：模型在执行中主动向用户要一个明确选择（语义模糊/需用户拍板），
-        // agent 循环挂起等待；用户点选后写入决策，循环被唤醒并按所选方案继续
+        // agent 循环挂起等待；用户点选候选方案、或直接输入自己的方案，写入决策后循环被唤醒
         appendLog({
           time: now(),
           type: 'WAIT_USER_CHOICE',
@@ -891,8 +925,13 @@ function connectEvents() {
           toolExecutionId: evt.data?.toolExecutionId || '',
           question: evt.data?.question || '',
           choices: Array.isArray(evt.data?.choices) ? evt.data.choices : [],
+          // 后端默认允许自定义输入（候选项只是建议）；旧事件不带该字段时同样放开
+          allowCustomInput: evt.data?.allowCustomInput !== false,
+          customInput: '',
+          inputError: '',
           decision: '',
           choice: '',
+          custom: false,
           deciding: false,
         })
         return
@@ -1575,7 +1614,8 @@ onBeforeUnmount(() => {
           </div>
 
           <!-- 需求选择卡片（WAIT_USER_CHOICE）：require_choice 工具——模型在用户诉求语义模糊、
-               需要用户拍板时主动提问并给出候选方案，agent 循环挂起等待；用户点选后循环被唤醒 -->
+               需要用户拍板时主动提问并给出候选方案，agent 循环挂起等待；候选方案只是建议，
+               用户可点选、也可直接输入自己的方案，两者都会唤醒循环并按该答案继续 -->
           <div v-else-if="item.type === 'WAIT_USER_CHOICE'" class="tool-event ack-event">
             <div class="ack-card choice-card" :class="{ decided: !!item.decision }">
               <div class="ack-head">
@@ -1594,10 +1634,30 @@ onBeforeUnmount(() => {
                   :disabled="item.deciding"
                   @click="decideUserChoice(item, opt)"
                 >{{ opt }}</button>
-                <span v-if="!item.choices.length" class="choice-empty">模型未给出候选方案，请在输入框直接补充说明</span>
+                <span v-if="!item.choices.length" class="choice-empty">模型未给出候选方案，请在下方输入你的方案</span>
               </div>
-              <div v-else class="ack-result" :class="item.decision === 'DECIDED' ? 'ACCEPTED' : item.decision">
-                {{ item.decision === 'DECIDED' ? `已选择：${item.choice}` : item.decision === 'STALE' ? '该选择已被其他端处理或本轮执行已结束' : '已决断' }}
+              <!-- 自定义方案：候选方案只是模型的建议，用户可以给出任意自己的答案 -->
+              <div v-if="!item.decision && item.allowCustomInput" class="choice-custom">
+                <input
+                  v-model="item.customInput"
+                  class="choice-input"
+                  type="text"
+                  :maxlength="MAX_CHOICE_LEN"
+                  :disabled="item.deciding"
+                  :placeholder="item.choices.length ? '都不合适？直接输入你的方案，回车提交' : '输入你的方案，回车提交'"
+                  @keyup.enter="submitCustomChoice(item)"
+                />
+                <button
+                  class="choice-submit"
+                  :disabled="!canSubmitCustom(item)"
+                  @click="submitCustomChoice(item)"
+                >{{ item.deciding ? '提交中…' : '提交' }}</button>
+              </div>
+              <p v-if="!item.decision && item.inputError" class="choice-error">{{ item.inputError }}</p>
+              <div v-else-if="item.decision" class="ack-result" :class="item.decision === 'DECIDED' ? 'ACCEPTED' : item.decision">
+                {{ item.decision === 'DECIDED'
+                  ? `${item.custom ? '已提交自定义方案' : '已选择'}：${item.choice}`
+                  : item.decision === 'STALE' ? '该选择已被其他端处理或本轮执行已结束' : '已决断' }}
               </div>
             </div>
           </div>
@@ -3568,6 +3628,43 @@ onBeforeUnmount(() => {
 .choice-btn:hover:not(:disabled) { background: #e8eeff; border-color: #c3cffa; }
 .choice-btn:disabled { opacity: .5; cursor: not-allowed; }
 .choice-empty { font-size: 12px; color: #9ca3af; }
+/* 自定义方案输入行：候选方案之外的任意答案 */
+.choice-custom {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.choice-input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid #dbe2f2;
+  border-radius: 8px;
+  background: #fff;
+  color: #262832;
+  font-size: 12px;
+  outline: none;
+  transition: all .2s;
+}
+.choice-input::placeholder { color: #a8b0c2; }
+.choice-input:focus { border-color: #93a7f0; box-shadow: 0 0 0 2px rgba(59, 102, 241, .12); }
+.choice-input:disabled { background: #f7f8fb; cursor: not-allowed; }
+.choice-submit {
+  flex: none;
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid #1d4ed8;
+  border-radius: 8px;
+  background: #1d4ed8;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all .2s;
+}
+.choice-submit:hover:not(:disabled) { background: #1a45c0; border-color: #1a45c0; }
+.choice-submit:disabled { opacity: .5; cursor: not-allowed; }
+.choice-error { margin: 6px 0 0; font-size: 12px; color: #b42318; }
 .ack-result.ACCEPTED { color: #17803d; }
 .ack-result.REJECTED { color: #b42318; }
 .ack-result.STALE { color: #9ca3af; }

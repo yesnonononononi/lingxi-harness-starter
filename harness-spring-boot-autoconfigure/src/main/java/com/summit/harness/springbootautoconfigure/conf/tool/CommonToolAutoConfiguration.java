@@ -106,14 +106,15 @@ public class CommonToolAutoConfiguration {
                 .description("""
                         Ask the user an explicit question and wait for their choice before continuing.
                         Use it ONLY when a decision really depends on the user (ambiguous instruction, conflicting requirements, a risky/irreversible choice, missing preference). Do NOT use it for things you can decide or verify yourself.
-                        Provide the 'question' and the selectable 'choice' options; the tool blocks the agent until the user picks one, then returns the selected option.
+                        Provide the 'question' and the selectable 'choice' options; the tool blocks the agent until the user answers, then returns the answer.
+                        The options are a recommendation, not a whitelist: the user may also answer with their own free-form text instead of picking one. Either way the answer is the user's explicit decision - continue with exactly what was returned, never re-ask.
                         """)
                 .parametersJsonSchema("""
                         {
                           "type": "object",
                           "properties": {
                             "question": {"type": "string", "description": "The question to ask the user. Required."},
-                            "choice": {"type": "array", "items": {"type": "string"}, "description": "The selectable options; the user's answer is one of them. Required."}
+                            "choice": {"type": "array", "items": {"type": "string"}, "description": "The recommended selectable options. The user usually picks one of them, but may also reply with a custom free-form answer. Required, 2 to 5 concrete and mutually exclusive options."}
                           },
                           "required": ["question", "choice"]
                         }
