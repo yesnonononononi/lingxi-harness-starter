@@ -81,6 +81,11 @@ public final class PlanOutline {
             if (task.acceptance() != null) {
                 outline.append("    acceptance: ").append(task.acceptance().replace("\n", "\n    ")).append('\n');
             }
+            // Human-provided hint attached to the step while reviewing the plan: must be honoured,
+            // and is never a rewrite of the model's own description / acceptance.
+            if (task.tips() != null) {
+                outline.append("    user tips: ").append(task.tips().replace("\n", "\n    ")).append('\n');
+            }
         }
     }
 }

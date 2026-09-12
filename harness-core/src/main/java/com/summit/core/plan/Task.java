@@ -13,6 +13,11 @@ import java.util.UUID;
  * against. {@code dependencies} refer to other task ids of the same plan, and {@code priority}
  * orders the task list (lower value = higher priority, {@code null} = unspecified).</p>
  *
+ * <p>{@code tips} is the human-owned field: extra guidance the user attaches to this step while
+ * reviewing the plan (for example "run the build before considering this done"). It never rewrites
+ * what the model proposed — {@link PlanOutline} renders it next to the task, so the agent reads it
+ * together with the approved plan and has to honour it.</p>
+ *
  * <p>Immutable record: every {@code withX} call returns a new task, so plan mutations stay
  * copy-on-write and thread-safe.</p>
  *
@@ -23,6 +28,7 @@ import java.util.UUID;
  * @param dependencies ids of the tasks that must be done first (never {@code null})
  * @param priority     optional ordering hint, lower first
  * @param acceptance   optional explicit acceptance criterion
+ * @param tips         optional human-provided hint attached to this step (never set by the model)
  */
 public record Task(
         String id,
@@ -31,7 +37,8 @@ public record Task(
         TaskStatus status,
         List<String> dependencies,
         Integer priority,
-        String acceptance
+        String acceptance,
+        String tips
 ) {
 
     public Task {
@@ -45,36 +52,42 @@ public record Task(
                 .filter(dependency -> !dependency.isEmpty())
                 .toList());
         acceptance = trimToNull(acceptance);
+        tips = trimToNull(tips);
     }
 
     /** Creates a task with a generated id, used when the model omits the id. */
     public static Task create(String title, String description, List<String> dependencies,
                               Integer priority, String acceptance) {
-        return new Task(null, title, description, TaskStatus.TODO, dependencies, priority, acceptance);
+        return new Task(null, title, description, TaskStatus.TODO, dependencies, priority, acceptance, null);
     }
 
     public Task withTitle(String title) {
-        return new Task(id, title, description, status, dependencies, priority, acceptance);
+        return new Task(id, title, description, status, dependencies, priority, acceptance, tips);
     }
 
     public Task withDescription(String description) {
-        return new Task(id, title, description, status, dependencies, priority, acceptance);
+        return new Task(id, title, description, status, dependencies, priority, acceptance, tips);
     }
 
     public Task withStatus(TaskStatus status) {
-        return new Task(id, title, description, status, dependencies, priority, acceptance);
+        return new Task(id, title, description, status, dependencies, priority, acceptance, tips);
     }
 
     public Task withDependencies(List<String> dependencies) {
-        return new Task(id, title, description, status, dependencies, priority, acceptance);
+        return new Task(id, title, description, status, dependencies, priority, acceptance, tips);
     }
 
     public Task withPriority(Integer priority) {
-        return new Task(id, title, description, status, dependencies, priority, acceptance);
+        return new Task(id, title, description, status, dependencies, priority, acceptance, tips);
     }
 
     public Task withAcceptance(String acceptance) {
-        return new Task(id, title, description, status, dependencies, priority, acceptance);
+        return new Task(id, title, description, status, dependencies, priority, acceptance, tips);
+    }
+
+    /** Attaches / replaces / clears ({@code null} or blank) the human-provided hint of this step. */
+    public Task withTips(String tips) {
+        return new Task(id, title, description, status, dependencies, priority, acceptance, tips);
     }
 
     /** Whether this task is already closed. */

@@ -70,11 +70,11 @@ public class DefaultManualCompacter implements ContextCompacter {
         String protectedPlanText = planStore.findBySession(sessionId).map(PlanOutline::render).orElse(null);
 
         publish(sessionId, request.executionId(), ContextUpdateEvent.Phase.SQUEEZE_STARTED,
-                usage(conversation.messages()), "本地手动压缩（按轮截断）已开始");
+              null, "本地手动压缩（按轮截断）已开始");
 
-        int beforeTokens = tokenizer.count(conversation.messages());
         int maxRounds = maxRoundsOf(request);
         int processed = 0;
+
         for (int attempt = 0; attempt < maxRounds; attempt++) {
             int squeezed = squeezeOldestRound(conversation.messages(), protectedPlanText);
             if (squeezed <= 0) {
@@ -88,11 +88,9 @@ public class DefaultManualCompacter implements ContextCompacter {
         }
 
         conversationStore.save(sessionId, conversation);
-        int afterTokens = tokenizer.count(conversation.messages());
+
         publish(sessionId, request.executionId(), ContextUpdateEvent.Phase.SQUEEZE_COMPLETED,
-                usage(conversation.messages()), "本地手动压缩完成");
-        log.info("【context-squeeze】manual compact done: sessionId={}, {} round(s) squeezed, tokens: {} -> {}",
-                sessionId, processed, beforeTokens, afterTokens);
+                this.tokenizer.usage(conversation.messages(),agentConfig.maxTokens()), "本地手动压缩完成");
         return true;
     }
 
@@ -169,16 +167,7 @@ public class DefaultManualCompacter implements ContextCompacter {
         return modified ? 1 : 0;
     }
 
-    private ContextUsageMetric usage(List<Message> messages) {
-        Integer maxTokens = agentConfig.maxTokens();
-        if (maxTokens == null || maxTokens <= 0) {
-            return null;
-        }
-        return new ContextUsageMetric(
-                tokenizer.count(messages),
-                maxTokens,
-                tokenizer.calcCurrentTokenRatio(messages, maxTokens));
-    }
+
 
     private void publish(Serializable sessionId, String executionId, ContextUpdateEvent.Phase phase,
                          ContextUsageMetric usage, String prefix) {

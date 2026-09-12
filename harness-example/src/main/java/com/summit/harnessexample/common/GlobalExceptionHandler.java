@@ -1,6 +1,6 @@
 package com.summit.harnessexample.common;
 
-import com.summit.core.internalUtils.PlanArgumentException;
+import com.summit.core.internalUtils.plan.PlanArgumentException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.ErrorResponse;

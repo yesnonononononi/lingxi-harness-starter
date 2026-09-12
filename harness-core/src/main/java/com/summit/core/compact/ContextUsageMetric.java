@@ -15,4 +15,15 @@ public record ContextUsageMetric(
         int maxTokens,
         double ratio
 ) {
+    /**
+     * Builds a metric, treating a missing cap as "no usage information" instead of dividing by zero:
+     * a {@code NaN} / {@code Infinity} ratio serialized into an SSE payload is not valid JSON and
+     * makes the whole event unusable for the client.
+     */
+    public static ContextUsageMetric of(int tokenCount, int maxTokens) {
+        if (maxTokens <= 0) {
+            return new ContextUsageMetric(Math.max(tokenCount, 0), 0, 0d);
+        }
+        return new ContextUsageMetric(tokenCount, maxTokens, (double) tokenCount / maxTokens);
+    }
 }

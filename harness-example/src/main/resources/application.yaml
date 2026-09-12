@@ -12,9 +12,6 @@ lingxi:
     container-name: agent-sandbox
     container-image: alpine
     container-port: ""                # optional: publish -p 8080:8080, leave blank to skip
-    container-network: code           # docker network the sandbox joins (created if missing);
-                                      # gives DNS + reachability to sibling containers such as
-                                      # code-py-node (node/python) and code-java, blank = default bridge
     container-workdir: /workspace     # in-container working directory (mount point)
     workspace-dir: ""                 # host project directory; blank = app launch dir
     runtime:
@@ -40,6 +37,9 @@ lingxi:
           max-result: 3
         context-compact:
           enabled: true
+        # require_choice: lets the model ask the user an explicit question with options
+        explicit:
+          enabled: true
         plan:
           enabled: true
           approval-timeout-seconds: 600
@@ -52,7 +52,7 @@ lingxi:
           model-name: "deepseek-v4-flash"                            #"google/gemma-4-12b-qat" "deepseek-v4-flash" "stealth/ox-alpha"
           timeout: 120s
           max-iterations: 50
-          max-tokens: 393200
+          max-tokens: 102400
           reasoning-effort: medium
         compact:
           base-url: https://globalai.vip/v1                         #https://openrouter.ai/api/v1/chat/completions  https://api.deepseek.com   http://localhost:1234/v1

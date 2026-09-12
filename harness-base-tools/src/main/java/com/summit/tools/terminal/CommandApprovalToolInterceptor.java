@@ -9,7 +9,7 @@ import com.summit.core.runtime.ShellType;
 import com.summit.core.tool.CommandConfirmGate;
 import com.summit.core.tool.CommandDecision;
 import com.summit.core.tool.CommandConfirmLevel;
-import com.summit.core.tool.CommandConfirmRegistry;
+import com.summit.core.tool.DecideRegistry;
 import com.summit.core.tool.ToolDefinition;
 import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolExecution;
@@ -46,7 +46,7 @@ import lombok.extern.slf4j.Slf4j;
 public class CommandApprovalToolInterceptor implements ToolInterceptor {
     private final ObjectMapper objectMapper;
     private final RuntimeEventPublisher eventPublisher;
-    private final CommandConfirmRegistry confirmRegistry;
+    private final DecideRegistry<CommandConfirmGate, CommandDecision> confirmRegistry;
 
     @Override
     public Object preDecide(InvocationContext<ToolExecution> invocationContext) {
@@ -119,7 +119,7 @@ public class CommandApprovalToolInterceptor implements ToolInterceptor {
         String toolExecutionId = toolExecution.getId();
         CommandConfirmGate gate = confirmRegistry.get(toolExecutionId);
         if (gate == null) {
-            confirmRegistry.register(toolExecutionId, command);
+            confirmRegistry.register(toolExecutionId, new CommandConfirmGate(toolExecutionId, command));
             publishWaitCheck(toolExecution, command);
 
             log.info("【confirm】 command suspended for approval, toolExecution={}, command={}", toolExecutionId, command);

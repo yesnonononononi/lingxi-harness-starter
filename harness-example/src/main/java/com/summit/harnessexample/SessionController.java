@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
@@ -36,6 +37,17 @@ public class SessionController {
     @GetMapping("/sessions/{sessionId}/messages")
     public Result<Map<String, Object>> messages(@PathVariable("sessionId") String sessionId) {
         return Result.ok(sessionService.messages(sessionId));
+    }
+
+    /**
+     * Current context usage of one session (tokenCount / maxTokens / ratio), used by the
+     * front-end context gauge on page mount; it is kept in sync afterwards by the
+     * {@code CONTEXT_UPDATE} SSE event pushed when a compaction runs.
+     */
+    @GetMapping("/context/usage")
+    public Result<Map<String, Object>> contextUsage(
+            @RequestParam(value = "sessionId", required = false) String sessionId) {
+        return Result.ok(sessionService.usage(sessionId));
     }
 
     /** Renames an existing conversation. */

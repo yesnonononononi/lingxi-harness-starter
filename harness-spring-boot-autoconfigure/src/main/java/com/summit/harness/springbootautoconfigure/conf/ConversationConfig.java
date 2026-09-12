@@ -7,6 +7,7 @@ import com.summit.core.conversation.ConversationStore;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.model.ChatModel;
 import com.summit.core.plan.PlanStore;
+import com.summit.core.workspace.WorkspaceManager;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.compact.DefaultManualCompacter;
@@ -25,9 +26,9 @@ import org.springframework.context.annotation.Bean;
 public class ConversationConfig {
     @Bean
     @ConditionalOnMissingBean
-    public ConversationManager conversationManager(ConversationStore conversationStore, RuntimeEventPublisher runtimeEventPublisher, AgentChatProperties agentChatProperties, PlanStore planStore){
+    public ConversationManager conversationManager(ConversationStore conversationStore, RuntimeEventPublisher runtimeEventPublisher, AgentChatProperties agentChatProperties, PlanStore planStore, WorkspaceManager workspaceManager){
         return new DefaultConversationManager(conversationStore,runtimeEventPublisher,
-                new SystemPromptAssembler(), agentChatProperties.getSystemPrompt(), planStore);
+                new SystemPromptAssembler(), agentChatProperties.getSystemPrompt(), planStore, workspaceManager);
     }
 
     @Bean

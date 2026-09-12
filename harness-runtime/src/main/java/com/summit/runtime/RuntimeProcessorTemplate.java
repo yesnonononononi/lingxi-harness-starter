@@ -3,20 +3,14 @@ package com.summit.runtime;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
 import com.summit.core.conversation.context.RuntimeContext;
-import com.summit.core.conversation.event.ExecutionCancelledEvent;
-import com.summit.core.conversation.event.ExecutionCompleteEvent;
-import com.summit.core.conversation.event.ExecutionErrorEvent;
-import com.summit.core.conversation.event.ExecutionStartEvent;
-import com.summit.core.conversation.message.TokenUsageEntity;
-import com.summit.core.internalUtils.PlanLoopHook;
 import com.summit.core.runtime.ExecutionRuntime;
 import com.summit.core.runtime.LifeStyleCommandRegistry;
 import com.summit.core.runtime.LifeStyleCommandStore;
+import com.summit.runtime.agent.AgentLoopRunner;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.Serializable;
-import java.sql.Timestamp;
 
 /**
  * End-to-end orchestration of a single execution: publishes lifecycle events, delegates the agent loop
@@ -31,33 +25,26 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
     @Override
     public Execution execute(Execution execution) {
         Serializable sessionId = execution.getSessionId();
-        context.getRuntimeEventPublisher().onExecutionStart(new ExecutionStartEvent(execution.getId(), sessionId));
-        context.getConversationManager().startConversation(execution.getAgentRequest());
-        execution.start();
-
+        this.context.getRuntimeLifeStyleManager().onStart(execution);
         try {
             AgentLoopRunner agentLoop = new AgentLoopRunner(context);
+
             agentLoop.run(execution, sessionId);
 
-            save(execution);
-            if (execution.getExecutionState() == ExecutionState.CANCELLED) {
-                log.warn("【agent-loop】process is cancelled: {}", execution.getId());
-                context.getConversationManager().endConversation(sessionId);
-                context.getRuntimeEventPublisher().onExecutionCancelled(new ExecutionCancelledEvent(execution.getId(), sessionId));
-                return execution;
-            }
-            finalizePlan(execution, sessionId, agentLoop);
 
-            execution.complete();
-            context.getConversationManager().endConversation(sessionId);
-            context.getRuntimeEventPublisher().onExecutionComplete(
-                    new ExecutionCompleteEvent(execution.getId(), sessionId, buildTokenInfo(execution)));
+            saveTokenInfoAndMessages(execution);
+
+            if (execution.getExecutionState() == ExecutionState.CANCELLED) {
+                this.context.getRuntimeLifeStyleManager().onCancel(execution);
+            } else {
+                finalizePlan(execution, sessionId,agentLoop);
+                this.context.getRuntimeLifeStyleManager().onComplete(execution);
+            }
+
             return execution;
+
         } catch (Exception e) {
-            context.getRuntimeEventPublisher().onExecutionError(
-                    new ExecutionErrorEvent(e, null, execution.getId(), new Timestamp(System.currentTimeMillis()), sessionId));
-            context.getConversationManager().endConversation(sessionId);
-            execution.fail(e.getMessage());
+            this.context.getRuntimeLifeStyleManager().onError(execution, e);
             return execution;
         } finally {
             releaseCommandStore(sessionId);
@@ -65,16 +52,13 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
     }
 
     /**
-     * Plan finalisation: the plan hook closes the plan when the approved plan was really implemented.
+     * Plan finalization: the plan hook closes the plan when the approved plan was really implemented.
      * Guarded so a hook failure can never turn a successful execution into a failed one.
      */
-    private void finalizePlan(Execution execution, Serializable sessionId, AgentLoopRunner agentLoop) {
-        PlanLoopHook hook = context.getPlanLoopHook();
-        if (hook == null) {
-            return;
-        }
+    private void finalizePlan(Execution execution, Serializable sessionId,AgentLoopRunner agentLoop) {
+
         try {
-            hook.onExecutionFinished(execution, sessionId,
+            this.context.getPlanLoopHook().onExecutionFinished(execution, sessionId,
                     agentLoop.isExecutedWriteSuccessfully(), agentLoop.isClosedByPlainText());
         } catch (Exception e) {
             log.warn("【agent-loop】plan finalisation failed: executionId={}, error={}", execution.getId(), e.getMessage());
@@ -95,20 +79,9 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
         }
     }
 
-    private void save(Execution execution) {
+
+    private void saveTokenInfoAndMessages(Execution execution) {
         execution.setMessages(this.context.getConversationManager().messages(execution.getSessionId()));
         execution.setTokenUsage(this.context.getConversationManager().tokenUsage(execution.getSessionId()));
-    }
-
-    private ExecutionCompleteEvent.TokenInfo buildTokenInfo(Execution execution) {
-        TokenUsageEntity tokenUsage = execution.getTokenUsage();
-        if (tokenUsage == null) {
-            return null;
-        }
-        return ExecutionCompleteEvent.TokenInfo.builder()
-                .inputTokenCount(tokenUsage.getInputTokens())
-                .outputTokenCount(tokenUsage.getOutputTokens())
-                .totalTokenCount(tokenUsage.getTotalTokens())
-                .build();
     }
 }

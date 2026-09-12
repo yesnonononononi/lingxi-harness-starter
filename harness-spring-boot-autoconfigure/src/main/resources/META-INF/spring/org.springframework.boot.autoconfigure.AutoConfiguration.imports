@@ -1,3 +1,4 @@
+com.summit.harness.springbootautoconfigure.conf.WorkspaceAutoConfiguration
 com.summit.harness.springbootautoconfigure.conf.agent.AgentConfiguration
 com.summit.harness.springbootautoconfigure.conf.ModelConfiguration
 com.summit.harness.springbootautoconfigure.conf.ModelProviderConfig

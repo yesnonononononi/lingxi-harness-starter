@@ -46,7 +46,9 @@ onMounted(() => {
   diffEditor = monaco.editor.createDiffEditor(containerRef.value, {
     automaticLayout: true,
     readOnly: true,
-    renderSideBySide: true,
+    // 单列内联视图：与用户预期一致；容器本身已经按 chat-panel 撑开，行长
+    // 超过容器宽度时由 Monaco 自带横向滚动条处理，不切双栏。
+    renderSideBySide: false,
     originalEditable: false,
     fontSize: 12,
     minimap: { enabled: false },

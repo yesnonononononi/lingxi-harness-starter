@@ -123,4 +123,12 @@ public class RuntimeEventPublisher {
             log.error("Error occurred while publishing context update event", e);
         }
     }
+
+    public void onExplicitUserMean(ExplicitUserMeanEvent event){
+        try {
+            listeners.forEach(listener -> listener.onExplicitUserMean(event));
+        } catch (Exception e) {
+            log.error("Error occurred while publishing explicit user mean event", e);
+        }
+    }
 }

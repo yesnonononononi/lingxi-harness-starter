@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -35,8 +36,15 @@ public class AgentChatService {
     private final ActiveWorkspace activeWorkspace;
     private final LifeStyleCommandRegistry lifeStyleCommandRegistry;
 
-    /** In-flight agent tasks (sessionId -> future), so a run can be stopped and counted. */
-    private final Map<String, CompletableFuture<Void>> runningTasks = new ConcurrentHashMap<>();
+    /**
+     * In-flight agent tasks (sessionId -> set of futures), so every run of a session can be
+     * stopped and counted.
+     *
+     * <p>A session may legitimately receive a second instruction while its first run is still
+     * in flight; keeping a <em>set</em> per session (instead of a single future) means the
+     * older run stays tracked and therefore remains stoppable and visible in the counters.</p>
+     */
+    private final Map<String, Set<CompletableFuture<Void>>> runningTasks = new ConcurrentHashMap<>();
 
     /**
      * Submits one user instruction to the agent on a background thread and returns
@@ -68,8 +76,15 @@ public class AgentChatService {
         String finalSessionName = sessionName;
         CompletableFuture<Void> task = CompletableFuture.runAsync(() -> demo.chat(input, streaming,
                 finalSessionId, finalSessionName, activeWorkspace.get(), commandConfirmLevel, systemPrompt, loopBoundary));
-        runningTasks.put(finalSessionId, task);
-        task.whenComplete((result, error) -> runningTasks.remove(finalSessionId, task));
+        runningTasks.compute(finalSessionId, (key, tasks) -> {
+            Set<CompletableFuture<Void>> registry = tasks == null ? ConcurrentHashMap.newKeySet() : tasks;
+            registry.add(task);
+            return registry;
+        });
+        task.whenComplete((result, error) -> runningTasks.computeIfPresent(finalSessionId, (key, tasks) -> {
+            tasks.remove(task);
+            return tasks.isEmpty() ? null : tasks;
+        }));
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("input", input);
@@ -91,6 +106,7 @@ public class AgentChatService {
      * so a stale page never enqueues a command that would leak into a later run).
      */
     public Map<String, Object> control(String action, String sessionId) {
+        validateAction(action);
         if (sessionId != null && !runningTasks.containsKey(sessionId)) {
             throw ApiException.notFound("no running execution for sessionId: " + sessionId,
                     Map.of("sessionId", sessionId, "runningSessions", runningTasks.size()));
@@ -109,10 +125,11 @@ public class AgentChatService {
             return data;
         }
 
-        if ("stop".equals(action) && sessionId != null) {
-            // Interrupt the loop thread; the checkpointer turns the interrupt into a
-            // CANCELLED state while paused, otherwise it is best-effort.
-            runningTasks.get(sessionId).cancel(true);
+        if ("stop".equals(action)) {
+            // Interrupt the loop threads; without a sessionId every running task is
+            // interrupted, matching the stopAll() below. The checkpointer turns the
+            // interrupt into a CANCELLED state while paused, otherwise it is best-effort.
+            cancelTasks(sessionId);
         }
 
         applyToRegistry(action, sessionId);
@@ -121,12 +138,30 @@ public class AgentChatService {
         return data;
     }
 
-    /** Whether any agent run is currently in flight. */
+    /** Number of sessions with at least one in-flight agent run. */
     public int runningCount() {
         return runningTasks.size();
     }
 
     // ------------------------------------------------------------------ private
+
+    /**
+     * Interrupts the in-flight runs of one session, or of every session when {@code sessionId} is null.
+     */
+    private void cancelTasks(String sessionId) {
+        if (sessionId != null) {
+            runningTasks.getOrDefault(sessionId, Set.of()).forEach(task -> task.cancel(true));
+            return;
+        }
+        runningTasks.values().forEach(tasks -> tasks.forEach(task -> task.cancel(true)));
+    }
+
+    /** Fails fast on an unknown lifecycle command so it is never silently ignored. */
+    private void validateAction(String action) {
+        if (!"pause".equals(action) && !"resume".equals(action) && !"stop".equals(action)) {
+            throw ApiException.badRequest("unsupported control action: " + action);
+        }
+    }
 
     private void applyToRegistry(String action, String sessionId) {
         if (sessionId != null) {

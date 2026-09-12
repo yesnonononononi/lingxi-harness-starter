@@ -22,6 +22,7 @@ public class ContextUpdateEvent implements AgentEvent {
 
     /** Squeeze phase. */
     public enum Phase {
+        UPDATE,
         /** Squeeze started. */
         SQUEEZE_STARTED,
         /** Squeeze finished (conversation context rewritten). */

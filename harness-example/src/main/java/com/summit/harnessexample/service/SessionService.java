@@ -1,14 +1,14 @@
 package com.summit.harnessexample.service;
 
+import com.summit.core.compact.ContextUsageMetric;
+import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationEntity;
-import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.Message;
-import com.summit.core.conversation.message.ToolMessageEntity;
-import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.harnessexample.common.ApiException;
 import com.summit.harnessexample.session_policy.RedisConversationStore;
 import com.summit.harnessexample.session_policy.SessionSummary;
-import com.summit.runtime.internalUtils.PlanKernel;
+import com.summit.runtime.agent.AgentConfig;
+import com.summit.runtime.coreTools.plan.PlanKernel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -31,6 +31,8 @@ public class SessionService {
 
     private final RedisConversationStore conversationStore;
     private final PlanKernel planKernel;
+    private final Tokenizer tokenizer;
+    private final AgentConfig agentConfig;
 
     /** Lightweight summaries of every stored session. */
     public Map<String, Object> list() {
@@ -46,35 +48,42 @@ public class SessionService {
         return Map.of("sessions", sessions);
     }
 
-    /** Message history of one session, mapped to display DTOs (USER / AI / TOOL). */
+    /**
+     * Message history of one session. The framework {@link Message} entities are returned as-is:
+     * each one carries its own {@code type} (USER / AI / TOOL / SYSTEM), so the front-end renders
+     * exactly what the framework persists instead of an example-private display DTO.
+     */
     public Map<String, Object> messages(String sessionId) {
         ConversationEntity entity = conversationStore.get(sessionId)
                 .orElseThrow(() -> ApiException.notFound("session not found: " + sessionId));
 
-        List<Map<String, Object>> messages = new ArrayList<>();
-        for (Message message : entity.messages()) {
-            Map<String, Object> item = new LinkedHashMap<>();
-            if (message instanceof UserMessageEntity user) {
-                item.put("role", "USER");
-                item.put("text", user.text());
-            } else if (message instanceof AiMessageEntity ai) {
-                item.put("role", "AI");
-                item.put("text", ai.text());
-                item.put("thinking", ai.getThinking());
-            } else if (message instanceof ToolMessageEntity tool) {
-                item.put("role", "TOOL");
-                item.put("toolName", tool.getName());
-                item.put("text", tool.text());
-            } else {
-                continue;
-            }
-            messages.add(item);
-        }
-
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("sessionId", sessionId);
         data.put("sessionName", entity.sessionName());
-        data.put("messages", messages);
+        data.put("messages", entity.messages());
+        return data;
+    }
+
+    /**
+     * Current context usage of one session: how many tokens the stored conversation already
+     * occupies against the configured cap. A blank / unknown session yields a zero count against
+     * the same cap, so the front-end gauge renders an empty ring instead of disappearing.
+     */
+    public Map<String, Object> usage(String sessionId) {
+        List<Message> messages = List.of();
+        if (!isBlank(sessionId)) {
+            messages = conversationStore.get(sessionId)
+                    .map(ConversationEntity::messages)
+                    .orElseGet(List::of);
+        }
+
+        ContextUsageMetric metric = tokenizer.usage(messages, agentConfig.maxTokens());
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("sessionId", sessionId);
+        data.put("tokenCount", metric == null ? tokenizer.count(messages) : metric.tokenCount());
+        data.put("maxTokens", metric == null ? 0 : metric.maxTokens());
+        data.put("ratio", metric == null ? 0d : metric.ratio());
         return data;
     }
 

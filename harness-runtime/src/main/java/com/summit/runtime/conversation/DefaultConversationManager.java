@@ -2,6 +2,7 @@ package com.summit.runtime.conversation;
 
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.compact.ContextSummary;
+import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationEntity;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.ConversationStore;
@@ -16,9 +17,10 @@ import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.plan.PlanOutline;
 import com.summit.core.plan.PlanStore;
 import com.summit.core.runtime.Workspace;
+import com.summit.core.workspace.WorkspaceManager;
+import com.summit.core.workspace.WorkspaceRef;
 import com.summit.core.tool.LoopBoundary;
 import com.summit.core.tool.ToolExecuteResult;
-import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
@@ -30,7 +32,6 @@ import java.util.*;
 
 @Getter
 @Slf4j
-@AllArgsConstructor
 public class DefaultConversationManager implements ConversationManager {
     private final ConversationStore conversationStore;
     private final RuntimeEventPublisher runtimeEventPublisher;
@@ -38,6 +39,31 @@ public class DefaultConversationManager implements ConversationManager {
     private final String defaultSystemPrompt;
     /** Session plans, used to protect the plan from being squeezed away by a context rebuild. */
     private final PlanStore planStore;
+    /** Resolves persisted workspace references; null only for legacy direct construction. */
+    private final WorkspaceManager workspaceManager;
+
+    public DefaultConversationManager(ConversationStore conversationStore,
+                                      RuntimeEventPublisher runtimeEventPublisher,
+                                      SystemPromptAssembler systemPromptAssembler,
+                                      String defaultSystemPrompt,
+                                      PlanStore planStore) {
+        this(conversationStore, runtimeEventPublisher, systemPromptAssembler,
+                defaultSystemPrompt, planStore, null);
+    }
+
+    public DefaultConversationManager(ConversationStore conversationStore,
+                                      RuntimeEventPublisher runtimeEventPublisher,
+                                      SystemPromptAssembler systemPromptAssembler,
+                                      String defaultSystemPrompt,
+                                      PlanStore planStore,
+                                      WorkspaceManager workspaceManager) {
+        this.conversationStore = conversationStore;
+        this.runtimeEventPublisher = runtimeEventPublisher;
+        this.systemPromptAssembler = systemPromptAssembler;
+        this.defaultSystemPrompt = defaultSystemPrompt;
+        this.planStore = planStore;
+        this.workspaceManager = workspaceManager;
+    }
 
 
     @Override
@@ -64,8 +90,9 @@ public class DefaultConversationManager implements ConversationManager {
         conversation.tokenUsageEntity().add(chatResponse.getTokenUsage());
 
         addToolMessages(toolExecutionResultMessage, conversation);
-
         this.conversationStore.save(sessionId, conversation);
+
+
     }
 
     @Override
@@ -81,8 +108,12 @@ public class DefaultConversationManager implements ConversationManager {
 
     @Override
     public Workspace workspace(Serializable sessionId) {
-        // The workspace stored at session start — the one supplied by the AgentRequest
-        return this.conversationStore.get(sessionId).map(ConversationEntity::workspace).orElse(null);
+        return this.conversationStore.get(sessionId).map(this::resolveWorkspace).orElse(null);
+    }
+
+    @Override
+    public WorkspaceRef workspaceRef(Serializable sessionId) {
+        return this.conversationStore.get(sessionId).map(ConversationEntity::workspaceRef).orElse(null);
     }
 
     @Override
@@ -105,7 +136,7 @@ public class DefaultConversationManager implements ConversationManager {
         ConversationEntity conversation = getConversationEntity(sessionId);
         setLeadingSystemMessage(conversation,
                 SystemMessageEntity.builder().text(
-                        assembleSystemPrompt(conversation.workspace(), customSystemPrompt, boundary)
+                        assembleSystemPrompt(resolveWorkspace(conversation), customSystemPrompt, boundary)
                 ).build(),
                 sessionId);
     }
@@ -288,7 +319,8 @@ public class DefaultConversationManager implements ConversationManager {
             messages.addFirst(systemMessage);
         }
         ConversationEntity refreshed = new ConversationEntity(conversation.sessionId(), conversation.sessionName(),
-                messages, conversation.tokenUsageEntity(), systemMessage, conversation.workspace());
+                messages, conversation.tokenUsageEntity(), systemMessage,
+                conversation.workspace(), conversation.workspaceRef());
         this.conversationStore.save(sessionId, refreshed);
     }
 
@@ -308,12 +340,33 @@ public class DefaultConversationManager implements ConversationManager {
     private void startNewConversation(AgentRequest agentRequest){
         Serializable sessionId = agentRequest.sessionIdOrDefault();
         SystemMessageEntity systemMessage = buildSystemMessage(agentRequest);
-        ConversationEntity conversation = ConversationEntity.empty(agentRequest.getSessionName(), agentRequest.getWorkspace(), systemMessage, sessionId);
+        WorkspaceRef workspaceRef = agentRequest.getWorkspaceRef();
+        // Managed workspaces persist only a stable reference. Legacy direct workspaces
+        // remain supported until applications migrate their stores.
+        Workspace liveWorkspace = workspaceRef == null ? agentRequest.getWorkspace() : null;
+        ConversationEntity conversation = ConversationEntity.empty(agentRequest.getSessionName(),
+                liveWorkspace, workspaceRef, systemMessage, sessionId, new LinkedList<>());
         // The system message is part of the model message stream (index 0), matching the
         // rebuildContext layout, so the assembled boundary prompt always reaches the model.
         conversation.messages().add(systemMessage);
         conversation.messages().add(UserMessageEntity.from(agentRequest.getInput()));
         this.conversationStore.save(sessionId, conversation);
+    }
+
+    private Workspace resolveWorkspace(ConversationEntity conversation) {
+        if (conversation.workspace() != null) {
+            return conversation.workspace();
+        }
+        if (conversation.workspaceRef() == null || workspaceManager == null) {
+            return null;
+        }
+        try {
+            return workspaceManager.acquire(conversation.workspaceRef());
+        } catch (RuntimeException e) {
+            log.warn("Failed to resolve workspace {} for session {}: {}",
+                    conversation.workspaceRef().id(), conversation.sessionId(), e.getMessage());
+            return null;
+        }
     }
 
 

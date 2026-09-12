@@ -6,6 +6,7 @@ import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.runtime.Workspace;
+import com.summit.core.workspace.WorkspaceRef;
 import com.summit.core.tool.LoopBoundary;
 import com.summit.core.tool.ToolExecuteResult;
 
@@ -21,6 +22,7 @@ public interface ConversationManager {
 
     List<Message> messages(Serializable sessionId);
 
+
     /**
      * Returns the workspace bound to the session — the instance supplied by
      * the {@code AgentRequest} that started it. There is no global fallback;
@@ -29,6 +31,11 @@ public interface ConversationManager {
      * @return the session workspace, or {@code null} when the session is unknown
      */
     Workspace workspace(Serializable sessionId);
+
+    /** Returns the persistence-friendly workspace binding of a session when available. */
+    default WorkspaceRef workspaceRef(Serializable sessionId) {
+        return null;
+    }
 
     TokenUsageEntity tokenUsage(Serializable sessionId);
 

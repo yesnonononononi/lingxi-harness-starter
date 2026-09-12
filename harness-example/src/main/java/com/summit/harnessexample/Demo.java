@@ -66,7 +66,7 @@ public class Demo {
             log.warn("agent execution failed, state: {}, result: {}", execution.getExecutionState(), execution);
         }
 
-        log.info("agent result: {}", execution);
+
     }
 
 }

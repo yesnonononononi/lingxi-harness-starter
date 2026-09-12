@@ -1,19 +1,18 @@
 package com.summit.harness.springbootautoconfigure.conf.tool;
 
-import com.summit.core.internalUtils.PlanToolSpecs;
-import com.summit.core.internalUtils.PlanToolSpecs.PlanToolSpec;
+import com.summit.core.internalUtils.plan.PlanToolSpecs;
+import com.summit.core.internalUtils.plan.PlanToolSpecs.PlanToolSpec;
 import com.summit.core.tool.ToolDefinition;
 import com.summit.core.tool.ToolExecutor;
 import com.summit.core.tool.ToolRegistry;
 import com.summit.harness.springbootautoconfigure.properties.tool.CommonToolProperties;
 import com.summit.harness.springbootautoconfigure.properties.tool.PlanToolProperties;
-import com.summit.runtime.internalUtils.CompleteTaskToolExecutor;
-import com.summit.runtime.internalUtils.CreatePlanToolExecutor;
-import com.summit.runtime.internalUtils.PlanKernel;
-import com.summit.runtime.internalUtils.UpdatePlanToolExecutor;
-import com.summit.runtime.internalUtils.UpdateTaskToolExecutor;
+import com.summit.runtime.coreTools.plan.CompleteTaskToolExecutor;
+import com.summit.runtime.coreTools.plan.CreatePlanToolExecutor;
+import com.summit.runtime.coreTools.plan.PlanKernel;
+import com.summit.runtime.coreTools.plan.UpdatePlanToolExecutor;
+import com.summit.runtime.coreTools.plan.UpdateTaskToolExecutor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;

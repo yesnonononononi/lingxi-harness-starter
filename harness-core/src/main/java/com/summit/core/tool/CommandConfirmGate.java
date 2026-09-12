@@ -18,7 +18,7 @@ import java.time.Instant;
  * plan-approval gate through {@link AbstractApprovalGate}.</p>
  */
 @Getter
-public class CommandConfirmGate extends AbstractApprovalGate {
+public class CommandConfirmGate extends AbstractApprovalGate<CommandDecision> {
 
 
     private final String toolExecutionId;

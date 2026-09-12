@@ -11,9 +11,11 @@ import com.summit.core.interceptor.InterceptorProcessor;
 import com.summit.core.model.ChatModel;
 import com.summit.core.plan.PlanStore;
 import com.summit.core.tool.*;
-import com.summit.runtime.tool.DefaultCommandConfirmRegistry;
-import com.summit.runtime.tool.DefaultToolExecutionManager;
+import com.summit.runtime.toolSupport.DefaultChoiceDecideRegistry;
+import com.summit.runtime.toolSupport.DefaultCommandConfirmRegistry;
+import com.summit.runtime.toolSupport.DefaultToolExecutionManager;
 import com.summit.runtime.configs.CommonToolConfig;
+import com.summit.runtime.coreTools.explicit.ExplicitMeanToolExecutor;
 import com.summit.tools.compact.ContextCompactToolExecutor;
 import com.summit.tools.terminal.CommandToolDefinitionExecutor;
 import com.summit.tools.web.WebSearchConfig;
@@ -70,6 +72,57 @@ public class CommonToolAutoConfiguration {
                 .timeout(Objects.requireNonNullElseGet(terminalToolProperties.getTimeout(), commonToolProperties::getTimeout))
                 .build();
         toolRegistry.register(name, definition);
+        return definition;
+    }
+
+    /**
+     * The {@code require_choice} tool: when a decision genuinely depends on the user
+     * (ambiguous request, conflicting requirements, a risky choice), the model asks an
+     * explicit question with a set of options instead of guessing.
+     *
+     * <p>It is read-only with respect to the workspace, so it stays available under every
+     * loop boundary. The actual human-in-the-loop wait happens at the agent-loop boundary
+     * (see {@code DefaultToolExecutionManager}), reusing the same gate/registry abstraction
+     * as command approval.</p>
+     */
+    @Bean
+    @ConditionalOnProperty(
+            prefix = "lingxi.agent.runtime.tool.explicit",
+            name = "enabled",
+            havingValue = "true",
+            matchIfMissing = true
+    )
+    public ToolDefinition<ExplicitMeanToolExecutor> requireChoiceToolDefinition(ToolRegistry toolRegistry,
+                                                                               ObjectMapper objectMapper,
+                                                                               RuntimeEventPublisher runtimeEventPublisher,
+                                                                               DecideRegistry<ChoiceDecideGate, String> choiceDecideRegistry,
+                                                                               CommonToolProperties commonToolProperties) {
+        String name = "require_choice";
+        ToolDefinition<ExplicitMeanToolExecutor> definition = ToolDefinition.<ExplicitMeanToolExecutor>builder()
+                .executor(new ExplicitMeanToolExecutor(objectMapper, runtimeEventPublisher, choiceDecideRegistry))
+                .id(name)
+                .name(name)
+                .readOnly(true)
+                .description("""
+                        Ask the user an explicit question and wait for their choice before continuing.
+                        Use it ONLY when a decision really depends on the user (ambiguous instruction, conflicting requirements, a risky/irreversible choice, missing preference). Do NOT use it for things you can decide or verify yourself.
+                        Provide the 'question' and the selectable 'choice' options; the tool blocks the agent until the user picks one, then returns the selected option.
+                        """)
+                .parametersJsonSchema("""
+                        {
+                          "type": "object",
+                          "properties": {
+                            "question": {"type": "string", "description": "The question to ask the user. Required."},
+                            "choice": {"type": "array", "items": {"type": "string"}, "description": "The selectable options; the user's answer is one of them. Required."}
+                          },
+                          "required": ["question", "choice"]
+                        }
+                        """)
+                .maxOutput(commonToolProperties.getMaxOutput())
+                .timeout(commonToolProperties.getTimeout())
+                .build();
+        toolRegistry.register(name, definition);
+        log.info("require_choice tool registered: it lets the model ask the user for an explicit choice");
         return definition;
     }
 
@@ -169,13 +222,22 @@ public class CommonToolAutoConfiguration {
      * suspension and host approve / reject).
      */
     @Bean
-    public CommandConfirmRegistry commandConfirmRegistry() {
+    public DecideRegistry<CommandConfirmGate,CommandDecision> commandConfirmRegistry() {
         return new DefaultCommandConfirmRegistry();
+    }
+
+    /**
+     * Registry of user choices awaiting an explicit decision (shared by the
+     * {@code require_choice} suspension and the host decide endpoint).
+     */
+    @Bean
+    public DecideRegistry<ChoiceDecideGate, String> choiceDecideRegistry() {
+        return new DefaultChoiceDecideRegistry();
     }
 
 
     @Bean
-    public ToolExecutionManager defaultToolExecutionManager(ToolRegistry toolRegistry, RuntimeEventPublisher runtimeEventPublisher, CommonToolConfig commonToolConfig,  InterceptorProcessor<ToolExecution> interceptorProcessor, CommandConfirmRegistry commandConfirmRegistry) {
+    public ToolExecutionManager defaultToolExecutionManager(ToolRegistry toolRegistry, RuntimeEventPublisher runtimeEventPublisher, CommonToolConfig commonToolConfig,  InterceptorProcessor<ToolExecution> interceptorProcessor, DecideRegistry<CommandConfirmGate,CommandDecision> commandConfirmRegistry, DecideRegistry<ChoiceDecideGate, String> choiceDecideRegistry) {
         return new DefaultToolExecutionManager(
                 ToolExecutionContext.builder()
                         .toolRegistry(toolRegistry)
@@ -183,7 +245,8 @@ public class CommonToolAutoConfiguration {
                         .build(),
                 interceptorProcessor,
                 commonToolConfig,
-                commandConfirmRegistry
+                commandConfirmRegistry,
+                choiceDecideRegistry
         );
     }
 

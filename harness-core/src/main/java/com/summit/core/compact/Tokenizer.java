@@ -1,6 +1,8 @@
 package com.summit.core.compact;
 
 import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.TokenUsageEntity;
+import lombok.NonNull;
 
 import java.util.List;
 
@@ -21,4 +23,7 @@ public interface Tokenizer {
     String truncate(String output, int maxOutput);
 
     double calcCurrentTokenRatio(List<Message> messages, int maxTokens);
+
+
+    ContextUsageMetric usage(List<Message> messages, Integer maxTokens);
 }

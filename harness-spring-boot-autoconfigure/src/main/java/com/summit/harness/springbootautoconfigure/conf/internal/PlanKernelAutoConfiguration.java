@@ -1,15 +1,15 @@
 package com.summit.harness.springbootautoconfigure.conf.internal;
 
 import com.summit.core.conversation.event.RuntimeEventPublisher;
-import com.summit.core.internalUtils.PlanApprovalRegistry;
-import com.summit.core.internalUtils.PlanLoopHook;
+import com.summit.core.internalUtils.plan.PlanApprovalRegistry;
+import com.summit.core.internalUtils.plan.PlanLoopHook;
 import com.summit.core.plan.PlanStore;
 import com.summit.harness.springbootautoconfigure.properties.tool.PlanToolProperties;
-import com.summit.runtime.internalUtils.DefaultPlanApprovalRegistry;
-import com.summit.runtime.internalUtils.DefaultPlanLoopHook;
-import com.summit.runtime.internalUtils.DefaultPlanStore;
-import com.summit.runtime.internalUtils.PlanApprovalWaiter;
-import com.summit.runtime.internalUtils.PlanKernel;
+import com.summit.runtime.coreTools.plan.DefaultPlanApprovalRegistry;
+import com.summit.runtime.coreTools.plan.DefaultPlanLoopHook;
+import com.summit.runtime.coreTools.plan.DefaultPlanStore;
+import com.summit.runtime.coreTools.plan.PlanApprovalWaiter;
+import com.summit.runtime.coreTools.plan.PlanKernel;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;

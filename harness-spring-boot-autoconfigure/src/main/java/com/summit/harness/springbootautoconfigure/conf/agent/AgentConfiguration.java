@@ -3,6 +3,7 @@ package com.summit.harness.springbootautoconfigure.conf.agent;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
 import com.summit.core.model.ModelInvoker;
 import com.summit.core.runtime.RuntimeFactory;
+import com.summit.core.workspace.WorkspaceManager;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.agent.ChatAgent;
 import com.summit.core.model.ChatModel;
@@ -16,12 +17,12 @@ import org.springframework.context.annotation.Bean;
 @EnableConfigurationProperties({AgentChatProperties.class})
 public class AgentConfiguration {
     @Bean
-    public ChatAgent chatAgent(@Qualifier("defaultChatModel") ChatModel chatModel, RuntimeFactory defaultRuntimeFactory, AgentConfig agentConfig, ModelInvoker defaultStreamingModelInvoker){
+    public ChatAgent chatAgent(@Qualifier("defaultChatModel") ChatModel chatModel, RuntimeFactory defaultRuntimeFactory, ModelInvoker defaultStreamingModelInvoker, WorkspaceManager workspaceManager){
         return new ChatAgent(
                 chatModel,
                 defaultRuntimeFactory,
-                agentConfig,
-                defaultStreamingModelInvoker
+                defaultStreamingModelInvoker,
+                workspaceManager
         );
     }
 

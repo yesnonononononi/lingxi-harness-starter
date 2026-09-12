@@ -8,15 +8,21 @@ import com.summit.core.model.ModelInvoker;
 import com.summit.core.runtime.ExecutionRuntime;
 import com.summit.core.runtime.RuntimeFactory;
 import com.summit.core.runtime.Workspace;
+import com.summit.core.workspace.WorkspaceManager;
+import com.summit.core.workspace.WorkspaceRecord;
 import com.summit.runtime.utils.ExecutionCreator;
-import lombok.RequiredArgsConstructor;
+import lombok.AllArgsConstructor;
 
-@RequiredArgsConstructor
+@AllArgsConstructor
 public class ChatAgent implements Agent {
     private final ChatModel chatModel;
     private final RuntimeFactory defaultRuntimeFactory;
-    private final AgentConfig agentConfig;
     private final ModelInvoker defaultStreamingModelInvoker;
+    private final WorkspaceManager workspaceManager;
+
+
+
+
 
     @Override
     public String id() {
@@ -26,11 +32,9 @@ public class ChatAgent implements Agent {
     @Override
     public Execution execute(AgentRequest agentRequest) {
 
-        // NOTE: AgentRequest.systemPrompt is a user-supplied custom prompt and must be passed
-        // through verbatim; the framework default template is assembled by SystemPromptAssembler
-        // inside DefaultConversationManager (start segment), so it is NOT forced here anymore.
+        Workspace workspace = resolveWorkspace(agentRequest);
 
-        Workspace workspace = agentRequest.getWorkspace();
+        agentRequest.setWorkspace(workspace);
 
         Execution execution = ExecutionCreator.create(agentRequest, this);
 
@@ -44,6 +48,22 @@ public class ChatAgent implements Agent {
                 workspace
         );
         return executionRuntime.execute(execution);
+    }
+
+    private Workspace resolveWorkspace(AgentRequest request) {
+        if (request.getWorkspace() != null) {
+            return request.getWorkspace();
+        }
+
+        if (request.getWorkspaceRef() != null) {
+            return workspaceManager.acquire(request.getWorkspaceRef());
+        }
+        if (request.getWorkspaceSpec() != null) {
+            WorkspaceRecord created = workspaceManager.create(request.getWorkspaceSpec());
+            request.setWorkspaceRef(created.ref());
+            return workspaceManager.acquire(created.ref());
+        }
+        throw new IllegalArgumentException("workspace, workspaceRef or workspaceSpec must be provided");
     }
 
 

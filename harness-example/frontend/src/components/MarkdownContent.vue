@@ -1,11 +1,19 @@
 <template>
-  <div class="md-content" v-html="html"></div>
+  <div
+    class="md-content"
+    :class="{ 'is-streaming': streaming }"
+    v-html="html"
+    @click="onContentClick"
+  ></div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { marked } from 'marked'
 import hljs from 'highlight.js/lib/core'
+// 与 .md-pre 深色背景 (#0d1117) 配套的 hljs 主题：未引入时 token 默认色为浅色设计，
+// 落在深色块上会发暗看不清（注释几乎与背景同色）。
+import 'highlight.js/styles/github-dark.css'
 import DOMPurify from 'dompurify'
 
 // register languages used by coding-agent replies on demand (keep bundle small)
@@ -42,7 +50,10 @@ marked.use({
       } catch (e) {
         highlighted = hljs.highlightAuto(text).value
       }
-      return `<pre class="md-pre"><code class="hljs language-${language}">${highlighted}</code></pre>`
+      // 代码块外层包一层工具栏（语言名 + 复制按钮）；复制通过组件根节点的点击事件代理完成
+      return `<div class="md-code"><div class="md-code-bar"><span class="md-code-lang">${language}</span>`
+        + `<button type="button" class="md-copy-btn" aria-label="复制代码">复制</button></div>`
+        + `<pre class="md-pre"><code class="hljs language-${language}">${highlighted}</code></pre></div>`
     }
   }
 })

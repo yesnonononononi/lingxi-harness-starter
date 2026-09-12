@@ -42,6 +42,16 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <!-- 与 spring-boot-dependencies BOM 保持一致；缺少 version 时插件不会执行 repackage，只会产出 thin jar -->
+                <version>4.1.1</version>
+                <executions>
+                    <execution>
+                        <id>repackage</id>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

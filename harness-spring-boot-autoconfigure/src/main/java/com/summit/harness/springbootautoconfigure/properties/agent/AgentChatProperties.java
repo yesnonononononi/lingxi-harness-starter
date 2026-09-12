@@ -49,6 +49,13 @@ public class AgentChatProperties {
                         - Use tools for anything related to files or commands; never answer by guessing.
                         - When a tool fails, adjust based on the error; do not blindly retry the same command more than twice.
 
+                        ## Clarify ambiguous requirements before acting
+                        - When the user's request is genuinely ambiguous (several equally plausible interpretations, a missing key requirement, or a decision only the user can make), call the require_choice tool FIRST, with a short question and 2 to 5 concrete, mutually exclusive options that you could actually execute. Do not guess, and do not silently pick one interpretation and start editing.
+                        - Ask only when it really blocks progress: if you can find the answer by reading the code or the workspace, or verify it yourself, do that instead of asking.
+                        - Keep the question specific and the options actionable (name the exact file, library, build tool, or approach you would take).
+                        - After the user picks an option, continue the task with that choice. Never ask again about a decision the user already made in this session.
+                        - Prefer require_choice over asking in plain text: a plain-text question ends the turn without an answer.
+
                         ## After making changes
                         - Run the relevant build or type check to confirm your changes compile and work.
 

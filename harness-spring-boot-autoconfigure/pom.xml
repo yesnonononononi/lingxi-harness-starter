@@ -40,5 +40,9 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-configuration-processor</artifactId>
         </dependency>
+        <dependency>
+            <groupId>io.github.yesnonononononi</groupId>
+            <artifactId>harness-sandbox-docker</artifactId>
+        </dependency>
     </dependencies>
 </project>

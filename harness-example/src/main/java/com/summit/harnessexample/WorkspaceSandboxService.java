@@ -3,9 +3,12 @@ package com.summit.harnessexample;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.runtime.Workspace;
+import com.summit.core.workspace.WorkspaceManager;
+import com.summit.core.workspace.WorkspaceRecord;
+import com.summit.core.workspace.WorkspaceRef;
+import com.summit.sandbox.docker.DockerWorkspaceProvider;
+import com.summit.sandbox.docker.DockerWorkspaceSpec;
 import com.summit.runtime.sandbox.DockerWorkspace;
-import com.summit.runtime.sandbox.DockerWorkspaceBridge;
-import com.summit.runtime.sandbox.DockerWorkspaceBridge.ContainerMount;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,7 +24,6 @@ import java.security.NoSuchAlgorithmException;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -38,12 +40,6 @@ import java.util.UUID;
  * <p>In {@code lingxi.agent.workspace=local} mode the selector degrades to a
  * plain local working-directory switch ({@link LocalWorkSpace#updateWorkDir}),
  * because there is no container to create or reuse.</p>
- *
- * <p>Every sandbox is placed on the docker network configured through
- * {@code lingxi.agent.container-network} (when set): a new container joins it
- * at creation time and a reused container is attached to it, so the sandbox can
- * always resolve and reach the sibling containers that provide the node /
- * python / java environments.</p>
  *
  * <p>Boundary: an agent task that is already running when the workspace is
  * switched keeps its original {@link Workspace} reference until that task
@@ -63,6 +59,7 @@ public class WorkspaceSandboxService {
 
     /** The default workspace bean created at startup (docker sandbox or local). */
     private final Workspace defaultWorkspace;
+    private final WorkspaceManager workspaceManager;
     private final ActiveWorkspace activeWorkspace;
     private final SseEventPublisher sseEventPublisher;
     private final ObjectMapper objectMapper;
@@ -75,8 +72,6 @@ public class WorkspaceSandboxService {
     private String containerPort;
     @Value("${lingxi.agent.container-workdir:/workspace}")
     private String containerWorkdir;
-    @Value("${lingxi.agent.container-network:}")
-    private String containerNetwork;
     @Value("${lingxi.agent.workspace-dir:}")
     private String configuredWorkspaceDir;
 
@@ -133,7 +128,16 @@ public class WorkspaceSandboxService {
      */
     public Map<String, Object> current() {
         WorkspaceState current = ensureState();
-        return toDto(current, activeWorkspace.get().workDir());
+        String workDir = activeWorkspace.get().workDir();
+        // local 模式下宿主目录即工作目录，POST /agent/workdir 改的就是它；快照里的 hostDir
+        // 不会随之更新，这里以 active workspace 的实时值为准，避免 current 返回
+        // 「旧宿主目录 + 新工作目录」的自相矛盾数据。
+        if (MODE_LOCAL.equals(current.mode()) && workDir != null && !workDir.isBlank()
+                && !workDir.equals(current.hostDir())) {
+            current = new WorkspaceState(workDir, current.containerId(),
+                    current.containerName(), current.mode(), current.reused());
+        }
+        return toDto(current, workDir);
     }
 
     /** Returns the workspace mode ("docker" or "local") of the startup configuration. */
@@ -146,36 +150,20 @@ public class WorkspaceSandboxService {
     // ------------------------------------------------------------------
 
     private WorkspaceState selectDocker(String hostDir) {
-        Optional<ContainerMount> existing = DockerWorkspaceBridge.findContainerByMount(hostDir);
-        if (existing.isPresent()) {
-            ContainerMount hit = existing.get();
-            DockerWorkspaceBridge.ensureRunning(hit.containerId());
-            // A container created before the network was configured (or by another
-            // tool) must still end up on it, otherwise a reused sandbox silently
-            // lacks the node / python / java environments.
-            DockerWorkspaceBridge.ensureNetwork(hit.containerId(), containerNetwork);
-            String destination = mountRoot(hit.mountDestination());
-            DockerWorkspace workspace = DockerWorkspace.attach(UUID.randomUUID().toString(),
-                    hit.containerId(), destination);
-            activeWorkspace.swap(workspace);
-            log.info("workspace switched (docker, reused container '{}' {}): host {} -> container {}",
-                    hit.containerName(), hit.containerId(), hostDir, destination);
-            return new WorkspaceState(hostDir, hit.containerId(), hit.containerName(), MODE_DOCKER, true);
-        }
-
         String name = deterministicContainerName(hostDir);
-        DockerWorkspace workspace = DockerWorkspace.newInstance(
-                UUID.randomUUID().toString(),
-                workdirRoot(),
-                name,
-                containerPort,
-                hostDir,
-                containerImage,
-                containerNetwork);
+        WorkspaceRecord record = workspaceManager.create(
+                new WorkspaceRef(UUID.randomUUID().toString()),
+                new DockerWorkspaceSpec(workdirRoot(), name, containerImage, hostDir,
+                        containerPort, true));
+        Workspace workspace = workspaceManager.acquire(record.ref());
         activeWorkspace.swap(workspace);
-        log.info("workspace switched (docker, new container '{}' {}): host {} -> container {}",
-                name, workspace.getContainerId(), hostDir, workspace.workDir());
-        return new WorkspaceState(hostDir, workspace.getContainerId(), name, MODE_DOCKER, false);
+        String containerId = record.providerState().get(DockerWorkspaceProvider.CONTAINER_ID);
+        String actualName = record.providerState().getOrDefault(DockerWorkspaceProvider.CONTAINER_NAME, name);
+        boolean reused = Boolean.parseBoolean(record.providerState()
+                .getOrDefault(DockerWorkspaceProvider.REUSED, "false"));
+        log.info("workspace switched (docker, {} container '{}' {}): host {} -> container {}",
+                reused ? "reused" : "new", actualName, containerId, hostDir, workspace.workDir());
+        return new WorkspaceState(hostDir, containerId, actualName, MODE_DOCKER, reused);
     }
 
     // ------------------------------------------------------------------

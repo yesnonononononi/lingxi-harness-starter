@@ -4,11 +4,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.interceptor.InterceptorProcessor;
-import com.summit.core.tool.CommandConfirmRegistry;
+import com.summit.core.tool.CommandConfirmGate;
+import com.summit.core.tool.CommandDecision;
+import com.summit.core.tool.DecideRegistry;
 import com.summit.core.tool.ToolExecution;
 import com.summit.core.tool.ToolInterceptor;
-import com.summit.runtime.tool.DefaultToolInterceptor;
-import com.summit.runtime.DefaultInterceptorProcessor;
+import com.summit.runtime.toolSupport.DefaultToolInterceptor;
+import com.summit.runtime.lifeStyle.DefaultInterceptorProcessor;
 import com.summit.tools.terminal.CommandApprovalToolInterceptor;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -30,7 +32,7 @@ public class InterceptorConfig {
      * command executor.
      */
     @Bean
-    public ToolInterceptor commandApprovalToolInterceptor(ObjectMapper objectMapper, RuntimeEventPublisher runtimeEventPublisher, CommandConfirmRegistry commandConfirmRegistry) {
+    public ToolInterceptor commandApprovalToolInterceptor(ObjectMapper objectMapper, RuntimeEventPublisher runtimeEventPublisher, DecideRegistry<CommandConfirmGate, CommandDecision> commandConfirmRegistry) {
         return new CommandApprovalToolInterceptor(objectMapper, runtimeEventPublisher, commandConfirmRegistry);
     }
 

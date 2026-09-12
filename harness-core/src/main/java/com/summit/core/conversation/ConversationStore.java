@@ -1,8 +1,11 @@
 package com.summit.core.conversation;
 
+import com.summit.core.compact.ContextUsageMetric;
+import com.summit.core.conversation.message.Message;
 import lombok.NonNull;
 
 import java.io.Serializable;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -20,6 +23,7 @@ public interface ConversationStore {
     default Optional<ConversationEntity> removeAndReturn(@NonNull Serializable sessionId){
         return Optional.empty();
     };
+
 
 
 }

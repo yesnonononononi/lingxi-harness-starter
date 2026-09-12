@@ -56,14 +56,27 @@ public interface RuntimeListener {
 
     ;
 
-    default void onWaitCommandCheck(WaitCommandCheckEvent waitCommandCheckEvent){};
+    default void onWaitCommandCheck(WaitCommandCheckEvent waitCommandCheckEvent) {
+    }
 
-    /** A plan was created or mutated by the plan kernel tools (front-end card refresh). */
+    ;
+
+    /**
+     * A plan was created or mutated by the plan kernel tools (front-end card refresh).
+     */
     default void onPlanUpdate(PlanUpdateEvent event) {
     }
+
     ;
 
     default void onContextUpdate(ContextUpdateEvent event) {
     }
+
+    ;
+
+    default void onExplicitUserMean(ExplicitUserMeanEvent explicitUserMeanEvent) {
+
+    }
+
     ;
 }

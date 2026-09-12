@@ -1,12 +1,10 @@
 package com.summit.runtime.conversation;
 
 import com.summit.core.adapter.TokenEstimator;
+import com.summit.core.compact.ContextUsageMetric;
 import com.summit.core.compact.Tokenizer;
-import com.summit.core.conversation.message.AiMessageEntity;
-import com.summit.core.conversation.message.Message;
-import com.summit.core.conversation.message.SystemMessageEntity;
-import com.summit.core.conversation.message.ToolMessageEntity;
-import com.summit.core.conversation.message.UserMessageEntity;
+import com.summit.core.conversation.message.*;
+import org.jspecify.annotations.NonNull;
 
 import java.util.List;
 
@@ -95,4 +93,17 @@ public class DefaultTokenizer implements Tokenizer {
         int currentTokens = this.count(messages);
         return currentTokens / (double) maxTokens;
     }
+
+    @Override
+    public ContextUsageMetric usage(List<Message> messages, Integer maxTokens) {
+        if (maxTokens == null || maxTokens <= 0) {
+            return null;
+        }
+        return new ContextUsageMetric(
+                count(messages),
+                maxTokens,
+                calcCurrentTokenRatio(messages, maxTokens));
+    }
+
+
 }

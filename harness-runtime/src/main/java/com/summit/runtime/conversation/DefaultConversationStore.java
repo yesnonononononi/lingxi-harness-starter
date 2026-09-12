@@ -1,10 +1,13 @@
 package com.summit.runtime.conversation;
 
+import com.summit.core.compact.ContextUsageMetric;
 import com.summit.core.conversation.ConversationEntity;
 import com.summit.core.conversation.ConversationStore;
+import com.summit.core.conversation.message.Message;
 import lombok.NonNull;
 
 import java.io.Serializable;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;

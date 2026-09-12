@@ -1,6 +1,6 @@
 package com.summit.core.tool;
 
-import java.util.List;
+
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -13,7 +13,7 @@ import java.util.concurrent.TimeoutException;
  * <p>The runtime / agent-loop thread never busy-waits here: it performs a
  * <b>bounded, interruptible</b> wait via {@link #awaitDecision}. Any other
  * thread (typically an HTTP approve/reject endpoint) writes the human decision
- * through {@link #decide(CommandDecision)} to wake the waiter. Semantics are
+ * through {@link #decide(D)} to wake the waiter. Semantics are
  * identical for every use:
  * <ul>
  *   <li>APPROVE: the guarded action may go ahead;</li>
@@ -21,11 +21,11 @@ import java.util.concurrent.TimeoutException;
  *   <li>timeout / interruption: the caller treats it as an aborted approval.</li>
  * </ul>
  */
-public abstract class AbstractApprovalGate {
+public abstract class AbstractApprovalGate<D> {
 
 
     /** Completed means decided (APPROVE / REJECT); still pending until completed. */
-    private final CompletableFuture<CommandDecision> decision = new CompletableFuture<>();
+    private final CompletableFuture<D> decision = new CompletableFuture<>();
 
     /** Whether this gate is still awaiting the human decision. */
     public boolean isPending() {
@@ -33,7 +33,7 @@ public abstract class AbstractApprovalGate {
     }
 
     /** Returns the decision when decided, or {@code null} while still pending. */
-    public CommandDecision getDecision() {
+    public D getDecision() {
         return decision.isDone() ? decision.join() : null;
     }
 
@@ -42,7 +42,7 @@ public abstract class AbstractApprovalGate {
      *
      * @return whether this call actually wrote the decision (false if the gate was already decided)
      */
-    public boolean decide(CommandDecision d) {
+    public boolean decide(D d) {
         if (d == null) {
             return false;
         }
@@ -56,7 +56,7 @@ public abstract class AbstractApprovalGate {
      *         {@link InterruptedException} when the thread is interrupted (callers
      *         must restore the interrupt flag and treat it as cancellation)
      */
-    public CommandDecision awaitDecision(long timeout, TimeUnit unit) throws InterruptedException {
+    public D awaitDecision(long timeout, TimeUnit unit) throws InterruptedException {
         try {
             return decision.get(timeout, unit);
         } catch (TimeoutException e) {

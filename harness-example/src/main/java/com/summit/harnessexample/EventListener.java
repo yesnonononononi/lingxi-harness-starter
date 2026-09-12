@@ -95,6 +95,17 @@ public class EventListener implements RuntimeListener {
     }
 
     @Override
+    public void onExplicitUserMean(ExplicitUserMeanEvent event) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("toolExecutionId", event.getToolExecutionId());
+        data.put("question", event.getQuestion());
+        data.put("choices", event.getChoices());
+        data.put("status", "PENDING");
+        data.put("decideUrl", "/agent/choices/" + event.getToolExecutionId() + "/decide");
+        broadcast("WAIT_USER_CHOICE", event.executionId(), event.getSessionId(), data);
+    }
+
+    @Override
     public void onExecutionError(ExecutionErrorEvent event) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("error", event.getErr() == null ? "unknown error" : event.getErr().getMessage());
@@ -147,7 +158,7 @@ public class EventListener implements RuntimeListener {
         broadcast("PLAN_UPDATE", event.executionId(), event.getSessionId(), data);
     }
 
-    /** One task of the plan card: id, status badge, dependencies/priority and the editable fields. */
+    /** One task of the plan card: id, status badge, dependencies/priority and the user-provided tips. */
     private Map<String, Object> taskJson(Task task) {
         Map<String, Object> taskJson = new LinkedHashMap<>();
         taskJson.put("id", task.id());
@@ -158,6 +169,7 @@ public class EventListener implements RuntimeListener {
         taskJson.put("dependencies", task.dependencies());
         taskJson.put("priority", task.priority());
         taskJson.put("acceptance", task.acceptance());
+        taskJson.put("tips", task.tips());
         return taskJson;
     }
 

@@ -3,8 +3,10 @@ package com.summit.harnessexample;
 import com.summit.core.tool.CommandDecision;
 import com.summit.harnessexample.common.Result;
 import com.summit.harnessexample.dto.ChatRequest;
+import com.summit.harnessexample.dto.ChoiceDecisionRequest;
 import com.summit.harnessexample.dto.WorkdirRequest;
 import com.summit.harnessexample.service.AgentChatService;
+import com.summit.harnessexample.service.ChoiceDecideService;
 import com.summit.harnessexample.service.CommandApprovalService;
 import com.summit.harnessexample.service.SessionService;
 import com.summit.harnessexample.service.WorkdirService;
@@ -39,6 +41,7 @@ public class AgentController {
 
     private final AgentChatService agentChatService;
     private final CommandApprovalService commandApprovalService;
+    private final ChoiceDecideService choiceDecideService;
     private final WorkdirService workdirService;
     private final SessionService sessionService;
     private final SseEventPublisher sseEventPublisher;
@@ -89,6 +92,14 @@ public class AgentController {
     public Result<Map<String, Object>> rejectCommand(@PathVariable("toolExecutionId") String toolExecutionId) {
         return Result.ok("decision recorded: REJECT, agent loop will be woken up",
                 commandApprovalService.decide(toolExecutionId, CommandDecision.REJECT));
+    }
+
+    /** Records the user's choice for a {@code require_choice} tool call; the blocked agent loop is woken up. */
+    @PostMapping("/choices/{toolExecutionId}/decide")
+    public Result<Map<String, Object>> decideChoice(@PathVariable("toolExecutionId") String toolExecutionId,
+            @RequestBody(required = false) ChoiceDecisionRequest request) {
+        return Result.ok("user choice recorded, agent loop will be woken up",
+                choiceDecideService.decide(toolExecutionId, request == null ? null : request.choice()));
     }
 
     /** The agent's current working directory. */

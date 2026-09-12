@@ -1,8 +1,8 @@
 package com.summit.harnessexample.service;
 
 import com.summit.core.tool.CommandConfirmGate;
-import com.summit.core.tool.CommandConfirmRegistry;
 import com.summit.core.tool.CommandDecision;
+import com.summit.core.tool.DecideRegistry;
 import com.summit.harnessexample.common.ApiException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,7 +23,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class CommandApprovalService {
 
-    private final CommandConfirmRegistry commandConfirmRegistry;
+    private final DecideRegistry<CommandConfirmGate,CommandDecision> commandConfirmRegistry;
 
     public Map<String, Object> decide(String toolExecutionId, CommandDecision decision) {
         CommandConfirmGate gate = commandConfirmRegistry.get(toolExecutionId);

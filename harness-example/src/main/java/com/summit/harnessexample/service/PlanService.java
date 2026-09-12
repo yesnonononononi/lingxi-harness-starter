@@ -1,16 +1,16 @@
 package com.summit.harnessexample.service;
 
-import com.summit.core.internalUtils.PlanApprovalGate;
-import com.summit.core.internalUtils.PlanApprovalRegistry;
-import com.summit.core.internalUtils.PlanArgumentException;
-import com.summit.core.internalUtils.PlanToolRequests.TaskPatch;
+import com.summit.core.internalUtils.plan.PlanApprovalGate;
+import com.summit.core.internalUtils.plan.PlanApprovalRegistry;
+import com.summit.core.internalUtils.plan.PlanArgumentException;
+import com.summit.core.internalUtils.plan.PlanToolRequests.TaskPatch;
 import com.summit.core.plan.Plan;
 import com.summit.core.plan.PlanOutline;
 import com.summit.core.plan.Task;
 import com.summit.core.tool.CommandDecision;
 import com.summit.harnessexample.common.ApiException;
 import com.summit.harnessexample.dto.TaskUpdateRequest;
-import com.summit.runtime.internalUtils.PlanKernel;
+import com.summit.runtime.coreTools.plan.PlanKernel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -96,9 +96,10 @@ public class PlanService {
     }
 
     /**
-     * Field-level edit of one task while the plan awaits approval. The body carries the
-     * plan {@code version} the card rendered, so a stale edit is rejected with 409 plus
-     * the latest plan instead of silently overwriting a newer revision.
+     * Field-level edit of one task while the plan awaits approval. The card uses it to attach /
+     * remove the user-provided {@code tips} of a step without rewriting what the model proposed.
+     * The body carries the plan {@code version} the card rendered, so a stale edit is rejected with
+     * 409 plus the latest plan instead of silently overwriting a newer revision.
      */
     public Map<String, Object> patchTask(String sessionId, String planId, String taskId, TaskUpdateRequest body) {
         TaskPatch patch = new TaskPatch(
@@ -107,10 +108,12 @@ public class PlanService {
                 body.status(),
                 body.dependencies(),
                 body.priority(),
-                body.acceptance());
+                body.acceptance(),
+                body.tips());
         if (patch.isEmpty()) {
             throw ApiException.badRequest(
-                    "patch must carry at least one of title, description, acceptance, status, dependencies, priority");
+                    "patch must carry at least one of title, description, acceptance, tips, status, "
+                            + "dependencies, priority");
         }
         try {
             Plan updated = planKernel.patchTask(sessionId, planId, taskId, patch, body.version(), null);
@@ -162,6 +165,7 @@ public class PlanService {
         item.put("dependencies", task.dependencies());
         item.put("priority", task.priority());
         item.put("acceptance", task.acceptance());
+        item.put("tips", task.tips());
         return item;
     }
 }

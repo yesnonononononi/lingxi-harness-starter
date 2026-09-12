@@ -76,7 +76,10 @@ public record Plan(
         List<Task> updated = new ArrayList<>(tasks);
         for (int i = 0; i < updated.size(); i++) {
             if (updated.get(i).id().equals(task.id())) {
-                updated.set(i, task);
+                // A model-driven rewrite must never silently drop the hints the user attached
+                // to the step, so a task without tips inherits the ones already stored.
+                Task previous = updated.get(i);
+                updated.set(i, task.tips() == null ? task.withTips(previous.tips()) : task);
                 return withTasks(updated);
             }
         }
