@@ -2,10 +2,11 @@ package com.summit.harnessexample;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.core.runtime.Workspace;
+import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.workspace.WorkspaceManager;
 import com.summit.core.workspace.WorkspaceRecord;
 import com.summit.core.workspace.WorkspaceRef;
+import com.summit.runtime.sandbox.DockerSandboxImage;
 import com.summit.sandbox.docker.DockerWorkspaceProvider;
 import com.summit.sandbox.docker.DockerWorkspaceSpec;
 import com.summit.runtime.sandbox.DockerWorkspace;
@@ -66,7 +67,7 @@ public class WorkspaceSandboxService {
 
     @Value("${lingxi.agent.container-name:agent-sandbox}")
     private String containerName;
-    @Value("${lingxi.agent.container-image:alpine}")
+    @Value("${lingxi.agent.container-image:" + DockerSandboxImage.DEFAULT + "}")
     private String containerImage;
     @Value("${lingxi.agent.container-port:}")
     private String containerPort;
@@ -152,8 +153,7 @@ public class WorkspaceSandboxService {
     private WorkspaceState selectDocker(String hostDir) {
         String name = deterministicContainerName(hostDir);
         WorkspaceRecord record = workspaceManager.create(
-                new WorkspaceRef(UUID.randomUUID().toString()),
-                new DockerWorkspaceSpec(workdirRoot(), name, containerImage, hostDir,
+                new DockerWorkspaceSpec(new WorkspaceRef(UUID.randomUUID().toString()),workdirRoot(), name, containerImage, hostDir,
                         containerPort, true));
         Workspace workspace = workspaceManager.acquire(record.ref());
         activeWorkspace.swap(workspace);

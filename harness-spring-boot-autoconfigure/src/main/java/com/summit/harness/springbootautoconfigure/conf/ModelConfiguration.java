@@ -4,13 +4,13 @@ import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProp
 import com.summit.harness.springbootautoconfigure.properties.CompactContextModelProperties;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.model.ModelConfig;
-import com.summit.core.model.ModelInvoker;
 import com.summit.core.model.ModelProviderRegistry;
-import com.summit.runtime.model.DefaultStreamingModelInvoker;
+import com.summit.core.model.RequestModelInvokerFactory;
+import com.summit.runtime.model.DefaultRequestModelInvokerFactory;
 import com.summit.adapter.langchain4j.codec.TokenEstimatorAdapter;
 import com.summit.core.adapter.TokenEstimator;
 import com.summit.core.model.ChatModel;
-import com.summit.core.model.StreamingChatModel;
+import com.summit.core.model.streaming.StreamingChatModel;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -38,6 +38,7 @@ public class ModelConfiguration {
                 .maxTokens(agentChatProperties.getMaxTokens())
                 .reasoningEffort(agentChatProperties.getReasoningEffort())
                 .returnThinking(agentChatProperties.isReturnThinking())
+                .provider(agentChatProperties.getProvider())
                 .build();
     }
 
@@ -58,24 +59,6 @@ public class ModelConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(name = "defaultStreamingChatModel")
-    public StreamingChatModel defaultStreamingChatModel(
-            ModelProviderRegistry<StreamingChatModel> streamingModelProviderRegistry,
-            @Qualifier("chatModelConfig") ModelConfig modelConfig) {
-        modelConfig.setProvider("default-streaming");
-        return streamingModelProviderRegistry.create(modelConfig);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean(name = "defaultChatModel")
-    public ChatModel defaultChatModel(
-            ModelProviderRegistry<ChatModel> chatModelProviderRegistry,
-            @Qualifier("chatModelConfig") ModelConfig chatModelConfig) {
-        chatModelConfig.setProvider("default");
-        return chatModelProviderRegistry.create(chatModelConfig);
-    }
-
-    @Bean
     @ConditionalOnMissingBean
     public TokenEstimator tokenEstimator(AgentChatProperties agentChatProperties) {
         String modelName = agentChatProperties.getModelName();
@@ -85,7 +68,7 @@ public class ModelConfiguration {
         try {
             return new TokenEstimatorAdapter(modelName);
         }catch (Exception e){
-            log.error("Error creating token count estimator for model {}", modelName, e);
+            log.warn("Error creating token count estimator for model {} {}", modelName, e.getMessage());
             return new TokenEstimatorAdapter("gpt-3.5-turbo");
         }
     }
@@ -100,7 +83,13 @@ public class ModelConfiguration {
     }
 
     @Bean
-    public ModelInvoker defaultStreamingModelInvoker(StreamingChatModel streamingChatModel, RuntimeEventPublisher runtimeEventPublisher){
-        return new DefaultStreamingModelInvoker(streamingChatModel,runtimeEventPublisher);
+    public RequestModelInvokerFactory requestModelInvokerFactory(
+            AgentChatProperties properties,
+            @Qualifier("chatModelConfig") ModelConfig modelConfig,
+            ModelProviderRegistry<ChatModel> chatProviders,
+            ModelProviderRegistry<StreamingChatModel> streamingProviders,
+            RuntimeEventPublisher runtimeEventPublisher) {
+        return new DefaultRequestModelInvokerFactory(properties.getProvider(), modelConfig,
+                chatProviders, streamingProviders, runtimeEventPublisher);
     }
 }

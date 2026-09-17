@@ -4,7 +4,7 @@ import com.summit.core.agent.Execution;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.event.*;
 import com.summit.core.conversation.message.TokenUsageEntity;
-import com.summit.core.runtime.RuntimeLifeStyleManager;
+import com.summit.core.runtime.lifstyle.RuntimeLifeStyleManager;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 

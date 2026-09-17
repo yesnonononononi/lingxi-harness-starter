@@ -2,9 +2,9 @@ package com.summit.harnessexample.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.core.tool.DiffResult;
-import com.summit.core.tool.FileRecord;
-import com.summit.core.tool.FileRecordManager;
+import com.summit.core.tool.diff.DiffResult;
+import com.summit.core.tool.diff.FileRecord;
+import com.summit.core.tool.diff.FileRecordManager;
 import com.summit.harnessexample.ActiveWorkspace;
 import com.summit.harnessexample.SseEventPublisher;
 import com.summit.harnessexample.common.ApiException;

@@ -1,6 +1,6 @@
 package com.summit.runtime.workspace;
 
-import com.summit.core.runtime.Workspace;
+import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.workspace.*;
 
 import java.util.*;
@@ -28,20 +28,30 @@ public final class DefaultWorkspaceManager implements WorkspaceManager {
         this.store = Objects.requireNonNull(store, "workspace store");
     }
 
-    @Override
-    public WorkspaceRecord create(WorkspaceSpec spec) {
-        return create(new WorkspaceRef(UUID.randomUUID().toString()), spec);
-    }
 
     @Override
-    public WorkspaceRecord create(WorkspaceRef ref, WorkspaceSpec spec) {
+    public WorkspaceRecord create(WorkspaceSpec spec) {
+        Objects.requireNonNull(spec, "workspace spec");
+        WorkspaceRef ref = spec.workspaceRef() == null
+                ? new WorkspaceRef(UUID.randomUUID().toString())
+                : spec.workspaceRef();
         return locked(ref, () -> {
             if (store.find(ref).isPresent()) {
                 throw new IllegalStateException("workspace already exists: " + ref.id());
             }
-            WorkspaceRecord record = provider(spec.provider()).provision(ref, spec);
-            store.save(record);
-            return record;
+            WorkspaceProvider provider = provider(spec.provider());
+            WorkspaceRecord record = provider.provision(ref, spec);
+            try {
+                store.save(record);
+                return record;
+            } catch (RuntimeException | Error saveFailure) {
+                try {
+                    provider.destroy(record);
+                } catch (RuntimeException | Error cleanupFailure) {
+                    saveFailure.addSuppressed(cleanupFailure);
+                }
+                throw saveFailure;
+            }
         });
     }
 
@@ -88,7 +98,10 @@ public final class DefaultWorkspaceManager implements WorkspaceManager {
     @Override
     public void destroy(WorkspaceRef ref) {
         locked(ref, () -> {
-            WorkspaceRecord record = requireRecord(ref);
+            WorkspaceRecord record = store.find(ref).orElse(null);
+            if (record == null) {
+                return null;
+            }
             provider(record.spec().provider()).destroy(record);
             store.delete(ref);
             return null;

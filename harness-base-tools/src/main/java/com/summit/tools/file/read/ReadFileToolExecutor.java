@@ -2,7 +2,7 @@ package com.summit.tools.file.read;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.core.runtime.WorkspaceBridge;
+import com.summit.core.runtime.workspace.WorkspaceBridge;
 import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolExecution;
 import com.summit.core.tool.ToolExecutor;
@@ -38,9 +38,9 @@ public class ReadFileToolExecutor implements ToolExecutor {
                     toolExecution.getWorkspace().runtimeEnvironment().charset(),
                     request.getStartLine(), request.getEndLine());
 
-            return ToolExecuteResult.success(toolExecution.getId(), toolExecution.getToolDefinition(), content);
+            return ToolExecuteResult.success(content);
         } catch (Exception e) {
-            return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition(), "tool execute failed : " + e);
+            return ToolExecuteResult.err("tool execute failed : " + e);
         }
     }
 

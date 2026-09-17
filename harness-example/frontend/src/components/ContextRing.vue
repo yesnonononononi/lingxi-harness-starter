@@ -129,25 +129,25 @@ const ariaLabel = computed(() =>
   border-radius: 6px;
   cursor: default;
   outline: none;
-  transition: background 0.18s ease;
+  transition: all 0.18s ease;
 }
 .ctx-ring:hover,
 .ctx-ring:focus-visible {
-  background: #f1f2f7;
+  background: #f4f4f5;
 }
 
 .ring-track {
-  stroke: #e2e5ee;
+  stroke: #e4e4e7;
 }
 
 .ring-arc {
-  stroke: #22c55e;
+  stroke: #09090b;
   transition: stroke 0.3s ease;
 }
-.ctx-ring.warn .ring-arc { stroke: #f0a020; }
-.ctx-ring.danger .ring-arc { stroke: #e5484d; }
+.ctx-ring.warn .ring-arc { stroke: #52525b; }
+.ctx-ring.danger .ring-arc { stroke: #09090b; stroke-width: 2.5; }
 
-/* 深色信息气泡：两行排版 + 小箭头，比整块粗体黑底更轻 */
+/* 极简深黑信息气泡 */
 .ring-tip {
   position: absolute;
   right: 0;
@@ -155,15 +155,17 @@ const ariaLabel = computed(() =>
   display: flex;
   flex-direction: column;
   gap: 1px;
-  padding: 7px 10px;
+  padding: 8px 12px;
   border-radius: 8px;
-  background: #202433;
-  box-shadow: 0 8px 24px rgba(24, 28, 45, 0.22);
+  background: #09090b;
+  border: 1px solid #27272a;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
   white-space: nowrap;
   pointer-events: none;
   opacity: 0;
   transform: translateY(4px);
   transition: opacity 0.16s ease, transform 0.16s ease;
+  z-index: 100;
 }
 .ring-tip::after {
   content: '';
@@ -171,7 +173,7 @@ const ariaLabel = computed(() =>
   right: 8px;
   top: 100%;
   border: 5px solid transparent;
-  border-top-color: #202433;
+  border-top-color: #09090b;
 }
 .ctx-ring:hover .ring-tip,
 .ctx-ring:focus-visible .ring-tip {

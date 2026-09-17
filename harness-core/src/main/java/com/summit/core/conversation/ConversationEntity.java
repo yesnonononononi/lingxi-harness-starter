@@ -3,8 +3,7 @@ package com.summit.core.conversation;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;
-import com.summit.core.runtime.Workspace;
-import com.summit.core.workspace.WorkspaceRef;
+import com.summit.core.workspace.WorkspaceSpec;
 import lombok.Builder;
 import lombok.NonNull;
 import java.io.Serializable;
@@ -14,20 +13,9 @@ import java.util.List;
 public record ConversationEntity(
         Serializable sessionId, String sessionName, List<Message> messages,
         TokenUsageEntity tokenUsageEntity, SystemMessageEntity systemMessageEntity,
-        Workspace workspace, WorkspaceRef workspaceRef
+        WorkspaceSpec workspaceSpec
         ) {
-    /** Legacy constructor retained while callers migrate from live workspace persistence. */
-    public ConversationEntity(Serializable sessionId, String sessionName, List<Message> messages,
-                              TokenUsageEntity tokenUsageEntity, SystemMessageEntity systemMessageEntity,
-                              Workspace workspace) {
-        this(sessionId, sessionName, messages, tokenUsageEntity, systemMessageEntity, workspace, null);
-    }
-
-    public static ConversationEntity empty(String sessionName,Workspace workspace,SystemMessageEntity SystemMessageEntity,Serializable sessionId,List<Message> messages){
-        return empty(sessionName, workspace, null, SystemMessageEntity, sessionId, messages);
-    }
-
-    public static ConversationEntity empty(String sessionName, Workspace workspace, WorkspaceRef workspaceRef,
+    public static ConversationEntity empty(String sessionName, WorkspaceSpec workspaceSpec,
                                            SystemMessageEntity systemMessage, Serializable sessionId,
                                            List<Message> messages) {
         return ConversationEntity.builder()
@@ -35,22 +23,22 @@ public record ConversationEntity(
                 .messages(messages)
                 .tokenUsageEntity(TokenUsageEntity.empty())
                 .systemMessageEntity(systemMessage)
-                .workspace(workspace)
-                .workspaceRef(workspaceRef)
+                .workspaceSpec(workspaceSpec)
                 .sessionId(sessionId)
                 .build();
     }
-    public static ConversationEntity empty(String sessionName,Workspace workspace,SystemMessageEntity SystemMessageEntity,Serializable sessionId) {
-        return empty(sessionName, workspace, SystemMessageEntity, sessionId, new LinkedList<>());
+    public static ConversationEntity empty(String sessionName, WorkspaceSpec workspaceSpec,
+                                           SystemMessageEntity systemMessage, Serializable sessionId) {
+        return empty(sessionName, workspaceSpec, systemMessage, sessionId, new LinkedList<>());
     }
 
     public @NonNull ConversationEntity withSessionId(@NonNull Serializable sessionId) {
         return new ConversationEntity(sessionId, sessionName, messages, tokenUsageEntity,
-                systemMessageEntity, workspace, workspaceRef);
+                systemMessageEntity, workspaceSpec);
     }
 
     public ConversationEntity withSessionName(String sessionName) {
         return new ConversationEntity(sessionId, sessionName, messages, tokenUsageEntity,
-                systemMessageEntity, workspace, workspaceRef);
+                systemMessageEntity, workspaceSpec);
     }
 }

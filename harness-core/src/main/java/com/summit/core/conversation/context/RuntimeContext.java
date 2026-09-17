@@ -5,9 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
-import com.summit.core.internalUtils.plan.PlanLoopHook;
 import com.summit.core.model.ModelInvoker;
 import com.summit.core.runtime.*;
+import com.summit.core.runtime.lifstyle.LifeStyleCommandRegistry;
+import com.summit.core.runtime.lifstyle.LifeStyleCommandStore;
+import com.summit.core.runtime.lifstyle.RuntimeLifeStyleManager;
+import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.ToolExecutionManager;
 import lombok.Getter;
 import lombok.experimental.SuperBuilder;
@@ -33,11 +36,10 @@ public class RuntimeContext
     private final LifeStyleCommandStore lifeStyleCommandStore;
     /** Registry the execution registered its store in, released on exit (optional). */
     private final LifeStyleCommandRegistry lifeStyleCommandRegistry;
-    /**
-     * Plan-mode integration point of the agent loop (created by the plan kernel configuration).
-     * Optional: when absent, the loop behaves exactly as before — no plan lifecycle at all.
-     */
-    private final PlanLoopHook planLoopHook;
+    /** Optional application hook. The runtime itself has no plan or approval semantics. */
+    private final AgentLoopHook agentLoopHook;
+    /** Generic suspension SPI shared by application workflows. */
+    private final LoopSuspender loopSuspender;
     private static final int DEFAULT_MAX_ITERATIONS = 10;
     private static final int DEFAULT_MAX_TOKENS = 100000;
 

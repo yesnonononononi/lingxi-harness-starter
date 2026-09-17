@@ -37,10 +37,10 @@
         <module>harness-adapter-langchain4j</module>
         <module>lingxi-harness-spring-boot-starter</module>
         <module>harness-spring-boot-autoconfigure</module>
-        <module>harness-example</module>
         <module>harness-runtime</module>
         <module>harness-sandbox-docker</module>
         <module>harness-base-tools</module>
+        <module>harness-memory</module>
     </modules>
 
 
@@ -48,8 +48,10 @@
         <java.version>21</java.version>
         <lingxi-harness.version>1.0.2</lingxi-harness.version>
         <langchain4j.version>1.11.0</langchain4j.version>
+        <langchain4j-mcp.version>1.20.0-beta30</langchain4j-mcp.version>
         <lombok.version>1.18.46</lombok.version>
         <java-diff-utils.version>4.15</java-diff-utils.version>
+        <java-mcp.version>2.0.1</java-mcp.version>
     </properties>
 
 
@@ -113,6 +115,12 @@
                 <groupId>dev.langchain4j</groupId>
                 <artifactId>langchain4j-open-ai</artifactId>
                 <version>${langchain4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.langchain4j</groupId>
+                <artifactId>langchain4j-mcp</artifactId>
+                <version>${langchain4j-mcp.version}</version>
+                <scope>compile</scope>
             </dependency>
             <dependency>
                 <groupId>org.projectlombok</groupId>

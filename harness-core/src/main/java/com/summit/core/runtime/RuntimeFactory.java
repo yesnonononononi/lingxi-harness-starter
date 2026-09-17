@@ -1,6 +1,7 @@
 package com.summit.core.runtime;
 
 import com.summit.core.model.ModelInvoker;
+import com.summit.core.runtime.workspace.Workspace;
 
 import java.io.Serializable;
 

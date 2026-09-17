@@ -1,11 +1,11 @@
 package com.summit.runtime.workspace;
 
-import com.summit.core.runtime.LocalWorkspaceBridge;
+import com.summit.core.runtime.workspace.LocalWorkspaceBridge;
 import com.summit.core.runtime.OsType;
 import com.summit.core.runtime.RuntimeEnvironment;
 import com.summit.core.runtime.ShellType;
-import com.summit.core.runtime.Workspace;
-import com.summit.core.runtime.WorkspaceBridge;
+import com.summit.core.runtime.workspace.Workspace;
+import com.summit.core.runtime.workspace.WorkspaceBridge;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -46,9 +46,13 @@ public final class LocalWorkspace implements Workspace {
 
     @Override
     public Path resolve(String path) {
-        Path target = path == null || path.isBlank()
-                ? root
-                : (Paths.get(path).isAbsolute() ? Paths.get(path) : root.resolve(path)).normalize();
+        Path target;
+        if (path == null || path.isBlank()) {
+            target = root;
+        } else {
+            Path p = Paths.get(path);
+            target = (p.isAbsolute() ? p : root.resolve(path)).normalize();
+        }
         if (!target.startsWith(root)) {
             throw new IllegalArgumentException("File path is out of workspace: " + path);
         }

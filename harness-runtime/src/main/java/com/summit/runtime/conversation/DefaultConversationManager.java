@@ -2,7 +2,7 @@ package com.summit.runtime.conversation;
 
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.compact.ContextSummary;
-import com.summit.core.compact.Tokenizer;
+import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.conversation.ConversationEntity;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.ConversationStore;
@@ -14,13 +14,11 @@ import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.conversation.message.ToolMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
-import com.summit.core.plan.PlanOutline;
-import com.summit.core.plan.PlanStore;
-import com.summit.core.runtime.Workspace;
+import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.workspace.WorkspaceManager;
-import com.summit.core.workspace.WorkspaceRef;
 import com.summit.core.tool.LoopBoundary;
 import com.summit.core.tool.ToolExecuteResult;
+import com.summit.core.workspace.WorkspaceSpec;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
@@ -33,35 +31,36 @@ import java.util.*;
 @Getter
 @Slf4j
 public class DefaultConversationManager implements ConversationManager {
+
+    /** Appended when nothing of the last round survives a rebuild, so the next request still carries a user turn. */
+    private static final String CONTINUE_AFTER_COMPACTION_PROMPT = """
+            The conversation history before this point has been compacted into the summary above.
+            Continue the work from there: do not repeat steps that are already marked as completed.
+            """;
+
     private final ConversationStore conversationStore;
     private final RuntimeEventPublisher runtimeEventPublisher;
     private final SystemPromptAssembler systemPromptAssembler;
     private final String defaultSystemPrompt;
-    /** Session plans, used to protect the plan from being squeezed away by a context rebuild. */
-    private final PlanStore planStore;
+    /** Application state that must survive a context rebuild. */
+    private final ContextAttachmentProvider contextAttachmentProvider;
     /** Resolves persisted workspace references; null only for legacy direct construction. */
     private final WorkspaceManager workspaceManager;
 
-    public DefaultConversationManager(ConversationStore conversationStore,
-                                      RuntimeEventPublisher runtimeEventPublisher,
-                                      SystemPromptAssembler systemPromptAssembler,
-                                      String defaultSystemPrompt,
-                                      PlanStore planStore) {
-        this(conversationStore, runtimeEventPublisher, systemPromptAssembler,
-                defaultSystemPrompt, planStore, null);
-    }
+
 
     public DefaultConversationManager(ConversationStore conversationStore,
                                       RuntimeEventPublisher runtimeEventPublisher,
                                       SystemPromptAssembler systemPromptAssembler,
                                       String defaultSystemPrompt,
-                                      PlanStore planStore,
+                                      ContextAttachmentProvider contextAttachmentProvider,
                                       WorkspaceManager workspaceManager) {
         this.conversationStore = conversationStore;
         this.runtimeEventPublisher = runtimeEventPublisher;
         this.systemPromptAssembler = systemPromptAssembler;
         this.defaultSystemPrompt = defaultSystemPrompt;
-        this.planStore = planStore;
+        this.contextAttachmentProvider = contextAttachmentProvider == null
+                ? ContextAttachmentProvider.NONE : contextAttachmentProvider;
         this.workspaceManager = workspaceManager;
     }
 
@@ -77,8 +76,6 @@ public class DefaultConversationManager implements ConversationManager {
             appendNewUserMessageToConversation(agentRequest, existing.get());
             return;
         }
-
-        // New session: create system + this input
         startNewConversation(agentRequest);
     }
 
@@ -97,7 +94,6 @@ public class DefaultConversationManager implements ConversationManager {
 
     @Override
     public ConversationEntity endConversation(Serializable sessionId) {
-        //Only the current execution is ended. The session is retained in the store for subsequent executions with the same sessionId to reuse the history
         return this.conversationStore.get(sessionId).orElse(null);
     }
 
@@ -106,15 +102,8 @@ public class DefaultConversationManager implements ConversationManager {
         return Collections.unmodifiableList(getConversationEntity(sessionId).messages());
     }
 
-    @Override
-    public Workspace workspace(Serializable sessionId) {
-        return this.conversationStore.get(sessionId).map(this::resolveWorkspace).orElse(null);
-    }
 
-    @Override
-    public WorkspaceRef workspaceRef(Serializable sessionId) {
-        return this.conversationStore.get(sessionId).map(ConversationEntity::workspaceRef).orElse(null);
-    }
+
 
     @Override
     public TokenUsageEntity tokenUsage(Serializable sessionId) {
@@ -132,32 +121,75 @@ public class DefaultConversationManager implements ConversationManager {
     }
 
     @Override
+    public void appendInternalUserMessage(Serializable sessionId, String text) {
+        if (text == null || text.isBlank()) {
+            return;
+        }
+        ConversationEntity conversation = getConversationEntity(sessionId);
+        conversation.messages().add(UserMessageEntity.internal(text));
+        this.conversationStore.save(sessionId, conversation);
+    }
+
+    @Override
     public void refreshBoundary(Serializable sessionId, LoopBoundary boundary, String customSystemPrompt) {
+        refreshBoundary(sessionId, boundary, customSystemPrompt, null, null);
+    }
+
+    @Override
+    public void refreshBoundary(Serializable sessionId, LoopBoundary boundary, String customSystemPrompt,
+                                String task, List<String> toolList) {
+        refreshBoundary(sessionId, boundary, customSystemPrompt, task, toolList, null);
+    }
+
+    @Override
+    public void refreshBoundary(Serializable sessionId, LoopBoundary boundary, String customSystemPrompt,
+                                String task, List<String> toolList, Workspace workspace) {
         ConversationEntity conversation = getConversationEntity(sessionId);
         setLeadingSystemMessage(conversation,
                 SystemMessageEntity.builder().text(
-                        assembleSystemPrompt(resolveWorkspace(conversation), customSystemPrompt, boundary)
+                        assembleSystemPrompt(workspace != null ? workspace : resolveWorkspace(conversation),
+                                customSystemPrompt, task, toolList, boundary)
                 ).build(),
                 sessionId);
     }
 
     @Override
     public void rebuildContext(ContextSummary contextSummary, Serializable sessionId) {
+        rebuildContext(contextSummary, sessionId, false);
+    }
+
+    @Override
+    public void rebuildContext(ContextSummary contextSummary, Serializable sessionId, boolean answeredTrailingUserTurn) {
         if (contextSummary == null) return;
         ConversationEntity conversation = getConversationEntity(sessionId);
         String summary = contextSummary.getSummary();
         try {
             log.info("【context-rebuild】 rebuilding context with summary: {}", summary);
             SystemMessageEntity systemMessage = conversation.systemMessageEntity();
-            List<Message> latestToolMessageAndAiMessage = findLatestInteraction(conversation);
-            String planText = planTextForRebuild(sessionId, conversation);
+            List<Message> latestToolMessageAndAiMessage = retainableTail(conversation, answeredTrailingUserTurn);
+            String protectedContext = protectedContextForRebuild(sessionId, conversation);
 
             List<Message> rebuilt = new ArrayList<>();
             rebuilt.add(systemMessage);
             // Protection: re-attach the rendered session plan (or, as a fallback, the first
             // pure-text AI message of the history) so the produced plan survives compaction.
-            if (planText != null && !planText.isBlank()) {
-                rebuilt.add(AiMessageEntity.builder().text(planText).build());
+            //
+            // The plan is re-attached as a SYSTEM message on purpose. Emitting it as an AiMessage
+            // fabricates an assistant turn the model never produced: it carries no thinking, so the
+            // codec sends it without `reasoning_content`. Thinking-mode models (Qwen / DashScope)
+            // then reject the whole request with 400 "The `reasoning_content` in the thinking mode
+            // must be passed back to the API", which is exactly what happened right after every
+            // model compaction. A system message is also immune to DefaultManualCompacter, which
+            // only squeezes AiMessageEntity rounds, so the plan stays intact either way.
+            if (protectedContext != null && !protectedContext.isBlank()) {
+                rebuilt.add(SystemMessageEntity.builder().text(
+                        String.format("""
+                                        The session plan produced earlier is reproduced below. Keep following it:
+
+                                        %s
+                                        """,
+                                protectedContext)
+                ).build());
             }
             rebuilt.add(SystemMessageEntity.builder().text(
                     String.format("""
@@ -181,7 +213,14 @@ public class DefaultConversationManager implements ConversationManager {
                             contextSummary.getState()
                     )
             ).build());
-            rebuilt.addAll(latestToolMessageAndAiMessage);
+            if (latestToolMessageAndAiMessage.isEmpty()) {
+                // Nothing of the last round could be kept: end the rebuilt context with a user
+                // turn so the next request stays well-formed (a tools request made only of system
+                // messages is rejected by every OpenAI-protocol provider).
+                rebuilt.add(UserMessageEntity.from(CONTINUE_AFTER_COMPACTION_PROMPT));
+            } else {
+                rebuilt.addAll(latestToolMessageAndAiMessage);
+            }
 
             conversation.messages().clear();
             conversation.messages().addAll(rebuilt);
@@ -194,15 +233,14 @@ public class DefaultConversationManager implements ConversationManager {
 
     /**
      * Resolves the plan text to re-attach after a context rebuild:
-     * 1. the rendered plan of the session {@link PlanStore}, when present — rendered through
-     *    {@link PlanOutline} so every consumer sees the exact same plan text;
+     * 1. application state supplied by {@link ContextAttachmentProvider}, when present;
      * 2. otherwise the first pure-text (tool-call-free) AI message in the history
      *    (the message that originally proposed the work).
      */
-    private String planTextForRebuild(Serializable sessionId, ConversationEntity conversation) {
-        String planText = this.planStore.findBySession(sessionId).map(PlanOutline::render).orElse(null);
-        if (planText != null && !planText.isBlank()) {
-            return planText;
+    private String protectedContextForRebuild(Serializable sessionId, ConversationEntity conversation) {
+        String protectedContext = this.contextAttachmentProvider.attachment(sessionId).orElse(null);
+        if (protectedContext != null && !protectedContext.isBlank()) {
+            return protectedContext;
         }
         for (Message message : conversation.messages()) {
             if (message instanceof AiMessageEntity ai
@@ -242,7 +280,10 @@ public class DefaultConversationManager implements ConversationManager {
 
 
     /**
-     * Find the latest interaction in the conversation.
+     * Find the latest interaction in the conversation: the last assistant turn together with the tool
+     * results that follow it, or — when the history ends with the user's newest input (a compaction
+     * triggered before the model answered it) — that user turn.
+     *
      * @param conversation The conversation entity.
      * @return The latest interaction in the conversation.
      */
@@ -263,28 +304,91 @@ public class DefaultConversationManager implements ConversationManager {
                 result.addFirst(message);
                 break;
             }
+
+            if (message instanceof UserMessageEntity) {
+                // Keep the newest user turn: a compaction that runs before the model answered it
+                // must not swallow the request that is currently being worked on.
+                result.addFirst(message);
+                break;
+            }
         }
 
         return result;
     }
 
-
-    /*
-      Get the assembled system message for the given agent request.
-      The three-part prompt (default template + custom prompt + loop boundary)
-      is assembled by {@link SystemPromptAssembler}.
+    /**
+     * The part of the history that may survive a rebuild.
+     *
+     * <p>Thinking-mode APIs (DeepSeek V4 flash, Qwen, ...) reject a request that carries {@code tools}
+     * but holds an assistant message without {@code reasoning_content}:
+     * <i>"The reasoning_content in the thinking mode must be passed back to the API"</i>. Every
+     * assistant message of the session has to carry the reasoning the model produced, no matter
+     * whether that turn called a tool or not. A rebuilt context is exactly where such a message used
+     * to appear — an assistant turn whose reasoning was never persisted was carried over while the
+     * rest of the history was dropped, and the very next request failed with a 400.
+     *
+     * <p>The tail is therefore only kept when every assistant message it holds still carries its
+     * reasoning (and tool results are only kept together with the assistant turn that requested
+     * them). Otherwise the tail is dropped — the summary already covers it — and the caller appends
+     * a short user turn instead so the next request stays well-formed.
+     *
+     * @param answeredTrailingUserTurn true when the round being rebuilt away was the model's answer
+     *        to the trailing user turn (a model-initiated {@code compact_context} call). Such a turn
+     *        is dropped even though it needs no reasoning: keeping it would present the model a
+     *        request it has already served, and it would serve it again — with a second compaction.
+     *        The rebuilt context then ends with the "continue after compaction" instruction instead.
      */
+    private List<Message> retainableTail(ConversationEntity conversation, boolean answeredTrailingUserTurn) {
+        List<Message> tail = findLatestInteraction(conversation);
+        if (tail.isEmpty()) {
+            return tail;
+        }
+        if (answeredTrailingUserTurn && tail.stream().anyMatch(UserMessageEntity.class::isInstance)) {
+            log.info("【context-rebuild】dropping the user turn this compaction round answered: it is already served, "
+                    + "keeping it would make the model compact again");
+            return List.of();
+        }
+        boolean hasAssistant = tail.stream().anyMatch(AiMessageEntity.class::isInstance);
+        if (!hasAssistant) {
+            if (tail.stream().noneMatch(ToolMessageEntity.class::isInstance)) {
+                return tail;    // a plain user turn needs no reasoning and is always valid
+            }
+            log.warn("【context-rebuild】dropping the tail of the rebuilt context: tool results without their assistant turn");
+            return List.of();
+        }
+        if (tail.stream().allMatch(DefaultConversationManager::isThinkingSafe)) {
+            return tail;
+        }
+        log.warn("【context-rebuild】dropping the latest round from the rebuilt context: its assistant message carries no "
+                + "reasoning, a thinking-mode API rejects such a message (reasoning_content must be passed back)");
+        return List.of();
+    }
+
+    /** True when the message is not an assistant turn, or when it still carries the reasoning the model produced. */
+    private static boolean isThinkingSafe(Message message) {
+        if (!(message instanceof AiMessageEntity aiMessage)) {
+            return true;
+        }
+        String thinking = aiMessage.getThinking();
+        return thinking != null && !thinking.isBlank();
+    }
+
+
+
     /**
      * Assembles the three-part system prompt text for the given workspace / custom
      * prompt / loop boundary (only the default template is formatted).
      */
-    private String assembleSystemPrompt(Workspace workspace, String customSystemPrompt, LoopBoundary boundary) {
-        return this.systemPromptAssembler.assemble(this.defaultSystemPrompt, workspace, customSystemPrompt, boundary);
+    private String assembleSystemPrompt(Workspace workspace, String customSystemPrompt, String task,
+                                        List<String> toolList, LoopBoundary boundary) {
+        return this.systemPromptAssembler.assemble(this.defaultSystemPrompt, workspace, customSystemPrompt,
+                task, toolList, boundary);
     }
 
-    private SystemMessageEntity buildSystemMessage(AgentRequest agentRequest) {
+    private SystemMessageEntity buildSystemMessage(AgentRequest agentRequest,Workspace workspace) {
         return SystemMessageEntity.builder().text(
-                assembleSystemPrompt(agentRequest.getWorkspace(), agentRequest.getSystemPrompt(), agentRequest.getLoopBoundary())
+                assembleSystemPrompt(workspace, agentRequest.getSystemPrompt(), agentRequest.getTask(),
+                        agentRequest.getToolList(), agentRequest.runtimeParametersOrDefault().getLoopBoundary())
         ).build();
     }
 
@@ -298,7 +402,10 @@ public class DefaultConversationManager implements ConversationManager {
      * sync so later context rebuilds reuse the same message.</p>
      */
     private void refreshSystemMessage(AgentRequest agentRequest, ConversationEntity conversation) {
-        setLeadingSystemMessage(conversation, buildSystemMessage(agentRequest), agentRequest.sessionIdOrDefault());
+        Workspace workspace = agentRequest.getWorkspace() != null
+                ? agentRequest.getWorkspace()
+                : resolveWorkspace(conversation);
+        setLeadingSystemMessage(conversation, buildSystemMessage(agentRequest, workspace), agentRequest.sessionIdOrDefault());
     }
 
     /**
@@ -320,7 +427,7 @@ public class DefaultConversationManager implements ConversationManager {
         }
         ConversationEntity refreshed = new ConversationEntity(conversation.sessionId(), conversation.sessionName(),
                 messages, conversation.tokenUsageEntity(), systemMessage,
-                conversation.workspace(), conversation.workspaceRef());
+                conversation.workspaceSpec());
         this.conversationStore.save(sessionId, refreshed);
     }
 
@@ -339,32 +446,28 @@ public class DefaultConversationManager implements ConversationManager {
      */
     private void startNewConversation(AgentRequest agentRequest){
         Serializable sessionId = agentRequest.sessionIdOrDefault();
-        SystemMessageEntity systemMessage = buildSystemMessage(agentRequest);
-        WorkspaceRef workspaceRef = agentRequest.getWorkspaceRef();
-        // Managed workspaces persist only a stable reference. Legacy direct workspaces
-        // remain supported until applications migrate their stores.
-        Workspace liveWorkspace = workspaceRef == null ? agentRequest.getWorkspace() : null;
+
+        Workspace liveWorkspace = agentRequest.getWorkspace();
+        SystemMessageEntity systemMessage = buildSystemMessage(agentRequest,liveWorkspace);
+
         ConversationEntity conversation = ConversationEntity.empty(agentRequest.getSessionName(),
-                liveWorkspace, workspaceRef, systemMessage, sessionId, new LinkedList<>());
-        // The system message is part of the model message stream (index 0), matching the
-        // rebuildContext layout, so the assembled boundary prompt always reaches the model.
+                agentRequest.getWorkspaceSpec(), systemMessage, sessionId, new LinkedList<>());
+
         conversation.messages().add(systemMessage);
         conversation.messages().add(UserMessageEntity.from(agentRequest.getInput()));
         this.conversationStore.save(sessionId, conversation);
     }
 
     private Workspace resolveWorkspace(ConversationEntity conversation) {
-        if (conversation.workspace() != null) {
-            return conversation.workspace();
-        }
-        if (conversation.workspaceRef() == null || workspaceManager == null) {
+        WorkspaceSpec workspaceSpec = conversation.workspaceSpec();
+        if (workspaceSpec == null || workspaceSpec.workspaceRef() == null || workspaceManager == null) {
             return null;
         }
         try {
-            return workspaceManager.acquire(conversation.workspaceRef());
+            return workspaceManager.acquire(workspaceSpec.workspaceRef());
         } catch (RuntimeException e) {
             log.warn("Failed to resolve workspace {} for session {}: {}",
-                    conversation.workspaceRef().id(), conversation.sessionId(), e.getMessage());
+                    workspaceSpec.workspaceRef().id(), conversation.sessionId(), e.getMessage());
             return null;
         }
     }

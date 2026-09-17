@@ -4,11 +4,13 @@ import com.summit.core.workspace.WorkspaceRecord;
 import com.summit.core.workspace.WorkspaceRef;
 import com.summit.core.workspace.WorkspaceStore;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-/** Process-local default store; applications can replace it with durable persistence. */
+/** Process-local store. Scheduling and resource destruction deliberately live outside the store. */
 public final class InMemoryWorkspaceStore implements WorkspaceStore {
     private final ConcurrentMap<WorkspaceRef, WorkspaceRecord> records = new ConcurrentHashMap<>();
 
@@ -25,5 +27,10 @@ public final class InMemoryWorkspaceStore implements WorkspaceStore {
     @Override
     public void delete(WorkspaceRef ref) {
         records.remove(ref);
+    }
+
+    @Override
+    public Collection<WorkspaceRecord> snapshot() {
+        return List.copyOf(records.values());
     }
 }

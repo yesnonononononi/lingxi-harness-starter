@@ -4,8 +4,9 @@ import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
 import com.summit.core.conversation.context.RuntimeContext;
 import com.summit.core.runtime.ExecutionRuntime;
-import com.summit.core.runtime.LifeStyleCommandRegistry;
-import com.summit.core.runtime.LifeStyleCommandStore;
+import com.summit.core.runtime.lifstyle.LifeStyleCommandRegistry;
+import com.summit.core.runtime.lifstyle.LifeStyleCommandStore;
+import com.summit.core.runtime.LoopExecutionOutcome;
 import com.summit.runtime.agent.AgentLoopRunner;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,7 +38,7 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
             if (execution.getExecutionState() == ExecutionState.CANCELLED) {
                 this.context.getRuntimeLifeStyleManager().onCancel(execution);
             } else {
-                finalizePlan(execution, sessionId,agentLoop);
+                notifyLoopHook(execution, sessionId, agentLoop);
                 this.context.getRuntimeLifeStyleManager().onComplete(execution);
             }
 
@@ -55,13 +56,15 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
      * Plan finalization: the plan hook closes the plan when the approved plan was really implemented.
      * Guarded so a hook failure can never turn a successful execution into a failed one.
      */
-    private void finalizePlan(Execution execution, Serializable sessionId,AgentLoopRunner agentLoop) {
-
+    private void notifyLoopHook(Execution execution, Serializable sessionId, AgentLoopRunner agentLoop) {
         try {
-            this.context.getPlanLoopHook().onExecutionFinished(execution, sessionId,
-                    agentLoop.isExecutedWriteSuccessfully(), agentLoop.isClosedByPlainText());
+            if (this.context.getAgentLoopHook() != null) {
+                this.context.getAgentLoopHook().onExecutionFinished(execution, sessionId,
+                        new LoopExecutionOutcome(agentLoop.isExecutedWriteSuccessfully(),
+                                agentLoop.isClosedByPlainText()));
+            }
         } catch (Exception e) {
-            log.warn("【agent-loop】plan finalisation failed: executionId={}, error={}", execution.getId(), e.getMessage());
+            log.warn("【agent-loop】application hook finalisation failed: executionId={}, error={}", execution.getId(), e.getMessage());
         }
     }
 

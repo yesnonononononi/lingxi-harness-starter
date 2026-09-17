@@ -3,14 +3,14 @@ package com.summit.tools.file.edit;
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
 import com.github.difflib.patch.Patch;
-import com.summit.core.tool.Differ;
+import com.summit.core.tool.diff.Differ;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import com.summit.core.tool.DiffResult;
+import com.summit.core.tool.diff.DiffResult;
 
 
 public class EditDiffer implements Differ {

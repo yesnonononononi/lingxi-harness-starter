@@ -8,7 +8,7 @@ package com.summit.harnessexample.dto;
  */
 public record ChatRequest(
         String input,
-        Boolean streaming,
+        String modelProvider,
         String sessionId,
         String sessionName,
         String systemPrompt,

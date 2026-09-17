@@ -4,9 +4,13 @@ package com.summit.tools.file.edit;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.conversation.event.FileEditEvent;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
-import com.summit.core.runtime.Workspace;
-import com.summit.core.runtime.WorkspaceBridge;
+import com.summit.core.runtime.workspace.Workspace;
+import com.summit.core.runtime.workspace.WorkspaceBridge;
 import com.summit.core.tool.*;
+import com.summit.core.tool.diff.DiffResult;
+import com.summit.core.tool.diff.Differ;
+import com.summit.core.tool.diff.FileRecord;
+import com.summit.core.tool.diff.FileRecordManager;
 import com.summit.tools.arguments.EditFileRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,16 +46,16 @@ public class EditFileToolExecutor implements ToolExecutor {
             EditOutcome outcome = applyEdit(request, workspace);
 
             if (!outcome.success()) {
-                return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition(), outcome.error());
+                return ToolExecuteResult.err(outcome.error());
             }
 
             Serializable recordId = recordEdit(toolExecution, outcome);
             publishEditEvent(toolExecution, outcome, recordId);
-            return ToolExecuteResult.success(toolExecution.getId(), toolExecution.getToolDefinition(),
+            return ToolExecuteResult.success(
                     objectMapper.writeValueAsString(outcome.diffResult()));
 
         } catch (IOException e) {
-            return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition(), e.getMessage());
+            return ToolExecuteResult.err(e.getMessage());
         }
     }
 

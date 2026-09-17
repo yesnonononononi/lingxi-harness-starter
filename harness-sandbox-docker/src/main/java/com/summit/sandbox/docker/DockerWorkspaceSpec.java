@@ -1,27 +1,34 @@
 package com.summit.sandbox.docker;
 
+import com.summit.core.workspace.WorkspaceRef;
 import com.summit.core.workspace.WorkspaceSpec;
+import com.summit.runtime.sandbox.DockerSandboxImage;
+import lombok.Builder;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /** Desired configuration for a framework-managed Docker workspace. */
-public record DockerWorkspaceSpec(String workDir, String containerName, String image,
+@Builder
+public record DockerWorkspaceSpec(WorkspaceRef workspaceRef,String workDir, String containerName, String image,
                                   String hostDir, String port,
                                   boolean reuseByHostDirectory) implements WorkspaceSpec {
     public static final String PROVIDER = "docker";
 
-    public DockerWorkspaceSpec {
-        workDir = blankDefault(workDir, "/workspace");
+    public  DockerWorkspaceSpec {
         if (!workDir.startsWith("/")) {
             throw new IllegalArgumentException("docker workDir must be an absolute container path");
         }
-        image = blankDefault(image, "alpine");
+        // A toolchain-less base image is never a useful sandbox: fall back to the
+        // framework image that already carries JDK, Maven, Git and Node.js.
+        image = DockerSandboxImage.resolve(image);
+        containerName = blankDefault(containerName,"lingXi-container"+ UUID.randomUUID());
     }
 
-    public DockerWorkspaceSpec(String workDir, String containerName, String image,
-                               String hostDir, String port) {
-        this(workDir, containerName, image, hostDir, port, true);
+    @Override
+    public WorkspaceRef workspaceRef() {
+        return this.workspaceRef;
     }
 
     @Override

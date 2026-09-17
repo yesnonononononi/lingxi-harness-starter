@@ -8,7 +8,7 @@ public interface RuntimeInterceptor<T> {
      * Returning a non-null value short-circuits the whole chain: the underlying target is
      * <b>not</b> invoked and the returned object becomes the invocation result as-is.
      * A typical use is returning a {@code ToolExecuteResult} carrying
-     * {@code ToolResultType.CONFIRM_REQUIRED} to suspend a tool call for human approval
+     * a result to short-circuit a tool call according to application policy
      * without touching the executor. Returning {@code null} means "allow", and the next
      * interceptor is consulted.</p>
      *

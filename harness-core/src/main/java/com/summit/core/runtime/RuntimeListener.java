@@ -61,14 +61,6 @@ public interface RuntimeListener {
 
     ;
 
-    /**
-     * A plan was created or mutated by the plan kernel tools (front-end card refresh).
-     */
-    default void onPlanUpdate(PlanUpdateEvent event) {
-    }
-
-    ;
-
     default void onContextUpdate(ContextUpdateEvent event) {
     }
 

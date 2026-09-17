@@ -2,11 +2,11 @@ package com.summit.harnessexample;
 
 import com.summit.core.conversation.event.ExplicitUserMeanEvent;
 import com.summit.core.conversation.event.ToolCallEndEvent;
+import com.summit.core.runtime.LoopSuspender;
 import com.summit.core.runtime.RuntimeListener;
-import com.summit.core.runtime.Workspace;
-import com.summit.core.tool.ChoiceDecideGate;
+import com.summit.core.runtime.SuspensionDecision;
+import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.CommandConfirmLevel;
-import com.summit.core.tool.DecideRegistry;
 import com.summit.core.tool.ToolRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -16,6 +16,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -69,8 +70,9 @@ class RequireChoiceEndToEndTest {
     @Autowired
     private ToolRegistry toolRegistry;
 
+    /** The framework's neutral suspension SPI is the only thing the test needs to answer questions. */
     @Autowired
-    private DecideRegistry<ChoiceDecideGate, String> choiceDecideRegistry;
+    private LoopSuspender suspender;
 
     @Test
     void theAgentAsksForAnExplicitChoiceAndResumesAfterTheUserDecides() throws Exception {
@@ -88,7 +90,7 @@ class RequireChoiceEndToEndTest {
                 """);
 
         Workspace workspace = new LocalWorkSpace();
-        Future<?> run = Executors.newSingleThreadExecutor().submit(() -> demo.chat(prompt, false,
+        Future<?> run = Executors.newSingleThreadExecutor().submit(() -> demo.chat(prompt, "default",
                 "e2e-require-choice-session", "e2e-require-choice", workspace,
                 CommandConfirmLevel.FULL_ACCESS, null, null));
 
@@ -98,7 +100,8 @@ class RequireChoiceEndToEndTest {
             while (!run.isDone()) {
                 for (ExplicitUserMeanEvent ask : USER_MEANS) {
                     if (answered.add(ask.getToolExecutionId()) && !ask.getChoices().isEmpty()) {
-                        boolean applied = choiceDecideRegistry.decide(ask.getToolExecutionId(), ask.getChoices().get(0));
+                        boolean applied = suspender.resolve(ask.getToolExecutionId(),
+                                SuspensionDecision.resume(Map.of("answer", ask.getChoices().get(0))));
                         System.out.println("[E2E] answered toolExecution=" + ask.getToolExecutionId()
                                 + " choice=" + ask.getChoices().get(0) + " applied=" + applied);
                     }

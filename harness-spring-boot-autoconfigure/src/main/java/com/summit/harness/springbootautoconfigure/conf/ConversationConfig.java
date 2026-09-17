@@ -2,11 +2,11 @@ package com.summit.harness.springbootautoconfigure.conf;
 
 import com.summit.core.adapter.TokenEstimator;
 import com.summit.core.compact.Tokenizer;
+import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.ConversationStore;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.model.ChatModel;
-import com.summit.core.plan.PlanStore;
 import com.summit.core.workspace.WorkspaceManager;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
 import com.summit.runtime.agent.AgentConfig;
@@ -26,9 +26,9 @@ import org.springframework.context.annotation.Bean;
 public class ConversationConfig {
     @Bean
     @ConditionalOnMissingBean
-    public ConversationManager conversationManager(ConversationStore conversationStore, RuntimeEventPublisher runtimeEventPublisher, AgentChatProperties agentChatProperties, PlanStore planStore, WorkspaceManager workspaceManager){
+    public ConversationManager conversationManager(ConversationStore conversationStore, RuntimeEventPublisher runtimeEventPublisher, AgentChatProperties agentChatProperties, ContextAttachmentProvider contextAttachmentProvider, WorkspaceManager workspaceManager){
         return new DefaultConversationManager(conversationStore,runtimeEventPublisher,
-                new SystemPromptAssembler(), agentChatProperties.getSystemPrompt(), planStore, workspaceManager);
+                new SystemPromptAssembler(), agentChatProperties.getSystemPrompt(), contextAttachmentProvider, workspaceManager);
     }
 
     @Bean
@@ -48,10 +48,10 @@ public class ConversationConfig {
      */
     @Bean
     @ConditionalOnMissingBean
-    public DefaultManualCompacter manualCompacter(ConversationStore conversationStore, PlanStore planStore,
+    public DefaultManualCompacter manualCompacter(ConversationStore conversationStore, ContextAttachmentProvider contextAttachmentProvider,
                                                   Tokenizer tokenizer, AgentConfig agentConfig,
                                                   RuntimeEventPublisher runtimeEventPublisher) {
-        return new DefaultManualCompacter(conversationStore, planStore, tokenizer, agentConfig, runtimeEventPublisher);
+        return new DefaultManualCompacter(conversationStore, contextAttachmentProvider, tokenizer, agentConfig, runtimeEventPublisher);
     }
 
     /**
@@ -61,9 +61,15 @@ public class ConversationConfig {
     @Bean
     @ConditionalOnMissingBean
     public DefaultModelCompacter modelCompacter(@Qualifier("defaultContextCompactModel") ChatModel compactModel,
-                                                ConversationManager conversationManager, PlanStore planStore,
+                                                ConversationManager conversationManager, ContextAttachmentProvider contextAttachmentProvider,
                                                 Tokenizer tokenizer, AgentConfig agentConfig,
                                                 RuntimeEventPublisher runtimeEventPublisher) {
-        return new DefaultModelCompacter(compactModel, conversationManager, planStore, tokenizer, agentConfig, runtimeEventPublisher);
+        return new DefaultModelCompacter(compactModel, conversationManager, contextAttachmentProvider, tokenizer, agentConfig, runtimeEventPublisher);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ContextAttachmentProvider contextAttachmentProvider() {
+        return ContextAttachmentProvider.NONE;
     }
 }

@@ -1,6 +1,5 @@
 package com.summit.harnessexample;
 
-import com.summit.core.tool.CommandDecision;
 import com.summit.harnessexample.common.Result;
 import com.summit.harnessexample.dto.ChatRequest;
 import com.summit.harnessexample.dto.ChoiceDecisionRequest;
@@ -80,18 +79,25 @@ public class AgentController {
         return Result.ok(agentChatService.control("stop", sessionId));
     }
 
+    /** Returns whether one session currently has an execution and whether it is paused. */
+    @GetMapping("/executions/status")
+    public Result<Map<String, Object>> executionStatus(
+            @RequestParam("sessionId") String sessionId) {
+        return Result.ok(agentChatService.status(sessionId));
+    }
+
     /** Approves a command waiting for human approval; the blocked agent loop is woken up. */
     @PostMapping("/commands/{toolExecutionId}/approve")
     public Result<Map<String, Object>> approveCommand(@PathVariable("toolExecutionId") String toolExecutionId) {
         return Result.ok("decision recorded: APPROVE, agent loop will be woken up",
-                commandApprovalService.decide(toolExecutionId, CommandDecision.APPROVE));
+                commandApprovalService.decide(toolExecutionId, true));
     }
 
     /** Rejects a command waiting for human approval; it never runs and the agent continues. */
     @PostMapping("/commands/{toolExecutionId}/reject")
     public Result<Map<String, Object>> rejectCommand(@PathVariable("toolExecutionId") String toolExecutionId) {
         return Result.ok("decision recorded: REJECT, agent loop will be woken up",
-                commandApprovalService.decide(toolExecutionId, CommandDecision.REJECT));
+                commandApprovalService.decide(toolExecutionId, false));
     }
 
     /** Records the user's choice for a {@code require_choice} tool call; the blocked agent loop is woken up. */

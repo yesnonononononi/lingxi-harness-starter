@@ -1,6 +1,6 @@
 package com.summit.harnessexample;
 
-import com.summit.core.runtime.Workspace;
+import com.summit.core.runtime.workspace.Workspace;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;

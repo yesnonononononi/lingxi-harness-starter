@@ -1,6 +1,6 @@
 package com.summit.runtime.lifeStyle;
 
-import com.summit.core.runtime.LifeStyleHandler;
+import com.summit.core.runtime.lifstyle.LifeStyleHandler;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j

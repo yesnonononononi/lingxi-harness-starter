@@ -1,10 +1,10 @@
 package com.summit.runtime.toolSupport;
 
 import com.summit.core.exception.FileModificationException;
-import com.summit.core.runtime.Workspace;
-import com.summit.core.runtime.WorkspaceBridge;
-import com.summit.core.tool.FileHasher;
-import com.summit.core.tool.FileRecord;
+import com.summit.core.runtime.workspace.Workspace;
+import com.summit.core.runtime.workspace.WorkspaceBridge;
+import com.summit.core.tool.diff.FileHasher;
+import com.summit.core.tool.diff.FileRecord;
 import lombok.RequiredArgsConstructor;
 
 import java.io.IOException;

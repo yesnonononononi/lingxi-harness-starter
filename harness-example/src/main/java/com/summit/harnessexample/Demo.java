@@ -2,12 +2,13 @@ package com.summit.harnessexample;
 
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.AgentRuntimeParameters;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
-import com.summit.core.runtime.Workspace;
+import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.CommandConfirmLevel;
 import com.summit.core.tool.LoopBoundary;
-import com.summit.runtime.agent.ChatAgent;
+import com.summit.runtime.agent.DefaultChatAgent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
@@ -21,13 +22,13 @@ import java.io.Serializable;
 public class Demo {
 
 
-    private final ChatAgent defaultChatAgent;
+    private final DefaultChatAgent defaultChatAgent;
 
     /**
      * The workspace is caller-supplied (local or a per-project sandbox) and
      * passed straight into the AgentRequest — there is no default fallback.
      */
-    public void chat(String input, boolean streaming, Serializable sessionId, String sessionName, Workspace workspace,
+    public void chat(String input, String modelProvider, Serializable sessionId, String sessionName, Workspace workspace,
                      CommandConfirmLevel commandConfirmLevel,
                      @Nullable String systemPrompt, @Nullable LoopBoundary loopBoundary) {
 
@@ -40,19 +41,21 @@ public class Demo {
             log.warn("chat workspace is null");
             throw new IllegalArgumentException("workspace must not be null: provide the workspace the agent should work in");
         }
-        log.info("chat input: {}, streaming: {}, sessionId: {}, workspace: {}", input, streaming, sessionId, workspace.id());
+        log.info("chat input: {}, modelProvider: {}, sessionId: {}, workspace: {}", input, modelProvider, sessionId, workspace.id());
         Execution execution;
 
         execution = defaultChatAgent.execute(AgentRequest
                 .builder()
                 .input(input)
                 .workspace(workspace)
-                .streaming(streaming)
+                .modelProvider(modelProvider)
                 .sessionId(sessionId)
                 .sessionName(sessionName)
-                .commandConfirmLevel(commandConfirmLevel)
                 .systemPrompt(systemPrompt)
-                .loopBoundary(loopBoundary)
+                .runtimeParameters(AgentRuntimeParameters.builder()
+                        .confirmLevel(commandConfirmLevel)
+                        .loopBoundary(loopBoundary)
+                        .build())
                 .build()
         );
 

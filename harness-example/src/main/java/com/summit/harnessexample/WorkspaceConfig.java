@@ -1,9 +1,10 @@
 package com.summit.harnessexample;
 
-import com.summit.core.runtime.Workspace;
+import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.workspace.WorkspaceManager;
 import com.summit.core.workspace.WorkspaceRecord;
 import com.summit.core.workspace.WorkspaceRef;
+import com.summit.runtime.sandbox.DockerSandboxImage;
 import com.summit.sandbox.docker.DockerWorkspaceSpec;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -24,7 +25,7 @@ public class WorkspaceConfig {
     public Workspace dockerWorkspace(
             WorkspaceManager workspaceManager,
             @Value("${lingxi.agent.container-name:agent-sandbox}") String containerName,
-            @Value("${lingxi.agent.container-image:alpine}") String image,
+            @Value("${lingxi.agent.container-image:" + DockerSandboxImage.DEFAULT + "}") String image,
             @Value("${lingxi.agent.container-port:}") String port,
             @Value("${lingxi.agent.container-workdir:/workspace}") String workdir,
             @Value("${lingxi.agent.workspace-dir:}") String workspaceDir) {
@@ -32,9 +33,14 @@ public class WorkspaceConfig {
         // application's launch directory.
         String hostDir = workspaceDir.isBlank() ? System.getProperty("user.dir") : workspaceDir;
         WorkspaceRecord record = workspaceManager.create(
-                new WorkspaceRef("default-docker-workspace"),
-                new DockerWorkspaceSpec(workdir, containerName, image, hostDir,
-                        port.isBlank() ? null : port));
+                DockerWorkspaceSpec.builder()
+                        .workDir(workdir)
+                        .containerName(containerName)
+                        .image(image)
+                        .hostDir(hostDir)
+                        .workspaceRef(new WorkspaceRef("default-docker-workspace"))
+                        .port(port)
+                        .build());
         return workspaceManager.acquire(record.ref());
     }
 }

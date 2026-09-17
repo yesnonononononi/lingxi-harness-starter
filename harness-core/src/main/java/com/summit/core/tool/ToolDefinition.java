@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.NonNull;
 
 import java.io.Serializable;
+import java.util.List;
 
 
 /**
@@ -37,5 +38,11 @@ public record ToolDefinition<T extends ToolExecutor>(
         boolean readOnly,
         boolean planningOnly
 ) {
+
+    /** Whether this tool is admitted by a request-level application tool whitelist. */
+    public boolean allowedFor(List<String> whitelist) {
+        return whitelist == null
+                || whitelist.stream().anyMatch(candidate -> candidate != null && name.equals(candidate.trim()));
+    }
 
 }

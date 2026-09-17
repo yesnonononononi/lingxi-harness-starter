@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.summit.core.conversation.ConversationEntity;
 import com.summit.core.runtime.*;
+import com.summit.core.runtime.workspace.Workspace;
+import com.summit.core.runtime.workspace.WorkspaceBridge;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
@@ -86,7 +88,8 @@ public class DockerWorkspace implements Workspace {
      * @param name        container name; an existing container with this name is reused as-is
      * @param port        optional port to publish (e.g. "8080"); {@code null} or blank to skip
      * @param hostDir     optional host directory bind-mounted into the container to share project files; {@code null} or blank to skip
-     * @param image       container image; defaults to "alpine" when {@code null} or blank
+     * @param image       container image; defaults to {@link DockerSandboxImage#DEFAULT}
+     *                    (JDK, Maven, Git, Node.js) when {@code null} or blank
      */
     public  static  DockerWorkspace newInstance(String id, String workDir, String name, String port, String hostDir, String image) {
         String containerId = DockerWorkspaceBridge.initContainer(name, port, hostDir, workDir, image);
@@ -153,6 +156,7 @@ public class DockerWorkspace implements Workspace {
                 .osType(OsType.LINUX)
                 .shellType(ShellType.SH)
                 .charset(StandardCharsets.UTF_8)
+                .isolated(true)
                 .build();
     }
 

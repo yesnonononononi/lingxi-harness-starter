@@ -1,17 +1,118 @@
-* { box-sizing: border-box; }
+:root {
+  /* 现代科技温润极简色系 (Modern Minimalist with Elegant Accents) */
+  --mono-black: #0f172a;       /* Slate 900: 深邃曜石蓝黑，避免死板钝黑 */
+  --mono-black-hover: #1e293b; /* 悬停深黑 */
+  --mono-surface: #ffffff;     /* 卡片纯白底色 */
+  --mono-bg: #f6f8fb;          /* 页面底色：温润柔和浅灰蓝白，彻底消除惨白感 */
+  --mono-bg-subtle: #f0f3f8;   /* 极浅微灰过渡底色 */
+  
+  /* 品牌与交互强调色 (Subtle & Premium Accents) */
+  --accent-primary: #4f46e5;    /* 典雅科技靛蓝 (Indigo) */
+  --accent-hover: #4338ca;
+  --accent-subtle: #eef2ff;    /* 浅靛蓝底色 */
+  --accent-text: #4338ca;
+  --accent-glow: rgba(79, 70, 229, 0.12);
+
+  /* 文本灰阶 (舒适对比度) */
+  --text-primary: #0f172a;     /* 主标题与正文 */
+  --text-secondary: #475569;   /* 次级说明 */
+  --text-muted: #64748b;       /* 辅助提示 */
+  --text-faint: #94a3b8;       /* 占位与弱化 */
+  
+  /* 边框与线条 (柔和微描边) */
+  --border-subtle: #edf2f7;
+  --border-default: #e2e8f0;
+  --border-active: #cbd5e1;
+  --border-dark: #334155;
+  
+  /* 语义指示色 */
+  --status-online: #10b981;
+  --status-busy: #4f46e5;
+  --status-error: #ef4444;
+  --status-warn: #f59e0b;
+  --status-accent: #6366f1;
+
+  /* 字体系统 */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Menlo", "Monaco", "Consolas", "Liberation Mono", monospace;
+  
+  /* 圆角规范 */
+  --radius-xs: 5px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  /* 柔和弥散阴影 */
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 14px rgba(15, 23, 42, 0.05);
+  --shadow-pop: 0 16px 36px -4px rgba(15, 23, 42, 0.10), 0 4px 12px -2px rgba(15, 23, 42, 0.03);
+  --shadow-island: 0 10px 30px rgba(15, 23, 42, 0.06), 0 2px 6px rgba(15, 23, 42, 0.02);
+}
+
+* {
+  box-sizing: border-box;
+}
 
 html, body, #app {
   margin: 0;
   padding: 0;
   height: 100%;
+  width: 100%;
 }
 
 body {
-  font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family: var(--font-sans);
   font-size: 14px;
-  color: #262832;
-  background: #ffffff;
+  line-height: 1.6;
+  color: var(--text-primary);
+  background: var(--mono-bg);
   color-scheme: light;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* 现代平滑极简滚动条 */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+  transition: background 0.2s ease;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* 选择文本的高质感品牌色高亮 */
+::selection {
+  background: #4f46e5;
+  color: #ffffff;
+}
+
+/* 按钮通用重置与丝滑交互反馈 */
+button {
+  font-family: inherit;
+  outline: none;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* 输入框通用重置 */
+input, textarea {
+  font-family: inherit;
+  outline: none;
 }

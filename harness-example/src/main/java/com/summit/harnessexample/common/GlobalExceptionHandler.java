@@ -1,6 +1,5 @@
 package com.summit.harnessexample.common;
 
-import com.summit.core.internalUtils.plan.PlanArgumentException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.ErrorResponse;
@@ -30,16 +29,6 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Result<Object>> handleIllegalArgument(IllegalArgumentException e) {
         return ResponseEntity.badRequest().body(Result.fail(ResultCode.BAD_REQUEST, e.getMessage()));
-    }
-
-    /**
-     * Safety net for a plan-argument violation that escaped a service (normally converted
-     * to a 409 with the latest plan). Kept here so no caller can leak a 500 for it.
-     */
-    @ExceptionHandler(PlanArgumentException.class)
-    public ResponseEntity<Result<Object>> handlePlanArgument(PlanArgumentException e) {
-        return ResponseEntity.status(ResultCode.CONFLICT.code())
-                .body(Result.fail(ResultCode.CONFLICT, e.getMessage()));
     }
 
     /**

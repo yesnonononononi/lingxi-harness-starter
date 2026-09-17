@@ -1,8 +1,7 @@
 package com.summit.harnessexample.service;
 
-import com.summit.core.tool.CommandConfirmGate;
-import com.summit.core.tool.CommandDecision;
-import com.summit.core.tool.DecideRegistry;
+import com.summit.core.runtime.LoopSuspender;
+import com.summit.core.runtime.SuspensionDecision;
 import com.summit.harnessexample.common.ApiException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,30 +13,40 @@ import java.util.Map;
 /**
  * Records the human decision on a command that is waiting for approval.
  *
- * <p>Writing the decision into the registry wakes the agent-loop thread blocked at its
- * gate; an already-decided or unknown command is reported as a conflict / not-found so
- * the front-end can drop its stale approval card.</p>
+ * <p>This is the <b>business</b> half of command approval: the framework only provides the generic
+ * suspension SPI ({@link LoopSuspender}) plus the admission point
+ * ({@code com.summit.core.tool.ToolExecutionPolicy}); deciding <em>which</em> commands need
+ * approval, what the card shows and how the decision is keyed is owned here.</p>
+ *
+ * <p>Resuming the suspension wakes the agent-loop thread that is blocked before the command's own
+ * execution timeout has even started. An unknown or already-decided command is reported as a
+ * not-found / conflict so the front-end can drop its stale approval card.</p>
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class CommandApprovalService {
 
-    private final DecideRegistry<CommandConfirmGate,CommandDecision> commandConfirmRegistry;
+    private final LoopSuspender suspender;
 
-    public Map<String, Object> decide(String toolExecutionId, CommandDecision decision) {
-        CommandConfirmGate gate = commandConfirmRegistry.get(toolExecutionId);
-        if (gate == null) {
-            throw ApiException.notFound("no pending command found for toolExecutionId: " + toolExecutionId,
-                    Map.of("toolExecutionId", toolExecutionId, "pendingCommands", commandConfirmRegistry.size()));
+    /**
+     * Resumes the suspension of one command approval.
+     *
+     * @param toolExecutionId id of the suspended tool call, which is also the suspension id
+     * @param approved        whether the user lets the command run
+     */
+    public Map<String, Object> decide(String toolExecutionId, boolean approved) {
+        if (toolExecutionId == null || toolExecutionId.isBlank()) {
+            throw ApiException.badRequest("toolExecutionId must not be blank");
         }
-        if (!gate.isPending()) {
-            throw ApiException.conflict("command already decided: " + gate.getDecision(),
-                    Map.of("toolExecutionId", toolExecutionId,
-                            "command", gate.getCommand(),
-                            "decision", String.valueOf(gate.getDecision())));
-        }
-        boolean applied = commandConfirmRegistry.decide(toolExecutionId, decision);
+        LoopSuspender.Suspension pending = suspender.find(toolExecutionId)
+                .orElseThrow(() -> ApiException.notFound(
+                        "no pending command found for toolExecutionId: " + toolExecutionId,
+                        Map.of("toolExecutionId", toolExecutionId)));
+        String command = String.valueOf(pending.request().payload().getOrDefault("command", ""));
+
+        boolean applied = suspender.resolve(toolExecutionId,
+                SuspensionDecision.resume(Map.of("approved", approved)));
         if (!applied) {
             throw ApiException.conflict("command decision failed, it may have already been decided",
                     Map.of("toolExecutionId", toolExecutionId));
@@ -45,11 +54,10 @@ public class CommandApprovalService {
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("toolExecutionId", toolExecutionId);
-        data.put("command", gate.getCommand());
-        data.put("decision", decision.name());
-        data.put("pendingCommands", commandConfirmRegistry.size());
-        log.info("【command-decision】{} command: toolExecutionId={}, command={}",
-                decision, toolExecutionId, gate.getCommand());
+        data.put("command", command);
+        data.put("approved", approved);
+        log.info("【command-decision】approved={} command: toolExecutionId={}, command={}",
+                approved, toolExecutionId, command);
         return data;
     }
 }

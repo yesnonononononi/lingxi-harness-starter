@@ -28,7 +28,7 @@ import java.util.List;
  * <p>This class only <em>drives</em> the loop; every surrounding concern has its own home:</p>
  * <ul>
  *   <li>{@link ModelRequestFactory} — what the request of a round contains (messages, tools, streaming);</li>
- *   <li>{@link PlanTurnCoordinator} — the plan lifecycle, and whether the loop may keep running;</li>
+ *   <li>{@link LoopTurnCoordinator} — optional application loop policy;</li>
  *   <li>{@link LoopBoundaryResolver} — which boundary a round runs under;</li>
  *   <li>{@link ContextCompactReconciler} — a model-initiated {@code compact_context} call;</li>
  *   <li>{@link ContextUsageReporter} — the live context usage pushed to the front-end gauge.</li>
@@ -40,9 +40,17 @@ import java.util.List;
 @Slf4j
 public class AgentLoopRunner {
 
+    /**
+     * Upper bound of consecutive compaction rounds. A compaction that does not shrink the context
+     * (e.g. the compact model keeps returning an unusable summary) leaves the main model with the
+     * same overloaded history, which makes it call {@code compact_context} again — without this cap
+     * the loop pays for a compaction round forever.
+     */
+    private static final int MAX_CONSECUTIVE_COMPACTIONS = 3;
+
     private final RuntimeContext context;
     private final ModelRequestFactory requests;
-    private final PlanTurnCoordinator planTurns;
+    private final LoopTurnCoordinator loopTurns;
     private final ContextCompactReconciler compaction;
     private final ContextUsageReporter usage;
 
@@ -54,12 +62,13 @@ public class AgentLoopRunner {
     public AgentLoopRunner(RuntimeContext context) {
         this.context = context;
         this.requests = new ModelRequestFactory(context);
-        this.planTurns = new PlanTurnCoordinator(context);
+        this.loopTurns = new LoopTurnCoordinator(context);
         this.compaction = new ContextCompactReconciler(context.getConversationManager());
         this.usage = new ContextUsageReporter(context);
     }
 
     public void run(Execution execution, Serializable sessionId) {
+        int consecutiveCompactions = 0;
         while (true) {
             if (!context.getCheckPointer().beforeCheckpoint(execution)) {
                 log.warn("【agent-loop】process is stopped due to notConforming condition: {}", execution.getId());
@@ -71,19 +80,26 @@ public class AgentLoopRunner {
                     chatResponse.getAiMessageEntity().text(), chatResponse.getAiMessageEntity().getThinking(), execution.getId()));
 
             if (hasNoToolCall(chatResponse)) {
-                PlanTurnCoordinator.Decision decision = handlePlainTextTurn(execution, sessionId, chatResponse);
-                if (decision == PlanTurnCoordinator.Decision.CONTINUE) {
+                LoopTurnCoordinator.Decision decision = handlePlainTextTurn(execution, sessionId, chatResponse);
+                if (decision == LoopTurnCoordinator.Decision.CONTINUE) {
                     continue;   // approved plan under implementation: keep looping
                 }
-                closedByPlainText = decision == PlanTurnCoordinator.Decision.CLOSE_NATURALLY;
+                closedByPlainText = decision == LoopTurnCoordinator.Decision.CLOSE_NATURALLY;
                 break;
             }
 
             if (handleToolCallTurn(execution, sessionId, chatResponse)) {
-                continue;       // model called compact_context: this round is not stored, go to next round
+                // model called compact_context: this round is not stored, go to next round
+                if (++consecutiveCompactions >= MAX_CONSECUTIVE_COMPACTIONS) {
+                    log.warn("【agent-loop】context compaction did not shrink the conversation after {} consecutive "
+                            + "attempts, stopping the loop: {}", consecutiveCompactions, execution.getId());
+                    break;
+                }
+                continue;
             }
-            if (planTurns.isStopped()) {
-                log.info("【agent-loop】execution stopped by the plan lifecycle: {}", execution.getId());
+            consecutiveCompactions = 0;
+            if (loopTurns.isStopped()) {
+                log.info("【agent-loop】execution stopped by an application loop hook: {}", execution.getId());
                 break;
             }
             if (!context.getCheckPointer().afterCheckpoint(execution)) {
@@ -102,9 +118,9 @@ public class AgentLoopRunner {
      * close. A plan is never created here — plans come from the {@code create_plan} kernel tool — the
      * only plan concern left is "an approved plan still has open tasks, do not close yet".
      */
-    private PlanTurnCoordinator.Decision handlePlainTextTurn(Execution execution, Serializable sessionId, ChatResponseEntity chatResponse) {
+    private LoopTurnCoordinator.Decision handlePlainTextTurn(Execution execution, Serializable sessionId, ChatResponseEntity chatResponse) {
         context.getConversationManager().addMessage(sessionId, chatResponse, null);
-        return planTurns.onPlainTextTurn(execution, sessionId);
+        return loopTurns.onPlainTextTurn(execution, sessionId);
     }
 
     /**
@@ -123,8 +139,9 @@ public class AgentLoopRunner {
                         execution.getId(),
                         sessionId,
                         context.getWorkspace(),
-                        agentRequest == null ? null : agentRequest.getCommandConfirmLevel(),
-                        LoopBoundaryResolver.resolve(execution, planTurns.isPlanApproved())));
+                        agentRequest == null ? null : agentRequest.runtimeParametersOrDefault().getConfirmLevel(),
+                        LoopBoundaryResolver.resolve(execution, loopTurns.isExecuteBoundarySelected()),
+                        agentRequest == null ? null : agentRequest.getToolList()));
         if (hasExecutedWriteTool(chatResponse, toolResults)) {
             executedWriteSuccessfully = true;
         }
@@ -135,7 +152,7 @@ public class AgentLoopRunner {
         context.getConversationManager().addMessage(sessionId, chatResponse, toolResults);
 
         // plan side effects come after the round is persisted, so an injected directive lands after the tool results
-        planTurns.afterToolTurn(execution, sessionId, toolResults);
+        loopTurns.afterToolTurn(execution, sessionId, toolResults);
         return false;
     }
 
@@ -143,7 +160,7 @@ public class AgentLoopRunner {
      * The request of one round: conversation, allowed tools and streaming, under the effective boundary.
      */
     private ModelChatCommand requestOf(Execution execution, Serializable sessionId) {
-        return requests.build(execution, sessionId, LoopBoundaryResolver.resolve(execution, planTurns.isPlanApproved()));
+        return requests.build(execution, sessionId, LoopBoundaryResolver.resolve(execution, loopTurns.isExecuteBoundarySelected()));
     }
 
     /**

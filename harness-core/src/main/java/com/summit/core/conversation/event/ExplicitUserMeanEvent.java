@@ -12,10 +12,10 @@ import java.util.List;
  * <p>Mirrors {@link WaitCommandCheckEvent}: it carries everything the front-end needs
  * to render an interactive choice card (the tool execution id used to address the
  * decision endpoint, the question, the selectable options), while the agent-loop
- * thread is suspended on the {@code ChoiceDecideGate}.</p>
+ * thread is suspended through the application's {@code LoopSuspender}.</p>
  *
  * <p>The options are a <em>recommendation</em>, not a whitelist: the user may always answer
- * with their own free-form text instead of picking one ({@link #isAllowCustomInput()} tells the
+ * with their own free-form text instead of picking one ({@link #allowCustomInput} tells the
  * front-end to offer that extra input). Both answers are fed back to the model the same way.</p>
  */
 @Data

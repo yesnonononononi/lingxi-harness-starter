@@ -3,7 +3,7 @@ package com.summit.harnessexample;
 import com.summit.core.runtime.OsType;
 import com.summit.core.runtime.RuntimeEnvironment;
 import com.summit.core.runtime.ShellType;
-import com.summit.core.runtime.Workspace;
+import com.summit.core.runtime.workspace.Workspace;
 import org.jspecify.annotations.NonNull;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;

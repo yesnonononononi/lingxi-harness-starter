@@ -1,6 +1,6 @@
 package com.summit.core.tool;
 
-import com.summit.core.runtime.Workspace;
+import com.summit.core.runtime.workspace.Workspace;
 
 import lombok.Builder;
 import lombok.Data;

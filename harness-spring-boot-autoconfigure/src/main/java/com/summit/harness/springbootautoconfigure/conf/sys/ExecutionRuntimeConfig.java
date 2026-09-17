@@ -5,7 +5,9 @@ import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.runtime.*;
-import com.summit.core.internalUtils.plan.PlanLoopHook;
+import com.summit.core.runtime.lifstyle.LifeStyleCommandRegistry;
+import com.summit.core.runtime.lifstyle.LifeStyleHandler;
+import com.summit.core.runtime.lifstyle.RuntimeLifeStyleManager;
 import com.summit.core.tool.ToolExecutionManager;
 import com.summit.runtime.lifeStyle.DefaultLifeStyleCommandRegistry;
 import com.summit.runtime.lifeStyle.DefaultLifeStyleHandler;
@@ -14,6 +16,8 @@ import com.summit.runtime.conversation.DefaultRuntimeFactory;
 import com.summit.runtime.compact.DefaultManualCompacter;
 import com.summit.runtime.compact.DefaultModelCompacter;
 import com.summit.runtime.lifeStyle.DefaultRuntimeLifeStyleManager;
+import com.summit.runtime.suspension.InMemoryLoopSuspender;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
@@ -31,7 +35,8 @@ public class ExecutionRuntimeConfig {
                                                 LifeStyleHandler lifeStyleHandler,
                                                 Tokenizer tokenizer,
                                                 LifeStyleCommandRegistry lifeStyleCommandRegistry,
-                                                PlanLoopHook planLoopHook,
+                                                ObjectProvider<AgentLoopHook> agentLoopHook,
+                                                LoopSuspender loopSuspender,
                                                 DefaultManualCompacter manualCompacter,
                                                 DefaultModelCompacter modelCompacter, RuntimeLifeStyleManager runtimeLifeStyleManager){
         return DefaultRuntimeFactory.builder()
@@ -42,7 +47,8 @@ public class ExecutionRuntimeConfig {
                 .lifeStyleHandler(lifeStyleHandler)
                 .tokenizer(tokenizer)
                 .lifeStyleCommandRegistry(lifeStyleCommandRegistry)
-                .planLoopHook(planLoopHook)
+                .agentLoopHook(agentLoopHook.getIfAvailable(() -> AgentLoopHook.NOOP))
+                .loopSuspender(loopSuspender)
                 .agentConfig(agentConfig)
                 .manualCompacter(manualCompacter)
                 .runtimeLifeStyleManager(runtimeLifeStyleManager)
@@ -67,6 +73,12 @@ public class ExecutionRuntimeConfig {
     @ConditionalOnMissingBean
     public LifeStyleCommandRegistry lifeStyleCommandRegistry(){
         return new DefaultLifeStyleCommandRegistry();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public LoopSuspender loopSuspender() {
+        return new InMemoryLoopSuspender();
     }
 
     @Bean

@@ -28,6 +28,6 @@ public final class LoopBoundaryResolver {
             return LoopBoundary.EXECUTE;
         }
         AgentRequest request = execution.getAgentRequest();
-        return request == null ? null : request.getLoopBoundary();
+        return request == null ? null : request.runtimeParametersOrDefault().getLoopBoundary();
     }
 }

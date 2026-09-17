@@ -4,11 +4,11 @@ import com.summit.core.compact.ContextUsageMetric;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationEntity;
 import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.harnessexample.common.ApiException;
 import com.summit.harnessexample.session_policy.RedisConversationStore;
 import com.summit.harnessexample.session_policy.SessionSummary;
 import com.summit.runtime.agent.AgentConfig;
-import com.summit.runtime.coreTools.plan.PlanKernel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -30,7 +30,6 @@ import java.util.Optional;
 public class SessionService {
 
     private final RedisConversationStore conversationStore;
-    private final PlanKernel planKernel;
     private final Tokenizer tokenizer;
     private final AgentConfig agentConfig;
 
@@ -60,8 +59,18 @@ public class SessionService {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("sessionId", sessionId);
         data.put("sessionName", entity.sessionName());
-        data.put("messages", entity.messages());
+        data.put("messages", entity.messages().stream()
+                .filter(this::isDisplayMessage)
+                .toList());
         return data;
+    }
+
+    /**
+     * Keeps framework control prompts out of user-visible history: such messages are flagged
+     * {@code internal} by whoever injects them, so the history shows only what the user typed.
+     */
+    private boolean isDisplayMessage(Message message) {
+        return !(message instanceof UserMessageEntity userMessage) || !userMessage.isInternal();
     }
 
     /**
@@ -102,18 +111,16 @@ public class SessionService {
         return data;
     }
 
-    /** Deletes a conversation and its plan; idempotent, reports whether something was removed. */
+    /** Deletes a conversation; idempotent, reports whether something was removed. */
     public Map<String, Object> delete(String sessionId) {
         if (isBlank(sessionId)) {
             throw ApiException.badRequest("sessionId must not be blank");
         }
         Optional<ConversationEntity> removed = conversationStore.removeAndReturn(sessionId);
-        Optional<?> plan = planKernel.delete(sessionId);
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("sessionId", sessionId);
         data.put("deleted", removed.isPresent());
-        data.put("planDeleted", plan.isPresent());
         return data;
     }
 

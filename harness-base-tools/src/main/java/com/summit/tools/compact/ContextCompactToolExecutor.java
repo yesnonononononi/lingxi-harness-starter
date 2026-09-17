@@ -4,15 +4,13 @@ package com.summit.tools.compact;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.compact.ContextCompactionPrompt;
+import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.conversation.api.ChatRequestEntity;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.model.ChatModel;
-import com.summit.core.plan.Plan;
-import com.summit.core.plan.PlanOutline;
-import com.summit.core.plan.PlanStore;
 import com.summit.core.tool.ToolResultType;
 import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolExecution;
@@ -33,23 +31,21 @@ import java.util.Optional;
 @AllArgsConstructor
 public class ContextCompactToolExecutor implements ToolExecutor {
     private final ChatModel chatModel;
-    private final PlanStore planStore;
+    private final ContextAttachmentProvider contextAttachmentProvider;
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     @Override
     public @NonNull ToolExecuteResult execute(ToolExecution toolExecution) {
         String context = extractContext(toolExecution.getArgs());
-        Optional<Plan> sessionPlan = planOf(toolExecution.getSessionId());
+        Optional<String> protectedContext = contextAttachmentProvider.attachment(toolExecution.getSessionId());
 
         StringBuilder systemPrompt = new StringBuilder(ContextCompactionPrompt.BASE_COMPACTION_PROMPT);
-        sessionPlan.ifPresent(plan -> systemPrompt.append("\n").append(ContextCompactionPrompt.PLAN_PROTECTION_PROMPT));
+        protectedContext.ifPresent(value -> systemPrompt.append("\nPreserve the attached application state verbatim."));
 
         List<Message> messages = new LinkedList<>();
         messages.add(SystemMessageEntity.builder().text(systemPrompt.toString()).build());
-        // The rendered plan is attached to the compression input so it never gets lost,
-        // even when the main model truncated the tool args.
-        String payload = sessionPlan
-                .map(plan -> context + ContextCompactionPrompt.PROTECTED_PLAN_MARKER + PlanOutline.render(plan))
+        String payload = protectedContext
+                .map(value -> context + "\n\n[PROTECTED APPLICATION STATE]\n" + value)
                 .orElse(context);
         messages.add(UserMessageEntity.from(payload));
         ChatRequestEntity request = ChatRequestEntity.builder()
@@ -60,18 +56,10 @@ public class ContextCompactToolExecutor implements ToolExecutor {
         );
         log.info("【compact-model】 model has responded:{} thinking:{}", response.getAiMessageEntity().text(), response.getAiMessageEntity().getThinking());
 
-        return ToolExecuteResult.success(toolExecution.getId(),
-                toolExecution.getToolDefinition(),
+        return ToolExecuteResult.success(
                 response.getAiMessageEntity().text(),
                 ToolResultType.CONTEXT_COMPACT
         );
-    }
-
-    private Optional<Plan> planOf(Serializable sessionId) {
-        if (sessionId == null) {
-            return Optional.empty();
-        }
-        return this.planStore.findBySession(sessionId);
     }
 
     private String extractContext(String args) {

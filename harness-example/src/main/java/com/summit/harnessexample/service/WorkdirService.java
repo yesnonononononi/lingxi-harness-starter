@@ -2,7 +2,7 @@ package com.summit.harnessexample.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.core.runtime.Workspace;
+import com.summit.core.runtime.workspace.Workspace;
 import com.summit.harnessexample.ActiveWorkspace;
 import com.summit.harnessexample.LocalWorkSpace;
 import com.summit.harnessexample.SseEventPublisher;

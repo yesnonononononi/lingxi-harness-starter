@@ -1,6 +1,6 @@
 package com.summit.runtime.workspace;
 
-import com.summit.core.runtime.Workspace;
+import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.workspace.ResourceOwnership;
 import com.summit.core.workspace.WorkspaceProvider;
 import com.summit.core.workspace.WorkspaceRecord;

@@ -1,6 +1,6 @@
 package com.summit.harnessexample.service;
 
-import com.summit.core.runtime.LifeStyleCommandRegistry;
+import com.summit.core.runtime.lifstyle.LifeStyleCommandRegistry;
 import com.summit.core.tool.CommandConfirmLevel;
 import com.summit.core.tool.LoopBoundary;
 import com.summit.harnessexample.ActiveWorkspace;
@@ -45,6 +45,8 @@ public class AgentChatService {
      * older run stays tracked and therefore remains stoppable and visible in the counters.</p>
      */
     private final Map<String, Set<CompletableFuture<Void>>> runningTasks = new ConcurrentHashMap<>();
+    /** Sessions for which a pause command has been issued and not yet resumed/stopped. */
+    private final Set<String> pausedSessions = ConcurrentHashMap.newKeySet();
 
     /**
      * Submits one user instruction to the agent on a background thread and returns
@@ -55,7 +57,7 @@ public class AgentChatService {
         if (input == null || input.isBlank()) {
             throw ApiException.badRequest("input must not be blank");
         }
-        boolean streaming = request.streaming() != null && request.streaming();
+        String modelProvider = request.modelProvider();
         CommandConfirmLevel commandConfirmLevel = parseCommandConfirmLevel(request.commandConfirmLevel());
         LoopBoundary loopBoundary = parseLoopBoundary(request.loopBoundary());
         String systemPrompt = request.systemPrompt();
@@ -74,7 +76,7 @@ public class AgentChatService {
         // Run the coding agent asynchronously; events are pushed via SSE.
         String finalSessionId = sessionId;
         String finalSessionName = sessionName;
-        CompletableFuture<Void> task = CompletableFuture.runAsync(() -> demo.chat(input, streaming,
+        CompletableFuture<Void> task = CompletableFuture.runAsync(() -> demo.chat(input, modelProvider,
                 finalSessionId, finalSessionName, activeWorkspace.get(), commandConfirmLevel, systemPrompt, loopBoundary));
         runningTasks.compute(finalSessionId, (key, tasks) -> {
             Set<CompletableFuture<Void>> registry = tasks == null ? ConcurrentHashMap.newKeySet() : tasks;
@@ -83,12 +85,15 @@ public class AgentChatService {
         });
         task.whenComplete((result, error) -> runningTasks.computeIfPresent(finalSessionId, (key, tasks) -> {
             tasks.remove(task);
+            if (tasks.size() <= 1) {
+                pausedSessions.remove(finalSessionId);
+            }
             return tasks.isEmpty() ? null : tasks;
         }));
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("input", input);
-        data.put("streaming", streaming);
+        data.put("modelProvider", modelProvider);
         data.put("commandConfirmLevel", commandConfirmLevel == null ? null : commandConfirmLevel.name());
         data.put("systemPrompt", systemPrompt);
         data.put("loopBoundary", loopBoundary == null ? null : loopBoundary.name());
@@ -133,6 +138,7 @@ public class AgentChatService {
         }
 
         applyToRegistry(action, sessionId);
+        updatePausedState(action, sessionId);
         data.put("runningSessions", runningTasks.size());
         data.put("applied", true);
         return data;
@@ -141,6 +147,16 @@ public class AgentChatService {
     /** Number of sessions with at least one in-flight agent run. */
     public int runningCount() {
         return runningTasks.size();
+    }
+
+    /** Live execution state used when the UI returns to an already-running session. */
+    public Map<String, Object> status(String sessionId) {
+        boolean running = sessionId != null && runningTasks.containsKey(sessionId);
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("sessionId", sessionId);
+        data.put("running", running);
+        data.put("paused", running && pausedSessions.contains(sessionId));
+        return data;
     }
 
     // ------------------------------------------------------------------ private
@@ -154,6 +170,16 @@ public class AgentChatService {
             return;
         }
         runningTasks.values().forEach(tasks -> tasks.forEach(task -> task.cancel(true)));
+    }
+
+    private void updatePausedState(String action, String sessionId) {
+        if (sessionId == null) {
+            if ("pause".equals(action)) pausedSessions.addAll(runningTasks.keySet());
+            else pausedSessions.clear();
+            return;
+        }
+        if ("pause".equals(action)) pausedSessions.add(sessionId);
+        else pausedSessions.remove(sessionId);
     }
 
     /** Fails fast on an unknown lifecycle command so it is never silently ignored. */

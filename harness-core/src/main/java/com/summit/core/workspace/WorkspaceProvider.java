@@ -1,6 +1,6 @@
 package com.summit.core.workspace;
 
-import com.summit.core.runtime.Workspace;
+import com.summit.core.runtime.workspace.Workspace;
 
 /** Runtime backend SPI for local, Docker, Kubernetes, SSH, or other workspace kinds. */
 public interface WorkspaceProvider {

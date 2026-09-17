@@ -1,12 +1,11 @@
 package com.summit.core.workspace;
 
-import com.summit.core.runtime.Workspace;
+import com.summit.core.runtime.workspace.Workspace;
 
 /** Application-facing workspace lifecycle facade. */
 public interface WorkspaceManager {
     WorkspaceRecord create(WorkspaceSpec spec);
 
-    WorkspaceRecord create(WorkspaceRef ref, WorkspaceSpec spec);
 
     /** Registers persisted or externally managed state without provisioning a resource. */
     void register(WorkspaceRecord record);

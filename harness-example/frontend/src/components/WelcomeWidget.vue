@@ -192,7 +192,7 @@ onBeforeUnmount(() => {
   height: 116px;
   margin: -58px 0 0 -58px;
   border-radius: 50%;
-  border: 1.6px solid rgba(77, 107, 254, 0.45);
+  border: 1.5px solid rgba(9, 9, 11, 0.18);
   opacity: 0;
   animation: ringPulse 3.6s ease-out infinite;
   pointer-events: none;
@@ -201,7 +201,7 @@ onBeforeUnmount(() => {
 .ring.r3 { animation-delay: 2.4s; }
 .ww.hover .ring {
   animation-duration: 2.2s;
-  border-color: rgba(122, 92, 255, 0.7);
+  border-color: rgba(9, 9, 11, 0.35);
 }
 @keyframes ringPulse {
   0%   { transform: scale(0.55); opacity: 0.85; }
@@ -227,11 +227,11 @@ onBeforeUnmount(() => {
   height: 6px;
   margin-left: -3px;
   border-radius: 50%;
-  background: #7a5cff;
-  box-shadow: 0 0 8px rgba(122, 92, 255, 0.9);
+  background: #4f46e5;
+  box-shadow: 0 0 10px rgba(79, 70, 229, 0.6);
 }
-.orbit.o2 .dot { width: 5px; height: 5px; background: #4d9bff; box-shadow: 0 0 8px rgba(77, 155, 255, 0.9); }
-.orbit.o3 .dot { width: 4px; height: 4px; background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.9); }
+.orbit.o2 .dot { width: 5px; height: 5px; background: #06b6d4; box-shadow: 0 0 8px rgba(6, 182, 212, 0.5); }
+.orbit.o3 .dot { width: 4px; height: 4px; background: #8b5cf6; box-shadow: 0 0 8px rgba(139, 92, 246, 0.5); }
 .ww.hover .orbit.o1 { animation-duration: 5s; }
 .ww.hover .orbit.o2 { animation-duration: 8s; }
 .ww.hover .orbit.o3 { animation-duration: 4s; }
@@ -255,16 +255,18 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #4d6bfe, #7a5cff);
+  background: linear-gradient(145deg, #1e1b4b 0%, #0f172a 45%, #020617 100%);
   box-shadow:
-    0 10px 26px rgba(77, 107, 254, 0.4),
-    inset 0 2px 6px rgba(255, 255, 255, 0.4);
+    0 16px 36px rgba(15, 23, 42, 0.28),
+    0 0 0 1px rgba(99, 102, 241, 0.2),
+    inset 0 2px 6px rgba(255, 255, 255, 0.25);
   transition: transform 0.18s ease, box-shadow 0.25s ease;
 }
 .ww.hover .orb {
   box-shadow:
-    0 16px 34px rgba(77, 107, 254, 0.52),
-    inset 0 2px 6px rgba(255, 255, 255, 0.45);
+    0 20px 48px rgba(79, 70, 229, 0.28),
+    0 0 0 1.5px rgba(99, 102, 241, 0.4),
+    inset 0 2px 6px rgba(255, 255, 255, 0.35);
 }
 .ww.pressed .orb { transform: scale(0.9); }
 .ww.popped .orb { animation: orbPop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1); }
@@ -276,15 +278,15 @@ onBeforeUnmount(() => {
 }
 .ww:focus-visible .orb {
   box-shadow:
-    0 0 0 6px rgba(77, 107, 254, 0.28),
-    0 10px 26px rgba(77, 107, 254, 0.4);
+    0 0 0 6px rgba(9, 9, 11, 0.18),
+    0 12px 30px rgba(0, 0, 0, 0.28);
 }
 
 .orb-glow {
   position: absolute;
   inset: -7px;
   border-radius: 50%;
-  background: radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 58%);
+  background: radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 58%);
   opacity: 0.55;
   animation: glowPulse 2.6s ease-in-out infinite;
 }
@@ -299,7 +301,7 @@ onBeforeUnmount(() => {
   font-size: 34px;
   font-weight: 700;
   line-height: 1;
-  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 /* ---------- click ripples ---------- */
@@ -309,12 +311,12 @@ onBeforeUnmount(() => {
   height: 18px;
   margin: -9px 0 0 -9px;
   border-radius: 50%;
-  border: 2px solid #7a5cff;
+  border: 2px solid #09090b;
   opacity: 0;
   animation: burstRing 0.8s ease-out forwards;
   pointer-events: none;
 }
-.burst:nth-child(2n) { border-color: #4d9bff; }
+.burst:nth-child(2n) { border-color: #52525b; }
 @keyframes burstRing {
   0%   { transform: scale(1); opacity: 0.95; }
   100% { transform: scale(9); opacity: 0; }
@@ -325,11 +327,11 @@ onBeforeUnmount(() => {
   margin: 0;
   font-size: 14px;
   line-height: 1.7;
-  color: #8a8ca0;
+  color: var(--text-muted);
   transition: color 0.2s ease, transform 0.2s ease;
   text-align: center;
 }
-.ww.hover .ww-caption { color: #4d6bfe; transform: translateY(-1px); }
+.ww.hover .ww-caption { color: var(--mono-black); transform: translateY(-1px); }
 
 /* ---------- reduced-motion preference ---------- */
 @media (prefers-reduced-motion: reduce) {

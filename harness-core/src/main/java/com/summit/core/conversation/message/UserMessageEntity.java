@@ -12,6 +12,8 @@ import lombok.*;
 @JsonIgnoreProperties(value = "type", allowGetters = true)
 public class UserMessageEntity implements Message{
     private String text;
+    /** Framework-injected instruction for the model; not a message authored by the user. */
+    private boolean internal;
     private final MessageType type = MessageType.USER;
     @Override
     public String text() {
@@ -24,6 +26,13 @@ public class UserMessageEntity implements Message{
     public static  UserMessageEntity from(String text){
         return UserMessageEntity.builder()
                 .text(text)
+                .build();
+    }
+
+    public static UserMessageEntity internal(String text) {
+        return UserMessageEntity.builder()
+                .text(text)
+                .internal(true)
                 .build();
     }
 }

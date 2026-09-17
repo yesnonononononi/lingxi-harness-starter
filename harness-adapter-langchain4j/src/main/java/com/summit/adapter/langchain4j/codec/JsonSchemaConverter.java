@@ -9,15 +9,19 @@ import dev.langchain4j.model.chat.request.json.JsonEnumSchema;
 import dev.langchain4j.model.chat.request.json.JsonIntegerSchema;
 import dev.langchain4j.model.chat.request.json.JsonNumberSchema;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
+import dev.langchain4j.model.chat.request.json.JsonReferenceSchema;
 import dev.langchain4j.model.chat.request.json.JsonSchemaElement;
 import dev.langchain4j.model.chat.request.json.JsonStringSchema;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Converts a standard JSON Schema (string) into a langchain4j {@link JsonObjectSchema}.
- * Covers the common subset of tool parameter types: object/string/integer/number/boolean/enum/array/anyOf.
+ * Covers the common subset of tool parameter types: object/string/integer/number/boolean/enum/array/anyOf,
+ * plus the {@code $defs}/{@code $ref} pair that MCP servers use to describe nested arguments.
  */
 public final class JsonSchemaConverter {
 
@@ -47,6 +51,9 @@ public final class JsonSchemaConverter {
         JsonNode type = node.get("type");
         String description = node.has("description") ? node.get("description").asText() : null;
 
+        if (node.has("$ref")) {
+            return JsonReferenceSchema.builder().reference(node.get("$ref").asText()).build();
+        }
         if (type == null && node.has("properties")) {
             type = OBJECT_MAPPER.getNodeFactory().textNode("object");
         }
@@ -113,6 +120,13 @@ public final class JsonSchemaConverter {
             List<String> required = new ArrayList<>();
             node.get("required").forEach(v -> required.add(v.asText()));
             builder.required(required);
+        }
+        // "$defs" is the modern spelling of "definitions"; both are needed by "$ref"-based schemas
+        JsonNode definitions = node.has("$defs") ? node.get("$defs") : node.get("definitions");
+        if (definitions != null && definitions.isObject()) {
+            Map<String, JsonSchemaElement> parsed = new LinkedHashMap<>();
+            definitions.fieldNames().forEachRemaining(name -> parsed.put(name, toElement(definitions.get(name))));
+            builder.definitions(parsed);
         }
         return builder.build();
     }

@@ -6,8 +6,8 @@ import com.summit.core.adapter.MessageCodec;
 import com.summit.core.adapter.ToolCodec;
 import com.summit.core.conversation.api.ChatRequestEntity;
 import com.summit.core.conversation.api.ChatResponseEntity;
-import com.summit.core.model.StreamingChatModel;
-import com.summit.core.model.StreamingChatResponseHandler;
+import com.summit.core.model.streaming.StreamingChatModel;
+import com.summit.core.model.streaming.StreamingChatResponseHandler;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.request.ChatRequest;
@@ -16,8 +16,6 @@ import dev.langchain4j.model.chat.response.PartialResponse;
 import dev.langchain4j.model.chat.response.PartialResponseContext;
 import dev.langchain4j.model.chat.response.PartialThinking;
 import dev.langchain4j.model.chat.response.PartialThinkingContext;
-
-import java.util.List;
 
 /**
  * Adapts the langchain4j {@link dev.langchain4j.model.chat.StreamingChatModel StreamingChatModel}

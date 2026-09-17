@@ -10,7 +10,12 @@ lingxi:
     # Docker sandbox: container created on demand (reused if the name exists),
     # host project dir bind-mounted into the container to share files.
     container-name: agent-sandbox
-    container-image: alpine
+    # General-purpose sandbox image, built once from
+    # harness-sandbox-docker/src/main/docker/Dockerfile (build.ps1 / build.sh).
+    # It already contains JDK 21, Maven, Git, Node.js and npm; agents must not
+    # install these tools at runtime. Managed containers are recreated
+    # automatically when this image changes.
+    container-image: lingxi-agent-dev:latest
     container-port: ""                # optional: publish -p 8080:8080, leave blank to skip
     container-workdir: /workspace     # in-container working directory (mount point)
     workspace-dir: ""                 # host project directory; blank = app launch dir
@@ -37,12 +42,10 @@ lingxi:
           max-result: 3
         context-compact:
           enabled: true
-        # require_choice: lets the model ask the user an explicit question with options
-        explicit:
-          enabled: true
-        plan:
-          enabled: true
-          approval-timeout-seconds: 600
+        # NOTE: require_choice and the command approval policy are NOT framework features.
+        # They are business-side demonstrations wired in
+        # com.summit.harnessexample.config.ExampleWorkflowConfiguration on top of the generic
+        # LoopSuspender / ToolExecutionPolicy SPI, so they need no framework switch.
 
     model:
       conf:

@@ -1,16 +1,15 @@
 package com.summit.core.agent;
 
 
-import com.summit.core.runtime.Workspace;
-import com.summit.core.workspace.WorkspaceRef;
+import com.summit.core.model.ModelConfig;
+import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.workspace.WorkspaceSpec;
-import com.summit.core.tool.CommandConfirmLevel;
-import com.summit.core.tool.LoopBoundary;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NonNull;
 
 import java.io.Serializable;
+import java.util.List;
 
 @Data
 @Builder
@@ -23,34 +22,43 @@ public class AgentRequest {
     /**
      * The question is given the LLM
      */
-    private @NonNull String input;
+    private final @NonNull String input;
     /**
      * The system prompt is given the LLM by the user as a starter
      */
     private String systemPrompt;
-    /** Existing live workspace; retained for source compatibility. */
-    private Workspace workspace;
-    /** Preferred reference to a workspace managed by the framework. */
-    private WorkspaceRef workspaceRef;
+    /** A high-level task definition, useful when a request is delegated by another agent. */
+    private String task;
+    /**
+     * Optional request-level whitelist of tool names. A {@code null} list keeps all registered
+     * tools available; an empty list exposes no tools. Applications retain final authority over
+     * every model-visible capability.
+     */
+    private List<String> toolList;
     /** Creates and acquires a managed workspace when no reference exists yet. */
-    private WorkspaceSpec workspaceSpec;
-    /**
-     * streaming output
-     */
-    private boolean streaming;
-    /**
-     * Plan & Auto determine the current model whether the model can edit files
-     */
-    @Builder.Default
-    private LoopBoundary loopBoundary = LoopBoundary.EXECUTE;
-    /**
-     * Approval level for command-line tools; when {@code null} the executor
-     * treats it as {@code FULL_ACCESS} (backward compatible).
-     */
-    private CommandConfirmLevel commandConfirmLevel;
+    private final  WorkspaceSpec workspaceSpec;
+    private Workspace workspace;
 
+    @Builder.Default
+    private AgentRuntimeParameters runtimeParameters = AgentRuntimeParameters.builder().build();
+
+    /**
+     * Request-level model provider override. Only the provider implementation is swapped; every other
+     * attribute keeps the application value. Ignored when {@link #modelConfig} is set.
+     */
+    private String modelProvider;
+
+    /**
+     * Request-level model configuration. Used as is for this request — no field-level fallback to the
+     * application configuration. Takes precedence over {@link #modelProvider}.
+     */
+    private ModelConfig modelConfig;
 
     public Serializable sessionIdOrDefault() {
         return sessionId != null ? sessionId : DEFAULT_SESSION_ID;
+    }
+
+    public AgentRuntimeParameters runtimeParametersOrDefault() {
+        return runtimeParameters != null ? runtimeParameters : AgentRuntimeParameters.builder().build();
     }
 }

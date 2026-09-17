@@ -3,8 +3,8 @@ package com.summit.tools.terminal;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.runtime.ShellType;
-import com.summit.core.runtime.Workspace;
-import com.summit.core.runtime.WorkspaceBridge;
+import com.summit.core.runtime.workspace.Workspace;
+import com.summit.core.runtime.workspace.WorkspaceBridge;
 import com.summit.core.tool.*;
 import com.summit.tools.arguments.ExecuteCommandRequest;
 import lombok.Getter;
@@ -18,7 +18,7 @@ import java.io.IOException;
  * The pure executor of the command tool: only parses arguments and runs the command.
  *
  * <p>Human approval (PRE_EXEC_CONFIRM / DANGEROUS_BLOCK) has been decoupled from
- * this class into {@link CommandApprovalToolInterceptor} — whether a command needs
+ * this class into an application {@code ToolInterceptor} — whether a command needs
  * confirmation and when to suspend or let it through are all decided by the generic
  * tool interceptor chain before this executor is invoked.</p>
  */
@@ -37,13 +37,13 @@ public class CommandToolDefinitionExecutor implements ToolExecutor {
             log.info("【ToolCall】 {}", request.getCommand());
 
             if (request.getCommand() == null || request.getCommand().isBlank())
-                return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition(), "instruction is empty");
+                return ToolExecuteResult.err("instruction is empty");
 
             // execute
             return process(request, toolExecution.getWorkspace(), toolExecution, toolExecution.getToolDefinition());
 
         } catch (Exception e) {
-            return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition(), "tool execute failed : " + e);
+            return ToolExecuteResult.err("tool execute failed : " + e);
         }
     }
 
@@ -67,7 +67,7 @@ public class CommandToolDefinitionExecutor implements ToolExecutor {
         );
 
         if (result.timedOut()) {
-            return ToolExecuteResult.err(toolExecution.getId(), toolExecution.getToolDefinition(), "process timeout");
+            return ToolExecuteResult.err("process timeout");
         }
 
         String processResult = result.truncated()
@@ -80,7 +80,7 @@ public class CommandToolDefinitionExecutor implements ToolExecutor {
                     """, toolDefinition.maxOutput()
             );
         }
-        return ToolExecuteResult.success(toolExecution.getId(), toolExecution.getToolDefinition(), processResult);
+        return ToolExecuteResult.success(processResult);
     }
 
     /**

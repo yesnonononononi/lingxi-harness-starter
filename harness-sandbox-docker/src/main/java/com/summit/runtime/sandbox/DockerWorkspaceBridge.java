@@ -1,7 +1,7 @@
 package com.summit.runtime.sandbox;
 
 import com.summit.core.runtime.ProcessRunner;
-import com.summit.core.runtime.WorkspaceBridge;
+import com.summit.core.runtime.workspace.WorkspaceBridge;
 import com.summit.core.workspace.WorkspaceStatus;
 import lombok.extern.slf4j.Slf4j;
 
@@ -16,6 +16,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.Set;
+import java.util.Objects;
 
 /**
  * Docker-module {@link WorkspaceBridge} that routes file IO and command execution into a
@@ -31,6 +35,9 @@ public class DockerWorkspaceBridge implements WorkspaceBridge {
 
     private static final Charset DOCKER_CLI_CHARSET = StandardCharsets.UTF_8;
     private static final long DOCKER_TIMEOUT_SECONDS = 60;
+
+    /** Label marking a container as created and owned by this framework. */
+    public static final String MANAGED_LABEL = "lingxi.workspace.managed";
 
     private final String containerId;
 
@@ -58,7 +65,10 @@ public class DockerWorkspaceBridge implements WorkspaceBridge {
      * <ul>
      *   <li>If a container with the exact same name already exists (running or
      *       stopped), it is started and reused as-is — no second run, no
-     *       re-mount.</li>
+     *       re-mount. A framework-managed container created from a different
+     *       image is removed and recreated instead, so the sandbox always runs
+     *       the configured toolchain image (see
+     *       {@link #removeOnImageDrift(String, String)}).</li>
      *   <li>Otherwise it is created with:
      *       {@code docker run -d --name <name> [-p <port>:<port>] [-v <hostDir>:<containerDir>] <image>}</li>
      * </ul>
@@ -67,22 +77,78 @@ public class DockerWorkspaceBridge implements WorkspaceBridge {
      * @param port         optional port pair published as {@code -p <port>:<port>}; skipped when blank
      * @param hostDir      optional host directory bind-mounted into the container to share project files; skipped when blank
      * @param containerDir in-container mount point for {@code hostDir}; when blank defaults to "/workspace"
-     * @param image        container image; when blank defaults to "alpine"
+     * @param image        container image; when blank defaults to
+     *                     {@link DockerSandboxImage#DEFAULT}, the framework's general-purpose
+     *                     development image (JDK, Maven, Git, Node.js)
      * @return the container id (short or full id)
      */
     public static String initContainer(String name, String port, String hostDir, String containerDir, String image) {
+        return initContainer(name, port, hostDir, containerDir, image, Map.of());
+    }
+
+    /**
+     * Creates a container carrying {@code labels}; the full label set proves
+     * ownership of an existing same-named container.
+     */
+    public static String initContainer(String name, String port, String hostDir, String containerDir,
+                                       String image, Map<String, String> labels) {
+        return initContainer(name, port, hostDir, containerDir, image, labels, Set.of());
+    }
+
+    /**
+     * Creates a container with persistent ownership and recovery metadata.
+     *
+     * <p>All entries of {@code labels} are written to the container, but only
+     * {@code ownershipLabelKeys} are used to recognize a pre-existing container
+     * with the same name as owned by the caller. Volatile metadata (creation
+     * timestamp and friends) must therefore stay out of that set, otherwise the
+     * container could never be reused across restarts.</p>
+     *
+     * @param ownershipLabelKeys subset of {@code labels} proving ownership; an empty
+     *                           set means every label participates in the check
+     */
+    public static String initContainer(String name, String port, String hostDir, String containerDir,
+                                       String image, Map<String, String> labels,
+                                       Set<String> ownershipLabelKeys) {
         if (name == null || name.isBlank()) {
             throw new IllegalArgumentException("container name must not be blank");
         }
+        Map<String, String> ownershipLabels = ownershipLabels(labels, ownershipLabelKeys);
+        String requestedImage = DockerSandboxImage.resolve(image);
         String existing = findExistingContainer(name);
         if (existing != null) {
-            // Reuse: make sure it is running; `docker start` is a no-op on a running container.
-            runOrThrow(List.of("docker", "start", existing));
-            log.info("Reusing existing docker container '{}' ({})", name, existing);
-            return existing;
+            Map<String, String> actual = inspectLabelsOrThrow(existing);
+            List<String> mismatched = mismatchedLabels(actual, ownershipLabels);
+            if (!ownershipLabels.isEmpty() && !mismatched.isEmpty()) {
+                throw new IllegalStateException("existing container '" + name + "' (" + existing
+                        + ") is not owned by this workspace: " + String.join("; ", mismatched)
+                        + ". Remove it (docker rm -f " + existing
+                        + ") or configure a different container name.");
+            }
+            List<String> drifted = mismatchedLabels(actual, labels);
+            if (!drifted.isEmpty()) {
+                log.debug("reused docker container '{}' has metadata labels that differ "
+                        + "from the requested workspace: {}", name, drifted);
+            }
+            if (removeOnImageDrift(existing, requestedImage)) {
+                existing = null;
+            } else {
+                // Reuse: make sure it is running; `docker start` is a no-op on a running container.
+                runOrThrow(List.of("docker", "start", existing));
+                log.info("Reusing existing docker container '{}' ({})", name, existing);
+                return existing;
+            }
         }
 
+        requireImage(requestedImage);
+
         List<String> cmd = new ArrayList<>(List.of("docker", "run", "-d", "--name", name));
+        labels.forEach((key, value) -> {
+            if (value != null && !value.isBlank()) {
+                cmd.add("--label");
+                cmd.add(key + "=" + value);
+            }
+        });
         if (port != null && !port.isBlank()) {
             cmd.add("-p");
             cmd.add(port + ":" + port);
@@ -92,14 +158,149 @@ public class DockerWorkspaceBridge implements WorkspaceBridge {
             cmd.add("-v");
             cmd.add(hostMountPath(hostDir) + ":" + mountTarget);
         }
-        cmd.add(image == null || image.isBlank() ? "alpine" : image);
+        cmd.add(requestedImage);
         cmd.add("tail");
         cmd.add("-f");
         cmd.add("/dev/null");
 
         String containerId = runOrThrow(cmd);
-        log.info("Started docker container '{}' ({})", name, containerId);
+        log.info("Started docker container '{}' ({}) from image '{}'", name, containerId, requestedImage);
         return containerId;
+    }
+
+    /**
+     * Removes a framework-managed container that was created from a different
+     * image than {@code requestedImage}.
+     *
+     * <p>A container keeps the image it was created from, so a sandbox that was
+     * once started from a minimal image would keep running without the
+     * toolchain the configuration now asks for. Removing it here makes the
+     * caller recreate the sandbox from the configured image. Containers the
+     * framework does not own are never touched.</p>
+     *
+     * @return {@code true} when the container was removed and must be recreated
+     */
+    public static boolean removeOnImageDrift(String containerId, String requestedImage) {
+        if (!hasLabel(containerId, MANAGED_LABEL, Boolean.TRUE.toString())) {
+            return false;
+        }
+        String actual = containerImage(containerId);
+        if (actual == null || DockerSandboxImage.same(actual, requestedImage)) {
+            return false;
+        }
+        log.warn("sandbox container {} runs image '{}' but '{}' is configured; recreating it",
+                containerId, actual, requestedImage);
+        removeContainer(containerId);
+        return true;
+    }
+
+    /**
+     * Fails fast with an actionable message when {@code image} is not present
+     * locally, instead of letting {@code docker run} report a pull failure.
+     */
+    public static void requireImage(String image) {
+        try {
+            runForOutput(List.of("docker", "image", "inspect", "--format", "{{.Id}}", image));
+        } catch (IOException e) {
+            throw new IllegalStateException("docker sandbox image '" + image + "' is not available locally."
+                    + " Build it with harness-sandbox-docker/src/main/docker/build.ps1 (PowerShell) or build.sh"
+                    + " (POSIX), or point the configured container image at an existing one.", e);
+        }
+    }
+
+    /** Returns the image a container was created from, or {@code null} when unknown. */
+    public static String containerImage(String containerId) {
+        try {
+            String image = new String(runForOutput(List.of("docker", "inspect", "-f",
+                    "{{.Config.Image}}", containerId)), DOCKER_CLI_CHARSET).trim();
+            return image.isEmpty() ? null : image;
+        } catch (IOException e) {
+            log.debug("could not read the image of container {}: {}", containerId, e.getMessage());
+            return null;
+        }
+    }
+
+    /** True when a container carries {@code key=value} among its labels. */
+    public static boolean hasLabel(String containerId, String key, String value) {
+        try {
+            return Objects.equals(value, inspectLabels(containerId).get(key));
+        } catch (IOException e) {
+            log.debug("could not read the labels of container {}: {}", containerId, e.getMessage());
+            return false;
+        }
+    }
+
+    /** Container metadata reconstructed from Lingxi management labels. */
+    public record ManagedContainer(String containerId, Map<String, String> labels) {
+    }
+
+    public static List<ManagedContainer> findManagedContainers(String managedLabel) {
+        try {
+            String output = new String(runForOutput(List.of("docker", "ps", "-a", "-q",
+                    "--filter", "label=" + managedLabel + "=true")), DOCKER_CLI_CHARSET).trim();
+            if (output.isEmpty()) {
+                return List.of();
+            }
+            List<ManagedContainer> containers = new ArrayList<>();
+            for (String id : output.split("\\R")) {
+                try {
+                    containers.add(new ManagedContainer(id.trim(), inspectLabels(id.trim())));
+                } catch (IOException e) {
+                    // A container may disappear between `docker ps` and `docker inspect`.
+                    log.debug("skipping container {} during label discovery: {}", id, e.getMessage());
+                }
+            }
+            return List.copyOf(containers);
+        } catch (IOException e) {
+            throw new RuntimeException("failed to discover managed docker containers", e);
+        }
+    }
+
+    private static Map<String, String> inspectLabels(String containerId) throws IOException {
+        String output = new String(runForOutput(List.of("docker", "inspect", "-f",
+                "{{range $key, $value := .Config.Labels}}{{$key}}={{$value}}{{println}}{{end}}",
+                containerId)), DOCKER_CLI_CHARSET);
+        Map<String, String> labels = new LinkedHashMap<>();
+        for (String line : output.split("\\R")) {
+            int separator = line.indexOf('=');
+            if (separator > 0) {
+                labels.put(line.substring(0, separator), line.substring(separator + 1));
+            }
+        }
+        return Map.copyOf(labels);
+    }
+
+    private static Map<String, String> ownershipLabels(Map<String, String> labels, Set<String> ownershipLabelKeys) {
+        Map<String, String> ownership = new LinkedHashMap<>();
+        labels.forEach((key, value) -> {
+            if (ownershipLabelKeys == null || ownershipLabelKeys.isEmpty() || ownershipLabelKeys.contains(key)) {
+                ownership.put(key, value);
+            }
+        });
+        return Map.copyOf(ownership);
+    }
+
+    private static Map<String, String> inspectLabelsOrThrow(String containerId) {
+        try {
+            return inspectLabels(containerId);
+        } catch (IOException e) {
+            throw new RuntimeException("failed to inspect docker container labels: " + containerId, e);
+        }
+    }
+
+    /**
+     * Describes every expected label that is absent or differs on the inspected
+     * container, e.g. {@code lingxi.workspace.id expected=a actual=b}.
+     */
+    private static List<String> mismatchedLabels(Map<String, String> actual, Map<String, String> expected) {
+        List<String> mismatched = new ArrayList<>();
+        expected.forEach((key, value) -> {
+            String present = actual.get(key);
+            if (!Objects.equals(present, value)) {
+                mismatched.add(key + " expected=" + value + " actual=" + (present == null ? "<missing>" : present));
+            }
+        });
+        return List.copyOf(mismatched);
     }
 
     public static String initContainer(String name, String port) {

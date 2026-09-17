@@ -5,9 +5,13 @@ import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.context.RuntimeContext;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
-import com.summit.core.internalUtils.plan.PlanLoopHook;
 import com.summit.core.model.ModelInvoker;
 import com.summit.core.runtime.*;
+import com.summit.core.runtime.lifstyle.LifeStyleCommandRegistry;
+import com.summit.core.runtime.lifstyle.LifeStyleCommandStore;
+import com.summit.core.runtime.lifstyle.LifeStyleHandler;
+import com.summit.core.runtime.lifstyle.RuntimeLifeStyleManager;
+import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.ToolExecutionManager;
 import com.summit.runtime.RuntimeProcessorTemplate;
 import com.summit.runtime.agent.AgentConfig;
@@ -30,8 +34,8 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
     private final LifeStyleHandler lifeStyleHandler;
     private final LifeStyleCommandRegistry lifeStyleCommandRegistry;
     private final RuntimeLifeStyleManager runtimeLifeStyleManager;
-    /** Plan-mode integration point of the loop; {@code null} when no plan kernel is configured. */
-    private final PlanLoopHook planLoopHook;
+    private final AgentLoopHook agentLoopHook;
+    private final LoopSuspender loopSuspender;
     /** Manual per-round truncation compaction (shouldSqueeze band). */
     private final DefaultManualCompacter manualCompacter;
     /** Model deep compaction (expectAdvanceSqueeze band). */
@@ -70,7 +74,8 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
                         .tokenizer(tokenizer)
                         .lifeStyleCommandStore(commandStore)
                         .lifeStyleCommandRegistry(lifeStyleCommandRegistry)
-                        .planLoopHook(planLoopHook)
+                        .agentLoopHook(agentLoopHook)
+                        .loopSuspender(loopSuspender)
                         .checkPointer(
                                 new RuntimeCheckPointer(lifeStyleHandler, agentConfig, tokenizer, conversationManager,
                                         commandStore, manualCompacter, modelCompacter

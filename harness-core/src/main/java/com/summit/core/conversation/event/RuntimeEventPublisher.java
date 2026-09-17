@@ -108,14 +108,6 @@ public class RuntimeEventPublisher {
         }
     }
 
-    public void onPlanUpdate(PlanUpdateEvent event) {
-        try {
-            listeners.forEach(listener -> listener.onPlanUpdate(event));
-        } catch (Exception e) {
-            log.error("Error occurred while publishing plan update event", e);
-        }
-    }
-
     public void onContextUpdate(ContextUpdateEvent event) {
         try {
             listeners.forEach(listener -> listener.onContextUpdate(event));

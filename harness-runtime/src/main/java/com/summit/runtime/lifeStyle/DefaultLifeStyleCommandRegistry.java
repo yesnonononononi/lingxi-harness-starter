@@ -1,7 +1,7 @@
 package com.summit.runtime.lifeStyle;
 
-import com.summit.core.runtime.LifeStyleCommandRegistry;
-import com.summit.core.runtime.LifeStyleCommandStore;
+import com.summit.core.runtime.lifstyle.LifeStyleCommandRegistry;
+import com.summit.core.runtime.lifstyle.LifeStyleCommandStore;
 
 import java.io.Serializable;
 import java.util.concurrent.ConcurrentHashMap;

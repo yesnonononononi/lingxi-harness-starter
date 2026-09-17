@@ -1,6 +1,10 @@
 package com.summit.harness.springbootautoconfigure.conf.tool;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.summit.core.tool.diff.Differ;
+import com.summit.core.tool.diff.FileHasher;
+import com.summit.core.tool.diff.FileRecordManager;
+import com.summit.core.tool.diff.FileRecordStore;
 import com.summit.harness.springbootautoconfigure.properties.tool.CommonToolProperties;
 import com.summit.harness.springbootautoconfigure.properties.tool.EditFileProperties;
 import com.summit.harness.springbootautoconfigure.properties.tool.ReadFileProperties;
@@ -29,13 +33,13 @@ public class FileToolAutoConfiguration {
             name = "enabled",
             havingValue = "true"
     )
-    public ToolDefinition<EditFileToolExecutor> editFileToolDefinition(ObjectMapper objectMapper, ToolRegistry toolRegistry, EditFileProperties editFileProperties, CommonToolProperties commonToolProperties, RuntimeEventPublisher runtimeEventPublisher, FileRecordManager fileRecordManager) {
+    public ToolDefinition<EditFileToolExecutor> editFileToolDefinition(ObjectMapper objectMapper, EditFileProperties editFileProperties, CommonToolProperties commonToolProperties, RuntimeEventPublisher runtimeEventPublisher, FileRecordManager fileRecordManager) {
         String name = "edit_file";
-        ToolDefinition<EditFileToolExecutor> definition = ToolDefinition.<EditFileToolExecutor>builder()
+        return ToolDefinition.<EditFileToolExecutor>builder()
                 .executor(new EditFileToolExecutor(objectMapper, differ(), fileRecordManager, runtimeEventPublisher))
                 .id(name)
                 .name(name)
-                .description("Edit file content. THE ONLY tool for creating/modifying files; do NOT use terminal commands (echo/sed/redirect/Set-Content) instead. Use REPLACE to substitute oldText with newText, INSERT_BEFORE/INSERT_AFTER to insert around an anchor, DELETE to remove oldText. Returns the applied diff.")
+                .description("Edit file content using REPLACE, INSERT_BEFORE, INSERT_AFTER or DELETE, and return the applied diff.")
                 .parametersJsonSchema("""
                         {
                           "type": "object",
@@ -51,8 +55,6 @@ public class FileToolAutoConfiguration {
                 .maxOutput(Objects.requireNonNullElseGet(editFileProperties.getMaxOutput(), commonToolProperties::getMaxOutput))
                 .timeout(Objects.requireNonNullElseGet(editFileProperties.getTimeout(), commonToolProperties::getTimeout))
                 .build();
-        toolRegistry.register(name, definition);
-        return definition;
     }
 
     @Bean
@@ -61,13 +63,13 @@ public class FileToolAutoConfiguration {
             name = "enabled",
             havingValue = "true"
     )
-    public ToolDefinition<ReadFileToolExecutor> readFileToolDefinition(ObjectMapper objectMapper, ToolRegistry toolRegistry, ReadFileProperties readFileProperties, CommonToolProperties commonToolProperties) {
+    public ToolDefinition<ReadFileToolExecutor> readFileToolDefinition(ObjectMapper objectMapper, ReadFileProperties readFileProperties, CommonToolProperties commonToolProperties) {
         String name = "read_file";
-        ToolDefinition<ReadFileToolExecutor> readFileToolDefinition = ToolDefinition.<ReadFileToolExecutor>builder()
+        return ToolDefinition.<ReadFileToolExecutor>builder()
                 .executor(new ReadFileToolExecutor(objectMapper))
                 .id(name)
                 .name(name)
-                .description("Read file content. THE ONLY tool for reading files; do NOT use terminal commands (Get-Content/cat/type) instead, their output gets truncated. For large files pass startLine/endLine to read a range ")
+                .description("Read file content, optionally limited to a startLine/endLine range.")
                 .parametersJsonSchema("""
                         {
                           "type": "object",
@@ -82,8 +84,6 @@ public class FileToolAutoConfiguration {
                 .maxOutput(Objects.requireNonNullElseGet(readFileProperties.getMaxOutput(), commonToolProperties::getMaxOutput))
                 .timeout(Objects.requireNonNullElseGet(readFileProperties.getTimeout(), commonToolProperties::getTimeout))
                 .build();
-        toolRegistry.register(name, readFileToolDefinition);
-        return readFileToolDefinition;
     }
 
 

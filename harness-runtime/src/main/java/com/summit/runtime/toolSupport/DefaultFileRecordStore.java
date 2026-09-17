@@ -1,7 +1,7 @@
 package com.summit.runtime.toolSupport;
 
-import com.summit.core.tool.FileRecord;
-import com.summit.core.tool.FileRecordStore;
+import com.summit.core.tool.diff.FileRecord;
+import com.summit.core.tool.diff.FileRecordStore;
 import org.jspecify.annotations.NonNull;
 
 import java.io.Serializable;

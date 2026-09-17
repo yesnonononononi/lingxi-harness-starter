@@ -6,6 +6,7 @@ import com.summit.core.interceptor.InvocationContext;
 import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolExecution;
 import com.summit.core.tool.ToolInterceptor;
+import com.summit.core.tool.ToolResultType;
 import lombok.RequiredArgsConstructor;
 
 @RequiredArgsConstructor
@@ -23,6 +24,13 @@ public class DefaultToolInterceptor implements ToolInterceptor {
         ToolExecution toolExecution = invocationContext.getContext();
 
         if (result instanceof ToolExecuteResult toolExecuteResult) {
+
+            // A compaction result IS the summary: cutting it in half leaves an unbalanced JSON that
+            // can no longer be resolved, so the context is never rebuilt, never shrinks, and the
+            // agent loop calls compact_context again (and pays the compact model) on every round.
+            if (toolExecuteResult.getToolResultType() == ToolResultType.CONTEXT_COMPACT) {
+                return;
+            }
 
             String toolOutput = toolExecuteResult.getToolOutput();
 

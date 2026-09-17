@@ -1,11 +1,11 @@
 package com.summit.runtime.toolSupport;
 
 import com.summit.core.exception.FileModificationException;
-import com.summit.core.runtime.Workspace;
-import com.summit.core.tool.FileHasher;
-import com.summit.core.tool.FileRecord;
-import com.summit.core.tool.FileRecordManager;
-import com.summit.core.tool.FileRecordStore;
+import com.summit.core.runtime.workspace.Workspace;
+import com.summit.core.tool.diff.FileHasher;
+import com.summit.core.tool.diff.FileRecord;
+import com.summit.core.tool.diff.FileRecordManager;
+import com.summit.core.tool.diff.FileRecordStore;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

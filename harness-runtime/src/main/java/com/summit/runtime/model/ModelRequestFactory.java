@@ -6,10 +6,11 @@ import com.summit.core.conversation.context.RuntimeContext;
 import com.summit.core.model.ModelChatCommand;
 import com.summit.core.tool.LoopBoundary;
 import com.summit.core.tool.ToolDefinition;
+import com.summit.core.tool.ToolExecutor;
 import com.summit.runtime.agent.AgentLoopRunner;
 import lombok.RequiredArgsConstructor;
-
 import java.io.Serializable;
+import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
@@ -30,7 +31,7 @@ public class ModelRequestFactory {
         ModelChatCommand.ModelChatCommandBuilder builder = ModelChatCommand.builder()
                 .chatRequest(ChatRequestEntity.builder()
                         .messages(context.getConversationManager().messages(sessionId))
-                        .tools(availableTools(boundary))
+                        .tools(availableTools(execution, boundary))
                         .build())
                 .thinking(execution.isThinking())
                 .streaming(execution.isStreaming());
@@ -51,6 +52,8 @@ public class ModelRequestFactory {
                         .build());
     }
 
+
+
     /**
      * Tools exposed to the model for the current boundary:
      * <ul>
@@ -62,12 +65,21 @@ public class ModelRequestFactory {
      *       backstop.</li>
      * </ul>
      */
-    private List<ToolDefinition<?>> availableTools(LoopBoundary boundary) {
+    private List<ToolDefinition<?>> availableTools(Execution execution, LoopBoundary boundary) {
         boolean allowsExecute = LoopBoundary.allowExecute(boundary);
-        List<ToolDefinition<?>> tools = context.getToolExecutionManager().toolRegistry().getTools().values().stream()
+        List<String> whitelist = execution.getAgentRequest() == null
+                ? null : execution.getAgentRequest().getToolList();
+
+
+        Collection<ToolDefinition<? extends ToolExecutor>> waitFilter = context.getToolExecutionManager().toolRegistry().getTools().values();
+
+
+        List<ToolDefinition<?>> tools = waitFilter.stream()
                 .<ToolDefinition<?>>map(tool -> tool)
+                .filter(tool -> tool.allowedFor(whitelist))
                 .filter(tool -> !(tool.planningOnly() && allowsExecute))
                 .toList();
+
         if (allowsExecute) {
             return tools;
         }

@@ -3,9 +3,6 @@ package com.summit.harnessexample;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.compact.ContextUsageMetric;
 import com.summit.core.conversation.event.*;
-import com.summit.core.plan.Plan;
-import com.summit.core.plan.PlanOutline;
-import com.summit.core.plan.Task;
 import com.summit.core.runtime.RuntimeListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,14 +19,19 @@ import java.util.Map;
  * <p>Each event is serialized into the following JSON envelope:</p>
  * <pre>
  * {
- *   "type": "AGENT_MESSAGE" | "TOOL_STARTED" | "TOOL_COMPLETED" | "PLAN_UPDATE" |
- *           "EXECUTION_STARTED" | "EXECUTION_COMPLETED" | "EXECUTION_FAILED",
+ *   "type": "AGENT_MESSAGE" | "TOOL_STARTED" | "TOOL_COMPLETED" | "WAIT_COMMAND_CHECK" |
+ *           "WAIT_USER_CHOICE" | "EXECUTION_STARTED" | "EXECUTION_COMPLETED" | "EXECUTION_FAILED",
  *   "executionId": "...",
  *   "sessionId": "...",
  *   "timestamp": 1234567890,
  *   "data": { ... }
  * }
  * </pre>
+ *
+ * <p>{@code WAIT_COMMAND_CHECK} and {@code WAIT_USER_CHOICE} are <b>business</b> notifications.
+ * The framework only offers the suspension SPI ({@code LoopSuspender}); this example owns the
+ * command-approval rule, the choice payload and the card protocol, and publishes them through the
+ * framework's generic event publisher.</p>
  */
 @Slf4j
 @Component
@@ -131,48 +133,6 @@ public class EventListener implements RuntimeListener {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("executionId", event.executionId());
         broadcast("EXECUTION_CANCELLED", event.executionId(), event.getSessionId(), data);
-    }
-
-    @Override
-    public void onPlanUpdate(PlanUpdateEvent event) {
-        Plan plan = event.getPlan();
-        Map<String, Object> data = new LinkedHashMap<>();
-        if (plan != null) {
-            data.put("id", plan.id());
-            data.put("version", plan.version());
-            data.put("title", plan.title());
-            data.put("summaryMarkdown", plan.summaryMarkdown());
-            data.put("outline", PlanOutline.render(plan));
-            data.put("status", plan.status().name());
-            data.put("statusLabel", plan.status().getLabel());
-            data.put("doneTasks", plan.doneTaskCount());
-            data.put("totalTasks", plan.tasks().size());
-            data.put("progress", PlanOutline.progress(plan));
-            data.put("tasks", plan.tasks().stream().map(this::taskJson).toList());
-            // The card addresses the plan by id: approve / revise / reject are plan-id scoped, and
-            // the task edit endpoint only needs the sessionId already carried by the SSE envelope.
-            data.put("approveUrl", "/agent/plans/" + plan.id() + "/approve");
-            data.put("reviseUrl", "/agent/plans/" + plan.id() + "/revise");
-            data.put("rejectUrl", "/agent/plans/" + plan.id() + "/reject");
-        }
-        // Card state of this event: WAITING_APPROVAL / APPROVED / REVISED / REJECTED / UPDATED / DONE.
-        data.put("state", event.getState());
-        broadcast("PLAN_UPDATE", event.executionId(), event.getSessionId(), data);
-    }
-
-    /** One task of the plan card: id, status badge, dependencies/priority and the user-provided tips. */
-    private Map<String, Object> taskJson(Task task) {
-        Map<String, Object> taskJson = new LinkedHashMap<>();
-        taskJson.put("id", task.id());
-        taskJson.put("title", task.title());
-        taskJson.put("description", task.description());
-        taskJson.put("status", task.status().name());
-        taskJson.put("statusLabel", task.status().getLabel());
-        taskJson.put("dependencies", task.dependencies());
-        taskJson.put("priority", task.priority());
-        taskJson.put("acceptance", task.acceptance());
-        taskJson.put("tips", task.tips());
-        return taskJson;
     }
 
     @Override

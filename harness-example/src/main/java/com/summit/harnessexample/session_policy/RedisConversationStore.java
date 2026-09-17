@@ -24,8 +24,7 @@ public class RedisConversationStore implements ConversationStore {
 
     @Override
     public Optional<ConversationEntity> get(@NonNull Serializable sessionId) {
-        // RedisTemplate 的 value serializer 已按 @class 还原为强类型对象，
-        // 不能再用未开启多态类型信息的 ObjectMapper 做 convertValue（无法还原 Message 接口）
+
         Object raw = redisTemplate.opsForValue().get("session:id:" + sessionId);
         return Optional.ofNullable(raw instanceof ConversationEntity entity ? entity : null);
     }

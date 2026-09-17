@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.UUID;
 
 public class ExecutionCreator {
-    public static Execution create(AgentRequest agentRequest, Agent agent){
+    public static Execution create(AgentRequest agentRequest, Agent agent, boolean streaming){
         List<Message> messages = new ArrayList<>();
         String input = agentRequest.getInput();
         if (!input.isBlank()) {
@@ -24,8 +24,8 @@ public class ExecutionCreator {
                 .createAt(Instant.now())
                 .executionState(ExecutionState.CREATED)
                 .messages(messages)
-                .streaming(agentRequest.isStreaming())
-                .loopBoundary(agentRequest.getLoopBoundary())
+                .streaming(streaming)
+                .loopBoundary(agentRequest.runtimeParametersOrDefault().getLoopBoundary())
                 .build();
     }
 }

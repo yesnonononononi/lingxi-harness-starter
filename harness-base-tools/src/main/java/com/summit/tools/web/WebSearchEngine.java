@@ -18,7 +18,7 @@ public class WebSearchEngine {
     private final WebSearchConfig webSearchConfig;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
-
+    private final WebResultSummarizer webResultSummarizer;
     public String search(WebSearchArguments arguments) throws IOException, InterruptedException {
         String maxResults = arguments.getMaxResults();
         Integer maxRes = this.webSearchConfig.maxResult();
@@ -26,7 +26,7 @@ public class WebSearchEngine {
         if(maxRes != null && maxRes < Integer.parseInt(maxResults)) {
             arguments.setMaxResults(String.valueOf(maxRes));
         }
-        return this.search(this.objectMapper.writeValueAsString(arguments));
+        return webResultSummarizer.summary(this.search(this.objectMapper.writeValueAsString(arguments)));
     }
     public String search(String json) throws IOException, InterruptedException {
         HttpRequest request = HttpRequest.newBuilder()
@@ -41,5 +41,8 @@ public class WebSearchEngine {
 
         return httpClient.send(request, HttpResponse.BodyHandlers.ofString()).body();
     }
+
+
+
 
 }

@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [ develop, main ]
+  pull_request:
+    branches: [ develop, main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (JDK 21, Maven)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Ensure Maven wrapper is executable
+        run: chmod +x mvnw
+
+      - name: Build and test
+        # Only the CI-safe tests run here: HarnessExampleApplicationTests needs a live model
+        # and Docker, and the parent POM binds the GPG sign goal to the verify phase, so we
+        # stop at the test phase (no packaging / signing).
+        run: >
+          ./mvnw -B -ntp test
+          -Dtest='!HarnessExampleApplicationTests'
+          -Dsurefire.failIfNoSpecifiedTests=false
+          -Dgpg.skip=true
+
+  frontend:
+    name: Frontend (Vite build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: harness-example/frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: harness-example/frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build

@@ -14,40 +14,32 @@ public class ToolExecuteResult {
     private ToolDefinition<?> toolSpecification;
     private String toolOutput;
     private ToolResultType toolResultType;
-    public static <T extends ToolExecutor>ToolExecuteResult success(String id, ToolDefinition<T> toolSpecification, String toolOutput){
+    public static ToolExecuteResult success(String toolOutput){
         return ToolExecuteResult.builder()
                 .code(1)
-                .id(id)
                 .toolResultType(ToolResultType.NORMAL)
-                .toolSpecification(toolSpecification)
                 .toolOutput(Objects.requireNonNullElse(toolOutput,""))
                 .build();
     }
-    public static <T extends ToolExecutor>ToolExecuteResult success(String id, ToolDefinition<T> toolSpecification, String toolOutput, ToolResultType toolResultType){
+    public static  ToolExecuteResult success(String toolOutput, ToolResultType toolResultType){
         return ToolExecuteResult.builder()
                 .code(1)
-                .id(id)
                 .toolResultType(toolResultType)
-                .toolSpecification(toolSpecification)
                 .toolOutput(Objects.requireNonNullElse(toolOutput,""))
                 .build();
     }
 
-    public static ToolExecuteResult err(String id, ToolDefinition<?> toolSpecification, String toolOutput){
+    public static ToolExecuteResult err(String toolOutput){
         return ToolExecuteResult.builder()
                 .code(0)
-                .id(id)
                 .toolResultType(ToolResultType.NORMAL)
-                .toolSpecification(toolSpecification)
                 .toolOutput(Objects.requireNonNullElse(toolOutput,""))
                 .build();
     }
-    public static ToolExecuteResult err(String id, ToolDefinition<?> toolSpecification, String toolOutput,ToolResultType toolResultType){
+    public static ToolExecuteResult err(String toolOutput,ToolResultType toolResultType){
         return ToolExecuteResult.builder()
                 .code(0)
-                .id(id)
                 .toolResultType(toolResultType)
-                .toolSpecification(toolSpecification)
                 .toolOutput(Objects.requireNonNullElse(toolOutput,""))
                 .build();
     }

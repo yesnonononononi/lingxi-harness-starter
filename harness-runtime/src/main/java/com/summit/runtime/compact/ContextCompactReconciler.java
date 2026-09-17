@@ -31,6 +31,11 @@ public class ContextCompactReconciler {
      * Rebuilds the conversation when this round contains a {@code compact_context} call; the round
      * itself is then not persisted.
      *
+     * <p>The rebuild is told that the round answered the newest user turn: the model served that
+     * request by compacting, so the request must not survive the rebuild — otherwise the rebuilt
+     * context ends with a request the model answers again, and one compaction turns into a chain of
+     * them.</p>
+     *
      * @return true when the round was a compact request (the caller skips the rest of the round)
      */
     public boolean reconcile(List<ToolExecuteResult> toolResults, Serializable sessionId) {
@@ -41,7 +46,7 @@ public class ContextCompactReconciler {
         if (compactResult == null) {
             return false;
         }
-        conversationManager.rebuildContext(resolveSummary(compactResult), sessionId);
+        conversationManager.rebuildContext(resolveSummary(compactResult), sessionId, true);
         return true;
     }
 

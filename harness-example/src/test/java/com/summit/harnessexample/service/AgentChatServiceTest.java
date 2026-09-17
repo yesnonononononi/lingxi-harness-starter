@@ -1,7 +1,7 @@
 package com.summit.harnessexample.service;
 
-import com.summit.core.runtime.LifeStyleCommandRegistry;
-import com.summit.core.runtime.Workspace;
+import com.summit.core.runtime.lifstyle.LifeStyleCommandRegistry;
+import com.summit.core.runtime.workspace.Workspace;
 import com.summit.harnessexample.ActiveWorkspace;
 import com.summit.harnessexample.Demo;
 import com.summit.harnessexample.SseEventPublisher;
@@ -23,7 +23,6 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
@@ -164,17 +163,17 @@ class AgentChatServiceTest {
             started.countDown();
             release.await(10, TimeUnit.SECONDS);
             return null;
-        }).when(demo).chat(any(), anyBoolean(), any(), any(), any(), any(), any(), any());
+        }).when(demo).chat(any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     /** Demo stub whose runs finish at once, to observe the post-completion cleanup. */
     private void givenRunsThatReturnImmediately() {
         doAnswer(invocation -> null)
-                .when(demo).chat(any(), anyBoolean(), any(), any(), any(), any(), any(), any());
+                .when(demo).chat(any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     private static ChatRequest request(String input, String sessionId) {
-        return new ChatRequest(input, false, sessionId, null, null, null, null);
+        return new ChatRequest(input, "default", sessionId, null, null, null, null);
     }
 
     private void awaitNoRunningSessions() throws InterruptedException {

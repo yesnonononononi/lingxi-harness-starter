@@ -64,6 +64,16 @@ public final class CommandGuard {
             Pattern.compile("(?i)\\bchown\\b[^\\n]*\\s-r\\b[^\\n]*\\s[\"']?/"),
             // find 自根目录（/ 前缀绝对路径）起批量删除
             Pattern.compile("(?i)\\bfind\\b[^\\n]*?\\s+[\"']?/(?:[^\\s\"']*/?)*[^\\n]*?\\s+-delete\\b")
+            ,
+            // System/package dependency mutations must be explicitly approved. This includes
+            // language package managers because lifecycle scripts can execute arbitrary code.
+            Pattern.compile("(?i)\\bapk\\s+(?:add|del|fix|upgrade|update)\\b"),
+            Pattern.compile("(?i)\\bapt(?:-get)?\\s+(?:install|remove|purge|upgrade|dist-upgrade|full-upgrade)\\b"),
+            Pattern.compile("(?i)\\b(?:yum|dnf|zypper)\\s+(?:install|remove|erase|update|upgrade)\\b"),
+            Pattern.compile("(?i)\\bpacman\\s+-(?:S|R|U)\\w*\\b"),
+            Pattern.compile("(?i)\\b(?:npm|pnpm|yarn|bun)\\s+(?:i|install|add|remove|uninstall|update|upgrade)\\b"),
+            Pattern.compile("(?i)\\b(?:pip|pip3|poetry|uv)\\s+(?:install|uninstall|add|remove|sync)\\b"),
+            Pattern.compile("(?i)\\b(?:pkill|killall)\\b|\\bkill\\s+(?:-[A-Z0-9]+\\s+)?(?:-?\\d+|\\$\\w+)")
     );
 
     /** rm 递归删除组合判定：命令本体。 */
@@ -94,6 +104,11 @@ public final class CommandGuard {
             Pattern.compile("(?i)\\b(?:shutdown|Restart-Computer|Stop-Computer|Stop-Service)\\b"),
             // 磁盘分区脚本工具（agent 无合法使用场景）
             Pattern.compile("(?i)\\bdiskpart\\b")
+            ,
+            Pattern.compile("(?i)\\b(?:winget|choco|scoop)\\s+(?:install|uninstall|upgrade|update)\\b"),
+            Pattern.compile("(?i)\\b(?:npm|pnpm|yarn|bun)\\s+(?:i|install|add|remove|uninstall|update|upgrade)\\b"),
+            Pattern.compile("(?i)\\b(?:pip|pip3|poetry|uv)\\s+(?:install|uninstall|add|remove|sync)\\b"),
+            Pattern.compile("(?i)\\bStop-Process\\b|\\btaskkill\\b")
     );
 
     /** 递归删除组合判定：删除类命令（含 PowerShell 别名）。 */

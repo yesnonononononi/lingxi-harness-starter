@@ -1,7 +1,7 @@
 package com.summit.harnessexample;
 
 
-import com.summit.core.runtime.Workspace;
+import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.ToolRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,7 +24,7 @@ public class HarnessExampleApplicationTests {
         Workspace workspace = new LocalWorkSpace();
         demo.chat("""
                 1
-                """,true,null,null,workspace, null, null, null);
+                """, "default-streaming", null, null, workspace, null, null, null);
     }
 
 }

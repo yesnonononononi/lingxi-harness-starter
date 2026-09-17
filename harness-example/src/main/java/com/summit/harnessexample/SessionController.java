@@ -58,7 +58,7 @@ public class SessionController {
                 request == null ? null : request.sessionName()));
     }
 
-    /** Deletes a conversation and its plan. */
+    /** Deletes a conversation. */
     @PostMapping("/sessions/delete")
     public Result<Map<String, Object>> delete(@RequestBody(required = false) SessionIdRequest request) {
         return Result.ok(sessionService.delete(request == null ? null : request.sessionId()));
