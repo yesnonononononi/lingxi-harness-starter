@@ -3,13 +3,13 @@ package com.summit.harness.springbootautoconfigure.conf;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
 import com.summit.harness.springbootautoconfigure.properties.CompactContextModelProperties;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
-import com.summit.core.model.ModelConfig;
+import com.summit.core.conf.ModelConfig;
 import com.summit.core.model.ModelProviderRegistry;
 import com.summit.core.model.RequestModelInvokerFactory;
 import com.summit.runtime.model.DefaultRequestModelInvokerFactory;
 import com.summit.adapter.langchain4j.codec.TokenEstimatorAdapter;
 import com.summit.core.adapter.TokenEstimator;
-import com.summit.core.model.ChatModel;
+import com.summit.core.model.chat.ChatModel;
 import com.summit.core.model.streaming.StreamingChatModel;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -18,10 +18,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 
-/**
- * Three independently configured models: chat (reasoning, thinking), stream (streaming, thinking), compact (context compaction, no thinking).
- * Users can configure via yaml properties, or implement their own Provider and select it through the provider field.
- */
+/** Three independently configured models: chat (reasoning, thinking), stream (streaming, thinking), compact (context compaction, no thinking). */
 @Slf4j
 @AutoConfiguration
 @EnableConfigurationProperties({AgentChatProperties.class, CompactContextModelProperties.class})
@@ -44,17 +41,33 @@ public class ModelConfiguration {
 
  
     @Bean
-    public ModelConfig compactContextModelConfig(CompactContextModelProperties compactContextModelProperties) {
+    public ModelConfig compactContextModelConfig(CompactContextModelProperties compact,
+                                                 AgentChatProperties chat) {
+        if (!compact.isModelConfigured()) {
+            log.info("No dedicated compact model configured; reusing the chat model configuration");
+            return ModelConfig.builder()
+                    .baseUrl(chat.getBaseUrl())
+                    .apiKey(chat.getApiKey())
+                    .modelName(chat.getModelName())
+                    .timeout(chat.getTimeout())
+                    .sendThinking(chat.isSendThinking())
+                    .maxTokens(chat.getMaxTokens())
+                    .reasoningEffort(chat.getReasoningEffort())
+                    .returnThinking(chat.isReturnThinking())
+                    .provider(chat.getProvider())
+                    .build();
+        }
         return ModelConfig.builder()
-                .baseUrl(compactContextModelProperties.getBaseUrl())
-                .apiKey(compactContextModelProperties.getApiKey())
-                .modelName(compactContextModelProperties.getModelName())
-                .timeout(compactContextModelProperties.getTimeout())
-                .sendThinking(compactContextModelProperties.isSendThinking())
-                .maxTokens(compactContextModelProperties.getMaxTokens())
-                .reasoningEffort(compactContextModelProperties.getReasoningEffort())
-                .returnThinking(compactContextModelProperties.isReturnThinking())
-                .provider(compactContextModelProperties.getProvider())
+                .baseUrl(compact.getBaseUrl())
+                .apiKey(compact.getApiKey())
+                .modelName(compact.getModelName())
+                .timeout(compact.getTimeout())
+                .sendThinking(compact.isSendThinking())
+                .maxTokens(compact.getMaxTokens())
+                .reasoningEffort(compact.getReasoningEffort())
+                .returnThinking(compact.isReturnThinking())
+                .provider(compact.getProvider() == null || compact.getProvider().isBlank()
+                        ? "default-compact" : compact.getProvider())
                 .build();
     }
 
@@ -78,7 +91,6 @@ public class ModelConfiguration {
     public ChatModel defaultContextCompactModel(
             ModelProviderRegistry<ChatModel> chatModelProviderRegistry,
             @Qualifier("compactContextModelConfig") ModelConfig compactContextModelConfig) {
-        compactContextModelConfig.setProvider("default-compact");
         return chatModelProviderRegistry.create(compactContextModelConfig);
     }
 

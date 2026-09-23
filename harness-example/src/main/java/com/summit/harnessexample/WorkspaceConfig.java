@@ -3,7 +3,6 @@ package com.summit.harnessexample;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.workspace.WorkspaceManager;
 import com.summit.core.workspace.WorkspaceRecord;
-import com.summit.core.workspace.WorkspaceRef;
 import com.summit.runtime.sandbox.DockerSandboxImage;
 import com.summit.sandbox.docker.DockerWorkspaceSpec;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,7 +37,6 @@ public class WorkspaceConfig {
                         .containerName(containerName)
                         .image(image)
                         .hostDir(hostDir)
-                        .workspaceRef(new WorkspaceRef("default-docker-workspace"))
                         .port(port)
                         .build());
         return workspaceManager.acquire(record.ref());

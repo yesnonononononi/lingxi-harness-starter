@@ -1,9 +1,9 @@
 package com.summit.adapter.langchain4j.model;
 
+import com.summit.adapter.langchain4j.codec.MessageCodec;
 import com.summit.adapter.langchain4j.codec.MessageCodecAdapter;
+import com.summit.adapter.langchain4j.codec.ToolCodec;
 import com.summit.adapter.langchain4j.codec.ToolCodecAdapter;
-import com.summit.core.adapter.MessageCodec;
-import com.summit.core.adapter.ToolCodec;
 import com.summit.core.conversation.api.ChatRequestEntity;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.model.streaming.StreamingChatModel;

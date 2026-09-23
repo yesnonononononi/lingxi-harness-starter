@@ -1,22 +1,20 @@
 package com.summit.adapter.langchain4j.model;
 
+import com.summit.adapter.langchain4j.codec.MessageCodec;
 import com.summit.adapter.langchain4j.codec.MessageCodecAdapter;
+import com.summit.adapter.langchain4j.codec.ToolCodec;
 import com.summit.adapter.langchain4j.codec.ToolCodecAdapter;
-import com.summit.core.adapter.MessageCodec;
-import com.summit.core.adapter.ToolCodec;
 import com.summit.core.conversation.api.ChatRequestEntity;
 import com.summit.core.conversation.api.ChatResponseEntity;
-import com.summit.core.model.ChatModel;
+import com.summit.core.model.chat.ChatModel;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 
-import java.util.List;
-
 /**
  * Adapts the langchain4j {@link dev.langchain4j.model.chat.ChatModel ChatModel}
- * to the core {@link ChatModel}. Message/tool conversions go through the core codec interfaces.
+ * to the core {@link ChatModel}. Message/tool conversions stay inside this adapter module.
  */
 public class ChatModelAdapter implements ChatModel {
 

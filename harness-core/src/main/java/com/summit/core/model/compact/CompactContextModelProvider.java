@@ -1,11 +1,11 @@
 package com.summit.core.model.compact;
 
 
-import com.summit.core.model.ChatModel;
-import com.summit.core.model.ChatModelProvider;
-import com.summit.core.model.ModelConfig;
+import com.summit.core.model.chat.ChatModel;
+import com.summit.core.model.chat.ChatModelProvider;
+import com.summit.core.conf.ModelConfig;
 
-/** 上下文压缩等额外任务专用模型 Provider（默认无 thinking）。 */
+/** Model provider for extra tasks such as context compaction. */
 public interface CompactContextModelProvider extends ChatModelProvider {
 
     @Override

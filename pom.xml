@@ -5,7 +5,7 @@
 
     <groupId>io.github.yesnonononononi</groupId>
     <artifactId>lingXi-harness-agent</artifactId>
-    <version>1.0.2</version>
+    <version>1.1.0</version>
 
 
     <name>LingXi-harness-project</name>
@@ -39,19 +39,19 @@
         <module>harness-spring-boot-autoconfigure</module>
         <module>harness-runtime</module>
         <module>harness-sandbox-docker</module>
-        <module>harness-base-tools</module>
         <module>harness-memory</module>
     </modules>
 
 
     <properties>
         <java.version>21</java.version>
-        <lingxi-harness.version>1.0.2</lingxi-harness.version>
+        <lingxi-harness.version>1.1.0</lingxi-harness.version>
         <langchain4j.version>1.11.0</langchain4j.version>
         <langchain4j-mcp.version>1.20.0-beta30</langchain4j-mcp.version>
         <lombok.version>1.18.46</lombok.version>
         <java-diff-utils.version>4.15</java-diff-utils.version>
         <java-mcp.version>2.0.1</java-mcp.version>
+        <spring-boot.version>4.1.1</spring-boot.version>
     </properties>
 
 
@@ -89,11 +89,6 @@
                 <artifactId>harness-spring-boot-autoconfigure</artifactId>
                 <version>${lingxi-harness.version}</version>
             </dependency>
-            <dependency>
-                <groupId>io.github.yesnonononononi</groupId>
-                <artifactId>harness-base-tools</artifactId>
-                <version>${lingxi-harness.version}</version>
-            </dependency>
 
 
             <dependency>
@@ -101,7 +96,7 @@
                 <artifactId>spring-boot-dependencies</artifactId>
                 <type>pom</type>
                 <scope>import</scope>
-                <version>4.1.1</version>
+                <version>${spring-boot.version}</version>
             </dependency>
 
 
@@ -160,6 +155,11 @@
                             <groupId>org.projectlombok</groupId>
                             <artifactId>lombok</artifactId>
                             <version>${lombok.version}</version>
+                        </path>
+                        <path>
+                            <groupId>org.springframework.boot</groupId>
+                            <artifactId>spring-boot-configuration-processor</artifactId>
+                            <version>${spring-boot.version}</version>
                         </path>
                     </annotationProcessorPaths>
                 </configuration>

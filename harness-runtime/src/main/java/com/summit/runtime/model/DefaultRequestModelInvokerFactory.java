@@ -2,8 +2,8 @@ package com.summit.runtime.model;
 
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.exception.NoSuchModelProviderException;
-import com.summit.core.model.ChatModel;
-import com.summit.core.model.ModelConfig;
+import com.summit.core.model.chat.ChatModel;
+import com.summit.core.conf.ModelConfig;
 import com.summit.core.model.ModelInvoker;
 import com.summit.core.model.ModelProviderRegistry;
 import com.summit.core.model.RequestModelInvokerFactory;

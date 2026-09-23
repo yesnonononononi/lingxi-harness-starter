@@ -1,14 +1,16 @@
 package com.summit.harness.springbootautoconfigure.conf.agent;
 
-import com.summit.core.model.ModelConfig;
+import com.summit.core.conf.ModelConfig;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
 import com.summit.core.model.RequestModelInvokerFactory;
 import com.summit.core.runtime.RuntimeFactory;
+import com.summit.core.runtime.loop.ExecutionControl;
+import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.workspace.WorkspaceManager;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.agent.ChatAgent;
 import com.summit.runtime.agent.DefaultChatAgent;
-import com.summit.runtime.workspace.WorkspaceDestroyer;
+import com.summit.runtime.loop.DefaultExecutionController;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -24,14 +26,20 @@ public class AgentConfiguration {
     public DefaultChatAgent defaultChatAgent(RuntimeFactory defaultRuntimeFactory,
                                              RequestModelInvokerFactory modelInvokerFactory,
                                              WorkspaceManager workspaceManager,
-                                             WorkspaceDestroyer workspaceDestroyer, @Qualifier("chatModelConfig") ModelConfig modelConfig){
+                                             @Qualifier("chatModelConfig") ModelConfig modelConfig){
         return new DefaultChatAgent(
                 defaultRuntimeFactory,
                 modelInvokerFactory,
                 workspaceManager,
-                workspaceDestroyer,
                 modelConfig
         );
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(ExecutionControl.class)
+    public ExecutionControl executionControl(ChatAgent agent,
+                                             ExecutionRepository executionRepository) {
+        return new DefaultExecutionController(agent, executionRepository);
     }
 
 

@@ -29,6 +29,14 @@ public class ToolExecuteResult {
                 .build();
     }
 
+    /**
+     * Returns a successful placeholder result that asks the loop to commit this tool round and
+     * suspend. No thread or future is retained by the framework.
+     */
+    public static ToolExecuteResult promise(String toolOutput) {
+        return success(toolOutput, ToolResultType.PROMISE);
+    }
+
     public static ToolExecuteResult err(String toolOutput){
         return ToolExecuteResult.builder()
                 .code(0)
@@ -45,6 +53,10 @@ public class ToolExecuteResult {
     }
 
     public  boolean isSuccess(){
-        return this.code == 1;
+        return Integer.valueOf(1).equals(this.code);
+    }
+
+    public boolean isPromise() {
+        return this.toolResultType == ToolResultType.PROMISE;
     }
 }

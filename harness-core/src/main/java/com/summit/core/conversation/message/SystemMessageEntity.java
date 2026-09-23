@@ -12,6 +12,7 @@ import lombok.*;
 public class SystemMessageEntity implements Message{
     private String text;
     private final MessageType type = MessageType.SYSTEM;
+
     @Override
     public String text() {
         return this.text;

@@ -61,8 +61,8 @@ public class WorkdirService {
         }
 
         String workdirNow = activeWorkspace.get().workDir();
-        // 只在 workspace 对象内部改 workDir，不换 workspace（id/容器/mode 都不变），
-        // 这里显式记录一行，便于从日志确认改动是否真的生效。
+        // Only the workDir inside the workspace object changes (id / container / mode stay the same);
+        // logged explicitly so the change can be confirmed from the log.
         log.info("workdir switched ({}): {} -> {}", kind, previous, workdirNow);
         broadcast(workdirNow);
         return Map.of("workdir", workdirNow);

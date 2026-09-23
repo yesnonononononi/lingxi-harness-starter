@@ -2,7 +2,6 @@ package com.summit.runtime.utils;
 
 import com.summit.core.agent.*;
 import com.summit.core.conversation.message.Message;
-import com.summit.core.conversation.message.UserMessageEntity;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -11,21 +10,23 @@ import java.util.UUID;
 
 public class ExecutionCreator {
     public static Execution create(AgentRequest agentRequest, Agent agent, boolean streaming){
-        List<Message> messages = new ArrayList<>();
-        String input = agentRequest.getInput();
-        if (!input.isBlank()) {
-            messages.add(UserMessageEntity.from(input));
+        List<Message> messages = agentRequest.getMessages() == null
+                ? new ArrayList<>()
+                : new ArrayList<>(agentRequest.getMessages());
+        if (messages.isEmpty()) {
+            throw new IllegalArgumentException("AgentRequest.messages must contain the conversation context");
         }
+
         return Execution.builder()
-                .id(UUID.randomUUID().toString())
+                .id(agentRequest.getExecutionId() == null || agentRequest.getExecutionId().isBlank()
+                        ? UUID.randomUUID().toString() : agentRequest.getExecutionId())
                 .agentId(agent.id())
-                .sessionId(agentRequest.sessionIdOrDefault())
                 .agentRequest(agentRequest)
                 .createAt(Instant.now())
                 .executionState(ExecutionState.CREATED)
                 .messages(messages)
                 .streaming(streaming)
-                .loopBoundary(agentRequest.runtimeParametersOrDefault().getLoopBoundary())
                 .build();
     }
+
 }

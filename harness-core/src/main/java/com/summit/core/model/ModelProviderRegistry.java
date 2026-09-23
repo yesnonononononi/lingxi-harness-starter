@@ -1,6 +1,7 @@
 package com.summit.core.model;
 
 
+import com.summit.core.conf.ModelConfig;
 import com.summit.core.exception.NoSuchModelProviderException;
 
 import java.util.Map;

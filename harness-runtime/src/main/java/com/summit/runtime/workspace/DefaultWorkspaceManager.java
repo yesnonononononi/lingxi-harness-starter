@@ -2,17 +2,22 @@ package com.summit.runtime.workspace;
 
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.workspace.*;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /** Default provider registry and lifecycle coordinator. */
+@Slf4j
 public final class DefaultWorkspaceManager implements WorkspaceManager {
     private final Map<String, WorkspaceProvider> providers;
     private final WorkspaceStore store;
     private final Map<WorkspaceRef, Object> locks = new ConcurrentHashMap<>();
+    /** Natural key of a spec to the workspace that was provisioned for it. */
+    private final ConcurrentMap<String, WorkspaceRef> identityIndex = new ConcurrentHashMap<>();
 
     public DefaultWorkspaceManager(Collection<WorkspaceProvider> providers,
                                    WorkspaceStore store) {
@@ -32,17 +37,21 @@ public final class DefaultWorkspaceManager implements WorkspaceManager {
     @Override
     public WorkspaceRecord create(WorkspaceSpec spec) {
         Objects.requireNonNull(spec, "workspace spec");
-        WorkspaceRef ref = spec.workspaceRef() == null
-                ? new WorkspaceRef(UUID.randomUUID().toString())
-                : spec.workspaceRef();
+        WorkspaceProvider provider = provider(spec.provider());
+        String naturalKey = provider.identityKey(spec);
+        WorkspaceRef ref = WorkspaceRef.derived(spec.provider(), naturalKey);
         return locked(ref, () -> {
-            if (store.find(ref).isPresent()) {
-                throw new IllegalStateException("workspace already exists: " + ref.id());
+            // The identity is a pure function of the spec, so provisioning the
+            // same configuration twice is a no-op rather than a conflict.
+            WorkspaceRecord existing = store.find(ref).orElse(null);
+            if (existing != null) {
+                identityIndex.putIfAbsent(naturalKey, ref);
+                return existing;
             }
-            WorkspaceProvider provider = provider(spec.provider());
             WorkspaceRecord record = provider.provision(ref, spec);
             try {
                 store.save(record);
+                identityIndex.put(naturalKey, ref);
                 return record;
             } catch (RuntimeException | Error saveFailure) {
                 try {
@@ -56,12 +65,70 @@ public final class DefaultWorkspaceManager implements WorkspaceManager {
     }
 
     @Override
+    public WorkspaceRecord resolve(WorkspaceSpec spec) {
+        Objects.requireNonNull(spec, "workspace spec");
+        WorkspaceProvider provider = provider(spec.provider());
+        String naturalKey = provider.identityKey(spec);
+        WorkspaceRef indexed = identityIndex.get(naturalKey);
+        if (indexed != null && store.find(indexed).isPresent()) {
+            return reconcile(indexed);
+        }
+        return create(spec);
+    }
+
+    @Override
     public void register(WorkspaceRecord record) {
-        provider(record.spec().provider());
+        WorkspaceProvider provider = provider(record.spec().provider());
         locked(record.ref(), () -> {
             store.save(record);
+            identityIndex.putIfAbsent(provider.identityKey(record.spec()), record.ref());
             return null;
         });
+    }
+
+    /**
+     * Adopts everything the installed providers can recognise, one provider at a
+     * time: an unreadable backing service must not hide the resources another
+     * provider could still restore, so discovery failures are logged and skipped
+     * rather than propagated. The workspaces themselves then resurface lazily
+     * through {@link #resolve(WorkspaceSpec)}.
+     */
+    @Override
+    public int restoreManagedRecords() {
+        int restored = 0;
+        for (WorkspaceProvider provider : providers.values()) {
+            List<WorkspaceRecord> discovered;
+            try {
+                discovered = provider.discoverManagedRecords();
+            } catch (RuntimeException failure) {
+                log.warn("workspace discovery failed for provider {}: {}", provider.type(), failure.getMessage());
+                continue;
+            }
+            for (WorkspaceRecord record : discovered) {
+                if (adopt(record)) {
+                    restored++;
+                }
+            }
+        }
+        return restored;
+    }
+
+    /** Registers {@code record} unless one is already stored for the same ref; true when it registered. */
+    private boolean adopt(WorkspaceRecord record) {
+        try {
+            // Checking and storing share the ref lock, so two concurrent restores
+            // cannot both adopt the same resource.
+            return locked(record.ref(), () -> {
+                if (store.find(record.ref()).isPresent()) {
+                    return false;
+                }
+                register(record);
+                return true;
+            });
+        } catch (RuntimeException failure) {
+            log.warn("skipping undiscoverable workspace {}: {}", record.ref().id(), failure.getMessage());
+            return false;
+        }
     }
 
     @Override
@@ -102,8 +169,10 @@ public final class DefaultWorkspaceManager implements WorkspaceManager {
             if (record == null) {
                 return null;
             }
-            provider(record.spec().provider()).destroy(record);
+            WorkspaceProvider provider = provider(record.spec().provider());
+            provider.destroy(record);
             store.delete(ref);
+            identityIndex.remove(provider.identityKey(record.spec()), ref);
             return null;
         });
     }

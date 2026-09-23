@@ -3,61 +3,36 @@ package com.summit.core.runtime.workspace;
 import com.summit.core.runtime.RuntimeEnvironment;
 
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public interface Workspace {
 
-    /**
-     * Returns the unique identifier of this workspace.
-     *
-     * @return unique workspace identifier
-     */
+    /** Returns the unique identifier of this workspace. */
     String id();
 
-    /**
-     * Returns the runtime environment associated with this workspace.
-     *
-     * <p>The concrete workspace implementation determines how the
-     * runtime environment is provided. It may represent a local
-     * process environment, container, sandbox, or another execution
-     * environment.</p>
-     *
-     * @return runtime environment
-     */
+    /** Returns the runtime environment associated with this workspace. */
     RuntimeEnvironment runtimeEnvironment();
 
-    /**
-     * Returns the working directory of this workspace.
-     *
-     * @return workspace working directory
-     */
+    /** Returns the working directory of this workspace. */
     String workDir();
 
-    /**
-     * Resolves the given path within this workspace.
-     *
-     * <p>The path is interpreted relative to the workspace's working
-     * directory. The concrete implementation is responsible for
-     * resolving the path and enforcing any workspace boundary or
-     * security constraints.</p>
-     *
-     * @param path relative path
-     * @return resolved path
-     * @throws IllegalArgumentException if the path is invalid or
-     *                                  cannot be resolved
-     */
-    Path resolve( String path);
+    /** Resolves the given path within this workspace. */
+    Path resolve(String path);
 
-    /**
-     * Returns the IO / command-execution bridge for this workspace.
-     *
-     * <p>Defaults to the local-machine bridge. Workspaces backed by an
-     * isolated environment (e.g. a Docker container) override this method to
-     * return a bridge that routes file IO and command execution into that
-     * environment, so tool executors operate on the sandbox instead of the
-     * host.</p>
-     *
-     * @return the workspace bridge, never {@code null}
-     */
+    /** Whether the given path lies inside this workspace. */
+    default boolean encloses(Path path) {
+        if (path == null) {
+            return false;
+        }
+        String workDir = workDir();
+        if (workDir == null || workDir.isBlank()) {
+            return false;
+        }
+        Path root = Paths.get(workDir).toAbsolutePath().normalize();
+        return path.toAbsolutePath().normalize().startsWith(root);
+    }
+
+    /** Returns the IO / command-execution bridge for this workspace. */
     default WorkspaceBridge bridge() {
         return LocalWorkspaceBridge.INSTANCE;
     }

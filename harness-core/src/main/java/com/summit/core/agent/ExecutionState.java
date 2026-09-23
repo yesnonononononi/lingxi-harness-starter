@@ -5,7 +5,7 @@ public enum ExecutionState {
 
     RUNNING,
 
-    WAITING_TOOL,
+    SUSPENDED,
 
     COMPLETED,
 

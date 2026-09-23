@@ -1,12 +1,14 @@
 package com.summit.harnessexample.service;
 
-import com.summit.core.runtime.lifstyle.LifeStyleCommandRegistry;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.harnessexample.ActiveWorkspace;
 import com.summit.harnessexample.Demo;
 import com.summit.harnessexample.SseEventPublisher;
 import com.summit.harnessexample.common.ApiException;
 import com.summit.harnessexample.dto.ChatRequest;
+import com.summit.harnessexample.session_policy.RedisConversationRepository;
+import com.summit.core.agent.Execution;
+import com.summit.core.agent.ExecutionState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,6 +17,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.lang.reflect.Field;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -27,12 +30,9 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
-/**
- * Lifecycle-bookkeeping rules of {@link AgentChatService}: every run of a session must stay
- * tracked (so it can be stopped and counted), and lifecycle commands are applied or rejected
- * deliberately.
- */
+/** Lifecycle-bookkeeping rules of {@link AgentChatService}: every run of a session must stay tracked (so it can be stopped and counted), and lifecycle commands are applied or rejected deliberately. */
 @ExtendWith(MockitoExtension.class)
 class AgentChatServiceTest {
 
@@ -43,9 +43,9 @@ class AgentChatServiceTest {
     @Mock
     private ActiveWorkspace activeWorkspace;
     @Mock
-    private LifeStyleCommandRegistry lifeStyleCommandRegistry;
-    @Mock
     private Workspace workspace;
+    @Mock
+    private RedisConversationRepository conversationRepository;
 
     private AgentChatService service;
 
@@ -57,27 +57,27 @@ class AgentChatServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new AgentChatService(demo, sseEventPublisher, activeWorkspace, lifeStyleCommandRegistry);
+        service = new AgentChatService(demo, sseEventPublisher, activeWorkspace, conversationRepository);
         lenient().when(activeWorkspace.get()).thenReturn(workspace);
+        lenient().when(conversationRepository.find(any())).thenReturn(Optional.empty());
     }
 
     @Test
     void keepsEveryRunOfTheSameSessionTracked() throws Exception {
         givenRunsThatBlockUntilReleased(2);
 
-        service.chat(request("first", "s1"));
-        service.chat(request("second", "s1"));
+        Map<String, Object> first = service.chat(request("first", "s1"));
+        Map<String, Object> second = service.chat(request("second", "s1"));
         assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
 
         Set<CompletableFuture<Void>> tasks = runningTasksOf(service).get("s1");
         assertThat(tasks).hasSize(2);
         assertThat(service.runningCount()).isEqualTo(1);
 
-        service.control("stop", "s1");
+        service.stop("s1");
 
-        // the older run must not have been forgotten: both are interrupted
+        // Neither execution may be forgotten: both tracked tasks are cancelled.
         assertThat(tasks).allMatch(CompletableFuture::isCancelled);
-        verify(lifeStyleCommandRegistry).stop("s1");
         release.countDown();
     }
 
@@ -85,28 +85,14 @@ class AgentChatServiceTest {
     void stopWithoutSessionIdInterruptsEveryRunningTask() throws Exception {
         givenRunsThatBlockUntilReleased(1);
 
-        service.chat(request("go", "s1"));
+        Map<String, Object> submitted = service.chat(request("go", "s1"));
         assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
         Set<CompletableFuture<Void>> tasks = runningTasksOf(service).get("s1");
 
-        Map<String, Object> result = service.control("stop", null);
+        Map<String, Object> result = service.stop(null);
 
         assertThat(result).containsEntry("applied", true);
         assertThat(tasks).allMatch(CompletableFuture::isCancelled);
-        verify(lifeStyleCommandRegistry).stopAll();
-        release.countDown();
-    }
-
-    @Test
-    void pauseTargetsTheRunningSession() throws Exception {
-        givenRunsThatBlockUntilReleased(1);
-
-        service.chat(request("go", "s1"));
-        assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
-
-        service.control("pause", "s1");
-
-        verify(lifeStyleCommandRegistry).pause("s1");
         release.countDown();
     }
 
@@ -123,26 +109,16 @@ class AgentChatServiceTest {
 
     @Test
     void controlOnUnknownSessionFailsWithNotFound() {
-        assertThatThrownBy(() -> service.control("pause", "missing"))
+        assertThatThrownBy(() -> service.stop("missing"))
                 .isInstanceOf(ApiException.class)
                 .satisfies(e -> assertThat(((ApiException) e).getCode()).isEqualTo(404));
-        verifyNoInteractions(lifeStyleCommandRegistry);
     }
 
     @Test
     void controlWithoutRunningSessionsIsIgnored() {
-        Map<String, Object> result = service.control("stop", null);
+        Map<String, Object> result = service.stop(null);
 
         assertThat(result).containsEntry("applied", false);
-        verifyNoInteractions(lifeStyleCommandRegistry);
-    }
-
-    @Test
-    void controlRejectsUnsupportedAction() {
-        assertThatThrownBy(() -> service.control("explode", null))
-                .isInstanceOf(ApiException.class)
-                .satisfies(e -> assertThat(((ApiException) e).getCode()).isEqualTo(400));
-        verifyNoInteractions(lifeStyleCommandRegistry);
     }
 
     @Test
@@ -162,18 +138,23 @@ class AgentChatServiceTest {
         doAnswer(invocation -> {
             started.countDown();
             release.await(10, TimeUnit.SECONDS);
-            return null;
-        }).when(demo).chat(any(), any(), any(), any(), any(), any(), any(), any());
+            return completedExecution((String) invocation.getArgument(1));
+        }).when(demo).chat(any(), any(), any(), any(), any(), any());
     }
 
     /** Demo stub whose runs finish at once, to observe the post-completion cleanup. */
     private void givenRunsThatReturnImmediately() {
-        doAnswer(invocation -> null)
-                .when(demo).chat(any(), any(), any(), any(), any(), any(), any(), any());
+        doAnswer(invocation -> completedExecution((String) invocation.getArgument(1)))
+                .when(demo).chat(any(), any(), any(), any(), any(), any());
     }
 
     private static ChatRequest request(String input, String sessionId) {
-        return new ChatRequest(input, "default", sessionId, null, null, null, null);
+        return new ChatRequest(input, "default", sessionId, null, null, null);
+    }
+
+    private static Execution completedExecution(String id) {
+        return Execution.builder().id(id).executionState(ExecutionState.COMPLETED)
+                .messages(java.util.List.of()).build();
     }
 
     private void awaitNoRunningSessions() throws InterruptedException {

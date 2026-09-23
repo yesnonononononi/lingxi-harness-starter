@@ -5,7 +5,7 @@ import com.summit.core.runtime.workspace.Workspace;
 import lombok.Builder;
 import lombok.Data;
 
-import java.io.Serializable;
+import java.util.Map;
 
 @Builder
 @Data
@@ -13,11 +13,15 @@ public class ToolExecution {
     private String id;
     private ToolDefinition<? extends ToolExecutor> toolDefinition;
     private String args;
-    private final Serializable sessionId;
+    private final String executionId;
     /** Id of the agent request (turn) this tool call belongs to. */
     private String turnId;
     private Workspace workspace;
-    private final LoopBoundary loopBoundary;
+    /** Opaque attributes carried from the originating {@code AgentRequest} down to the tool. */
     @Builder.Default
-    private final CommandConfirmLevel commandConfirmLevel = CommandConfirmLevel.PRE_EXEC_CONFIRM;
+    private Map<String, Object> attributes = Map.of();
+
+    /** Per-request switch copied from {@code AgentRuntimeParameters#isAllowOutsideWorkspace()}. */
+    @Builder.Default
+    private boolean allowOutsideWorkspace = false;
 }

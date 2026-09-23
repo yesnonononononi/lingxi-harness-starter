@@ -3,8 +3,8 @@ package com.summit.core.tool;
 /**
  * Application admission policy evaluated on the loop thread before the tool timeout starts.
  * Returning a result rejects/short-circuits the call; returning {@code null} admits execution.
- * Policies may use {@code LoopSuspender} for human approval without consuming the tool's own
- * execution timeout.
+ * A policy can return a {@link ToolResultType#PROMISE} result when the surrounding execution must
+ * stop after committing the current tool batch.
  */
 @FunctionalInterface
 public interface ToolExecutionPolicy {

@@ -13,7 +13,7 @@ import java.util.List;
 
 
 @Slf4j
-public class DefaultInterceptorProcessor<I extends RuntimeInterceptor<T>,T> implements InterceptorProcessor<T> {
+public class DefaultInterceptorProcessor<I extends RuntimeInterceptor<T>, T> implements InterceptorProcessor<T> {
     private final List<I> interceptorList;
 
 
@@ -25,44 +25,19 @@ public class DefaultInterceptorProcessor<I extends RuntimeInterceptor<T>,T> impl
 
     @Override
     public Object proceed(InvocationContext<T> invocationContext) throws Throwable {
-        Method method = invocationContext.getMethod();
-        T context = invocationContext.getContext();
         Object result;
-        Object shortCircuit = doPreDecide(invocationContext);
-        if (shortCircuit != null) {
-            // a decision (e.g. CONFIRM_REQUIRED) already provided: skip the target invocation
-            result = shortCircuit;
-        } else {
-            doPre(invocationContext);
-            try {
-                result = method.invoke(invocationContext.getTarget(), context);
-            } catch (InvocationTargetException e) {
-
-                doOnError(invocationContext, e.getTargetException());
-                throw e.getTargetException();
-            }
+        doPre(invocationContext);
+        try {
+            result = invocationContext.getMethod().invoke(invocationContext.getTarget(), invocationContext.getContext());
+        } catch (InvocationTargetException e) {
+            doOnError(invocationContext, e.getTargetException());
+            throw e.getTargetException();
         }
-
         doAfter(invocationContext, result);
         return result;
 
     }
 
-    /**
-     * Let each interceptor decide (in ascending order) whether the target may run;
-     * the first non-null verdict short-circuits the chain.
-     *
-     * @return non-null short-circuit result, or {@code null} when every interceptor allows
-     */
-    private Object doPreDecide(InvocationContext<T> invocationContext) {
-        for (I interceptor : this.interceptorList) {
-            Object decision = interceptor.preDecide(invocationContext);
-            if (decision != null) {
-                return decision;
-            }
-        }
-        return null;
-    }
 
     private void doPre(InvocationContext<T> invocationContext) {   // forEach can't throw checked exception
         for (I interceptor : this.interceptorList) {
@@ -71,16 +46,16 @@ public class DefaultInterceptorProcessor<I extends RuntimeInterceptor<T>,T> impl
     }
 
     private void doAfter(InvocationContext<T> invocationContext, Object result) {
-        for (int i = this.interceptorList.size()-1; i >= 0; i--) {
+        for (int i = this.interceptorList.size() - 1; i >= 0; i--) {
             I interceptor = this.interceptorList.get(i);
             interceptor.after(invocationContext, result);
         }
     }
 
-    private void doOnError(InvocationContext<T> invocationContext, Throwable throwable)  {
+    private void doOnError(InvocationContext<T> invocationContext, Throwable throwable) {
         for (I interceptor : this.interceptorList) {
             try {
-                interceptor .onError(throwable, invocationContext);
+                interceptor.onError(throwable, invocationContext);
             } catch (Throwable e) {
                 log.error("Error occurred while processing error", e);
             }

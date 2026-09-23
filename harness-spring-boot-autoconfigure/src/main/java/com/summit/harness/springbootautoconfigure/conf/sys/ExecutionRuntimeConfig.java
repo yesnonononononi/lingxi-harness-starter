@@ -4,19 +4,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.runtime.loop.AgentLoopHook;
+import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.runtime.*;
-import com.summit.core.runtime.lifstyle.LifeStyleCommandRegistry;
-import com.summit.core.runtime.lifstyle.LifeStyleHandler;
-import com.summit.core.runtime.lifstyle.RuntimeLifeStyleManager;
+import com.summit.core.runtime.loop.lifstyle.RuntimeLifeStyleManager;
 import com.summit.core.tool.ToolExecutionManager;
-import com.summit.runtime.lifeStyle.DefaultLifeStyleCommandRegistry;
-import com.summit.runtime.lifeStyle.DefaultLifeStyleHandler;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.conversation.DefaultRuntimeFactory;
 import com.summit.runtime.compact.DefaultManualCompacter;
 import com.summit.runtime.compact.DefaultModelCompacter;
-import com.summit.runtime.lifeStyle.DefaultRuntimeLifeStyleManager;
-import com.summit.runtime.suspension.InMemoryLoopSuspender;
+import com.summit.runtime.loop.lifeStyle.DefaultRuntimeLifeStyleManager;
+import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -32,11 +30,9 @@ public class ExecutionRuntimeConfig {
                                                 ConversationManager conversationManager,
                                                 ToolExecutionManager defaultToolExecutionManager,
                                                 AgentConfig agentConfig, ObjectMapper objectMapper,
-                                                LifeStyleHandler lifeStyleHandler,
                                                 Tokenizer tokenizer,
-                                                LifeStyleCommandRegistry lifeStyleCommandRegistry,
                                                 ObjectProvider<AgentLoopHook> agentLoopHook,
-                                                LoopSuspender loopSuspender,
+                                                ExecutionRepository executionRepository,
                                                 DefaultManualCompacter manualCompacter,
                                                 DefaultModelCompacter modelCompacter, RuntimeLifeStyleManager runtimeLifeStyleManager){
         return DefaultRuntimeFactory.builder()
@@ -44,11 +40,10 @@ public class ExecutionRuntimeConfig {
                 .runtimeEventPublisher(defaultRuntimeListener)
                 .conversationManager(conversationManager)
                 .objectMapper(objectMapper)
-                .lifeStyleHandler(lifeStyleHandler)
                 .tokenizer(tokenizer)
-                .lifeStyleCommandRegistry(lifeStyleCommandRegistry)
                 .agentLoopHook(agentLoopHook.getIfAvailable(() -> AgentLoopHook.NOOP))
-                .loopSuspender(loopSuspender)
+                .activeExecutionRegistry(executionRepository)
+                .executionRepository(executionRepository)
                 .agentConfig(agentConfig)
                 .manualCompacter(manualCompacter)
                 .runtimeLifeStyleManager(runtimeLifeStyleManager)
@@ -59,26 +54,26 @@ public class ExecutionRuntimeConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    public RuntimeLifeStyleManager runtimeLifeStyleManager(RuntimeEventPublisher runtimeEventPublisher, ConversationManager conversationManager){
-        return new DefaultRuntimeLifeStyleManager(runtimeEventPublisher,conversationManager);
+    public RuntimeLifeStyleManager runtimeLifeStyleListener(RuntimeEventPublisher runtimeEventPublisher){
+        return new DefaultRuntimeLifeStyleManager(runtimeEventPublisher);
     }
 
+    /**
+     * Fallback execution repository, registered only when the application supplies none.
+     *
+     * <p>Applications integrate by simply declaring their own {@link ExecutionRepository} bean —
+     * whether process-local, snapshot-persisting, or backed by shared infrastructure. The runtime
+     * attaches no semantics to which one is in play; it only needs {@code register} to hand back a
+     * cooperative control signal that the loop observes at its boundaries, and {@code save} to
+     * receive a recoverable snapshot at each committed round.</p>
+     *
+     * <p>When no application bean exists this yields a purely in-memory registry: executions are
+     * controllable within the process but leave no durable trace.</p>
+     */
     @Bean
-    @ConditionalOnMissingBean
-    public LifeStyleHandler defaultLifeStyleHandler(){
-        return new DefaultLifeStyleHandler();
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public LifeStyleCommandRegistry lifeStyleCommandRegistry(){
-        return new DefaultLifeStyleCommandRegistry();
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public LoopSuspender loopSuspender() {
-        return new InMemoryLoopSuspender();
+    @ConditionalOnMissingBean(ExecutionRepository.class)
+    public ExecutionRepository inMemoryExecutionRepository() {
+        return new InMemoryActiveExecutionRegistry();
     }
 
     @Bean

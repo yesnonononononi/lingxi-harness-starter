@@ -41,29 +41,8 @@ function setAckMode(mode) {
     // ignore storage errors (e.g. private mode)
   }
 }
-// ====== 执行模式（craft / plan） ======
-// 随 /agent/chat 提交 loopBoundary：craft = 直接执行(EXECUTE，默认)；plan = 先规划后执行(PLANING)
-const AGENT_MODE_KEY = 'lingxi_agent_mode'
-const AGENT_MODES = [
-  { value: 'craft', short: 'craft', desc: '直接执行任务，等价后端 EXECUTE' },
-  { value: 'plan', short: 'plan', desc: '先输出实施计划，再执行，等价后端 PLANING' },
-]
-const agentMode = ref(localStorage.getItem(AGENT_MODE_KEY) || 'craft')
-const modeOpen = ref(false)
-const modePickerEl = ref(null)
-const currentMode = computed(() => AGENT_MODES.find((m) => m.value === agentMode.value) || AGENT_MODES[0])
-function setAgentMode(mode) {
-  agentMode.value = mode
-  modeOpen.value = false
-  try {
-    localStorage.setItem(AGENT_MODE_KEY, mode)
-  } catch {
-    // ignore storage errors (e.g. private mode)
-  }
-}
-// ====== 执行控制（暂停/继续/停止，作用于当前会话） ======
+// ====== 执行控制（停止当前会话） ======
 const executing = ref(false)
-const paused = ref(false)
 const ctlBusy = ref(false)
 const logRef = ref(null)
 const workdir = ref('')
@@ -114,9 +93,7 @@ const eventTypeLabels = {
   AGENT_MESSAGE: '智能助手',
   EXECUTION_COMPLETED: '完成',
   EXECUTION_FAILED: '失败',
-  EXECUTION_CANCELLED: '取消',
-  WAIT_COMMAND_CHECK: '命令审批',
-  WAIT_USER_CHOICE: '需求确认'
+  EXECUTION_CANCELLED: '取消'
 }
 
 const terminalEventTypes = new Set(['EXECUTION_COMPLETED', 'EXECUTION_FAILED', 'EXECUTION_CANCELLED'])
@@ -338,124 +315,6 @@ async function toggleEditDiff(item) {
   if (item.open) await loadEditContent(item)
 }
 
-// ====== 命令审批（工具执行前 ack） ======
-// WAIT_COMMAND_CHECK 卡片：批准后 agent 循环被唤醒，命令以同一执行真正运行；
-// 拒绝则命令不会执行，agent 带着拒绝原因继续
-async function decideCommandAck(item, approve) {
-  if (!item.toolExecutionId || item.decision || item.deciding) return
-  item.deciding = true
-  try {
-    await request.post(`/agent/commands/${item.toolExecutionId}/${approve ? 'approve' : 'reject'}`)
-    item.decision = approve ? 'ACCEPTED' : 'REJECTED'
-  } catch (err) {
-    const msg = err?.response?.data?.message || err?.message || err
-    appendLog({ time: now(), type: 'ERROR', text: `命令审批失败：${msg}` })
-    // 404/409：命令已不存在或已被其他端决断，标记为失效避免重复操作
-    if (err?.response?.status === 404 || err?.response?.status === 409) {
-      item.decision = 'STALE'
-    }
-  } finally {
-    item.deciding = false
-  }
-}
-
-// ====== 需求选择（require_choice）======
-// WAIT_USER_CHOICE 卡片：模型在执行中发现用户诉求语义模糊、需要用户拍板时，主动
-// 提问并给出若干可选方案，agent 循环挂起等待。候选方案只是模型的建议，用户可以点选，
-// 也可以直接输入自己的方案；两种答案后端一视同仁（只区分 offeredOption / custom），
-// 写入决策后 agent 循环被唤醒并按该答案继续。
-const MAX_CHOICE_LEN = 1000
-
-async function decideUserChoice(item, choice) {
-  if (!item.toolExecutionId || item.decision || item.deciding) return
-  // 自定义方案先做非空 / 长度校验（后端上限同为 1000），避免无谓的 400
-  const answer = String(choice ?? '').trim()
-  if (!answer) {
-    item.inputError = '请先输入你的方案'
-    return
-  }
-  if (answer.length > MAX_CHOICE_LEN) {
-    item.inputError = `自定义方案最多 ${MAX_CHOICE_LEN} 个字符（当前 ${answer.length}）`
-    return
-  }
-  item.deciding = true
-  item.inputError = ''
-  try {
-    const data = await request.post(`/agent/choices/${item.toolExecutionId}/decide`, { choice: answer })
-    item.choice = data?.choice || answer
-    // 后端返回 custom=true 表示这是候选项之外的自定义答案；老接口无该字段时本地判定
-    item.custom = 'custom' in (data || {})
-      ? !!data.custom
-      : !(item.choices || []).includes(answer)
-    item.decision = 'DECIDED'
-  } catch (err) {
-    const msg = err?.response?.data?.message || err?.message || err
-    appendLog({ time: now(), type: 'ERROR', text: `需求选择失败：${msg}` })
-    // 404/409：选择已不存在（超时/会话结束）或已被其他端决断，标记为失效避免重复操作
-    if (err?.response?.status === 404 || err?.response?.status === 409) {
-      item.decision = 'STALE'
-    } else if (err?.response?.status === 400) {
-      // 答案被后端拒绝（如超长），提示后仍可修改重试
-      item.inputError = msg
-    }
-  } finally {
-    item.deciding = false
-  }
-}
-
-// 输入框「提交 / 回车」：把自定义内容作为选择提交
-function submitCustomChoice(item) {
-  decideUserChoice(item, item.customInput)
-}
-
-// 输入框内容非空才允许提交
-function canSubmitCustom(item) {
-  return !item.deciding && !!String(item.customInput || '').trim()
-}
-
-
-function ackTitle(item) {
-  if (item.decision === 'ACCEPTED') return '命令已批准'
-  if (item.decision === 'REJECTED') return '命令已拒绝'
-  if (item.decision === 'STALE') return '审批已失效'
-  return '等待命令审批'
-}
-
-function ackSub(item) {
-  if (item.decision === 'ACCEPTED') return 'agent 将唤醒并重新执行该命令，结果稍后返回'
-  if (item.decision === 'REJECTED') return '该命令不会执行，agent 将带着拒绝原因继续'
-  if (item.decision === 'STALE') return '该命令已被其他端处理，此卡片仅作记录'
-  return 'agent 已暂停，请决定是否允许执行'
-}
-
-// 命令审批卡片左侧图标状态：待决断 -> 旋转 loading；已批准 -> √；已拒绝 / 已失效 -> 静止环形
-function ackIconStatus(item) {
-  if (item.decision === 'ACCEPTED') return 'done'
-  if (item.decision) return 'idle'
-  return 'running'
-}
-
-// 需求选择卡片左侧图标状态：待选择 -> 旋转 loading；已决断 -> √；已失效 -> 静止环形
-function choiceIconStatus(item) {
-  if (item.decision === 'DECIDED') return 'done'
-  if (item.decision) return 'idle'
-  return 'running'
-}
-
-function choiceTitle(item) {
-  if (item.decision === 'DECIDED') return '需求已确认'
-  if (item.decision === 'STALE') return '该选择已失效'
-  return '需要你确认需求'
-}
-
-function choiceSub(item) {
-  if (item.decision === 'DECIDED') {
-    return item.custom ? 'agent 将按你补充的自定义方案继续执行' : 'agent 将按你选择的方案继续执行'
-  }
-  if (item.decision === 'STALE') return '该选择已被其他端处理或本轮执行已结束'
-  return 'agent 已暂停，请选择一个方案，或直接输入你自己的方案'
-}
-
 function onDocClick(e) {
   if (ackPickerEl.value && !ackPickerEl.value.contains(e.target)) {
     ackOpen.value = false
@@ -470,17 +329,12 @@ function toggleThinking(item) {
   item.thinkingOpen = !item.thinkingOpen
 }
 
-// 计划内核工具名集合（create_plan / update_plan / update_task / complete_task / approve_plan）
-const PLAN_TOOLS = new Set(['create_plan', 'update_plan', 'update_task', 'complete_task', 'approve_plan'])
-
-// 工具归类：read(读取文件) / edit(修改文件) / command(执行命令) / plan(计划内核) /
+// 工具归类：read(读取文件) / edit(修改文件) / command(执行命令) /
 // choice(提出选择) / other，用于选择卡片图标与中文动作名。
 // 所有非 read 的工具共用同一套图标：执行中旋转 loading，结束后 √（与执行命令一致）。
 function toolKind(item) {
   const name = (item.toolName || '').toLowerCase()
   if (name.includes('read')) return 'read'
-  // 计划内核工具先判定：update_plan / update_task 里的 "update" 会被误判成文件修改
-  if (PLAN_TOOLS.has(name)) return 'plan'
   if (name === 'require_choice') return 'choice'
   if (name.includes('edit') || name.includes('write') || name.includes('update')
     || name.includes('insert') || name.includes('replace')) return 'edit'
@@ -491,15 +345,10 @@ function toolKind(item) {
 
 // 内核工具名 -> 中文动作名（按工具名精确匹配，优先于按 kind 的归类名）
 const TOOL_NAME_LABELS = {
-  create_plan: '创建计划',
-  update_plan: '更新计划',
-  update_task: '更新任务',
-  complete_task: '完成工作',
-  approve_plan: '批准计划',
   require_choice: '提出选择',
 }
 const TOOL_LABELS = { read: '读取文件', edit: '修改文件', command: '执行命令' }
-// 卡片头部动作名：完成工作 / 创建计划 / 提出选择 / 读取文件 / 修改文件 / 执行命令，其余回退到原始工具名
+// 卡片头部动作名：提出选择 / 读取文件 / 修改文件 / 执行命令，其余回退到原始工具名
 function toolLabel(item) {
   const name = (item.toolName || '').toLowerCase()
   return TOOL_NAME_LABELS[name] || TOOL_LABELS[toolKind(item)] || item.toolName || '工具调用'
@@ -619,10 +468,8 @@ function connectEvents() {
       // 跟踪当前会话执行状态：STARTED -> 运行中，结束事件 -> 空闲
       if (evt.type === 'EXECUTION_STARTED') {
         executing.value = true
-        paused.value = false
       } else if (terminalEventTypes.has(evt.type)) {
         executing.value = false
-        paused.value = false
       }
       const item = { time: now(), type: evt.type, text: formatEvent(evt), executionId: evt.executionId || '' }
       if (evt.type === 'TOOL_STARTED') {
@@ -702,13 +549,6 @@ function connectEvents() {
       if (evt.type === 'EXECUTION_COMPLETED' || evt.type === 'EXECUTION_FAILED' || evt.type === 'EXECUTION_CANCELLED') {
         // a round of execution is done: immediately settle any in-flight markdown
         settleMarkdown(evt.executionId || '')
-        const finishedExecutionId = evt.executionId || ''
-        // 需求选择门（require_choice）随本轮执行结束被释放：仍未决断的选择卡片失效
-        events.value.forEach((entry) => {
-          if (entry.type !== 'WAIT_USER_CHOICE') return
-          if (finishedExecutionId && entry.executionId !== finishedExecutionId) return
-          if (!entry.decision) entry.decision = 'STALE'
-        })
       }
       if (evt.type === 'FILE_EDIT') {
         // render a Monaco DiffEditor card showing the file change;
@@ -741,41 +581,6 @@ function connectEvents() {
             drawerPendingEdits.value.unshift(editCard)
           }
         }
-        return
-      }
-      if (evt.type === 'WAIT_COMMAND_CHECK') {
-        // 命令被挂起等待人工审批（execute_command ack）：渲染审批卡片；
-        // 批准/拒绝写入决策后 agent 循环线程被唤醒
-        appendLog({
-          time: now(),
-          type: 'WAIT_COMMAND_CHECK',
-          executionId: evt.executionId || '',
-          toolExecutionId: evt.data?.toolExecutionId || '',
-          command: evt.data?.command || '',
-          decision: '',
-          deciding: false,
-        })
-        return
-      }
-      if (evt.type === 'WAIT_USER_CHOICE') {
-        // require_choice：模型在执行中主动向用户要一个明确选择（语义模糊/需用户拍板），
-        // agent 循环挂起等待；用户点选候选方案、或直接输入自己的方案，写入决策后循环被唤醒
-        appendLog({
-          time: now(),
-          type: 'WAIT_USER_CHOICE',
-          executionId: evt.executionId || '',
-          toolExecutionId: evt.data?.toolExecutionId || '',
-          question: evt.data?.question || '',
-          choices: Array.isArray(evt.data?.choices) ? evt.data.choices : [],
-          // 后端默认允许自定义输入（候选项只是建议）；旧事件不带该字段时同样放开
-          allowCustomInput: evt.data?.allowCustomInput !== false,
-          customInput: '',
-          inputError: '',
-          decision: '',
-          choice: '',
-          custom: false,
-          deciding: false,
-        })
         return
       }
       if (evt.type === 'FILE_EDIT_DECISION') {
@@ -879,8 +684,8 @@ function now() {
 
 async function sendMessage() {
   const text = input.value.trim()
-  // 执行/暂停期间发送位是方形停止按钮，Enter 也不应触发新任务
-  if (!text || sending.value || executing.value || paused.value) return
+  // 执行期间发送位是方形停止按钮，Enter 也不应触发新任务
+  if (!text || sending.value || executing.value) return
 
   sending.value = true
   appendLog({ time: now(), type: 'USER', text })
@@ -891,8 +696,7 @@ async function sendMessage() {
       input: text,
       streaming: true,
       modelProvider: 'default-streaming',
-      commandConfirmLevel: ackMode.value,
-      loopBoundary: agentMode.value === 'plan' ? 'PLANING' : 'EXECUTE',
+      commandApprovalPolicy: ackMode.value,
     }
     if (currentSessionId.value) body.sessionId = currentSessionId.value
     if (currentSessionName.value) body.sessionName = currentSessionName.value
@@ -913,43 +717,31 @@ async function sendMessage() {
 }
 
 // ====== 执行控制 ======
-async function controlAgent(action) {
+async function stopAgent() {
   if (!currentSessionId.value || ctlBusy.value) return
   ctlBusy.value = true
   try {
-    const data = await request.post(`/agent/${action}`, null, {
+    const data = await request.post('/agent/stop', null, {
       params: { sessionId: currentSessionId.value },
     })
     const applied = !!data?.applied
     appendLog({
       time: now(),
       type: 'SYS',
-      text: `已请求${actionLabel(action)}${applied ? '' : '（当前无运行中的执行，已忽略）'}`,
+      text: `已请求停止${applied ? '' : '（当前无运行中的执行，已忽略）'}`,
     })
     if (!applied) {
       executing.value = false
-      paused.value = false
       return
     }
-    if (action === 'pause') paused.value = true
-    else if (action === 'resume') paused.value = false
-    else if (action === 'stop') {
-      // stop 在后端立即取消后台任务；EXECUTION_CANCELLED 事件随后会把状态归零
-      paused.value = false
-      executing.value = false
-    }
+    executing.value = false
   } catch (e) {
     // 404：该会话此刻没有运行中的执行；其它错误原样提示
     executing.value = false
-    paused.value = false
-    appendLog({ time: now(), type: 'ERROR', text: `${actionLabel(action)}失败：${e?.message || e}` })
+    appendLog({ time: now(), type: 'ERROR', text: `停止失败：${e?.message || e}` })
   } finally {
     ctlBusy.value = false
   }
-}
-
-function actionLabel(action) {
-  return { pause: '暂停', resume: '恢复', stop: '停止' }[action] || action
 }
 
 // ====== 会话管理 ======
@@ -968,7 +760,6 @@ function newSession() {
   events.value = []
   drawerPendingEdits.value = []
   executing.value = false
-  paused.value = false
   showSessionRename.value = false
   loadContextUsage()
   appendLog({ time: now(), type: 'SYS', text: '已新建会话，发送消息后将自动创建 sessionId' })
@@ -984,7 +775,6 @@ async function switchSession(session) {
   loadContextUsage()
   // 先清空旧会话状态，再从后端恢复目标会话的真实执行状态。
   executing.value = false
-  paused.value = false
   showSessionRename.value = false
 
   // 历史消息、执行状态以及文件待决变更彼此独立恢复；某一接口失败不影响其它模块
@@ -1024,7 +814,7 @@ async function switchSession(session) {
     let pendingAiToolCalls = []
 
     for (const m of data?.messages || []) {
-      if (m.type === 'USER' && !m.internal) {
+      if (m.type === 'USER') {
         events.value.push({ time: '', type: 'USER', text: m.text || '' })
       } else if (m.type === 'AI') {
         if (Array.isArray(m.toolCalls)) {
@@ -1112,7 +902,6 @@ async function switchSession(session) {
 
   if (statusResult.status === 'fulfilled') {
     executing.value = !!statusResult.value?.running
-    paused.value = executing.value && !!statusResult.value?.paused
   } else {
     appendLog({ time: now(), type: 'ERROR', text: `加载执行状态失败：${statusResult.reason?.message || statusResult.reason}` })
   }
@@ -1618,78 +1407,6 @@ onBeforeUnmount(() => {
                 </div>
               </div>
 
-              <!-- 消息体 5: 命令审批卡片 (WAIT_COMMAND_CHECK) -->
-              <div v-else-if="item.type === 'WAIT_COMMAND_CHECK'" class="tool-event ack-event">
-                <div class="ack-card" :class="{ decided: !!item.decision }">
-                  <div class="ack-head">
-                    <span class="ack-icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                    </span>
-                    <div class="ack-info">
-                      <span class="ack-title">{{ ackTitle(item) }}</span>
-                      <span class="ack-sub">{{ ackSub(item) }}</span>
-                    </div>
-                  </div>
-                  <pre class="ack-command">{{ item.command || '（无命令内容）' }}</pre>
-                  <div v-if="!item.decision" class="ack-actions">
-                    <button class="decision-btn keep" :disabled="item.deciding" @click="decideCommandAck(item, true)">批准执行</button>
-                    <button class="decision-btn undo" :disabled="item.deciding" @click="decideCommandAck(item, false)">拒绝</button>
-                  </div>
-                  <div v-else class="ack-result" :class="item.decision">
-                    {{ item.decision === 'ACCEPTED' ? '已批准，命令将继续执行' : item.decision === 'REJECTED' ? '已拒绝，已取消执行' : '已在其他端完成审批' }}
-                  </div>
-                </div>
-              </div>
-
-              <!-- 消息体 6: 需求选择卡片 (WAIT_USER_CHOICE) -->
-              <div v-else-if="item.type === 'WAIT_USER_CHOICE'" class="tool-event ack-event">
-                <div class="ack-card choice-card" :class="{ decided: !!item.decision }">
-                  <div class="ack-head">
-                    <span class="ack-icon" aria-hidden="true">
-                      <ToolIcon kind="choice" :status="choiceIconStatus(item)" size="15" />
-                    </span>
-                    <div class="ack-info">
-                      <span class="ack-title">{{ choiceTitle(item) }}</span>
-                      <span class="ack-sub">{{ choiceSub(item) }}</span>
-                    </div>
-                  </div>
-                  <p class="choice-question">{{ item.question || '（模型提请确认方案）' }}</p>
-                  <div v-if="!item.decision" class="choice-options">
-                    <button
-                      v-for="(opt, idx) in item.choices"
-                      :key="idx"
-                      class="choice-btn"
-                      :disabled="item.deciding"
-                      @click="decideUserChoice(item, opt)"
-                    >{{ opt }}</button>
-                    <span v-if="!item.choices.length" class="choice-empty">模型未给出候选方案，请直接输入</span>
-                  </div>
-                  <!-- 自定义输入 -->
-                  <div v-if="!item.decision && item.allowCustomInput" class="choice-custom">
-                    <input
-                      v-model="item.customInput"
-                      class="choice-input"
-                      type="text"
-                      :maxlength="MAX_CHOICE_LEN"
-                      :disabled="item.deciding"
-                      :placeholder="item.choices.length ? '都不合适？直接输入你的方案，回车提交' : '输入你的方案，回车提交'"
-                      @keyup.enter="submitCustomChoice(item)"
-                    />
-                    <button
-                      class="choice-submit"
-                      :disabled="!canSubmitCustom(item)"
-                      @click="submitCustomChoice(item)"
-                    >{{ item.deciding ? '提交中…' : '提交' }}</button>
-                  </div>
-                  <p v-if="!item.decision && item.inputError" class="choice-error">{{ item.inputError }}</p>
-                  <div v-else-if="item.decision" class="ack-result" :class="item.decision === 'DECIDED' ? 'ACCEPTED' : item.decision">
-                    {{ item.decision === 'DECIDED'
-                      ? `${item.custom ? '已提交自定义方案' : '已选择方案'}：${item.choice}`
-                      : item.decision === 'STALE' ? '已结束或被其他端处理' : '已决断' }}
-                  </div>
-                </div>
-              </div>
-
               <!-- 消息体 8: 本轮执行完成统计卡片 -->
               <div v-else-if="item.type === 'EXECUTION_COMPLETED'" class="done-card">
                 <div class="done-check" aria-hidden="true">
@@ -1776,40 +1493,7 @@ onBeforeUnmount(() => {
                 </transition>
               </div>
 
-              <!-- 上拉框 2: 执行模式 (craft / plan) -->
-              <div class="ack-picker" ref="modePickerEl">
-                <button
-                  type="button"
-                  class="ack-trigger"
-                  :class="{ open: modeOpen }"
-                  :title="`执行模式 ${currentMode.value}：${currentMode.desc}`"
-                  @click.stop="modeOpen = !modeOpen"
-                >
-                  <span class="ack-trigger-text">{{ currentMode.short }}</span>
-                  <svg class="chevron-svg" :class="{ rotated: modeOpen }" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                </button>
-                <transition name="dock-pop">
-                  <div v-if="modeOpen" class="ack-menu narrow">
-                    <div class="ack-menu-title">执行模式</div>
-                    <button
-                      v-for="m in AGENT_MODES"
-                      :key="m.value"
-                      type="button"
-                      class="ack-option"
-                      :class="{ active: m.value === agentMode }"
-                      @click="setAgentMode(m.value)"
-                    >
-                      <span class="ack-option-main">
-                        <span class="ack-option-label">{{ m.short.toUpperCase() }}</span>
-                        <span class="ack-option-value">{{ m.desc }}</span>
-                      </span>
-                      <span v-if="m.value === agentMode" class="ack-check" aria-hidden="true">✓</span>
-                    </button>
-                  </div>
-                </transition>
-              </div>
-
-              <!-- 上拉抽屉 3: 待审阅文件抽屉 (Docks) -->
+              <!-- 上拉抽屉 2: 待审阅文件抽屉 (Docks) -->
               <div class="docks">
                 <div class="dock dock-file" :class="{ 'dock-open': fileDockOpen }">
                   <button type="button" class="dock-head" @click="fileDockOpen = !fileDockOpen" :aria-expanded="fileDockOpen">
@@ -1891,11 +1575,11 @@ onBeforeUnmount(() => {
               
               <!-- 发送 / 停止微交互按钮 -->
               <button
-                v-if="executing || paused"
+                v-if="executing"
                 class="stop-btn"
                 :disabled="ctlBusy"
                 title="停止执行"
-                @click="controlAgent('stop')"
+                @click="stopAgent"
               >
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="3"/></svg>
               </button>

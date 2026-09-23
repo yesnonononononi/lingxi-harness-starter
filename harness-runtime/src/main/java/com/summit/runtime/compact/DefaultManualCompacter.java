@@ -5,8 +5,6 @@ import com.summit.core.compact.ContextCompactRequest;
 import com.summit.core.compact.ContextUsageMetric;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.Tokenizer;
-import com.summit.core.conversation.ConversationEntity;
-import com.summit.core.conversation.ConversationStore;
 import com.summit.core.conversation.event.ContextUpdateEvent;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.conversation.message.AiMessageEntity;
@@ -16,24 +14,9 @@ import com.summit.runtime.agent.AgentConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-import java.io.Serializable;
 import java.util.List;
-import java.util.Optional;
 
-/**
- * Manual (local) compaction: calls no model and simply truncates the oldest tool rounds of the session.
- *
- * <ul>
- *   <li>a squeezed round keeps its {@link AiMessageEntity} thinking and drops the text;</li>
- *   <li>the round's tool-result messages are truncated into a short stub (the AiMessage-&gt;tool pairing stays intact);</li>
- *   <li>a round already at its minimum (no thinking / tool call / tool result) is removed entirely.</li>
- * </ul>
- *
- * <p>Serves the {@code ContextSqueezeRequest#shouldSqueeze()} band: triggered by the runtime checkpoint
- * and executed in a blocking way — only after it returns does the main loop start its next round.
- * A {@link ContextUpdateEvent} carrying the usage is published before and after, so the front-end can
- * render the context usage state.</p>
- */
+/** Manual (local) compaction: calls no model and simply truncates the oldest tool rounds of the session. */
 @Slf4j
 @RequiredArgsConstructor
 public class DefaultManualCompacter implements ContextCompacter {
@@ -44,7 +27,6 @@ public class DefaultManualCompacter implements ContextCompacter {
     /** Tool results of a squeezed round are kept as short stubs (truncated by token count) so the pairing stays valid for the model. */
     private static final int TOOL_RESULT_STUB_TOKENS = 64;
 
-    private final ConversationStore conversationStore;
     private final ContextAttachmentProvider contextAttachmentProvider;
     private final Tokenizer tokenizer;
     private final AgentConfig agentConfig;
@@ -52,44 +34,35 @@ public class DefaultManualCompacter implements ContextCompacter {
 
     @Override
     public boolean compact(ContextCompactRequest request) {
-        Serializable sessionId = request.sessionId();
-        Optional<ConversationEntity> entityOptional = conversationStore.get(sessionId);
-        if (entityOptional.isEmpty()) {
-            log.warn("【context-squeeze】conversation not found, manual compact skipped: sessionId={}", sessionId);
-            return false;
-        }
-        ConversationEntity conversation = entityOptional.get();
-        if (conversation.messages().isEmpty()) {
-            log.warn("【context-squeeze】empty conversation, manual compact skipped: sessionId={}", sessionId);
+        var execution = request.execution();
+        List<Message> messages = execution.getMessages();
+        if (messages == null || messages.isEmpty()) {
+            log.warn("【context-squeeze】empty context, manual compact skipped: executionId={}", execution.getId());
             return false;
         }
 
-        // A produced plan must be kept verbatim and can never be truncated away; it is rendered
-        // through the shared PlanOutline so every consumer sees the same text.
-        String protectedPlanText = contextAttachmentProvider.attachment(sessionId).orElse(null);
+        String protectedAttachment = contextAttachmentProvider.attachment(execution.getId()).orElse(null);
 
-        publish(sessionId, request.executionId(), ContextUpdateEvent.Phase.SQUEEZE_STARTED,
-              null, "本地手动压缩（按轮截断）已开始");
+        publish(execution.getId(), ContextUpdateEvent.Phase.SQUEEZE_STARTED,
+              null, "manual squeeze started");
 
         int maxRounds = maxRoundsOf(request);
         int processed = 0;
 
         for (int attempt = 0; attempt < maxRounds; attempt++) {
-            int squeezed = squeezeOldestRound(conversation.messages(), protectedPlanText);
+            int squeezed = squeezeOldestRound(messages, protectedAttachment);
             if (squeezed <= 0) {
                 break;
             }
             processed += squeezed;
         }
         if (processed <= 0) {
-            log.info("【context-squeeze】no older round can be squeezed further, skip: sessionId={}", sessionId);
+            log.info("【context-squeeze】no older round can be squeezed further, skip: executionId={}", execution.getId());
             return false;
         }
 
-        conversationStore.save(sessionId, conversation);
-
-        publish(sessionId, request.executionId(), ContextUpdateEvent.Phase.SQUEEZE_COMPLETED,
-                this.tokenizer.usage(conversation.messages(),agentConfig.maxTokens()), "本地手动压缩完成");
+        publish(execution.getId(), ContextUpdateEvent.Phase.SQUEEZE_COMPLETED,
+                this.tokenizer.usage(messages,agentConfig.maxTokens()), "manual squeeze completed");
         return true;
     }
 
@@ -102,20 +75,16 @@ public class DefaultManualCompacter implements ContextCompacter {
         return DEFAULT_MAX_TRUNCATE_ROUNDS;
     }
 
-    /**
-     * Finds and squeezes the oldest squeezable round that does not carry the protected plan.
-     *
-     * @return 1 when a round was actually rewritten; 0 when there is nothing to squeeze
-     */
-    private int squeezeOldestRound(List<Message> messages, String protectedPlanText) {
+    /** Finds and squeezes the oldest squeezable round that does not carry the protected application state. */
+    private int squeezeOldestRound(List<Message> messages, String protectedAttachment) {
         for (int i = 1; i < messages.size(); i++) {
             Message message = messages.get(i);
             if (!(message instanceof AiMessageEntity ai)) {
                 continue;
             }
-            if (protectedPlanText != null && !protectedPlanText.isBlank()
-                    && protectedPlanText.equals(ai.text())) {
-                // the round carrying the plan is never truncated
+            if (protectedAttachment != null && !protectedAttachment.isBlank()
+                    && protectedAttachment.equals(ai.text())) {
+                // the round carrying the protected state is never truncated
                 continue;
             }
             if (squeezeRoundAt(messages, i) > 0) {
@@ -126,13 +95,7 @@ public class DefaultManualCompacter implements ContextCompacter {
         return 0;
     }
 
-    /**
-     * Squeezes the tool round starting at {@code start} (an AiMessage): drops its text (keeps thinking),
-     * truncates the following tool-result messages into short stubs, and removes the whole round when it
-     * is already empty.
-     *
-     * @return 1 when the round was rewritten; 0 when it is already at its minimum
-     */
+    /** Squeezes the tool round starting at {@code start} (an AiMessage): drops its text (keeps thinking), truncates the following tool-result messages into short stubs, and removes the whole round when it is already empty. */
     private int squeezeRoundAt(List<Message> messages, int start) {
         AiMessageEntity ai = (AiMessageEntity) messages.get(start);
         boolean hasText = ai.text() != null && !ai.text().isBlank();
@@ -168,9 +131,9 @@ public class DefaultManualCompacter implements ContextCompacter {
 
 
 
-    private void publish(Serializable sessionId, String executionId, ContextUpdateEvent.Phase phase,
+    private void publish(String executionId, ContextUpdateEvent.Phase phase,
                          ContextUsageMetric usage, String prefix) {
-        runtimeEventPublisher.onContextUpdate(new ContextUpdateEvent(sessionId, executionId, phase, usage,
+        runtimeEventPublisher.onContextUpdate(new ContextUpdateEvent(executionId, phase, usage,
                 usage == null ? prefix
                         : String.format("%s：当前上下文占用 %d / %d tokens（%.1f%%）", prefix,
                         usage.tokenCount(), usage.maxTokens(), usage.ratio() * 100)));

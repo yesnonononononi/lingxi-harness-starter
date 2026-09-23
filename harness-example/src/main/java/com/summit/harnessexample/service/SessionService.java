@@ -2,12 +2,11 @@ package com.summit.harnessexample.service;
 
 import com.summit.core.compact.ContextUsageMetric;
 import com.summit.core.compact.Tokenizer;
-import com.summit.core.conversation.ConversationEntity;
 import com.summit.core.conversation.message.Message;
-import com.summit.core.conversation.message.UserMessageEntity;
+import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.harnessexample.common.ApiException;
-import com.summit.harnessexample.session_policy.RedisConversationStore;
-import com.summit.harnessexample.session_policy.SessionSummary;
+import com.summit.harnessexample.session_policy.ConversationRecord;
+import com.summit.harnessexample.session_policy.RedisConversationRepository;
 import com.summit.runtime.agent.AgentConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,19 +28,18 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class SessionService {
 
-    private final RedisConversationStore conversationStore;
+    private final RedisConversationRepository conversationRepository;
     private final Tokenizer tokenizer;
     private final AgentConfig agentConfig;
 
     /** Lightweight summaries of every stored session. */
     public Map<String, Object> list() {
         List<Map<String, Object>> sessions = new ArrayList<>();
-        for (SessionSummary summary : conversationStore.sessionSummaries()) {
+        for (ConversationRecord summary : conversationRepository.findAll()) {
             Map<String, Object> session = new LinkedHashMap<>();
-            session.put("sessionId", summary.sessionId());
-            session.put("sessionName", summary.sessionName() == null || summary.sessionName().isBlank()
-                    ? defaultSessionName(String.valueOf(summary.sessionId()))
-                    : summary.sessionName());
+            session.put("sessionId", summary.conversationId());
+            session.put("sessionName", summary.name() == null || summary.name().isBlank()
+                    ? defaultSessionName(summary.conversationId()) : summary.name());
             sessions.add(session);
         }
         return Map.of("sessions", sessions);
@@ -53,12 +51,12 @@ public class SessionService {
      * exactly what the framework persists instead of an example-private display DTO.
      */
     public Map<String, Object> messages(String sessionId) {
-        ConversationEntity entity = conversationStore.get(sessionId)
+        ConversationRecord entity = conversationRepository.find(sessionId)
                 .orElseThrow(() -> ApiException.notFound("session not found: " + sessionId));
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("sessionId", sessionId);
-        data.put("sessionName", entity.sessionName());
+        data.put("sessionName", entity.name());
         data.put("messages", entity.messages().stream()
                 .filter(this::isDisplayMessage)
                 .toList());
@@ -66,11 +64,11 @@ public class SessionService {
     }
 
     /**
-     * Keeps framework control prompts out of user-visible history: such messages are flagged
-     * {@code internal} by whoever injects them, so the history shows only what the user typed.
+     * Keeps system prompts out of user-visible history: framework-injected instructions travel as
+     * {@link SystemMessageEntity}, so the history shows only what the user and the assistant said.
      */
     private boolean isDisplayMessage(Message message) {
-        return !(message instanceof UserMessageEntity userMessage) || !userMessage.isInternal();
+        return !(message instanceof SystemMessageEntity);
     }
 
     /**
@@ -81,8 +79,8 @@ public class SessionService {
     public Map<String, Object> usage(String sessionId) {
         List<Message> messages = List.of();
         if (!isBlank(sessionId)) {
-            messages = conversationStore.get(sessionId)
-                    .map(ConversationEntity::messages)
+            messages = conversationRepository.find(sessionId)
+                    .map(ConversationRecord::messages)
                     .orElseGet(List::of);
         }
 
@@ -101,9 +99,9 @@ public class SessionService {
         if (isBlank(sessionId) || isBlank(sessionName)) {
             throw ApiException.badRequest("sessionId and sessionName must not be blank");
         }
-        ConversationEntity existing = conversationStore.get(sessionId)
+        ConversationRecord existing = conversationRepository.find(sessionId)
                 .orElseThrow(() -> ApiException.notFound("session not found: " + sessionId));
-        conversationStore.save(sessionId, existing.withSessionName(sessionName));
+        conversationRepository.save(existing.withName(sessionName));
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("sessionId", sessionId);
@@ -116,7 +114,7 @@ public class SessionService {
         if (isBlank(sessionId)) {
             throw ApiException.badRequest("sessionId must not be blank");
         }
-        Optional<ConversationEntity> removed = conversationStore.removeAndReturn(sessionId);
+        Optional<ConversationRecord> removed = conversationRepository.remove(sessionId);
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("sessionId", sessionId);
@@ -126,7 +124,7 @@ public class SessionService {
 
     /** Total number of stored sessions (health / dashboards). */
     public int count() {
-        return conversationStore.sessionSummaries().size();
+        return conversationRepository.findAll().size();
     }
 
     /** Collapses whitespace and truncates the first instruction into a session title. */

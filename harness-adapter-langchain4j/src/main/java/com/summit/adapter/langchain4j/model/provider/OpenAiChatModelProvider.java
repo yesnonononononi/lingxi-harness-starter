@@ -1,8 +1,9 @@
 package com.summit.adapter.langchain4j.model.provider;
 
 import com.summit.adapter.langchain4j.model.ChatModelAdapter;
-import com.summit.core.model.ChatModelProvider;
-import com.summit.core.model.ModelConfig;
+import com.summit.core.model.chat.ChatModelProvider;
+import com.summit.core.conf.ModelConfig;
+import com.summit.core.model.DefaultModelProviderNames;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 
 /** OpenAI-protocol reasoning model provider, provider name {@code default}. */
@@ -10,7 +11,7 @@ public class OpenAiChatModelProvider implements ChatModelProvider {
 
     @Override
     public String name() {
-        return "default";
+        return DefaultModelProviderNames.DEFAULT;
     }
 
     @Override

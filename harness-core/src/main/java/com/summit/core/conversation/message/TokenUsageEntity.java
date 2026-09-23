@@ -19,7 +19,7 @@ public class TokenUsageEntity {
         return of(0, 0, 0);
     }
 
-    /** Accumulates the given usage into this instance for session-level aggregation across turns. */
+    /** Accumulates the given usage into this execution across model turns. */
     public void add(TokenUsageEntity other) {
         if (other == null) {
             return;

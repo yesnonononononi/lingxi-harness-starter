@@ -1,8 +1,8 @@
 package com.summit.harnessexample;
 
-import com.summit.core.runtime.OsType;
+import com.summit.core.runtime.workspace.OsType;
 import com.summit.core.runtime.RuntimeEnvironment;
-import com.summit.core.runtime.ShellType;
+import com.summit.core.runtime.workspace.ShellType;
 import com.summit.core.runtime.workspace.Workspace;
 import org.jspecify.annotations.NonNull;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -16,7 +16,6 @@ import java.nio.file.Paths;
 @Component
 @ConditionalOnProperty(name = "lingxi.agent.workspace", havingValue = "local", matchIfMissing = true)
 public class LocalWorkSpace implements Workspace {
-    private volatile boolean allowOutsideWorkspace = true;
     private volatile String workDir = null;
 
     @Override
@@ -39,25 +38,18 @@ public class LocalWorkSpace implements Workspace {
         return workDir == null ? System.getProperty("user.dir") : workDir;
     }
 
+    /** Geometric resolution only: whether an outside path may be used is decided by the caller, using {@link #encloses(Path)} and the per-request switch. */
     @Override
     public Path resolve(@NonNull String path) {
-        String workDir = this.workDir();
-        Path wd = Paths.get(workDir).normalize();
-        Path result = wd.resolve(path).normalize();
-        if (!allowOutsideWorkspace) {
-            if (!result.startsWith(wd)) {
-                throw new IllegalArgumentException("File path is out of workspace");
-            }
+        Path root = Paths.get(workDir()).toAbsolutePath().normalize();
+        if (path == null || path.isBlank()) {
+            return root;
         }
-        return result;
+        Path input = Paths.get(path);
+        return (input.isAbsolute() ? input : root.resolve(path)).normalize();
     }
 
-    /**
-     * Switches the workspace working directory.
-     *
-     * @param workDir the new absolute working directory
-     * @throws IllegalArgumentException if the path is blank or does not point to an existing directory
-     */
+    /** Switches the workspace working directory. */
     public void updateWorkDir(String workDir) {
         if (workDir == null || workDir.isBlank()) {
             throw new IllegalArgumentException("workDir must not be blank");

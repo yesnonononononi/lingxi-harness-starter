@@ -3,7 +3,7 @@ package com.summit.core.workspace;
 import java.util.Map;
 
 /** Generic workspace specification useful for configuration and custom providers. */
-public record BasicWorkspaceSpec(String provider, String workDir,
+public record BasicWorkspaceSpec(String provider, String workDir, String scope,
                                  Map<String, String> configuration) implements WorkspaceSpec {
     public BasicWorkspaceSpec {
         if (provider == null || provider.isBlank()) {
@@ -16,6 +16,10 @@ public record BasicWorkspaceSpec(String provider, String workDir,
     }
 
     public BasicWorkspaceSpec(String provider, String workDir) {
-        this(provider, workDir, Map.of());
+        this(provider, workDir, null, Map.of());
+    }
+
+    public BasicWorkspaceSpec(String provider, String workDir, Map<String, String> configuration) {
+        this(provider, workDir, null, configuration);
     }
 }

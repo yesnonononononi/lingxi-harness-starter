@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.workspace.WorkspaceManager;
 import com.summit.core.workspace.WorkspaceRecord;
-import com.summit.core.workspace.WorkspaceRef;
 import com.summit.runtime.sandbox.DockerSandboxImage;
 import com.summit.sandbox.docker.DockerWorkspaceProvider;
 import com.summit.sandbox.docker.DockerWorkspaceSpec;
@@ -25,7 +24,6 @@ import java.security.NoSuchAlgorithmException;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * Application-level "select a workspace folder" logic for the docker sandbox
@@ -130,9 +128,8 @@ public class WorkspaceSandboxService {
     public Map<String, Object> current() {
         WorkspaceState current = ensureState();
         String workDir = activeWorkspace.get().workDir();
-        // local 模式下宿主目录即工作目录，POST /agent/workdir 改的就是它；快照里的 hostDir
-        // 不会随之更新，这里以 active workspace 的实时值为准，避免 current 返回
-        // 「旧宿主目录 + 新工作目录」的自相矛盾数据。
+        // In local mode the host directory is the work directory, and POST /agent/workdir changes it.
+        // The snapshot keeps the old hostDir, so read the live value to avoid self-contradicting data.
         if (MODE_LOCAL.equals(current.mode()) && workDir != null && !workDir.isBlank()
                 && !workDir.equals(current.hostDir())) {
             current = new WorkspaceState(workDir, current.containerId(),
@@ -152,9 +149,15 @@ public class WorkspaceSandboxService {
 
     private WorkspaceState selectDocker(String hostDir) {
         String name = deterministicContainerName(hostDir);
-        WorkspaceRecord record = workspaceManager.create(
-                new DockerWorkspaceSpec(new WorkspaceRef(UUID.randomUUID().toString()),workdirRoot(), name, containerImage, hostDir,
-                        containerPort, true));
+        WorkspaceRecord record = workspaceManager.resolve(
+                DockerWorkspaceSpec.builder()
+                        .workDir(workdirRoot())
+                        .containerName(name)
+                        .image(containerImage)
+                        .hostDir(hostDir)
+                        .port(containerPort)
+                        .reuseByHostDirectory(true)
+                        .build());
         Workspace workspace = workspaceManager.acquire(record.ref());
         activeWorkspace.swap(workspace);
         String containerId = record.providerState().get(DockerWorkspaceProvider.CONTAINER_ID);

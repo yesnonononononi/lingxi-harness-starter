@@ -1,5 +1,7 @@
 package com.summit.core.runtime;
 
+import com.summit.core.runtime.workspace.OsType;
+import com.summit.core.runtime.workspace.ShellType;
 import com.summit.core.runtime.workspace.Workspace;
 import lombok.Builder;
 

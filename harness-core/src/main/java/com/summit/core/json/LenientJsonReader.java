@@ -4,16 +4,7 @@ import com.fasterxml.jackson.core.json.JsonReadFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 
-/**
- * Lenient JSON reader shared by every call site that has to parse a model's raw output
- * (context-compaction summary, plan text, ...).
- *
- * <p>LLM output is rarely strictly valid JSON: it is often wrapped in {@code ```json} fences
- * or surrounded by prose, and may contain unescaped control characters, single-quoted strings,
- * unquoted field names, trailing commas or comments. Instead of strict parsing this reader
- * locates the first balanced JSON object (string/escape aware) and parses it with a lenient
- * mapper, so such quirks do not silently turn a usable answer into {@code null}.</p>
- */
+/** Lenient JSON reader shared by every call site that has to parse a model's raw output (context-compaction summary, application-supplied state, ...). */
 public final class LenientJsonReader {
 
     /** Lenient mapper: tolerates unescaped control chars / single quotes / unquoted fields / trailing commas / comments. */
@@ -28,25 +19,13 @@ public final class LenientJsonReader {
     private LenientJsonReader() {
     }
 
-    /**
-     * Reads the first JSON object of the given text: the balanced object span is extracted
-     * first (tolerating fences and surrounding prose), and the whole text is tried as a
-     * fallback when no object span is found.
-     *
-     * @param raw raw model output
-     * @return the parsed node, or {@code null} when the text holds no parseable JSON
-     */
+    /** Reads the first JSON object of the given text: the balanced object span is extracted first (tolerating fences and surrounding prose), and the whole text is tried as a fallback when no object span is found. */
     public static JsonNode readFirstObject(String raw) {
         JsonNode node = readTree(extractJsonObject(raw));
         return node == null ? readTree(raw) : node;
     }
 
-    /**
-     * Parses the given text with the lenient mapper.
-     *
-     * @param raw text to parse
-     * @return the parsed node, or {@code null} when the text is blank or unparseable
-     */
+    /** Parses the given text with the lenient mapper. */
     public static JsonNode readTree(String raw) {
         if (raw == null || raw.isBlank()) {
             return null;
@@ -58,14 +37,7 @@ public final class LenientJsonReader {
         }
     }
 
-    /**
-     * Extracts the first balanced JSON object from arbitrary text.
-     * The scan is string-aware (double quotes and escapes), so braces inside a string value
-     * do not break brace matching.
-     *
-     * @param raw arbitrary text
-     * @return the object span including its braces, or {@code null} when none is found
-     */
+    /** Extracts the first balanced JSON object from arbitrary text. */
     public static String extractJsonObject(String raw) {
         if (raw == null || raw.isBlank()) {
             return null;

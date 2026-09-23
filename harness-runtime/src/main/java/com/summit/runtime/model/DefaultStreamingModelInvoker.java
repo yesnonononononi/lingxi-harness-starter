@@ -17,7 +17,7 @@ public class DefaultStreamingModelInvoker implements ModelInvoker {
 
 
     @Override
-    public ChatResponseEntity invoke(ModelChatCommand chatCommand) {
+    public ChatResponseEntity invoke(ModelChatCommand chatCommand) throws Exception {
         if (!chatCommand.streaming()) {
             throw new IllegalStateException("streaming invoker only accepts a streaming model command");
         }

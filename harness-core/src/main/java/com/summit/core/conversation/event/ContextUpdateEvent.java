@@ -3,7 +3,6 @@ package com.summit.core.conversation.event;
 import com.summit.core.compact.ContextUsageMetric;
 import lombok.Data;
 
-import java.io.Serializable;
 import java.time.Instant;
 
 /**
@@ -29,7 +28,6 @@ public class ContextUpdateEvent implements AgentEvent {
         SQUEEZE_COMPLETED
     }
 
-    private final Serializable sessionId;
     private final String executionId;
     /** Event phase: squeeze started / rebuild finished. */
     private final Phase phase;
@@ -38,6 +36,8 @@ public class ContextUpdateEvent implements AgentEvent {
     /** Human-readable progress message for the UI and logs (optional). */
     private final String message;
 
+    private final Instant timestamp = Instant.now();
+
     @Override
     public String executionId() {
         return executionId;
@@ -45,6 +45,11 @@ public class ContextUpdateEvent implements AgentEvent {
 
     @Override
     public Instant timestamp() {
-        return Instant.now();
+        return timestamp;
+    }
+
+    @Override
+    public RuntimeEventType type() {
+        return RuntimeEventType.CONTEXT_UPDATE;
     }
 }

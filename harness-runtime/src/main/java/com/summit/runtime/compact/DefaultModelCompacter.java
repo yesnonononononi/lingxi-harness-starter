@@ -19,26 +19,16 @@ import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.ToolMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
-import com.summit.core.model.ChatModel;
+import com.summit.core.model.chat.ChatModel;
 import com.summit.runtime.agent.AgentConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-/**
- * Model deep compaction: asks the compact model ({@code defaultContextCompactModel}) for a summary of
- * the conversation history and rebuilds the session from it ({@code ConversationManager#rebuildContext}).
- *
- * <p>Serves the {@code ContextSqueezeRequest#expectAdvanceSqueeze()} band: triggered by the runtime
- * checkpoint and executed in a blocking way (the compact-model call is synchronous). Only after the
- * rebuild finishes does the main loop start its next round, so the main model no longer has to invoke
- * {@code compact_context} itself. A {@link ContextUpdateEvent} carrying the usage is published before
- * and after, so the front-end can render the context usage state.</p>
- */
+/** Model deep compaction: asks the compact model ({@code defaultContextCompactModel}) for a summary of the conversation history and rebuilds the session from it ({@code ConversationManager#rebuildContext}). */
 @Slf4j
 @RequiredArgsConstructor
 public class DefaultModelCompacter implements ContextCompacter {
@@ -52,22 +42,24 @@ public class DefaultModelCompacter implements ContextCompacter {
 
     @Override
     public boolean compact(ContextCompactRequest request) {
-        Serializable sessionId = request.sessionId();
+        var execution = request.execution();
+        String executionId = execution.getId();
         try {
-            List<Message> messages = conversationManager.messages(sessionId);
+            List<Message> messages = conversationManager.messages(execution);
             if (messages.isEmpty()) {
-                log.warn("【context-compact】empty conversation, model compact skipped: sessionId={}", sessionId);
+                log.warn("【context-compact】empty context, model compact skipped: executionId={}", executionId);
                 return false;
             }
 
-            publish(sessionId, request.executionId(), ContextUpdateEvent.Phase.SQUEEZE_STARTED,
+            publish(executionId, ContextUpdateEvent.Phase.SQUEEZE_STARTED,
                     usage(messages), "模型深度压缩已开始");
 
-            Optional<String> protectedContext = contextAttachmentProvider.attachment(sessionId);
+            Optional<String> protectedContext = contextAttachmentProvider.attachment(executionId);
             StringBuilder systemPrompt = new StringBuilder(ContextCompactionPrompt.BASE_COMPACTION_PROMPT);
             protectedContext.ifPresent(value -> systemPrompt.append("\nPreserve the attached application state verbatim."));
 
             String history = renderConversation(messages);
+
             String payload = protectedContext
                     .map(value -> history + "\n\n[PROTECTED APPLICATION STATE]\n" + value)
                     .orElse(history);
@@ -76,36 +68,32 @@ public class DefaultModelCompacter implements ContextCompacter {
             compactMessages.add(SystemMessageEntity.builder().text(systemPrompt.toString()).build());
             compactMessages.add(UserMessageEntity.from(payload));
 
-            ChatRequestEntity compactRequest = ChatRequestEntity.builder()
-                    .messages(compactMessages)
-                    .build();
-            ChatResponseEntity response = this.chatModel.chat(compactRequest);
-            log.info("【compact-model】compact model responded: executionId={}, thinking={}",
-                    request.executionId(), response.getAiMessageEntity().getThinking());
+            ChatResponseEntity response = this.chatModel.chat(
+                    ChatRequestEntity.builder()
+                            .messages(compactMessages)
+                            .build()
+            );
 
             ContextSummary summary = CompactSummaryResolver.resolve(response.getAiMessageEntity().text());
+
             if (summary == null) {
                 log.warn("【context-compact】compact model returned no usable summary, context rebuild skipped, "
-                        + "executionId={}", request.executionId());
+                        + "executionId={}", executionId);
                 return false;
             }
 
-            conversationManager.rebuildContext(summary, sessionId);
-            publish(sessionId, request.executionId(), ContextUpdateEvent.Phase.SQUEEZE_COMPLETED,
-                    usage(conversationManager.messages(sessionId)), "模型深度压缩完成，会话已重建");
-            log.info("【context-compact】model compact done: sessionId={}, executionId={}", sessionId, request.executionId());
+            conversationManager.rebuildContext(summary, execution);
+            publish(executionId, ContextUpdateEvent.Phase.SQUEEZE_COMPLETED,
+                    usage(conversationManager.messages(execution)), "模型深度压缩完成，上下文已重建");
+            log.info("【context-compact】model compact done: executionId={}", executionId);
             return true;
         } catch (Exception e) {
-            log.error("【context-compact】model compact failed: sessionId={}, executionId={}", sessionId, request.executionId(), e);
+            log.error("【context-compact】model compact failed: executionId={}", executionId, e);
             return false;
         }
     }
 
-    /**
-     * Renders the session messages into a plain-text history as the compact-model input.
-     * The first system message (the session's base boundary / system prompt) is skipped so the system
-     * prompt is not fed into the compact model.
-     */
+    /** Renders the session messages into a plain-text history as the compact-model input. */
     private String renderConversation(List<Message> messages) {
         StringBuilder history = new StringBuilder();
         for (int i = 0; i < messages.size(); i++) {
@@ -116,7 +104,7 @@ public class DefaultModelCompacter implements ContextCompacter {
             if (message instanceof SystemMessageEntity systemMessage) {
                 appendLine(history, "[系统]", systemMessage.getText());
             } else if (message instanceof UserMessageEntity userMessage) {
-                appendLine(history, "[用户]", userMessage.getText());
+                appendLine(history, "[用户]", userMessage.text());
             } else if (message instanceof AiMessageEntity aiMessage) {
                 appendLine(history, "[助手]", aiMessage.getText());
                 if (aiMessage.getToolCalls() != null) {
@@ -152,9 +140,9 @@ public class DefaultModelCompacter implements ContextCompacter {
                 tokenizer.calcCurrentTokenRatio(messages, maxTokens));
     }
 
-    private void publish(Serializable sessionId, String executionId, ContextUpdateEvent.Phase phase,
+    private void publish(String executionId, ContextUpdateEvent.Phase phase,
                          ContextUsageMetric usage, String prefix) {
-        runtimeEventPublisher.onContextUpdate(new ContextUpdateEvent(sessionId, executionId, phase, usage,
+        runtimeEventPublisher.onContextUpdate(new ContextUpdateEvent(executionId, phase, usage,
                 usage == null ? prefix
                         : String.format("%s：当前上下文占用 %d / %d tokens（%.1f%%）", prefix,
                         usage.tokenCount(), usage.maxTokens(), usage.ratio() * 100)));

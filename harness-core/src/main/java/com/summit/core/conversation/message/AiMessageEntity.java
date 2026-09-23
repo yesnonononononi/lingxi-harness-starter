@@ -19,6 +19,7 @@ public class AiMessageEntity implements Message{
     private List<ToolCallRequest> toolCalls;
     private final MessageType type = MessageType.AI;
 
+
     @Override
     public String text() {
         return this.text;

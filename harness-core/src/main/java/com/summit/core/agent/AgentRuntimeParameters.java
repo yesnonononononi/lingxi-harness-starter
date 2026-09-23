@@ -1,28 +1,22 @@
 package com.summit.core.agent;
 
-import com.summit.core.tool.CommandConfirmLevel;
-import com.summit.core.tool.LoopBoundary;
 import lombok.Builder;
 import lombok.Data;
 
-/**
- * Per-run controls for an agent request.
- *
- * <p>Keeping execution policy in a nested value object prevents {@link AgentRequest}
- * from growing every time the runtime gains another switch.</p>
- */
+import java.util.Map;
+
+/** Per-run controls for an agent request. */
 @Data
 @Builder
 public class AgentRuntimeParameters {
 
+    /** Opaque per-run attributes for application policies. The runtime only carries them and never inspects a key. */
     @Builder.Default
-    private LoopBoundary loopBoundary = LoopBoundary.EXECUTE;
+    private Map<String, Object> attributes = Map.of();
 
-    /**
-     * Approval level for command-line tools. A {@code null} value preserves the
-     * executor's backwards-compatible {@code FULL_ACCESS} behaviour.
-     */
-    private CommandConfirmLevel confirmLevel;
+    /** Whether this run may operate outside the workspace root (read or write paths that {@code Workspace#encloses(Path)} reports as outside). */
+    @Builder.Default
+    private boolean allowOutsideWorkspace = false;
 
 
 }

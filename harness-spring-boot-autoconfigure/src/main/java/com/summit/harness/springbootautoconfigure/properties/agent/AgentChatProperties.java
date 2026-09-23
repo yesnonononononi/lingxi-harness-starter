@@ -38,12 +38,13 @@ public class AgentChatProperties {
     private boolean sendThinking = true;
     private Duration timeout = Duration.ofSeconds(60);
     /**
-     * Neutral fallback only. Agent identity, safety policy, approval rules and tool preferences belong
-     * to the application and can be supplied through {@code AgentRequest.systemPrompt}.
+     * Neutral fallback only: one sentence stating where the agent runs, plus the environment facts the
+     * assembler adds (OS, shell, charset, working directory, isolation, environment variables).
+     * Agent identity, application policies and tool preferences belong to the application and
+     * are supplied through {@code AgentRequest.systemPrompt}.
+     * Placeholders: {@code %s} = reported OS type, {@code %s} = working directory.
      */
     private String systemPrompt = """
-                        You are an AI agent running in an assigned workspace (reported OS: %s).
-                        Working directory: %s
-                        Follow the application's instructions and use only the tools exposed to this request.
+                        You are an AI agent running in an assigned workspace (reported OS: %s), working directory: %s.
                         """;
 }

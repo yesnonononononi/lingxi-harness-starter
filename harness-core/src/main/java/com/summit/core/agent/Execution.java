@@ -1,79 +1,50 @@
 package com.summit.core.agent;
 
 import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;
-import com.summit.core.tool.LoopBoundary;
 import lombok.Builder;
 import lombok.Data;
-import lombok.NonNull;
 import lombok.ToString;
 
-import java.io.Serializable;
 import java.time.Instant;
 import java.util.List;
 
 
-/**
- * Represents an execution of a task by an agent.
- */
+/** Represents an execution of a task by an agent. */
 @Builder
 @ToString
 @Data
 public class Execution {
-    /**
-     * The unique identifier for the execution.
-     */
+    /** The unique identifier for the execution. */
     private String id;
-    /**
-     * The unique identifier for the agent.
-     */
+    /** The unique identifier for the agent. */
     private String agentId;
-    /**
-     * The unique identifier for the session.
-     */
-    private @NonNull Serializable sessionId;
-    /**
-     * The current state of the execution.
-     */
+    /** The current state of the execution. */
     private ExecutionState executionState;
-    /**
-     * The timestamp when the execution was created.
-     */
+    /** The timestamp when the execution was created. */
     private Instant createAt;
-    /**
-     * The timestamp when the execution started.
-     */
+    /** The timestamp when the execution started. */
     private Instant startAt;
-    /**
-     * The timestamp when the execution completed.
-     */
+    /** The timestamp when the execution completed. */
     private Instant completedAt;
-    /**
-     * The request for the execution.
-     */
+    /** The request for the execution. */
     private AgentRequest agentRequest;
-    /**
-     * The messages for the execution.
-     */
+    /** The messages for the execution. */
     private List<Message> messages;
-    /**
-     * The token usage for the execution.
-     */
+    /** The final assistant message produced by this execution. */
+    private AiMessageEntity aiMessage;
+    /** The token usage for the execution. */
     private TokenUsageEntity tokenUsage;
 
+
     private String errorMessage;
-    /**
-     * require thinking text or not
-     */
+    /** require thinking text or not */
     private boolean thinking;
-    /**
-     * require streaming or not
-     */
+    /** require streaming or not */
     private boolean streaming;
 
     private int maxSteps;
-
-    private LoopBoundary loopBoundary;
 
     public void cancel(){
         this.executionState = ExecutionState.CANCELLED;
@@ -96,6 +67,14 @@ public class Execution {
         this.errorMessage = errorMessage;
         this.executionState = ExecutionState.FAILED;
         this.completedAt = Instant.now();
+    }
+
+    public void resume(){
+        this.executionState = ExecutionState.RUNNING;
+    }
+
+    public void suspended(){
+        this.executionState = ExecutionState.SUSPENDED;
     }
 
 

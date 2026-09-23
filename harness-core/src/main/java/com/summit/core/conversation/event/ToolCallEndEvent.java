@@ -1,16 +1,25 @@
 package com.summit.core.conversation.event;
 
+import com.summit.core.tool.ToolCallStatus;
 import lombok.Data;
 
-import java.io.Serializable;
 import java.time.Instant;
+
 @Data
-public class ToolCallEndEvent implements AgentEvent{
+public class ToolCallEndEvent implements ToolCallEvent {
+    private final String requestId;
     private final String executionId;
     private final String toolName;
     private final String args;
-    private final Serializable sessionId;
     private final String output;
+    private final ToolCallStatus resultStatus;
+    private final Instant timestamp = Instant.now();
+
+    @Override
+    public ToolCallStatus resultStatus() {
+        return resultStatus;
+    }
+
     @Override
     public String executionId() {
         return executionId;
@@ -18,6 +27,11 @@ public class ToolCallEndEvent implements AgentEvent{
 
     @Override
     public Instant timestamp() {
-        return Instant.now();
+        return timestamp;
+    }
+
+    @Override
+    public RuntimeEventType type() {
+        return RuntimeEventType.TOOL_COMPLETED;
     }
 }

@@ -5,13 +5,13 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
 
-/** 上下文压缩专用模型配置：{@code lingxi.agent.model.conf.compact}，默认无 thinking。 */
+/** Model properties for context compaction: {@code lingxi.agent.model.conf.compact}. */
 @Data
 @ConfigurationProperties(prefix = "lingxi.agent.model.conf.compact")
 public class CompactContextModelProperties {
 
-    /** Provider 名称，可指向自定义 Provider 的 name */
-    private String provider = "default-compact";
+    /** Provider name; may point at a custom provider. */
+    private String provider;
 
     private String baseUrl;
     private String apiKey;
@@ -22,4 +22,13 @@ public class CompactContextModelProperties {
     private boolean returnThinking = false;
     private boolean sendThinking = false;
     private Duration timeout = Duration.ofSeconds(60);
+
+    /** Whether the application selected a dedicated compaction model. */
+    public boolean isModelConfigured() {
+        return hasText(provider) || hasText(baseUrl) || hasText(apiKey) || hasText(modelName);
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
 }

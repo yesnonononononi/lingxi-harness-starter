@@ -9,6 +9,8 @@ public interface RuntimeListener {
     default void onExecutionStart(ExecutionStartEvent event) {
     }
 
+    default void onExecutionResumed(ExecutionResumedEvent event){}
+
     ;
 
     default void onToolCall(ToolCallStartEvent event) {
@@ -41,7 +43,7 @@ public interface RuntimeListener {
 
     ;
 
-    default void onFileEdit(FileEditEvent event) {
+    default void onApplicationEvent(Object event) {
     }
 
     ;
@@ -56,18 +58,7 @@ public interface RuntimeListener {
 
     ;
 
-    default void onWaitCommandCheck(WaitCommandCheckEvent waitCommandCheckEvent) {
-    }
-
-    ;
-
     default void onContextUpdate(ContextUpdateEvent event) {
-    }
-
-    ;
-
-    default void onExplicitUserMean(ExplicitUserMeanEvent explicitUserMeanEvent) {
-
     }
 
     ;

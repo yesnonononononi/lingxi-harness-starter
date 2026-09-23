@@ -1,7 +1,7 @@
 package com.summit.adapter.langchain4j.model;
 
-import com.summit.core.adapter.MessageCodec;
-import com.summit.core.adapter.ToolCodec;
+import com.summit.adapter.langchain4j.codec.MessageCodec;
+import com.summit.adapter.langchain4j.codec.ToolCodec;
 import com.summit.core.conversation.api.ChatRequestEntity;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
@@ -20,6 +20,7 @@ public class ChatRequestBuilder {
                     .toList();
             builder.toolSpecifications(toolSpecifications);
         }
+
         return builder.build();
     }
 

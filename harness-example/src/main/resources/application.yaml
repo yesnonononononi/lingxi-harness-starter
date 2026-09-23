@@ -1,70 +1,9 @@
-server:
-  port: 8080
-spring:
-  application:
-    name: harness-example
-
 lingxi:
   agent:
-    workspace: docker
-    # Docker sandbox: container created on demand (reused if the name exists),
-    # host project dir bind-mounted into the container to share files.
-    container-name: agent-sandbox
-    # General-purpose sandbox image, built once from
-    # harness-sandbox-docker/src/main/docker/Dockerfile (build.ps1 / build.sh).
-    # It already contains JDK 21, Maven, Git, Node.js and npm; agents must not
-    # install these tools at runtime. Managed containers are recreated
-    # automatically when this image changes.
-    container-image: lingxi-agent-dev:latest
-    container-port: ""                # optional: publish -p 8080:8080, leave blank to skip
-    container-workdir: /workspace     # in-container working directory (mount point)
-    workspace-dir: ""                 # host project directory; blank = app launch dir
-    runtime:
-      tool:
-        common:
-          max-output: 500
-        read-file:
-          enabled: true
-          max-output: 3000
-        edit-file:
-          enabled: true
-          max-output: 200
-        terminal:
-          enabled: true
-          timeout: 30
-          max-output: 2000
-        web-search:
-          enabled: true
-          baseUrl: https://api.tavily.com/search
-          apiKey: ${TAVILY_APIKEY}
-          timeout: 30
-          max-output: 3000
-          max-result: 3
-        context-compact:
-          enabled: true
-        # NOTE: require_choice and the command approval policy are NOT framework features.
-        # They are business-side demonstrations wired in
-        # com.summit.harnessexample.config.ExampleWorkflowConfiguration on top of the generic
-        # LoopSuspender / ToolExecutionPolicy SPI, so they need no framework switch.
-
     model:
       conf:
         chat:
-          base-url: https://api.deepseek.com                        #https://openrouter.ai/api/v1/chat/completions     http://localhost:1234/v1 https://globalai.vip/v1
-          api-key:  ${DEEPSEEK_APIKEY}              #  #OPENROUTER_APIKEY   GLOBALAI_APIKEY
-          model-name: "deepseek-v4-flash"                            #"google/gemma-4-12b-qat" "deepseek-v4-flash" "stealth/ox-alpha"
-          timeout: 120s
-          max-iterations: 50
-          max-tokens: 102400
-          reasoning-effort: medium
-        compact:
-          base-url: https://globalai.vip/v1                         #https://openrouter.ai/api/v1/chat/completions  https://api.deepseek.com   http://localhost:1234/v1
-          api-key: ${GLOBALAI_APIKEY}
-          model-name: "deepseek-v4-flash"
-          timeout: 120s
-          maxTokens: 32768
-          reasoning-effort: "none"
-          send-thinking: false
-          return-thinking: false
-
+          base-url: https://api.deepseek.com
+          api-key: ${DEEPSEEK_APIKEY}
+          model-name: deepseek-chat
 

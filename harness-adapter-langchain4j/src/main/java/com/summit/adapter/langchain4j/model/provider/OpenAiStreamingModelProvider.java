@@ -1,7 +1,8 @@
 package com.summit.adapter.langchain4j.model.provider;
 
 import com.summit.adapter.langchain4j.model.StreamingChatModelAdapter;
-import com.summit.core.model.ModelConfig;
+import com.summit.core.conf.ModelConfig;
+import com.summit.core.model.DefaultModelProviderNames;
 import com.summit.core.model.streaming.StreamingChatModelProvider;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 
@@ -9,7 +10,7 @@ import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 public class OpenAiStreamingModelProvider implements StreamingChatModelProvider {
     @Override
     public String name() {
-        return "default-streaming";
+        return DefaultModelProviderNames.DEFAULT_STREAMING;
     }
 
     @Override

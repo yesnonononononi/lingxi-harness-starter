@@ -1,9 +1,9 @@
 package com.summit.runtime.workspace;
 
 import com.summit.core.runtime.workspace.LocalWorkspaceBridge;
-import com.summit.core.runtime.OsType;
+import com.summit.core.runtime.workspace.OsType;
 import com.summit.core.runtime.RuntimeEnvironment;
-import com.summit.core.runtime.ShellType;
+import com.summit.core.runtime.workspace.ShellType;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.runtime.workspace.WorkspaceBridge;
 
@@ -44,19 +44,20 @@ public final class LocalWorkspace implements Workspace {
         return root.toString();
     }
 
+    /** Purely geometric: relative paths are appended to the workspace root, absolute paths are returned as-is. Whether an outside path may be used at all is decided by the caller. */
     @Override
     public Path resolve(String path) {
-        Path target;
         if (path == null || path.isBlank()) {
-            target = root;
-        } else {
-            Path p = Paths.get(path);
-            target = (p.isAbsolute() ? p : root.resolve(path)).normalize();
+            return root;
         }
-        if (!target.startsWith(root)) {
-            throw new IllegalArgumentException("File path is out of workspace: " + path);
-        }
-        return target;
+        Path p = Paths.get(path);
+        return (p.isAbsolute() ? p : root.resolve(path)).normalize();
+    }
+
+    /** Paths are compared against the normalized root held by this instance. */
+    @Override
+    public boolean encloses(Path path) {
+        return path != null && path.toAbsolutePath().normalize().startsWith(root);
     }
 
     @Override

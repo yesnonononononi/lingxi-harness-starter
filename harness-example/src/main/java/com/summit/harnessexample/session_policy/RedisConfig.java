@@ -26,7 +26,7 @@ public class RedisConfig {
         RedisTemplate<String, Object> template = new RedisTemplate<>();
         template.setConnectionFactory(connectionFactory);
 
-        // 创建序列化器
+        // create the serializer
         GenericJacksonJsonRedisSerializer serializer = GenericJacksonJsonRedisSerializer.builder()
                 .enableDefaultTyping(
                         BasicPolymorphicTypeValidator.builder()
@@ -35,7 +35,7 @@ public class RedisConfig {
                 ).build();
 
 
-        // 设置序列化策略
+        // configure the serialization strategy
         StringRedisSerializer stringSerializer = new StringRedisSerializer();
         template.setKeySerializer(stringSerializer);
         template.setHashKeySerializer(stringSerializer);

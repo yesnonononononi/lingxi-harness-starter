@@ -34,7 +34,6 @@ class ArchitectureBoundaryTest {
             "harness-adapter-langchain4j",
             "harness-spring-boot-autoconfigure",
             "lingxi-harness-spring-boot-starter",
-            "harness-base-tools",
             "harness-sandbox-docker",
             "harness-memory");
 
@@ -51,6 +50,13 @@ class ArchitectureBoundaryTest {
             "PlanUpdateEvent",
             "PLAN_UPDATED",
             "onPlanUpdate",
+            "execute_command",
+            "read_file",
+            "edit_file",
+            "web_search",
+            "FileEditEvent",
+            "FILE_EDIT",
+            "FileRecordManager",
             // the framework must never depend on a consuming application
             "com.summit.dp.");
 

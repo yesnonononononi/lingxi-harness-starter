@@ -2,18 +2,14 @@ package com.summit.harnessexample;
 
 import com.summit.harnessexample.common.Result;
 import com.summit.harnessexample.dto.ChatRequest;
-import com.summit.harnessexample.dto.ChoiceDecisionRequest;
 import com.summit.harnessexample.dto.WorkdirRequest;
 import com.summit.harnessexample.service.AgentChatService;
-import com.summit.harnessexample.service.ChoiceDecideService;
-import com.summit.harnessexample.service.CommandApprovalService;
 import com.summit.harnessexample.service.SessionService;
 import com.summit.harnessexample.service.WorkdirService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -39,8 +35,6 @@ import java.util.Map;
 public class AgentController {
 
     private final AgentChatService agentChatService;
-    private final CommandApprovalService commandApprovalService;
-    private final ChoiceDecideService choiceDecideService;
     private final WorkdirService workdirService;
     private final SessionService sessionService;
     private final SseEventPublisher sseEventPublisher;
@@ -58,54 +52,17 @@ public class AgentController {
                 agentChatService.chat(request));
     }
 
-    /**
-     * Pauses the agent-loop at its next checkpoint. Without {@code sessionId} every running
-     * session is paused; with one only that session.
-     */
-    @PostMapping("/pause")
-    public Result<Map<String, Object>> pause(@RequestParam(value = "sessionId", required = false) String sessionId) {
-        return Result.ok(agentChatService.control("pause", sessionId));
-    }
-
-    /** Resumes a paused agent-loop (all sessions, or the given one). */
-    @PostMapping("/resume")
-    public Result<Map<String, Object>> resume(@RequestParam(value = "sessionId", required = false) String sessionId) {
-        return Result.ok(agentChatService.control("resume", sessionId));
-    }
-
-    /** Stops agent execution (all sessions, or the given one); cooperative at the next checkpoint. */
+    /** Best-effort cancellation of one session's tracked tasks, or all tasks when no session is given. */
     @PostMapping("/stop")
     public Result<Map<String, Object>> stop(@RequestParam(value = "sessionId", required = false) String sessionId) {
-        return Result.ok(agentChatService.control("stop", sessionId));
+        return Result.ok(agentChatService.stop(sessionId));
     }
 
-    /** Returns whether one session currently has an execution and whether it is paused. */
+    /** Returns whether one session currently has an in-flight task. */
     @GetMapping("/executions/status")
     public Result<Map<String, Object>> executionStatus(
             @RequestParam("sessionId") String sessionId) {
         return Result.ok(agentChatService.status(sessionId));
-    }
-
-    /** Approves a command waiting for human approval; the blocked agent loop is woken up. */
-    @PostMapping("/commands/{toolExecutionId}/approve")
-    public Result<Map<String, Object>> approveCommand(@PathVariable("toolExecutionId") String toolExecutionId) {
-        return Result.ok("decision recorded: APPROVE, agent loop will be woken up",
-                commandApprovalService.decide(toolExecutionId, true));
-    }
-
-    /** Rejects a command waiting for human approval; it never runs and the agent continues. */
-    @PostMapping("/commands/{toolExecutionId}/reject")
-    public Result<Map<String, Object>> rejectCommand(@PathVariable("toolExecutionId") String toolExecutionId) {
-        return Result.ok("decision recorded: REJECT, agent loop will be woken up",
-                commandApprovalService.decide(toolExecutionId, false));
-    }
-
-    /** Records the user's choice for a {@code require_choice} tool call; the blocked agent loop is woken up. */
-    @PostMapping("/choices/{toolExecutionId}/decide")
-    public Result<Map<String, Object>> decideChoice(@PathVariable("toolExecutionId") String toolExecutionId,
-            @RequestBody(required = false) ChoiceDecisionRequest request) {
-        return Result.ok("user choice recorded, agent loop will be woken up",
-                choiceDecideService.decide(toolExecutionId, request == null ? null : request.choice()));
     }
 
     /** The agent's current working directory. */

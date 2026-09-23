@@ -8,31 +8,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.io.Serializable;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/**
- * Listens to all coding-agent runtime events and forwards them to the
- * connected front-end clients through {@link SseEventPublisher}.
- *
- * <p>Each event is serialized into the following JSON envelope:</p>
- * <pre>
- * {
- *   "type": "AGENT_MESSAGE" | "TOOL_STARTED" | "TOOL_COMPLETED" | "WAIT_COMMAND_CHECK" |
- *           "WAIT_USER_CHOICE" | "EXECUTION_STARTED" | "EXECUTION_COMPLETED" | "EXECUTION_FAILED",
- *   "executionId": "...",
- *   "sessionId": "...",
- *   "timestamp": 1234567890,
- *   "data": { ... }
- * }
- * </pre>
- *
- * <p>{@code WAIT_COMMAND_CHECK} and {@code WAIT_USER_CHOICE} are <b>business</b> notifications.
- * The framework only offers the suspension SPI ({@code LoopSuspender}); this example owns the
- * command-approval rule, the choice payload and the card protocol, and publishes them through the
- * framework's generic event publisher.</p>
- */
+/** Listens to all coding-agent runtime events and forwards them to the connected front-end clients through {@link SseEventPublisher}. */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -45,7 +24,7 @@ public class EventListener implements RuntimeListener {
     public void onExecutionStart(ExecutionStartEvent event) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("executionId", event.executionId());
-        broadcast("EXECUTION_STARTED", event.executionId(), event.getSessionId(), data);
+        broadcast("EXECUTION_STARTED", event.executionId(), data);
     }
 
     @Override
@@ -53,14 +32,14 @@ public class EventListener implements RuntimeListener {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("toolName", event.getToolName());
         data.put("args", event.getArgs());
-        broadcast("TOOL_STARTED", event.executionId(), event.getSessionId(), data);
+        broadcast("TOOL_STARTED", event.executionId(), data);
     }
 
     @Override
     public void onToolCallOutput(ToolCallEndEvent event) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("output", event.getOutput());
-        broadcast("TOOL_COMPLETED", event.executionId(), event.getSessionId(), data);
+        broadcast("TOOL_COMPLETED", event.executionId(), data);
     }
 
     @Override
@@ -68,53 +47,29 @@ public class EventListener implements RuntimeListener {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("text", event.getText());
         data.put("thinking", event.getThinking());
-        broadcast("AGENT_MESSAGE", event.executionId(), event.getSessionId(), data);
+        broadcast("AGENT_MESSAGE", event.executionId(), data);
     }
 
     @Override
     public void onPartialText(AgentPartialTextEvent event) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("text", event.content());
-        broadcast("PARTIAL_TEXT", event.executionId(), event.sessionId(), data);
+        broadcast("PARTIAL_TEXT", event.executionId(), data);
     }
 
     @Override
     public void onPartialThinking(AgentPartialThinkingEvent event) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("text", event.content());
-        broadcast("PARTIAL_THINKING", event.executionId(), event.sessionId(), data);
-    }
-
-    @Override
-    public void onWaitCommandCheck(WaitCommandCheckEvent waitCommandCheckEvent) {
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("toolExecutionId", waitCommandCheckEvent.getToolExecutionId());
-        data.put("command", waitCommandCheckEvent.getFormatedToolCommand());
-        data.put("status", "PENDING");
-        data.put("approveUrl", "/agent/commands/" + waitCommandCheckEvent.getToolExecutionId() + "/approve");
-        data.put("rejectUrl", "/agent/commands/" + waitCommandCheckEvent.getToolExecutionId() + "/reject");
-        broadcast("WAIT_COMMAND_CHECK", waitCommandCheckEvent.getExecutionId(), waitCommandCheckEvent.getSessionId(), data);
-    }
-
-    @Override
-    public void onExplicitUserMean(ExplicitUserMeanEvent event) {
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("toolExecutionId", event.getToolExecutionId());
-        data.put("question", event.getQuestion());
-        data.put("choices", event.getChoices());
-        // 候选项只是建议：允许前端额外提供"自定义输入"，用户可直接输入任意内容作为选择
-        data.put("allowCustomInput", event.isAllowCustomInput());
-        data.put("status", "PENDING");
-        data.put("decideUrl", "/agent/choices/" + event.getToolExecutionId() + "/decide");
-        broadcast("WAIT_USER_CHOICE", event.executionId(), event.getSessionId(), data);
+        broadcast("PARTIAL_THINKING", event.executionId(), data);
     }
 
     @Override
     public void onExecutionError(ExecutionErrorEvent event) {
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("error", event.getErr() == null ? "unknown error" : event.getErr().getMessage());
+        data.put("error", event.getErrMsg() == null ? "unknown error" : event.getErrMsg());
         data.put("extraDes", event.getExtraDes());
-        broadcast("EXECUTION_FAILED", event.executionId(), event.getSessionId(), data);
+        broadcast("EXECUTION_FAILED", event.executionId(), data);
     }
 
     @Override
@@ -125,14 +80,14 @@ public class EventListener implements RuntimeListener {
         if (event.getTokenInfo() != null) {
             data.put("tokenUsage", event.getTokenInfo());
         }
-        broadcast("EXECUTION_COMPLETED", event.executionId(), event.getSessionId(), data);
+        broadcast("EXECUTION_COMPLETED", event.executionId(), data);
     }
 
     @Override
     public void onExecutionCancelled(ExecutionCancelledEvent event) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("executionId", event.executionId());
-        broadcast("EXECUTION_CANCELLED", event.executionId(), event.getSessionId(), data);
+        broadcast("EXECUTION_CANCELLED", event.executionId(), data);
     }
 
     @Override
@@ -146,7 +101,7 @@ public class EventListener implements RuntimeListener {
             data.put("ratio", usage.ratio());
         }
         data.put("message", event.getMessage());
-        broadcast("CONTEXT_UPDATE", event.executionId(), event.getSessionId(), data);
+        broadcast("CONTEXT_UPDATE", event.executionId(), data);
     }
 
     @Override
@@ -162,14 +117,13 @@ public class EventListener implements RuntimeListener {
         data.put("newContent", event.getNewContent());
         data.put("plusLines", event.getPlusLines());
         data.put("minusLines", event.getMinusLines());
-        broadcast("FILE_EDIT", null, event.getSessionId(), data);
+        broadcast("FILE_EDIT", event.getTurnId(), data);
     }
 
-    private void broadcast(String type, String executionId, Serializable sessionId, Map<String, Object> data) {
+    private void broadcast(String type, String executionId, Map<String, Object> data) {
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("type", type);
         message.put("executionId", executionId);
-        message.put("sessionId", sessionId);
         message.put("timestamp", System.currentTimeMillis());
         message.put("data", data);
         try {

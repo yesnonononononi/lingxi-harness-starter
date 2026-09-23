@@ -7,6 +7,4 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class ContextCompactToolProperties {
     private boolean enabled = true;
     private double threshold = 0.85;
-    private Integer maxOutput;
-    private Long timeout;
 }

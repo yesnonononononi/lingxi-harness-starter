@@ -3,7 +3,6 @@ package com.summit.core.conversation.event;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
-import java.io.Serializable;
 import java.time.Instant;
 
 /**
@@ -14,7 +13,7 @@ import java.time.Instant;
 @Getter
 public class ExecutionCancelledEvent implements AgentEvent {
     private final String executionId;
-    private final Serializable sessionId;
+    private final Instant timestamp = Instant.now();
 
     @Override
     public String executionId() {
@@ -23,6 +22,11 @@ public class ExecutionCancelledEvent implements AgentEvent {
 
     @Override
     public Instant timestamp() {
-        return Instant.now();
+        return timestamp;
+    }
+
+    @Override
+    public RuntimeEventType type() {
+        return RuntimeEventType.EXECUTION_CANCELLED;
     }
 }

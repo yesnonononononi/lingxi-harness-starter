@@ -1,18 +1,12 @@
 package com.summit.adapter.langchain4j.mcp;
 
 import com.summit.adapter.langchain4j.codec.JsonSchemaSerializer;
+import com.summit.core.tool.ConcurrentPolicy;
 import com.summit.core.tool.ToolDefinition;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.mcp.client.McpClient;
 
-/**
- * Turns one MCP tool specification into the core {@link ToolDefinition}.
- *
- * <p>MCP tells the harness nothing about side effects, so the tools are treated as potentially
- * mutating: {@code readOnly(false)} keeps them out of the planning boundary and lets a successful
- * call count as a write. They are not framework-managed either, so a request-level tool whitelist
- * still applies to them.</p>
- */
+/** Turns one MCP tool specification into the core {@link ToolDefinition}. */
 public class MCPToolConverter {
 
     /** Remote servers return payloads larger than local tools, hence a more generous default than the common tool properties. */
@@ -41,8 +35,7 @@ public class MCPToolConverter {
                 .executor(new MCPToolExecutor(mcpClient, name))
                 .maxOutput(maxOutput)
                 .timeout(timeout)
-                .readOnly(false)
-                .planningOnly(false)
+                .concurrentPolicy(ConcurrentPolicy.SERIAL_MUTATION)
                 .build();
     }
 }

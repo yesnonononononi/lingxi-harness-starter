@@ -7,7 +7,7 @@ import com.summit.core.model.ModelProviderRegistry;
 import com.summit.adapter.langchain4j.model.provider.OpenAiChatModelProvider;
 import com.summit.adapter.langchain4j.model.provider.OpenAiCompactContextModelProvider;
 import com.summit.adapter.langchain4j.model.provider.OpenAiStreamingModelProvider;
-import com.summit.core.model.ChatModel;
+import com.summit.core.model.chat.ChatModel;
 import com.summit.core.model.streaming.StreamingChatModel;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;

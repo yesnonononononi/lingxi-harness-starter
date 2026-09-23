@@ -1,15 +1,15 @@
 package com.summit.runtime.compact;
 
 import com.summit.core.compact.CompactSummaryResolver;
+import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextSummary;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolResultType;
-import com.summit.runtime.agent.AgentLoopRunner;
+import com.summit.runtime.loop.AgentLoopStepRunner;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-import java.io.Serializable;
 import java.util.List;
 
 /**
@@ -19,7 +19,7 @@ import java.util.List;
  * {@code CheckPointer#afterCheckpoint} and the work is done in a blocking way by a
  * {@code ContextCompacter}. This adapter only turns the raw tool output into the
  * {@link ContextSummary} the conversation rebuild needs, and is split out of
- * {@link AgentLoopRunner} so the loop stays free of compaction payload handling.</p>
+ * {@link AgentLoopStepRunner} so the loop stays free of compaction payload handling.</p>
  */
 @RequiredArgsConstructor
 @Slf4j
@@ -38,7 +38,7 @@ public class ContextCompactReconciler {
      *
      * @return true when the round was a compact request (the caller skips the rest of the round)
      */
-    public boolean reconcile(List<ToolExecuteResult> toolResults, Serializable sessionId) {
+    public boolean reconcile(List<ToolExecuteResult> toolResults, Execution execution) {
         ToolExecuteResult compactResult = toolResults.stream()
                 .filter(ContextCompactReconciler::isCompactRequest)
                 .findFirst()
@@ -46,7 +46,7 @@ public class ContextCompactReconciler {
         if (compactResult == null) {
             return false;
         }
-        conversationManager.rebuildContext(resolveSummary(compactResult), sessionId, true);
+        conversationManager.rebuildContext(resolveSummary(compactResult), execution, true);
         return true;
     }
 

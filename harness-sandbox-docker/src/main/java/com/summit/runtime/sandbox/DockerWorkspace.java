@@ -2,8 +2,9 @@ package com.summit.runtime.sandbox;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.summit.core.conversation.ConversationEntity;
 import com.summit.core.runtime.*;
+import com.summit.core.runtime.workspace.OsType;
+import com.summit.core.runtime.workspace.ShellType;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.runtime.workspace.WorkspaceBridge;
 import lombok.Getter;
@@ -12,25 +13,9 @@ import lombok.Setter;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.UUID;
 
-/**
- * Compatibility workspace whose file system and shell live inside a Docker
- * container.
- *
- * <p>Paths presented to the agent are container-internal paths rooted at
- * {@code workspaceRoot}; {@link #resolve(String)} confines them to that root
- * and {@link #bridge()} routes all tool IO and command execution into the
- * container through {@link DockerWorkspaceBridge}. The host only ever talks
- * to the Docker CLI — tool code is completely unaware of the sandbox.</p>
- *
- * <p>Typical usage: {@link #newInstance(String, String, String, String, String)}
- * creates the workspace backed by a container that is started on demand
- * (reused when one with the same name already exists) with the host project
- * directory bind-mounted at the working directory, then hand this workspace
- * to the agent request.</p>
- */
+/** Compatibility workspace whose file system and shell live inside a Docker container. */
 @Getter
 public class DockerWorkspace implements Workspace {
 
@@ -38,22 +23,14 @@ public class DockerWorkspace implements Workspace {
     private String id;
     @Setter
     private String containerId;
-    /**
-     * Container-internal absolute path of the agent's working directory.
-     */
+    /** Container-internal absolute path of the agent's working directory. */
     @Setter
     private String workspaceRoot;
-    /**
-     * Lazily (re)built from {@link #containerId}; also survives Jackson round-trips.
-     */
+    /** Lazily (re)built from {@link #containerId}; also survives Jackson round-trips. */
     private transient WorkspaceBridge bridge;
 
 
-    /**
-     * Deserialization support: a persisted {@link ConversationEntity} carries the
-     * session workspace (id + containerId + root). The bridge is transient and
-     * lazily re-created against the restored container on first tool IO.
-     */
+    /** Deserialization support for workspace snapshots; the bridge is recreated lazily. */
     @JsonCreator
     private DockerWorkspace(@JsonProperty("id") String id,
                             @JsonProperty("containerId") @NonNull String containerId,
@@ -75,32 +52,17 @@ public class DockerWorkspace implements Workspace {
 
 
     public  static  DockerWorkspace newInstance(String id,String workDir,String name,String port) {
-        String containerId = DockerWorkspaceBridge.initContainer(name, port);
+        String containerId = DockerContainerFactory.initContainer(name, port);
         return new DockerWorkspace(id, containerId, workDir);
     }
 
-    /**
-     * Creates a workspace backed by a Docker container that is created on
-     * demand and reused when one with the same {@code name} already exists.
-     *
-     * @param id          workspace id
-     * @param workDir     in-container working directory; also the mount point when {@code hostDir} is set
-     * @param name        container name; an existing container with this name is reused as-is
-     * @param port        optional port to publish (e.g. "8080"); {@code null} or blank to skip
-     * @param hostDir     optional host directory bind-mounted into the container to share project files; {@code null} or blank to skip
-     * @param image       container image; defaults to {@link DockerSandboxImage#DEFAULT}
-     *                    (JDK, Maven, Git, Node.js) when {@code null} or blank
-     */
+    /** Creates a workspace backed by a Docker container that is created on demand and reused when one with the same {@code name} already exists. */
     public  static  DockerWorkspace newInstance(String id, String workDir, String name, String port, String hostDir, String image) {
-        String containerId = DockerWorkspaceBridge.initContainer(name, port, hostDir, workDir, image);
+        String containerId = DockerContainerFactory.initContainer(name, port, hostDir, workDir, image);
         return new DockerWorkspace(id, containerId, workDir);
     }
 
-    /**
-     * Convenience overload of
-     * {@link #newInstance(String, String, String, String, String, String)}
-     * with a random workspace id.
-     */
+    /** Convenience overload of {@link #newInstance(String, String, String, String, String, String)} with a random workspace id. */
     public  static  DockerWorkspace newInstance(String workDir, String name, String port, String hostDir, String image) {
         return newInstance(UUID.randomUUID().toString(), workDir, name, port, hostDir, image);
     }
@@ -125,21 +87,7 @@ public class DockerWorkspace implements Workspace {
        return newInstance(UUID.randomUUID().toString());
     }
 
-    /**
-     * Restores a {@link DockerWorkspace} around an already-existing container
-     * instead of creating a new one.
-     *
-     * <p>Unlike the {@code newInstance(...)} factories, this never starts or
-     * creates a container. The caller is responsible for the container actually existing
-     * (e.g. one created by a previous session whose {@code containerId} was
-     * persisted). The container is reached lazily via {@link #bridge()} on first
-     * tool IO / command execution, so a stale id only fails at that point.</p>
-     *
-     * @param id            workspace id
-     * @param containerId   id of an existing container to reuse
-     * @param workspaceRoot in-container absolute working directory
-     * @return a workspace backed by the existing container
-     */
+    /** Restores a {@link DockerWorkspace} around an already-existing container instead of creating a new one. */
     public static DockerWorkspace attach(String id, @NonNull String containerId, @NonNull String workspaceRoot) {
         return new DockerWorkspace(id, containerId, workspaceRoot);
     }
@@ -167,23 +115,12 @@ public class DockerWorkspace implements Workspace {
 
     @Override
     public Path resolve(String path) {
-        // Confine every path to the workspace root inside the container.
-        Path root = Paths.get(workspaceRoot).normalize();
-        Path result;
-        if (path == null || path.isEmpty()) {
-            result = root;
-            // if absolute path
-        } else if (path.startsWith("/")) {
-            Path absolute = Paths.get(path).normalize();
-            result = absolute.startsWith(root) ? absolute : root.resolve(path.substring(1)).normalize();
-            // if relative path. append path to root
-        } else {
-            result = root.resolve(path).normalize();
-        }
-        if (!canAccess(result, root)) {
-            throw new IllegalArgumentException("File path is out of workspace: " + path);
-        }
-        return result;
+        return DockerContainerPath.resolve(workspaceRoot, path);
+    }
+
+    @Override
+    public boolean encloses(Path path) {
+        return DockerContainerPath.encloses(workspaceRoot, path);
     }
 
     @Override
@@ -196,14 +133,4 @@ public class DockerWorkspace implements Workspace {
         return bridge;
     }
 
-    /**
-     * check if the path is accessible
-     *
-     * @param path the path to check
-     * @param root the root path
-     * @return true if the path is accessible
-     */
-    private boolean canAccess(Path path, Path root) {
-        return path.normalize().startsWith(root);
-    }
 }

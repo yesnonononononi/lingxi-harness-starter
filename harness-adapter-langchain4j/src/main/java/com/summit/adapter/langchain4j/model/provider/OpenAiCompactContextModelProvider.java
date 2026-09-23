@@ -2,7 +2,7 @@ package com.summit.adapter.langchain4j.model.provider;
 
 import com.summit.adapter.langchain4j.model.ChatModelAdapter;
 import com.summit.core.model.compact.CompactContextModelProvider;
-import com.summit.core.model.ModelConfig;
+import com.summit.core.conf.ModelConfig;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 
 /** Model provider dedicated to context compaction (OpenAI protocol, no thinking), config prefix {@code lingxi.agent.model.conf.compact}. */

@@ -1,5 +1,6 @@
 package com.summit.core.conversation.event;
 
+
 import com.summit.core.runtime.RuntimeListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,14 +24,13 @@ public class RuntimeEventPublisher {
         }
     }
 
-    public void onCommandCheck(WaitCommandCheckEvent waitCommandCheckEvent){
-        try {
-            listeners.forEach(listener -> listener.onWaitCommandCheck(waitCommandCheckEvent));
-        }catch (Exception e){
-            log.error("Error occurred while publishing execution command tool check event", e);
+    public void onExecutionResumed(ExecutionResumedEvent executionResumeEvent){
+        try{
+            listeners.forEach(listener -> listener.onExecutionResumed(executionResumeEvent));
+        }catch (Exception e) {
+            log.error("Error occurred while publishing execution resumed event", e);
         }
     }
-
 
     public void onToolCall(ToolCallStartEvent event) {
         try {
@@ -84,11 +84,11 @@ public class RuntimeEventPublisher {
         }
     }
 
-    public void onFileEdit(FileEditEvent event) {
+    public void onApplicationEvent(Object event) {
         try {
-            listeners.forEach(listener -> listener.onFileEdit(event));
+            listeners.forEach(listener -> listener.onApplicationEvent(event));
         } catch (Exception e) {
-            log.error("Error occurred while publishing file edit event", e);
+            log.error("Error occurred while publishing application event", e);
         }
     }
 
@@ -116,11 +116,5 @@ public class RuntimeEventPublisher {
         }
     }
 
-    public void onExplicitUserMean(ExplicitUserMeanEvent event){
-        try {
-            listeners.forEach(listener -> listener.onExplicitUserMean(event));
-        } catch (Exception e) {
-            log.error("Error occurred while publishing explicit user mean event", e);
-        }
-    }
+
 }

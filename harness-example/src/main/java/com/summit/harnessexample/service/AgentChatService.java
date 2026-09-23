@@ -1,31 +1,30 @@
 package com.summit.harnessexample.service;
 
-import com.summit.core.runtime.lifstyle.LifeStyleCommandRegistry;
-import com.summit.core.tool.CommandConfirmLevel;
-import com.summit.core.tool.LoopBoundary;
+import com.summit.harnessexample.CommandApprovalPolicy;
 import com.summit.harnessexample.ActiveWorkspace;
 import com.summit.harnessexample.Demo;
 import com.summit.harnessexample.SseEventPublisher;
 import com.summit.harnessexample.common.ApiException;
 import com.summit.harnessexample.dto.ChatRequest;
+import com.summit.core.agent.Execution;
+import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.UserMessageEntity;
+import com.summit.harnessexample.session_policy.ConversationRecord;
+import com.summit.harnessexample.session_policy.RedisConversationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Orchestration of the agent execution lifecycle: submitting a chat run asynchronously
- * and issuing lifecycle control commands (pause / resume / stop).
- *
- * <p>The HTTP layer only maps request / response; everything about session resolution,
- * the in-flight task registry and the lifecycle registry lives here.</p>
- */
+/** Orchestration of asynchronous agent executions and best-effort task cancellation. */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -34,32 +33,19 @@ public class AgentChatService {
     private final Demo demo;
     private final SseEventPublisher sseEventPublisher;
     private final ActiveWorkspace activeWorkspace;
-    private final LifeStyleCommandRegistry lifeStyleCommandRegistry;
+    private final RedisConversationRepository conversationRepository;
 
-    /**
-     * In-flight agent tasks (sessionId -> set of futures), so every run of a session can be
-     * stopped and counted.
-     *
-     * <p>A session may legitimately receive a second instruction while its first run is still
-     * in flight; keeping a <em>set</em> per session (instead of a single future) means the
-     * older run stays tracked and therefore remains stoppable and visible in the counters.</p>
-     */
+    /** In-flight agent tasks grouped by the application's conversation id. */
     private final Map<String, Set<CompletableFuture<Void>>> runningTasks = new ConcurrentHashMap<>();
-    /** Sessions for which a pause command has been issued and not yet resumed/stopped. */
-    private final Set<String> pausedSessions = ConcurrentHashMap.newKeySet();
 
-    /**
-     * Submits one user instruction to the agent on a background thread and returns
-     * immediately; every runtime event is pushed through SSE.
-     */
+    /** Submits one user instruction to the agent on a background thread and returns immediately; every runtime event is pushed through SSE. */
     public Map<String, Object> chat(ChatRequest request) {
         String input = request == null ? null : request.input();
         if (input == null || input.isBlank()) {
             throw ApiException.badRequest("input must not be blank");
         }
         String modelProvider = request.modelProvider();
-        CommandConfirmLevel commandConfirmLevel = parseCommandConfirmLevel(request.commandConfirmLevel());
-        LoopBoundary loopBoundary = parseLoopBoundary(request.loopBoundary());
+        CommandApprovalPolicy approvalPolicy = parseCommandApprovalPolicy(request.commandApprovalPolicy());
         String systemPrompt = request.systemPrompt();
 
         // Resolve the conversation: reuse an existing sessionId or create a new one.
@@ -76,28 +62,35 @@ public class AgentChatService {
         // Run the coding agent asynchronously; events are pushed via SSE.
         String finalSessionId = sessionId;
         String finalSessionName = sessionName;
-        CompletableFuture<Void> task = CompletableFuture.runAsync(() -> demo.chat(input, modelProvider,
-                finalSessionId, finalSessionName, activeWorkspace.get(), commandConfirmLevel, systemPrompt, loopBoundary));
+        String executionId = UUID.randomUUID().toString();
+        List<Message> context = new ArrayList<>(conversationRepository.find(finalSessionId)
+                .map(ConversationRecord::messages).orElseGet(List::of));
+        context.add(UserMessageEntity.from(input));
+        CompletableFuture<Void> task = CompletableFuture.runAsync(() -> {
+            Execution execution = demo.chat(context, executionId, modelProvider,
+                    activeWorkspace.get(), approvalPolicy, systemPrompt);
+            conversationRepository.save(new ConversationRecord(finalSessionId, finalSessionName,
+                    execution.getMessages()));
+        });
         runningTasks.compute(finalSessionId, (key, tasks) -> {
             Set<CompletableFuture<Void>> registry = tasks == null ? ConcurrentHashMap.newKeySet() : tasks;
             registry.add(task);
             return registry;
         });
-        task.whenComplete((result, error) -> runningTasks.computeIfPresent(finalSessionId, (key, tasks) -> {
-            tasks.remove(task);
-            if (tasks.size() <= 1) {
-                pausedSessions.remove(finalSessionId);
-            }
-            return tasks.isEmpty() ? null : tasks;
-        }));
+        task.whenComplete((result, error) -> {
+            runningTasks.computeIfPresent(finalSessionId, (key, tasks) -> {
+                tasks.remove(task);
+                return tasks.isEmpty() ? null : tasks;
+            });
+        });
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("input", input);
         data.put("modelProvider", modelProvider);
-        data.put("commandConfirmLevel", commandConfirmLevel == null ? null : commandConfirmLevel.name());
+        data.put("commandApprovalPolicy", approvalPolicy.name());
         data.put("systemPrompt", systemPrompt);
-        data.put("loopBoundary", loopBoundary == null ? null : loopBoundary.name());
         data.put("sessionId", sessionId);
+        data.put("executionId", executionId);
         data.put("sessionName", sessionName);
         data.put("newSession", newSession);
         data.put("sseClients", sseEventPublisher.connectedCount());
@@ -105,40 +98,25 @@ public class AgentChatService {
         return data;
     }
 
-    /**
-     * Applies a lifecycle command. Without {@code sessionId} it targets every running
-     * session; with one it targets exactly that session (and fails with 404 otherwise,
-     * so a stale page never enqueues a command that would leak into a later run).
-     */
-    public Map<String, Object> control(String action, String sessionId) {
-        validateAction(action);
+    /** Cancels the tracked tasks of one session, or every tracked task when {@code sessionId} is absent. */
+    public Map<String, Object> stop(String sessionId) {
         if (sessionId != null && !runningTasks.containsKey(sessionId)) {
             throw ApiException.notFound("no running execution for sessionId: " + sessionId,
                     Map.of("sessionId", sessionId, "runningSessions", runningTasks.size()));
         }
 
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("action", action);
+        data.put("action", "stop");
         data.put("sessionId", sessionId);
 
         if (sessionId == null && runningTasks.isEmpty()) {
-            // No live agent-loop: do NOT enqueue the command, it would leak into the
-            // next execution started later.
             data.put("runningSessions", 0);
             data.put("applied", false);
             data.put("message", "no running agent execution, command ignored");
             return data;
         }
 
-        if ("stop".equals(action)) {
-            // Interrupt the loop threads; without a sessionId every running task is
-            // interrupted, matching the stopAll() below. The checkpointer turns the
-            // interrupt into a CANCELLED state while paused, otherwise it is best-effort.
-            cancelTasks(sessionId);
-        }
-
-        applyToRegistry(action, sessionId);
-        updatePausedState(action, sessionId);
+        cancelTasks(sessionId);
         data.put("runningSessions", runningTasks.size());
         data.put("applied", true);
         return data;
@@ -149,21 +127,18 @@ public class AgentChatService {
         return runningTasks.size();
     }
 
-    /** Live execution state used when the UI returns to an already-running session. */
+    /** Live task state used when the UI returns to an already-running session. */
     public Map<String, Object> status(String sessionId) {
         boolean running = sessionId != null && runningTasks.containsKey(sessionId);
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("sessionId", sessionId);
         data.put("running", running);
-        data.put("paused", running && pausedSessions.contains(sessionId));
         return data;
     }
 
     // ------------------------------------------------------------------ private
 
-    /**
-     * Interrupts the in-flight runs of one session, or of every session when {@code sessionId} is null.
-     */
+    /** Interrupts the in-flight runs of one session, or of every session when {@code sessionId} is null. */
     private void cancelTasks(String sessionId) {
         if (sessionId != null) {
             runningTasks.getOrDefault(sessionId, Set.of()).forEach(task -> task.cancel(true));
@@ -172,62 +147,16 @@ public class AgentChatService {
         runningTasks.values().forEach(tasks -> tasks.forEach(task -> task.cancel(true)));
     }
 
-    private void updatePausedState(String action, String sessionId) {
-        if (sessionId == null) {
-            if ("pause".equals(action)) pausedSessions.addAll(runningTasks.keySet());
-            else pausedSessions.clear();
-            return;
-        }
-        if ("pause".equals(action)) pausedSessions.add(sessionId);
-        else pausedSessions.remove(sessionId);
-    }
-
-    /** Fails fast on an unknown lifecycle command so it is never silently ignored. */
-    private void validateAction(String action) {
-        if (!"pause".equals(action) && !"resume".equals(action) && !"stop".equals(action)) {
-            throw ApiException.badRequest("unsupported control action: " + action);
-        }
-    }
-
-    private void applyToRegistry(String action, String sessionId) {
-        if (sessionId != null) {
-            switch (action) {
-                case "pause" -> lifeStyleCommandRegistry.pause(sessionId);
-                case "resume" -> lifeStyleCommandRegistry.resume(sessionId);
-                case "stop" -> lifeStyleCommandRegistry.stop(sessionId);
-                default -> throw ApiException.badRequest("unsupported control action: " + action);
-            }
-            return;
-        }
-        switch (action) {
-            case "pause" -> lifeStyleCommandRegistry.pauseAll();
-            case "resume" -> lifeStyleCommandRegistry.resumeAll();
-            case "stop" -> lifeStyleCommandRegistry.stopAll();
-            default -> throw ApiException.badRequest("unsupported control action: " + action);
-        }
-    }
-
-    /** Lenient parse: an illegal or absent value is ignored (the runtime applies its own default). */
-    private CommandConfirmLevel parseCommandConfirmLevel(String value) {
+    /** Lenient parse: an illegal or absent value falls back to this application's own default. */
+    private CommandApprovalPolicy parseCommandApprovalPolicy(String value) {
         if (value == null || value.isBlank()) {
-            return null;
+            return CommandApprovalPolicy.DEFAULT;
         }
         try {
-            return CommandConfirmLevel.valueOf(value.trim().toUpperCase());
+            return CommandApprovalPolicy.valueOf(value.trim().toUpperCase());
         } catch (IllegalArgumentException e) {
-            return null;
+            return CommandApprovalPolicy.DEFAULT;
         }
     }
 
-    /** Lenient parse of the optional PLANING / EXECUTE boundary. */
-    private LoopBoundary parseLoopBoundary(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        try {
-            return LoopBoundary.valueOf(value.trim().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
-    }
 }

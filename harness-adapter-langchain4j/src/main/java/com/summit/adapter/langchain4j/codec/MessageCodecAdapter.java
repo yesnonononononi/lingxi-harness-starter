@@ -1,6 +1,5 @@
 package com.summit.adapter.langchain4j.codec;
 
-import com.summit.core.adapter.MessageCodec;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.message.AiMessageEntity;
@@ -28,10 +27,10 @@ public class MessageCodecAdapter implements MessageCodec<ChatMessage, ChatRespon
     @Override
     public ChatMessage toFramework(Message message) {
         if (message instanceof SystemMessageEntity systemMessage) {
-            return SystemMessage.from(systemMessage.text());
+            return SystemMessage.from(systemMessage.getText());
         }
         if (message instanceof UserMessageEntity userMessage) {
-            return UserMessage.from(userMessage.text());
+            return UserMessage.from(ContentCodecAdapter.toFramework(userMessage.getContent()));
         }
         if (message instanceof AiMessageEntity aiMessage) {
             AiMessage.Builder builder = AiMessage.builder();
@@ -50,7 +49,7 @@ public class MessageCodecAdapter implements MessageCodec<ChatMessage, ChatRespon
             return ToolExecutionResultMessage.from(
                     String.valueOf(toolMessage.getId()),
                     toolMessage.getName(),
-                    toolMessage.text()
+                    toolMessage.getText()
             );
         }
         throw new IllegalArgumentException("unsupported message type: " + message.getClass().getName());
@@ -77,6 +76,7 @@ public class MessageCodecAdapter implements MessageCodec<ChatMessage, ChatRespon
                     .id(request.id())
                     .name(request.name())
                     .arguments(request.arguments())
+
                     .build());
         }
         AiMessageEntity aiMessageEntity = AiMessageEntity.builder()

@@ -5,22 +5,21 @@ import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.context.RuntimeContext;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.runtime.loop.AgentLoopHook;
+import com.summit.core.runtime.loop.ActiveExecutionRegistry;
+import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.model.ModelInvoker;
 import com.summit.core.runtime.*;
-import com.summit.core.runtime.lifstyle.LifeStyleCommandRegistry;
-import com.summit.core.runtime.lifstyle.LifeStyleCommandStore;
-import com.summit.core.runtime.lifstyle.LifeStyleHandler;
-import com.summit.core.runtime.lifstyle.RuntimeLifeStyleManager;
+import com.summit.core.runtime.loop.lifstyle.RuntimeLifeStyleManager;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.ToolExecutionManager;
-import com.summit.runtime.RuntimeProcessorTemplate;
+import com.summit.runtime.loop.BoundaryChecker;
+import com.summit.runtime.loop.RuntimeProcessorTemplate;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.compact.DefaultManualCompacter;
 import com.summit.runtime.compact.DefaultModelCompacter;
 import lombok.Builder;
 import lombok.RequiredArgsConstructor;
-
-import java.io.Serializable;
 
 @Builder
 @RequiredArgsConstructor
@@ -31,35 +30,26 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
     private final ObjectMapper objectMapper;
     private final Tokenizer tokenizer;
     private final AgentConfig agentConfig;
-    private final LifeStyleHandler lifeStyleHandler;
-    private final LifeStyleCommandRegistry lifeStyleCommandRegistry;
     private final RuntimeLifeStyleManager runtimeLifeStyleManager;
     private final AgentLoopHook agentLoopHook;
-    private final LoopSuspender loopSuspender;
+    private final ActiveExecutionRegistry activeExecutionRegistry;
+    private final ExecutionRepository executionRepository;
     /** Manual per-round truncation compaction (shouldSqueeze band). */
     private final DefaultManualCompacter manualCompacter;
     /** Model deep compaction (expectAdvanceSqueeze band). */
     private final DefaultModelCompacter modelCompacter;
 
     @Override
-    public ExecutionRuntime createChatModelRuntime(Serializable sessionId, ModelInvoker chatModelInvoker, Workspace workspace) {
-        return createModelRuntime(sessionId, chatModelInvoker, workspace);
+    public ExecutionRuntime createChatModelRuntime(String executionId, ModelInvoker chatModelInvoker, Workspace workspace) {
+        return createModelRuntime(executionId, chatModelInvoker, workspace);
     }
 
     @Override
-    public ExecutionRuntime createStreamingModelRuntime(Serializable sessionId, ModelInvoker streamingModelInvoker, Workspace workspace) {
-        return createModelRuntime(sessionId, streamingModelInvoker, workspace);
+    public ExecutionRuntime createStreamingModelRuntime(String executionId, ModelInvoker streamingModelInvoker, Workspace workspace) {
+        return createModelRuntime(executionId, streamingModelInvoker, workspace);
     }
 
-    /**
-     * Each execution gets its own command store, freshly created and bound to the
-     * session. Pause/resume/stop issued for one execution therefore never leak
-     * into another execution (or a later execution of the same session). The
-     * store is unregistered and dropped by {@link RuntimeProcessorTemplate}
-     * when the execution finishes.
-     */
-    private ExecutionRuntime createModelRuntime(Serializable sessionId, ModelInvoker modelInvoker, Workspace workspace) {
-        LifeStyleCommandStore commandStore = lifeStyleCommandRegistry.register(sessionId);
+    private ExecutionRuntime createModelRuntime(String executionId, ModelInvoker modelInvoker, Workspace workspace) {
         return new RuntimeProcessorTemplate(
                 RuntimeContext.builder()
                         .workspace(workspace)
@@ -72,14 +62,12 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
                         .runtimeLifeStyleManager(runtimeLifeStyleManager)
                         .maxTokens(agentConfig.maxTokens())
                         .tokenizer(tokenizer)
-                        .lifeStyleCommandStore(commandStore)
-                        .lifeStyleCommandRegistry(lifeStyleCommandRegistry)
                         .agentLoopHook(agentLoopHook)
-                        .loopSuspender(loopSuspender)
-                        .checkPointer(
-                                new RuntimeCheckPointer(lifeStyleHandler, agentConfig, tokenizer, conversationManager,
-                                        commandStore, manualCompacter, modelCompacter
-                                ))
+                        .activeExecutionRegistry(activeExecutionRegistry)
+                        .executionRepository(executionRepository)
+                        .runtimeBoundaryChecker(
+                                new BoundaryChecker(agentConfig, tokenizer, conversationManager,
+                                        manualCompacter, modelCompacter))
                         .build()
         );
     }
