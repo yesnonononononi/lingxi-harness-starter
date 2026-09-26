@@ -22,7 +22,7 @@ public class AgentMessageEvent implements AgentEvent{
     }
 
     @Override
-    public RuntimeEventType type() {
-        return RuntimeEventType.AI_MESSAGE;
+    public String type() {
+        return RuntimeEventType.AI_MESSAGE.type();
     }
 }

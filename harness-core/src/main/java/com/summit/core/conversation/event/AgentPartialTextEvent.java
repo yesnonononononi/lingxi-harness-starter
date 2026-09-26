@@ -2,6 +2,7 @@ package com.summit.core.conversation.event;
 
 import lombok.Builder;
 
+import java.io.Serializable;
 import java.time.Instant;
 
 /**
@@ -25,7 +26,7 @@ public record AgentPartialTextEvent(
     }
 
     @Override
-    public RuntimeEventType type() {
-        return RuntimeEventType.PARTIAL_TEXT;
+    public String type() {
+        return RuntimeEventType.PARTIAL_TEXT.type();
     }
 }

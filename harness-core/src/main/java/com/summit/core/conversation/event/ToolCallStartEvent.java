@@ -30,7 +30,7 @@ public class ToolCallStartEvent implements ToolCallEvent {
     }
 
     @Override
-    public RuntimeEventType type() {
-        return RuntimeEventType.TOOL_CALL;
+    public String type() {
+        return RuntimeEventType.TOOL_CALL.type();
     }
 }

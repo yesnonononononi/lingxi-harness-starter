@@ -3,7 +3,7 @@ package com.summit.runtime.loop.lifeStyle;
 import com.summit.core.agent.Execution;
 import com.summit.core.conversation.event.*;
 import com.summit.core.conversation.message.TokenUsageEntity;
-import com.summit.core.runtime.loop.lifstyle.RuntimeLifeStyleManager;
+import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 

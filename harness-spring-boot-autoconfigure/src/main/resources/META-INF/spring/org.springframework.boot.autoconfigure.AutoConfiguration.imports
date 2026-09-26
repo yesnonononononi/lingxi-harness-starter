@@ -4,6 +4,7 @@ com.summit.harness.springbootautoconfigure.conf.ModelConfiguration
 com.summit.harness.springbootautoconfigure.conf.ModelProviderConfig
 com.summit.harness.springbootautoconfigure.conf.sys.JsonConfig
 com.summit.harness.springbootautoconfigure.conf.tool.CommonToolAutoConfiguration
+com.summit.harness.springbootautoconfigure.conf.mcp.McpAutoConfiguration
 com.summit.harness.springbootautoconfigure.conf.tool.ContextCompactToolAutoConfiguration
 com.summit.harness.springbootautoconfigure.conf.ConversationConfig
 com.summit.harness.springbootautoconfigure.conf.sys.ExecutionRuntimeConfig

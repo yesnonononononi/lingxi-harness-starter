@@ -15,24 +15,30 @@ public class MCPToolConverter {
 
     private final Integer maxOutput;
     private final Long timeout;
+    private final String namePrefix;
 
     public MCPToolConverter() {
         this(DEFAULT_MAX_OUTPUT, DEFAULT_TIMEOUT);
     }
 
     public MCPToolConverter(Integer maxOutput, Long timeout) {
+        this(maxOutput, timeout, "");
+    }
+
+    public MCPToolConverter(Integer maxOutput, Long timeout, String namePrefix) {
         this.maxOutput = maxOutput;
         this.timeout = timeout;
+        this.namePrefix = namePrefix == null ? "" : namePrefix;
     }
 
     public ToolDefinition<MCPToolExecutor> convert(McpClient mcpClient, ToolSpecification toolSpecification) {
-        String name = toolSpecification.name();
+        String name = namePrefix + toolSpecification.name();
         return ToolDefinition.<MCPToolExecutor>builder()
                 .id(name)
                 .name(name)
                 .description(toolSpecification.description())
                 .parametersJsonSchema(JsonSchemaSerializer.toJson(toolSpecification.parameters()))
-                .executor(new MCPToolExecutor(mcpClient, name))
+                .executor(new MCPToolExecutor(mcpClient, toolSpecification.name()))
                 .maxOutput(maxOutput)
                 .timeout(timeout)
                 .concurrentPolicy(ConcurrentPolicy.SERIAL_MUTATION)

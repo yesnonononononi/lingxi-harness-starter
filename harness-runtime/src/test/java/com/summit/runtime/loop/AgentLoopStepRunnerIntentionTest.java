@@ -17,7 +17,7 @@ import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.loop.LoopResult;
 import com.summit.core.runtime.loop.RuntimeBoundaryChecker;
 import com.summit.core.runtime.loop.suspension.ExecutionInterruptedException;
-import com.summit.core.runtime.loop.lifstyle.RuntimeLifeStyleManager;
+import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.ToolExecuteCommand;
 import com.summit.core.tool.ToolExecuteResult;

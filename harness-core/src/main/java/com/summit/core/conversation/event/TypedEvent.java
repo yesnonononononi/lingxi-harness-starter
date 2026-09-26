@@ -9,5 +9,5 @@ package com.summit.core.conversation.event;
 public interface TypedEvent {
 
     /** Discriminator used by listeners / transports to dispatch this event. */
-    RuntimeEventType type();
+    String type();
 }

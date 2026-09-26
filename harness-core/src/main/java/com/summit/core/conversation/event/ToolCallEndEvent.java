@@ -31,7 +31,7 @@ public class ToolCallEndEvent implements ToolCallEvent {
     }
 
     @Override
-    public RuntimeEventType type() {
-        return RuntimeEventType.TOOL_COMPLETED;
+    public String type() {
+        return RuntimeEventType.TOOL_COMPLETED.type();
     }
 }

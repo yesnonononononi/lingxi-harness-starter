@@ -26,7 +26,7 @@ public class ExecutionCancelledEvent implements AgentEvent {
     }
 
     @Override
-    public RuntimeEventType type() {
-        return RuntimeEventType.EXECUTION_CANCELLED;
+    public String type() {
+        return RuntimeEventType.EXECUTION_CANCELLED.type();
     }
 }

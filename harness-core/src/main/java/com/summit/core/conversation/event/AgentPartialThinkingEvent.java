@@ -25,7 +25,7 @@ public record AgentPartialThinkingEvent(
     }
 
     @Override
-    public RuntimeEventType type() {
-        return RuntimeEventType.PARTIAL_THINKING;
+    public String type() {
+        return RuntimeEventType.PARTIAL_THINKING.type();
     }
 }

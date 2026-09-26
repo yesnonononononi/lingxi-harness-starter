@@ -49,7 +49,7 @@ public class ContextUpdateEvent implements AgentEvent {
     }
 
     @Override
-    public RuntimeEventType type() {
-        return RuntimeEventType.CONTEXT_UPDATE;
+    public String type() {
+        return RuntimeEventType.CONTEXT_UPDATE.type();
     }
 }

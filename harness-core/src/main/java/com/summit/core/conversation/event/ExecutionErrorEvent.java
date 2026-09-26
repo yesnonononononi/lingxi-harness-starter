@@ -23,7 +23,7 @@ public class ExecutionErrorEvent implements AgentEvent{
     }
 
     @Override
-    public RuntimeEventType type() {
-        return RuntimeEventType.EXECUTION_FAILED;
+    public String type() {
+        return RuntimeEventType.EXECUTION_FAILED.type();
     }
 }

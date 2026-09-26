@@ -45,7 +45,8 @@ public class MCPProvider implements McpProvider {
                 }
             } catch (Exception e) {
                 // a broken server must not hide the tools of the others
-                log.warn("【MCP】failed to list the tools of mcp server {}", clientKey, e);
+                log.warn("【MCP】failed to list the tools of mcp server {} ({})",
+                        clientKey, e.getClass().getSimpleName());
             }
         }
         log.info("【MCP】{} tool(s) provided by {} mcp server(s)", tools.size(), mcpClients.size());

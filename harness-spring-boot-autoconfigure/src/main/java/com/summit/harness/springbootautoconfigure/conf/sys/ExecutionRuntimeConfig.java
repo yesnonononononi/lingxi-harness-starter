@@ -7,7 +7,7 @@ import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.runtime.loop.AgentLoopHook;
 import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.runtime.*;
-import com.summit.core.runtime.loop.lifstyle.RuntimeLifeStyleManager;
+import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.tool.ToolExecutionManager;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.conversation.DefaultRuntimeFactory;

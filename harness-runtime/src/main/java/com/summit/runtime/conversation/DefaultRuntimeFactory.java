@@ -10,7 +10,7 @@ import com.summit.core.runtime.loop.ActiveExecutionRegistry;
 import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.model.ModelInvoker;
 import com.summit.core.runtime.*;
-import com.summit.core.runtime.loop.lifstyle.RuntimeLifeStyleManager;
+import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.ToolExecutionManager;
 import com.summit.runtime.loop.BoundaryChecker;

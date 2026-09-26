@@ -1,4 +1,4 @@
-package com.summit.core.runtime.loop.lifstyle;
+package com.summit.core.runtime.loop.lifestyle;
 
 import com.summit.core.agent.Execution;
 

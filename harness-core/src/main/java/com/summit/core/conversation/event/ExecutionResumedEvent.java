@@ -18,7 +18,7 @@ public class ExecutionResumedEvent implements AgentEvent{
     }
 
     @Override
-    public RuntimeEventType type() {
-        return RuntimeEventType.EXECUTION_RESUME;
+    public String type() {
+        return RuntimeEventType.EXECUTION_RESUME.type();
     }
 }
