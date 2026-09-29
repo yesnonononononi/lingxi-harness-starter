@@ -7,13 +7,23 @@
     <parent>
         <groupId>io.github.yesnonononononi</groupId>
         <artifactId>lingXi-harness-agent</artifactId>
-        <version>1.0.0</version>
+        <version>1.1.0</version>
     </parent>
 
     <dependencies>
         <dependency>
             <groupId>io.github.yesnonononononi</groupId>
             <artifactId>harness-spring-boot-autoconfigure</artifactId>
+        </dependency>
+        <!--
+            Aggregated here rather than pulled in by the auto-configuration module: the kernel tools
+            depend on the runtime, so making the auto-configuration module depend on them would point
+            the arrow the wrong way. The starter is what a consumer actually adds, so it is the right
+            place to assemble the whole framework.
+        -->
+        <dependency>
+            <groupId>io.github.yesnonononononi</groupId>
+            <artifactId>harness-kernel-tools</artifactId>
         </dependency>
     </dependencies>
 

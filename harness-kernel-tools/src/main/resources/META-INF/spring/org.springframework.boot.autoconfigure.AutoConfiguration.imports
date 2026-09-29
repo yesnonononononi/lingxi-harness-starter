@@ -1,0 +1,3 @@
+com.summit.kernel.tools.search.SearchToolAutoConfiguration
+com.summit.kernel.tools.mcp.ListMcpToolsAutoConfiguration
+com.summit.kernel.tools.compact.ContextCompactToolAutoConfiguration

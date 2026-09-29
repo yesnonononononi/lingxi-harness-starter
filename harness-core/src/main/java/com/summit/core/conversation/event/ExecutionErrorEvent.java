@@ -2,17 +2,15 @@ package com.summit.core.conversation.event;
 
 import lombok.Data;
 
-import java.io.Serializable;
 import java.sql.Timestamp;
 import java.time.Instant;
 
 @Data
 public class ExecutionErrorEvent implements AgentEvent{
-    private final Throwable err;
+    private final String errMsg;
     private final String extraDes;
     private final String executionId;
-    private final Timestamp timestamp;
-    private final Serializable sessionId;
+    private final Instant timestamp = Instant.now();
 
     @Override
     public String executionId() {
@@ -21,6 +19,11 @@ public class ExecutionErrorEvent implements AgentEvent{
 
     @Override
     public Instant timestamp() {
-        return timestamp.toInstant()    ;
+        return timestamp;
+    }
+
+    @Override
+    public String type() {
+        return RuntimeEventType.EXECUTION_FAILED.type();
     }
 }

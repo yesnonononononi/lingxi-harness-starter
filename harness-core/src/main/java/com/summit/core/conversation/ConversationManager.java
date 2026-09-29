@@ -1,38 +1,65 @@
 package com.summit.core.conversation;
 
-import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.Execution;
+import com.summit.core.compact.CompactSummaryResolver;
 import com.summit.core.compact.ContextSummary;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;
-import com.summit.core.runtime.Workspace;
+import com.summit.core.mcp.McpToolScope;
+import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.ToolExecuteResult;
 
-
-import java.io.Serializable;
 import java.util.List;
 
 public interface ConversationManager {
 
-    void startConversation(AgentRequest agentRequest);
+    /**
+     * Opens the context of one execution and lays down its leading system message.
+     *
+     * <p>The MCP scope is passed in rather than looked up: it is per-execution request data that
+     * only the runtime holds, while this manager is a singleton shared by every execution. The
+     * prompt needs it to publish the request's remote tools as résumés — see
+     * {@link com.summit.core.prompt.PromptAssembler#withMcpToolPrompt}. An implementation with no
+     * use for it may ignore the argument; a request without MCP servers passes the shared empty
+     * scope, so the "no remote tools" case needs no special handling.</p>
+     */
+    void startConversation(Execution execution, Workspace workspace, McpToolScope mcpToolScope);
 
-    void addMessage(Serializable sessionId, ChatResponseEntity chatResponse,  List<ToolExecuteResult> toolExecutionResultMessage);
-    ConversationEntity endConversation(Serializable sessionId);
+    void addMessage(Execution execution, ChatResponseEntity chatResponse, List<ToolExecuteResult> toolExecutionResultMessage);
 
-    List<Message> messages(Serializable sessionId);
+    List<Message> messages(Execution execution);
+
+    TokenUsageEntity tokenUsage(Execution execution);
+
+    /** Rebuilds a session from the given summary, telling whether the round that triggered the rebuild was the model's own answer to the trailing user turn. */
+    void rebuildContext(ContextSummary contextSummary, Execution execution, boolean answeredTrailingUserTurn);
+
+
+
+    /** Appends a plain user message to an existing session (used by the runtime to inject the the application's feedback / approved directive before the next model round). Default no-op keeps existing implementations intact. */
+    default void appendUserMessage(Execution execution, String text) {
+    }
 
     /**
-     * Returns the workspace bound to the session — the instance supplied by
-     * the {@code AgentRequest} that started it. There is no global fallback;
-     * consumers (e.g. patch application) must use this per-session workspace.
-     *
-     * @return the session workspace, or {@code null} when the session is unknown
+     * Appends an instruction the framework addresses to the model — for example the directive a
+     * loop hook returns when the user approved a plan — as a system message. It is not something
+     * the user said, so it travels as a system prompt instead of a user turn: it never appears in
+     * the user-visible history and is never mistaken for the user's newest request.
+     * Default no-op keeps existing implementations intact.
      */
-    Workspace workspace(Serializable sessionId);
+    default void appendSystemMessage(Execution execution, String text) {
+    }
+    /** Resolves a model-generated summary and applies it only when usable. */
+    default boolean applyCompactSummary(String output, Execution execution, boolean answeredTrailingUserTurn) {
+        ContextSummary summary = CompactSummaryResolver.resolve(output);
+        if (summary == null) return false;
+        rebuildContext(summary, execution, answeredTrailingUserTurn);
+        return true;
+    }
 
-    TokenUsageEntity tokenUsage(Serializable sessionId);
+    void appendSystemMessage(Execution execution, SystemMessageEntity entity);
 
-    void squeezeContext(Integer expectedTokens, Integer attemptNum, Serializable sessionId);
-
-    void rebuildContext(ContextSummary contextSummary, Serializable sessionId);
+    void appendMessage(Execution execution, Message e);
 }

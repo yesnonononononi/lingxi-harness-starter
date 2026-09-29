@@ -1,13 +1,13 @@
 package com.summit.adapter.langchain4j.model;
 
+import com.summit.adapter.langchain4j.codec.MessageCodec;
 import com.summit.adapter.langchain4j.codec.MessageCodecAdapter;
+import com.summit.adapter.langchain4j.codec.ToolCodec;
 import com.summit.adapter.langchain4j.codec.ToolCodecAdapter;
-import com.summit.core.adapter.MessageCodec;
-import com.summit.core.adapter.ToolCodec;
 import com.summit.core.conversation.api.ChatRequestEntity;
 import com.summit.core.conversation.api.ChatResponseEntity;
-import com.summit.core.model.StreamingChatModel;
-import com.summit.core.model.StreamingChatResponseHandler;
+import com.summit.core.model.streaming.StreamingChatModel;
+import com.summit.core.model.streaming.StreamingChatResponseHandler;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.request.ChatRequest;
@@ -16,8 +16,6 @@ import dev.langchain4j.model.chat.response.PartialResponse;
 import dev.langchain4j.model.chat.response.PartialResponseContext;
 import dev.langchain4j.model.chat.response.PartialThinking;
 import dev.langchain4j.model.chat.response.PartialThinkingContext;
-
-import java.util.List;
 
 /**
  * Adapts the langchain4j {@link dev.langchain4j.model.chat.StreamingChatModel StreamingChatModel}
@@ -44,15 +42,8 @@ public class StreamingChatModelAdapter implements StreamingChatModel {
 
     @Override
     public void chat(ChatRequestEntity request, StreamingChatResponseHandler handler) {
-        ChatRequest.Builder builder = ChatRequest.builder()
-                .messages(messageCodec.toFramework(request.getMessages()));
-        if (request.getTools() != null && !request.getTools().isEmpty()) {
-            List<ToolSpecification> toolSpecifications = request.getTools().stream()
-                    .map(toolCodec::toFrameworkTool)
-                    .toList();
-            builder.toolSpecifications(toolSpecifications);
-        }
-        delegate.chat(builder.build(), new StreamingHandlerBridge(handler, messageCodec));
+        ChatRequest chatRequest = ChatRequestBuilder.buildRequest(request, messageCodec, toolCodec);
+        delegate.chat(chatRequest, new StreamingHandlerBridge(handler, messageCodec));
     }
 
     private static class StreamingHandlerBridge implements dev.langchain4j.model.chat.response.StreamingChatResponseHandler {

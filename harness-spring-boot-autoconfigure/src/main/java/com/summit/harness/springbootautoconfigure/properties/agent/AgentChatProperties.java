@@ -8,10 +8,11 @@ import java.time.Duration;
 @Data
 @ConfigurationProperties(prefix = "lingxi.agent.model.conf.chat")
 public class AgentChatProperties {
+    /** Provider used when an AgentRequest does not select one explicitly. */
+    private String provider = "default";
     private String baseUrl;
     private  String apiKey;
     private String modelName;
-    private double squeezeThreshold = 0.85;
     private Integer maxIterations = 50;
     private int maxTokens = 102400;
     // `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` a
@@ -19,28 +20,27 @@ public class AgentChatProperties {
     private boolean returnThinking = true;
     private boolean sendThinking = true;
     private Duration timeout = Duration.ofSeconds(60);
-    private String systemPrompt = """
-                        You are LingXi, a coding agent running on the user's machine (OS: %s).
-                        You can inspect and edit files, and run shell commands. Complete the user's request efficiently, then verify your changes.
-
-                        ## Working directory
-                        - Working directory: %s
-                        - All relative paths are resolved against the working directory.
-                        - For tasks involving projects outside the working directory, confirm the actual project root first, then use absolute paths.
-                        - Do not re-read the same file unless it may have changed; reuse what you already know.
-
-                        ## Tool usage
-                        - Use tools for anything related to files or commands; never answer by guessing.
-                        - When a tool fails, adjust based on the error; do not blindly retry the same command more than twice.
-
-                        ## After making changes
-                        - Run the relevant build or type check to confirm your changes compile and work.
-
-                        ## Context management
-                        - Call compact_context tool when existing conversation history exceeds 85 percent of the maximum token limit.
-                        - Prefer the tool that corresponds to the function to save token consumption.
-
-                        ## Output
-                        - Reply in the same language the user used, with Markdown formatting, concise.
-                        """;
+    /**
+     * How many compaction rounds may run back to back before the loop gives up on the run.
+     *
+     * <p>Compaction is the model asking to summarize its own history through
+     * {@code compact_context}. One is healthy; several in a row means the context cannot be brought
+     * under budget — the summary is not shrinking, or the work refills it immediately — and letting
+     * that continue burns the whole budget without producing an answer. Counted per run, and reset
+     * by any round that is not a compaction.
+     *
+     * <p>Maps to lingxi.agent.model.conf.chat.max-consecutive-compactions</p>
+     */
+    private int maxConsecutiveCompactions = 3;
+    /**
+     * How many model rounds pass between two context-usage notifications.
+     *
+     * <p>Usage is telemetry: it is published for the application's progress display, and publishing
+     * it on every round costs a token count of the whole conversation each time. One round of lag is
+     * invisible to a user watching a progress bar, so the interval trades a little freshness for a
+     * measurable amount of work. A value below one means every round.
+     *
+     * <p>Maps to lingxi.agent.model.conf.chat.usage-report-interval</p>
+     */
+    private int usageReportInterval = 5;
 }

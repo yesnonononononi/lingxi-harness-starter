@@ -31,3 +31,13 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Local build/validation scratch (not for VCS) ###
+.tmp-build/
+.probe/
+.workbuddy/
+*.log
+
+### 反编译/探针产物 ###
+# dev/ 存放从 jar 解包出来用于核对行为的 .class（如 langchain4j 传输层），非源码。
+dev/

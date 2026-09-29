@@ -3,47 +3,213 @@ package com.summit.runtime.agent;
 import com.summit.core.agent.Agent;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
-import com.summit.core.model.ChatModel;
-import com.summit.core.model.ModelInvoker;
+import com.summit.core.agent.ExecutionState;
+import com.summit.core.conf.McpConfig;
+import com.summit.core.conf.ModelConfig;
+import com.summit.core.mcp.McpRegister;
+import com.summit.core.mcp.McpToolScope;
+import com.summit.core.model.DefaultModelProviderNames;
+import com.summit.core.model.RequestModelInvokerFactory;
 import com.summit.core.runtime.ExecutionRuntime;
 import com.summit.core.runtime.RuntimeFactory;
-import com.summit.core.runtime.Workspace;
-import com.summit.runtime.utils.ExecutionCreator;
-import lombok.RequiredArgsConstructor;
+import com.summit.core.runtime.workspace.Workspace;
+import com.summit.core.workspace.WorkspaceManager;
+import com.summit.core.workspace.WorkspaceSpec;
+import lombok.AllArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.NonNull;
 
-@RequiredArgsConstructor
-public class ChatAgent implements Agent {
-    private final ChatModel chatModel;
-    private final RuntimeFactory defaultRuntimeFactory;
-    private final AgentConfig agentConfig;
-    private final ModelInvoker defaultStreamingModelInvoker;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
-    @Override
-    public String id() {
-        return "chat-agent";
+
+/**
+ * Base implementation for conversational agents.
+ *
+ * <p>Subclasses provide their identity and may override the protected resolution hooks while the
+ * request/runtime/workspace lifecycle remains consistent.</p>
+ */
+@Slf4j
+@AllArgsConstructor
+public abstract class ChatAgent implements Agent {
+    protected final RuntimeFactory defaultRuntimeFactory;
+    protected final RequestModelInvokerFactory modelInvokerFactory;
+    protected final WorkspaceManager workspaceManager;
+    private final ModelConfig modelConfig;
+    private final McpRegister mcpRegister;
+    /**
+     * MCP scopes of the executions currently in flight, so a resumed execution reuses the scope its
+     * suspension kept instead of opening a second set of connections.
+     *
+     * <p>Ownership contract: an entry is released only from a terminal state, so an execution that
+     * is suspended and then abandoned keeps its scope. How long a suspension may last is a business
+     * decision the framework does not model (see {@code docs/adr/loop-suspension-boundary.md}), so
+     * there is deliberately no expiry here. A caller that gives up on a suspended execution must
+     * cancel it so the state becomes terminal, and must resume it through {@link #execute(Execution)}
+     * so the retained scope is reused and eventually released.</p>
+     */
+    private final Map<String, McpToolScope> mcpScopes = new ConcurrentHashMap<>();
+
+    public ChatAgent(RuntimeFactory defaultRuntimeFactory,
+                     RequestModelInvokerFactory modelInvokerFactory,
+                     WorkspaceManager workspaceManager,
+                     ModelConfig modelConfig) {
+        this(defaultRuntimeFactory, modelInvokerFactory, workspaceManager, modelConfig, null);
     }
+
 
     @Override
     public Execution execute(AgentRequest agentRequest) {
-
-        agentRequest.setSystemPrompt(this.agentConfig.systemPrompt());
-
-
-        Workspace workspace = agentRequest.getWorkspace();
-
-        Execution execution = ExecutionCreator.create(agentRequest, this);
-
-        ExecutionRuntime executionRuntime = defaultRuntimeFactory.createChatModelRuntime(
-                agentRequest.sessionIdOrDefault(),
-                chatCommand -> {
-                    if (agentRequest.isStreaming()) {
-                        return defaultStreamingModelInvoker.invoke(chatCommand);
-                    } else return chatModel.chat(chatCommand.chatRequest());
-                },
-                workspace
-        );
-        return executionRuntime.execute(execution);
+        return execute(Execution.create(agentRequest, id()));
     }
 
+    @Override
+    public Execution execute(Execution execution) {
+        if (execution == null) {
+            throw new IllegalArgumentException("Execution must not be null");
+        }
+        ExecutionRuntime executionRuntime = prepareExecutionRuntime(execution);
+        try {
+            return executionRuntime.execute(execution);
+        } finally {
+            releaseIfTerminal(execution);
+        }
+    }
+
+    private ExecutionRuntime prepareExecutionRuntime(Execution execution) {
+        AgentRequest agentRequest = execution.getAgentRequest();
+        if (agentRequest == null) {
+            throw new IllegalArgumentException("Execution.agentRequest must not be null");
+        }
+
+        Workspace workspace = resolveWorkspace(agentRequest);
+
+        RequestModelInvokerFactory.Selection model = findSelection(agentRequest);
+
+        execution.setStreaming(model.streaming());
+
+        McpToolScope mcpToolScope = openMcpScope(execution);
+
+        return defaultRuntimeFactory.createRuntime(
+                model.invoker(),
+                workspace,
+                mcpToolScope
+        );
+    }
+
+    protected RequestModelInvokerFactory.Selection findSelection(AgentRequest agentRequest) {
+        return this.modelInvokerFactory.select(resolveModelConfig(agentRequest));
+    }
+
+    /**
+     * Resolves the model configuration for one request. The rules are deliberately flat — no
+     * field-level fallback and no precedence chain:
+     * <ol>
+     *   <li>{@code modelConfig} is set — used as is when it names a provider; otherwise it is
+     *       completed by {@link #completeRequestConfig(ModelConfig)} and {@code modelProvider} is ignored.</li>
+     *   <li>{@code modelProvider} is set — the application configuration with that provider.</li>
+     *   <li>neither is set — the application configuration as is.</li>
+     * </ol>
+     */
+    protected ModelConfig resolveModelConfig(@NonNull AgentRequest agentRequest) {
+        ModelConfig requestConfig = agentRequest.getModelConfig();
+        if (requestConfig != null) {
+            return completeRequestConfig(requestConfig);
+        }
+        if (this.modelConfig == null) {
+            throw new IllegalStateException("No application model configuration is available");
+        }
+
+        if (agentRequest.getModelProvider() == null || agentRequest.getModelProvider().isBlank()) {
+            return this.modelConfig;
+        }
+        return this.modelConfig.toBuilder().provider(agentRequest.getModelProvider().trim()).build();
+    }
+
+    /**
+     * Completes a request-level configuration the caller did not bind to a provider. Such a
+     * configuration carries no protocol of its own, so the framework derives one: the three
+     * attributes a model cannot be built without are required up front, and {@code returnThinking}
+     * selects the streaming protocol because thinking output is delivered as a stream.
+     */
+    protected ModelConfig completeRequestConfig(@NonNull ModelConfig requestConfig) {
+        if (requestConfig.getProvider() != null && !requestConfig.getProvider().isBlank()) {
+            return requestConfig;
+        }
+        ensureNotBlank(requestConfig.getBaseUrl(), "baseUrl");
+        ensureNotBlank(requestConfig.getApiKey(), "apiKey");
+        ensureNotBlank(requestConfig.getModelName(), "modelName");
+        return requestConfig.toBuilder()
+                .provider(requestConfig.isReturnThinking()
+                ? DefaultModelProviderNames.DEFAULT_STREAMING : DefaultModelProviderNames.DEFAULT)
+                .build();
+    }
+
+
+
+
+    private static void ensureNotBlank(String value, String name) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("Value must be non-blank: " + name);
+        }
+    }
+
+    /**
+     * Resolves the workspace of one request without ever owning its lifetime.
+     *
+     * <p>The request's spec is resolved through {@link WorkspaceManager#acquire(WorkspaceSpec)}, which
+     * reuses the sandbox already provisioned for that configuration and creates
+     * one only the first time the configuration is seen. The workspace therefore
+     * survives the request, so the next turn — and the next session on the same
+     * project — starts from a warm toolchain instead of a cold container.</p>
+     */
+    protected Workspace resolveWorkspace(AgentRequest request) {
+
+        WorkspaceSpec spec = request.getWorkspaceSpec();
+        if (spec == null) {
+            return null;
+        }
+        return workspaceManager.acquire(spec);
+    }
+
+
+    /**
+     * Opens the MCP tool scope of this request, or reuses the one kept by a previous suspension of
+     * the same execution. A request without MCP configuration gets the shared empty scope.
+     *
+     * <p>Every path that yields no MCP tools is logged. A request that declares servers but still
+     * ends up empty is a configuration fault, and failing silently there turns a one-character
+     * mistake into "the tools just vanished" with nothing in the log to point at.</p>
+     */
+    protected McpToolScope openMcpScope(Execution execution) {
+        McpConfig mcpConfig = execution.getAgentRequest().getMcpConfig();
+        if (mcpConfig == null || mcpConfig.getMcp() == null || mcpConfig.getMcp().isEmpty()) {
+            // The request declared no servers: absence is intentional, no diagnostic needed.
+            return McpToolScope.EMPTY;
+        }
+        if (mcpRegister == null) {
+            // The request asks for MCP servers but this agent holds no register. Almost always a
+            // wiring fault: a subclass used the constructor without McpRegister, or the
+            // McpAutoConfiguration conditions did not match (e.g. a mis-spelled
+            // "lingxi.mcp.enabled" key), so no McpRegister bean exists to inject.
+            log.warn("MCP tools disabled: {} server(s) declared for execution {} but no McpRegister is "
+                            + "wired into {}; check the lingxi.mcp.enabled property and that the agent "
+                            + "constructor receives McpRegister",
+                    mcpConfig.getMcp().size(), execution.getId(), getClass().getSimpleName());
+            return McpToolScope.EMPTY;
+        }
+        return mcpScopes.computeIfAbsent(execution.getId(), ignored -> mcpRegister.open(mcpConfig));
+    }
+
+    /** Closes the MCP scope once the execution can no longer continue; a suspension keeps it. */
+    private void releaseIfTerminal(Execution execution) {
+        ExecutionState state = execution.getExecutionState();
+        if (state != ExecutionState.COMPLETED && state != ExecutionState.CANCELLED
+                && state != ExecutionState.FAILED) return;
+        McpToolScope scope = mcpScopes.remove(execution.getId());
+        if (scope != null) {
+            scope.close();
+        }
+    }
 
 }

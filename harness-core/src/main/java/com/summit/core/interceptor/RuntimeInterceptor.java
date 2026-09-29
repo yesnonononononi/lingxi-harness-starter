@@ -1,6 +1,7 @@
 package com.summit.core.interceptor;
 
 public interface RuntimeInterceptor<T> {
+
     /**
      * Freely control the logic before and after method calls
      *

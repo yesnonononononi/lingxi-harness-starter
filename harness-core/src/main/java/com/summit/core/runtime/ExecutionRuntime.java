@@ -9,5 +9,4 @@ import com.summit.core.agent.Execution;
  */
 public interface ExecutionRuntime {
     Execution execute(Execution execution);
-
 }

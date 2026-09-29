@@ -1,250 +1,243 @@
 package com.summit.runtime.conversation;
 
 import com.summit.core.agent.AgentRequest;
-import com.summit.core.compact.ContextCompacter;
+import com.summit.core.agent.Execution;
+import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.ContextSummary;
-import com.summit.core.conversation.ConversationEntity;
 import com.summit.core.conversation.ConversationManager;
-import com.summit.core.conversation.ConversationStore;
 import com.summit.core.conversation.api.ChatResponseEntity;
-import com.summit.core.conversation.event.RuntimeEventPublisher;
-import com.summit.core.conversation.message.AiMessageEntity;
-import com.summit.core.conversation.message.Message;
-import com.summit.core.conversation.message.SystemMessageEntity;
-import com.summit.core.conversation.message.TokenUsageEntity;
-import com.summit.core.conversation.message.ToolMessageEntity;
-import com.summit.core.conversation.message.UserMessageEntity;
-import com.summit.core.runtime.Workspace;
+import com.summit.core.conversation.api.ConversationTranscriptSink;
+import com.summit.core.conversation.message.*;
+import com.summit.core.mcp.McpToolScope;
+import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.ToolExecuteResult;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.extern.slf4j.Slf4j;
+import com.summit.runtime.prompt.SystemPromptAssembler;
 import org.jspecify.annotations.Nullable;
 
-import java.io.Serializable;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
-
-
-@Getter
-@Slf4j
-@AllArgsConstructor
+/**
+ * Stateless operations over the context owned by one execution.
+ */
 public class DefaultConversationManager implements ConversationManager {
-    private final ConversationStore conversationStore;
-    private final RuntimeEventPublisher runtimeEventPublisher;
-    private final ContextCompacter contextCompacter;
+    private static final String CONTINUE_AFTER_COMPACTION_PROMPT = """
+            The conversation history before this point has been compacted into the summary above.
+            Continue the work from there: do not repeat steps that are already marked as completed.
+            """;
 
+
+    private final ContextAttachmentProvider contextAttachmentProvider;
+    private final ConversationTranscriptSink conversationTranscriptSink;
+
+
+    public DefaultConversationManager(ContextAttachmentProvider contextAttachmentProvider) {
+        this(null, contextAttachmentProvider);
+    }
+
+    public DefaultConversationManager(ConversationTranscriptSink conversationTranscriptSink,
+                                      ContextAttachmentProvider contextAttachmentProvider) {
+
+        this.contextAttachmentProvider = contextAttachmentProvider == null
+                ? ContextAttachmentProvider.NONE : contextAttachmentProvider;
+        this.conversationTranscriptSink = conversationTranscriptSink;
+    }
 
     @Override
-    public void startConversation(AgentRequest agentRequest) {
+    public void startConversation(Execution execution, Workspace workspace, McpToolScope mcpToolScope) {
+        if (execution.getMessages() == null) execution.setMessages(new ArrayList<>());
+        if (execution.getTokenUsage() == null) execution.setTokenUsage(TokenUsageEntity.empty());
+        setLeadingSystemMessage(execution,
+                buildSystemMessage(execution.getAgentRequest(), workspace, mcpToolScope));
+    }
 
-        Optional<ConversationEntity> existing = this.conversationStore.get(agentRequest.sessionIdOrDefault());
+    @Override
+    public void addMessage(Execution execution, ChatResponseEntity response,
+                           @Nullable List<ToolExecuteResult> toolResults) {
+        List<Message> messages = execution.getMessages();
 
-        // if session has existed then append input
-        if (existing.isPresent()) {
-           appendNewUserMessageToConversation(agentRequest, existing.get());
-            return;
+        AiMessageEntity aiMessage = response.getAiMessageEntity();
+        List<ToolMessageEntity> toolMessages = new ArrayList<>();
+
+        if (toolResults != null) {
+            for (ToolExecuteResult result : toolResults) {
+                var definition = result.getToolSpecification();
+                toolMessages.add(ToolMessageEntity.builder()
+                        .id(result.getId())
+                        .name(definition == null ? "unknown tool" : definition.name())
+                        .text(result.getToolOutput())
+                        .build());
+            }
         }
 
-        // New session: create system + this input
-        startNewConversation(agentRequest);
-    }
+        messages.add(aiMessage);
 
-    @Override
-    public void addMessage(Serializable sessionId, ChatResponseEntity chatResponse, @Nullable List<ToolExecuteResult> toolExecutionResultMessage) {
-        AiMessageEntity aiMessage = chatResponse.getAiMessageEntity();
-        ConversationEntity conversation = getConversationEntity(sessionId);
-        conversation.messages().add(aiMessage);
-        conversation.tokenUsageEntity().add(chatResponse.getTokenUsage());
+        messages.addAll(toolMessages);
 
-        addToolMessages(toolExecutionResultMessage, conversation);
+        execution.setAiMessage(aiMessage);
 
-        this.conversationStore.save(sessionId, conversation);
-    }
+        execution.getTokenUsage().add(response.getTokenUsage());
 
-    @Override
-    public ConversationEntity endConversation(Serializable sessionId) {
-        //Only the current execution is ended. The session is retained in the store for subsequent executions with the same sessionId to reuse the history
-        return this.conversationStore.get(sessionId).orElse(null);
-    }
-
-    @Override
-    public List<Message> messages(Serializable sessionId) {
-        return Collections.unmodifiableList(getConversationEntity(sessionId).messages());
-    }
-
-    @Override
-    public Workspace workspace(Serializable sessionId) {
-        // The workspace stored at session start — the one supplied by the AgentRequest
-        return this.conversationStore.get(sessionId).map(ConversationEntity::workspace).orElse(null);
-    }
-
-    @Override
-    public TokenUsageEntity tokenUsage(Serializable sessionId) {
-        return this.conversationStore.get(sessionId).orElseThrow().tokenUsageEntity();
-    }
-
-    @Override
-    public void squeezeContext(Integer expectedTokens, Integer attemptNum, Serializable sessionId) {
-        ConversationEntity conversation = getConversationEntity(sessionId);
-        this.contextCompacter.compact(expectedTokens, attemptNum, conversation.messages());
-        this.conversationStore.save(sessionId, conversation);
-    }
-
-    @Override
-    public void rebuildContext(ContextSummary contextSummary, Serializable sessionId) {
-        if (contextSummary == null) return;
-        ConversationEntity conversation = getConversationEntity(sessionId);
-        String summary = contextSummary.getSummary();
-        try {
-            log.info("【context-rebuild】 rebuilding context with summary: {}", summary);
-            SystemMessageEntity systemMessage = conversation.SystemMessageEntity();
-            List<Message> latestToolMessageAndAiMessage = findLatestInteraction(conversation);
-            conversation.messages().clear();
-           conversation.messages().addAll(List.of(systemMessage, SystemMessageEntity.builder().text(
-                    String.format("""
-                                    The compact_context tool has been executed successfully, and the conversation history has been compressed into the following summary:
-                                    goal: \n
-                                    %s
-                                    summary: \n
-                                    %s
-                                    completed task: \n
-                                    %s
-                                    pending task: \n
-                                    %s
-                                    summary-task state: \n
-                                    %s
-                                    Continue the conversation based on this summary. Do NOT execute anything about this summary
-                                    """,
-                            contextSummary.getGoal(),
-                            contextSummary.getSummary(),
-                            contextSummary.getCompleted(),
-                            contextSummary.getPending(),
-                            contextSummary.getState()
-                    )
-            ).build()));
-            conversation.messages().addAll(latestToolMessageAndAiMessage);
-            this.conversationStore.save(sessionId, conversation);
-            log.info("【context-rebuild】successfully rebuild context with summary: {}", summary);
-        } catch (Exception e) {
-            log.error("【context-rebuild】 failed to rebuild context with summary: {}", summary, e);
+        if (conversationTranscriptSink != null) {
+            conversationTranscriptSink.appendRound(execution.getId(), aiMessage, List.copyOf(toolMessages));
         }
     }
 
+    @Override
+    public List<Message> messages(Execution execution) {
+        return Collections.unmodifiableList(execution.getMessages());
+    }
+
+    @Override
+    public TokenUsageEntity tokenUsage(Execution execution) {
+        return execution.getTokenUsage();
+    }
+
+    @Override
+    public void appendUserMessage(Execution execution, String text) {
+        if (text != null && !text.isBlank()) execution.getMessages().add(UserMessageEntity.from(text));
+    }
+
+    @Override
+    public void appendSystemMessage(Execution execution, String text) {
+        if (text != null && !text.isBlank()) {
+            execution.getMessages().add(SystemMessageEntity.builder().text(text).build());
+        }
+    }
+
+    @Override
+    public void appendSystemMessage(Execution execution, SystemMessageEntity entity) {
+        if (entity.getText() != null && !entity.getText().isBlank()) {
+            execution.getMessages().add(entity);
+        }
+    }
+
+    @Override
+    public void appendMessage(Execution execution, Message e) {
+        switch (e) {
+            case SystemMessageEntity entity -> execution.getMessages().add(entity);
+            case UserMessageEntity entity -> execution.getMessages().add(entity);
+            case AiMessageEntity entity -> execution.getMessages().add(entity);
+            case ToolMessageEntity entity -> execution.getMessages().add(entity);
+            case null, default -> throw new IllegalArgumentException("Unknown message type: " + e);
+        }
+    }
+
+
+    @Override
+    public void rebuildContext(ContextSummary summary, Execution execution, boolean answeredTrailingUserTurn) {
+        if (summary == null) return;
+        List<Message> current = execution.getMessages();
+        SystemMessageEntity leading = current.stream()
+                .filter(SystemMessageEntity.class::isInstance)
+                .map(SystemMessageEntity.class::cast)
+                .findFirst()
+                .orElseGet(() -> SystemMessageEntity.builder().text(businessPromptOf(execution)).build());
+        List<Message> tail = retainableTail(current, answeredTrailingUserTurn);
+        List<Message> rebuilt = new ArrayList<>();
+        rebuilt.add(leading);
+        contextAttachmentProvider.attachment(execution.getId())
+                .filter(value -> !value.isBlank())
+                .ifPresent(value -> rebuilt.add(SystemMessageEntity.builder().text(String.format("""
+                        The protected application state produced earlier is reproduced below. Keep following it:
+                        
+                        %s
+                        """, value)).build()));
+        rebuilt.add(SystemMessageEntity.builder().text(String.format("""
+                        The compact_context tool has been executed successfully, and the conversation history has been compressed into the following summary:
+                        goal:
+                        %s
+                        summary:
+                        %s
+                        completed task:
+                        %s
+                        pending task:
+                        %s
+                        summary-task state:
+                        %s
+                        Continue the conversation based on this summary. Do NOT execute anything about this summary
+                        """, summary.getGoal(), summary.getSummary(), summary.getCompleted(), summary.getPending(),
+                summary.getState())).build());
+        if (tail.isEmpty()) rebuilt.add(UserMessageEntity.from(CONTINUE_AFTER_COMPACTION_PROMPT));
+        else rebuilt.addAll(tail);
+        execution.setMessages(rebuilt);
+    }
 
     /**
-     * Add tool messages to the conversation.
-     * @param results The tool execution results.
-     * @param conversation The conversation entity.
+     * Builds the leading system message: where the agent runs, who it is, the remote tools it may
+     * look up, and — last, closest to the user's turn — the task this execution was delegated.
+     *
+     * <p>The prompt itself is not composed here. It arrives as {@code AgentRequest.systemPrompt} and
+     * is rendered verbatim: the framework holds no default of its own, so there is exactly one place
+     * that decides what the model is told about its role.</p>
+     *
+     * <p>The MCP section carries résumés only. The request's remote tools are never declared in the
+     * model's tool list up front; they are published here as name and description and unlocked one
+     * at a time through {@code search_tool}. See {@link McpToolScope}.</p>
      */
-    private void addToolMessages(List<ToolExecuteResult> results,ConversationEntity conversation) {
-        if (results == null || results.isEmpty()) {
-            return;
-        }
+    private SystemMessageEntity buildSystemMessage(AgentRequest request, Workspace workspace,
+                                                  McpToolScope mcpToolScope) {
+        McpToolScope scope = mcpToolScope == null ? McpToolScope.EMPTY : mcpToolScope;
 
-        for (ToolExecuteResult result : results) {
-            var toolDefinition = result.getToolSpecification();
+        String result = new SystemPromptAssembler()
+                .startWithWorkspace(workspace)
+                .withBusinessPrompt(businessPromptOf(request))
+                .withMcpToolPrompt(scope.resumes())
+                .withTaskPrompt(request == null ? null : request.getTask())
+                .complete();
 
-            ToolMessageEntity message = ToolMessageEntity.builder()
-                    .id(result.getId())
-                    .name(toolDefinition == null
-                            ? "unknown tool"
-                            : toolDefinition.name())
-                    .text(result.getToolOutput())
-                    .build();
+        return SystemMessageEntity.builder()
+                .text(result )
+                .build();
+    }
 
-            conversation.messages().add(message);
-        }
+    /**
+     * The prompt of this execution, taken from the request and nowhere else.
+     *
+     * <p>Empty when the application supplied none. Substituting a framework sentence here would put
+     * text in front of the model that nobody wrote, and it would do so invisibly — the application
+     * would have no way to tell its own prompt from the framework's.</p>
+     */
+    private static String businessPromptOf(Execution execution) {
+        AgentRequest request = execution == null ? null : execution.getAgentRequest();
+        return businessPromptOf(request);
+    }
+
+    private static String businessPromptOf(AgentRequest request) {
+        String prompt = request == null ? null : request.getSystemPrompt();
+        return prompt == null ? "" : prompt.strip();
     }
 
 
-    /**
-     * Find the latest interaction in the conversation.
-     * @param conversation The conversation entity.
-     * @return The latest interaction in the conversation.
-     */
-    private List<Message> findLatestInteraction(ConversationEntity conversation) {
 
+    private void setLeadingSystemMessage(Execution execution, SystemMessageEntity systemMessage) {
+        List<Message> messages = execution.getMessages();
+        if (!messages.isEmpty() && messages.getFirst() instanceof SystemMessageEntity) messages.set(0, systemMessage);
+        else messages.addFirst(systemMessage);
+    }
+
+    private List<Message> retainableTail(List<Message> messages, boolean answeredTrailingUserTurn) {
         List<Message> result = new ArrayList<>();
-
-        for (int i = conversation.messages().size() - 1; i >= 0; i--) {
-
-            Message message = conversation.messages().get(i);
-
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            Message message = messages.get(i);
             if (message instanceof ToolMessageEntity) {
                 result.addFirst(message);
                 continue;
             }
-
-            if (message instanceof AiMessageEntity) {
+            if (message instanceof AiMessageEntity || message instanceof UserMessageEntity) {
                 result.addFirst(message);
                 break;
             }
         }
-
-        return result;
+        if (answeredTrailingUserTurn && result.stream().anyMatch(UserMessageEntity.class::isInstance)) return List.of();
+        boolean hasAssistant = result.stream().anyMatch(AiMessageEntity.class::isInstance);
+        if (!hasAssistant) return result.stream().noneMatch(ToolMessageEntity.class::isInstance) ? result : List.of();
+        return result.stream().allMatch(DefaultConversationManager::isThinkingSafe) ? result : List.of();
     }
 
-
-    /**
-     * Get the system message for the given system prompt and workspace.
-     * @param systemPrompt The system prompt to use.
-     * @param workspace The workspace to use.
-     * @return The system message.
-     */
-    private SystemMessageEntity getSystemMessage(String systemPrompt, Workspace workspace) {
-        return SystemMessageEntity.builder().text(String.format(systemPrompt,
-                workspace.runtimeEnvironment().osType(),
-                workspace.workDir()
-        )).build();
-
+    private static boolean isThinkingSafe(Message message) {
+        if (!(message instanceof AiMessageEntity ai)) return true;
+        return ai.getThinking() != null && !ai.getThinking().isBlank();
     }
-
-    /**
-     * Get the conversation entity for the given session ID.
-     * @param sessionId The session ID.
-     * @return The conversation entity.
-     */
-    private ConversationEntity getConversationEntity(Serializable sessionId) {
-        return this.conversationStore.get(sessionId).orElseThrow();
-    }
-
-    /**
-     * Start a new conversation with the given agent request.
-     * @param agentRequest The agent request containing the system prompt and workspace.
-     */
-    private void startNewConversation(AgentRequest agentRequest){
-        Serializable sessionId = agentRequest.sessionIdOrDefault();
-        SystemMessageEntity systemMessage =  getSystemMessage(agentRequest.getSystemPrompt(), agentRequest.getWorkspace());
-        ConversationEntity conversation = ConversationEntity.empty(agentRequest.getSessionName(), agentRequest.getWorkspace(), systemMessage, sessionId);
-        conversation.messages().add(UserMessageEntity.from(agentRequest.getInput()));
-        this.conversationStore.save(sessionId, conversation);
-    }
-
-
-    /**
-     * append a new user message to the conversation and set the sessionName if it is not set
-     * @param agentRequest The agent request containing the input and session name.
-     * @param conversation The conversation entity to append the user message to.
-     */
-    private void appendNewUserMessageToConversation(AgentRequest agentRequest,ConversationEntity conversation){
-        List<Message> messages = conversation.messages();
-        Serializable sessionId = agentRequest.sessionIdOrDefault();
-        String sessionName = agentRequest.getSessionName();
-        UserMessageEntity userMessage = UserMessageEntity.from(agentRequest.getInput());
-        Message last = messages.isEmpty() ? null : messages.getLast();
-
-        // Idempotent protection: When the last execution fails and is retried, the last message may already be the current input, avoiding duplicate appending
-        if (last == null || !last.text().equals(userMessage.text())) {
-            messages.add(userMessage);
-            this.conversationStore.save(sessionId, conversation);
-        }
-
-        // Backfill the session name on first sight if the caller supplied one
-        if (sessionName != null && !sessionName.isBlank()
-                && (conversation.sessionName() == null || conversation.sessionName().isBlank())) {
-            this.conversationStore.save(sessionId, conversation.withSessionName(sessionName));
-        }
-    }
-
 }

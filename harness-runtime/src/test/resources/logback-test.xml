@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Test logging. Nothing is bound in production (the host application supplies its own binding),
+    so this file exists purely to make framework warnings visible during tests. The level is WARN
+    to keep build output focused on things worth reading.
+
+    The appender class is declared explicitly: relying on logback's implicit type resolution left
+    the root logger unable to find "STDOUT", which silently swallowed every log line.
+-->
+<configuration>
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+            <pattern>%d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="WARN">
+        <appender-ref ref="STDOUT"/>
+    </root>
+</configuration>

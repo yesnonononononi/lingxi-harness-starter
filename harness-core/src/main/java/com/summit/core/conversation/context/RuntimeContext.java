@@ -1,31 +1,54 @@
 package com.summit.core.conversation.context;
 
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.runtime.loop.*;
+import com.summit.core.mcp.McpToolScope;
 import com.summit.core.model.ModelInvoker;
-import com.summit.core.runtime.RuntimeExecutionPolicy;
-import com.summit.core.runtime.Workspace;
+import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
+import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.ToolExecutionManager;
 import lombok.Getter;
 import lombok.experimental.SuperBuilder;
 
 @Getter
 @SuperBuilder
-public class RuntimeContext
- {
+public class RuntimeContext {
+    private final RuntimeLifeStyleManager runtimeLifeStyleManager;
+    private final RuntimeBoundaryChecker runtimeBoundaryChecker;
+    private final ExecutionRepository executionRepository;
     private final ModelInvoker invoker;
+    private final LoopInterceptor loopInterceptor;
     private final Workspace workspace;
     private final ConversationManager conversationManager;
     private final RuntimeEventPublisher runtimeEventPublisher;
     private final ToolExecutionManager toolExecutionManager;
-    private final RuntimeExecutionPolicy runtimeExecutionPolicy;
-    private final ObjectMapper objectMapper;
-    private final Integer maxIterations;
-    private static final int DEFAULT_MAX_ITERATIONS = 10;
-    public int getMaxIterations() {
-        return maxIterations != null ? maxIterations : DEFAULT_MAX_ITERATIONS;
+    private final ContextUsageReporter usage;
+    /**
+     * MCP tools declared by this request. Request-scoped by construction and closed by the runtime
+     * when the execution reaches a terminal state.
+     */
+    private final McpToolScope mcpToolScope;
+    /**
+     * Consecutive compaction rounds this run tolerates before the loop gives up, or {@code null} to
+     * use the runtime's default.
+     *
+     * <p>Carried on the context rather than read from a constant inside the loop, so the budget is a
+     * configuration decision like every other one. Left nullable because this context is also built
+     * directly outside Spring, where the caller may have no opinion.</p>
+     */
+    private final Integer maxConsecutiveCompactions;
+
+
+    /** Also supports direct builder use outside Spring. */
+    public LoopInterceptor getLoopInterceptor() {
+        return loopInterceptor == null ? LoopInterceptor.NOOP : loopInterceptor;
+    }
+
+    /** The MCP tools of this request, never {@code null}. */
+    public McpToolScope getMcpToolScope() {
+        return mcpToolScope == null ? McpToolScope.EMPTY : mcpToolScope;
     }
 
 }

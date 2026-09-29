@@ -3,14 +3,13 @@ package com.summit.core.conversation.event;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
-import java.io.Serializable;
 import java.time.Instant;
 
 @AllArgsConstructor
 @Getter
 public class ExecutionStartEvent implements AgentEvent{
     private String executionId;
-    Serializable sessionId;
+    private final Instant timestamp = Instant.now();
 
     @Override
     public String executionId() {
@@ -19,6 +18,11 @@ public class ExecutionStartEvent implements AgentEvent{
 
     @Override
     public Instant timestamp() {
-        return Instant.now();
+        return timestamp;
+    }
+
+    @Override
+    public String type() {
+        return RuntimeEventType.EXECUTION_STARTED.type();
     }
 }
