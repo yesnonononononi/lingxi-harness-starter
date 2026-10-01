@@ -23,39 +23,39 @@ class McpValidatorTest {
 
     @Test
     void stdioWithArgvCommandPasses() {
-        McpConfig.MCP server = new McpConfig.MCP("shadcn", McpTransport.STDIO,
+        McpConfig.MCP server = new McpConfig.MCP("shadcn", "shadcn component registry", McpTransport.STDIO,
                 new McpConfig.Stdio(List.of("npx", "shadcn@latest", "mcp"),
                         Map.of("GITHUB_TOKEN", "ghp_x"), INIT, EXEC),
-                null, 100);
+                100);
         assertDoesNotThrow(() -> McpValidator.validate(server));
     }
 
     @Test
     void stdioWithoutCommandIsRejected() {
-        McpConfig.MCP server = new McpConfig.MCP("shadcn", McpTransport.STDIO,
-                new McpConfig.Stdio(List.of(), null, INIT, EXEC), null, 100);
+        McpConfig.MCP server = new McpConfig.MCP("shadcn", null, McpTransport.STDIO,
+                new McpConfig.Stdio(List.of(), null, INIT, EXEC), 100);
         assertInvalid(server, "command");
     }
 
     @Test
     void stdioWithBlankArgumentIsRejected() {
-        McpConfig.MCP server = new McpConfig.MCP("shadcn", McpTransport.STDIO,
-                new McpConfig.Stdio(java.util.Arrays.asList("npx", " "), null, INIT, EXEC), null, 100);
+        McpConfig.MCP server = new McpConfig.MCP("shadcn", null, McpTransport.STDIO,
+                new McpConfig.Stdio(java.util.Arrays.asList("npx", " "), null, INIT, EXEC), 100);
         assertInvalid(server, "command");
     }
 
     @Test
     void sseIsRejectedBecauseTheClientLibraryHasNoSseTransport() {
-        McpConfig.MCP server = new McpConfig.MCP("legacy", McpTransport.SSE,
-                new McpConfig.Sse("https://legacy.example/sse", Map.of(), INIT, EXEC), null, 100);
+        McpConfig.MCP server = new McpConfig.MCP("legacy", null, McpTransport.SSE,
+                new McpConfig.Sse("https://legacy.example/sse", Map.of(), INIT, EXEC), 100);
         assertInvalid(server, "SSE transport is not supported");
     }
 
     @Test
     void confTypeMustMatchTheDeclaredTransport() {
-        McpConfig.MCP server = new McpConfig.MCP("shadcn", McpTransport.STDIO,
+        McpConfig.MCP server = new McpConfig.MCP("shadcn", null, McpTransport.STDIO,
                 new McpConfig.StreamableHttp("https://shadcn.example/mcp", Map.of(), INIT, EXEC),
-                null, 100);
+                100);
         assertInvalid(server, "does not match");
     }
 
@@ -68,24 +68,38 @@ class McpValidatorTest {
     }
 
     @Test
-    void namePrefixAndMaxOutputKeepTheirGuards() {
-        assertInvalid(http("bad name", "https://a.example/mcp"), "invalid server key");
-        assertInvalid(new McpConfig.MCP("a", McpTransport.STREAMABLE_HTTP,
+    void serverKeyAndMaxOutputKeepTheirGuards() {
+        assertInvalid(http("", "https://a.example/mcp"), "invalid server key");
+        assertInvalid(new McpConfig.MCP("a", null, McpTransport.STREAMABLE_HTTP,
                 new McpConfig.StreamableHttp("https://a.example/mcp", Map.of(), INIT, EXEC),
-                "bad prefix!", 100), "invalid tool-name-prefix");
-        assertInvalid(new McpConfig.MCP("a", McpTransport.STREAMABLE_HTTP,
-                new McpConfig.StreamableHttp("https://a.example/mcp", Map.of(), INIT, EXEC),
-                null, 0), "max-output");
+                0), "max-output");
+    }
+
+    /**
+     * A server name is a label, never part of a model-facing tool name: the tools reach the model as
+     * {@code mcp_} plus the names the server itself published, so dots and spaces in the name are
+     * harmless instead of poisoning every function name of that server.
+     */
+    @Test
+    void serverNameIsNeverUsedAsAToolNamePrefix() {
+        assertDoesNotThrow(() -> McpValidator.validate(http("draw.io", "https://mcp.draw.io/mcp")));
+        assertDoesNotThrow(() -> McpValidator.validate(http("bad name", "https://a.example/mcp")));
+    }
+
+    @Test
+    void descriptionIsOptional() {
+        assertDoesNotThrow(() -> McpValidator.validate(new McpConfig.MCP("a", null, McpTransport.STREAMABLE_HTTP,
+                new McpConfig.StreamableHttp("https://a.example/mcp", Map.of(), INIT, EXEC), 100)));
     }
 
     @Test
     void timeoutsMustBePositive() {
-        assertInvalid(new McpConfig.MCP("a", McpTransport.STREAMABLE_HTTP,
+        assertInvalid(new McpConfig.MCP("a", null, McpTransport.STREAMABLE_HTTP,
                 new McpConfig.StreamableHttp("https://a.example/mcp", Map.of(), null, EXEC),
-                null, 100), "timeouts");
-        assertInvalid(new McpConfig.MCP("s", McpTransport.STDIO,
+                100), "timeouts");
+        assertInvalid(new McpConfig.MCP("s", null, McpTransport.STDIO,
                 new McpConfig.Stdio(List.of("npx"), Map.of(), INIT, Duration.ZERO),
-                null, 100), "timeouts");
+                100), "timeouts");
     }
 
     @Test
@@ -98,8 +112,8 @@ class McpValidatorTest {
     }
 
     private static McpConfig.MCP http(String name, String url) {
-        return new McpConfig.MCP(name, McpTransport.STREAMABLE_HTTP,
-                new McpConfig.StreamableHttp(url, Map.of(), INIT, EXEC), null, 100);
+        return new McpConfig.MCP(name, null, McpTransport.STREAMABLE_HTTP,
+                new McpConfig.StreamableHttp(url, Map.of(), INIT, EXEC), 100);
     }
 
     private static void assertInvalid(McpConfig.MCP server, String expectedFragment) {

@@ -7,12 +7,15 @@ import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.runtime.*;
 import com.summit.core.runtime.loop.LoopInterceptor;
+import com.summit.core.runtime.loop.RuntimeBoundaryChecker;
+import com.summit.core.runtime.loop.ExecutionFailureObserver;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.tool.ToolExecutionManager;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.conversation.DefaultRuntimeFactory;
 import com.summit.runtime.compact.DefaultManualCompacter;
 import com.summit.runtime.compact.DefaultModelCompacter;
+import com.summit.runtime.loop.BoundaryChecker;
 import com.summit.runtime.loop.lifeStyle.DefaultRuntimeLifeStyleManager;
 import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -33,7 +36,9 @@ public class ExecutionRuntimeConfig {
                                                 ExecutionRepository executionRepository,
                                                 DefaultManualCompacter manualCompacter,
                                                 DefaultModelCompacter modelCompacter, RuntimeLifeStyleManager runtimeLifeStyleManager,
-                                                LoopInterceptor loopInterceptor
+                                                LoopInterceptor loopInterceptor,
+                                                RuntimeBoundaryChecker boundaryChecker,
+                                                List<ExecutionFailureObserver> failureObservers
     ) {
         return DefaultRuntimeFactory.builder()
                 .toolExecutionManager(defaultToolExecutionManager)
@@ -46,8 +51,29 @@ public class ExecutionRuntimeConfig {
                 .agentConfig(agentConfig)
                 .manualCompacter(manualCompacter)
                 .runtimeLifeStyleManager(runtimeLifeStyleManager)
+                .failureObservers(failureObservers)
                 .modelCompacter(modelCompacter)
+                .boundaryChecker(boundaryChecker)
                 .build();
+    }
+
+    /**
+     * The default runtime boundary checker: budget limits, the two compaction bands and token
+     * exhaustion.
+     *
+     * <p>Published as a bean so the loop's decision policy is replaceable. The checker holds no
+     * per-execution state — everything it reads arrives on the {@link com.summit.core.agent.Execution}
+     * it is handed — so a single shared instance is correct. An application that needs a different
+     * policy declares its own {@link RuntimeBoundaryChecker} bean and this one steps aside.</p>
+     */
+    @Bean
+    @ConditionalOnMissingBean(RuntimeBoundaryChecker.class)
+    public RuntimeBoundaryChecker boundaryChecker(AgentConfig agentConfig, Tokenizer tokenizer,
+                                                  ConversationManager conversationManager,
+                                                  DefaultManualCompacter manualCompacter,
+                                                  DefaultModelCompacter modelCompacter) {
+        return new BoundaryChecker(agentConfig, tokenizer, conversationManager,
+                manualCompacter, modelCompacter);
     }
 
     @Bean
@@ -69,6 +95,7 @@ public class ExecutionRuntimeConfig {
     }
 
     @Bean
+    @ConditionalOnMissingBean(RuntimeEventPublisher.class)
     public RuntimeEventPublisher defaultRuntimeListener(List<RuntimeListener> listeners) {
         return new RuntimeEventPublisher(listeners);
     }

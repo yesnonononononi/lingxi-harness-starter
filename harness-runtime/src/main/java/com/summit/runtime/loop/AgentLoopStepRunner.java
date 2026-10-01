@@ -22,6 +22,7 @@ import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 
@@ -50,14 +51,16 @@ public class AgentLoopStepRunner {
 
         LoopContext loopContext = new LoopContext(
                 execution.getId(),
-                execution.getAgentRequest() == null ? null
-                        : execution.getAgentRequest().runtimeParametersOrDefault().getAttributes(),
+                execution.getAgentRequest().runtimeParametersOrDefault().getAttributes(),
                 e -> e.forEach(m -> this.context.getConversationManager().appendMessage(execution, m))
         );
         while (true) {
             if ((controlResult = resultOf(control)) != null) return controlResult;
+
             try {
+                // not different but reserve the semantic
                 interceptor.onLoopStart(loopContext);
+
                 interceptor.onBeforeModelInvoke(loopContext);
 
                 if ((controlResult = resultOf(control)) != null) return controlResult;
@@ -66,16 +69,17 @@ public class AgentLoopStepRunner {
                 if ((checkPointResult = boundaryCheck(true, execution)) != null)
                     return LoopResult.cancelled(checkPointResult.reason());
 
+                execution.incrementModelAttempts();
+
                 ChatResponseEntity response;
                 try {
-                    execution.setModelAttempts(execution.getModelAttempts() + 1);
-
                     response = invokeModel(execution, control);
                 } catch (ExecutionInterruptedException e) {
                     return e.kind() == ExecutionInterruptedException.Kind.CANCEL
                             ? LoopResult.cancelled(e.getMessage())
                             : LoopResult.suspended(e.getMessage());
                 }
+
                 interceptor.onAfterModelInvoke(loopContext, response);
 
                 if ((controlResult = resultOf(control)) != null) return controlResult;
@@ -93,15 +97,21 @@ public class AgentLoopStepRunner {
                 List<ToolExecuteResult> toolResults = doToolCall(execution, aiMessage);
 
                 if (hasPromise(toolResults)) {
+
                     appendMessage(execution, response, toolResults);
+
                     interceptor.onAfterToolCall(loopContext, toolResults);
+
                     reportCompletedRound(execution);
+
                     if ((controlResult = resultOf(control)) != null
                             && controlResult.status() == LoopResult.Status.CANCELLED) return controlResult;
+
                     return LoopResult.suspended("tool result requested execution suspension");
                 }
 
                 if (applyCompaction(execution, response, toolResults)) {
+
                     interceptor.onAfterToolCall(loopContext, toolResults);
 
                     reportCompletedRound(execution);
@@ -116,7 +126,9 @@ public class AgentLoopStepRunner {
                 }
 
                 consecutiveCompactRounds = 0;
+
                 appendMessage(execution, response, toolResults);
+
                 interceptor.onAfterToolCall(loopContext, toolResults);
 
                 if ((checkPointResult = boundaryCheck(false, execution)) != null)
@@ -141,7 +153,10 @@ public class AgentLoopStepRunner {
             context.getRuntimeEventPublisher().onAiMessage(new AgentMessageEvent(
                     response.getAiMessageEntity().text(),
                     response.getAiMessageEntity().getThinking(),
-                    execution.getId()));
+                    execution.getId(),
+                    execution.eventMetaData()
+            ));
+
             return response;
         } catch (Exception e) {
             // A control request reached the streaming handler while the model was still producing
@@ -190,15 +205,20 @@ public class AgentLoopStepRunner {
     private List<ToolExecuteResult> doToolCall(@NonNull Execution execution,
                                                @NonNull AiMessageEntity aiMessageEntity) {
         AgentRequest agentRequest = execution.getAgentRequest();
+
+        Map<String, Object> attributes = agentRequest.runtimeParametersOrDefault().getAttributes();
+        Map<String,Object> eventAttributes = agentRequest.runtimeParametersOrDefault().getEventMetaData();
         return context.getToolExecutionManager().execute(
                 new ToolExecuteCommand(
                         aiMessageEntity.getToolCalls(),
                         execution.getId(),
                         context.getWorkspace(),
-                        agentRequest == null ? null : agentRequest.runtimeParametersOrDefault().getAttributes(),
+                        attributes,
+                        eventAttributes,
                         configuredTools(execution),
-                        agentRequest == null || agentRequest.runtimeParametersOrDefault().isAllowOutsideWorkspace(),
-                        context.getMcpToolScope())
+                        agentRequest.runtimeParametersOrDefault().isAllowOutsideWorkspace(),
+                        context.getMcpToolScope()
+                )
         );
     }
 
@@ -212,7 +232,7 @@ public class AgentLoopStepRunner {
 
     private @Nullable List<String> configuredTools(@NonNull Execution execution) {
         AgentRequest request = execution.getAgentRequest();
-        return request == null ? null : request.getToolList();
+        return request.getToolList();
     }
 
     /**
@@ -275,7 +295,8 @@ public class AgentLoopStepRunner {
     }
 
     private @Nullable CheckPointResult boundaryCheck(boolean before, Execution execution) {
-        CheckPointResult result = before ? context.getRuntimeBoundaryChecker().before(execution) : context.getRuntimeBoundaryChecker().after(execution);
+        RuntimeBoundaryChecker runtimeBoundaryChecker = context.getRuntimeBoundaryChecker();
+        CheckPointResult result = before ? runtimeBoundaryChecker.before(execution) : runtimeBoundaryChecker.after(execution);
         return result.isCancelled() ? result : null;
     }
 

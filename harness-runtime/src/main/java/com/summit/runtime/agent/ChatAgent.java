@@ -6,7 +6,7 @@ import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
 import com.summit.core.conf.McpConfig;
 import com.summit.core.conf.ModelConfig;
-import com.summit.core.mcp.McpRegister;
+import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.model.DefaultModelProviderNames;
 import com.summit.core.model.RequestModelInvokerFactory;
@@ -36,7 +36,8 @@ public abstract class ChatAgent implements Agent {
     protected final RequestModelInvokerFactory modelInvokerFactory;
     protected final WorkspaceManager workspaceManager;
     private final ModelConfig modelConfig;
-    private final McpRegister mcpRegister;
+    private final ScopeMcpProvider scopeMcpProvider;
+
     /**
      * MCP scopes of the executions currently in flight, so a resumed execution reuses the scope its
      * suspension kept instead of opening a second set of connections.
@@ -53,7 +54,8 @@ public abstract class ChatAgent implements Agent {
     public ChatAgent(RuntimeFactory defaultRuntimeFactory,
                      RequestModelInvokerFactory modelInvokerFactory,
                      WorkspaceManager workspaceManager,
-                     ModelConfig modelConfig) {
+                     ModelConfig modelConfig
+    ) {
         this(defaultRuntimeFactory, modelInvokerFactory, workspaceManager, modelConfig, null);
     }
 
@@ -78,9 +80,6 @@ public abstract class ChatAgent implements Agent {
 
     private ExecutionRuntime prepareExecutionRuntime(Execution execution) {
         AgentRequest agentRequest = execution.getAgentRequest();
-        if (agentRequest == null) {
-            throw new IllegalArgumentException("Execution.agentRequest must not be null");
-        }
 
         Workspace workspace = resolveWorkspace(agentRequest);
 
@@ -187,18 +186,10 @@ public abstract class ChatAgent implements Agent {
             // The request declared no servers: absence is intentional, no diagnostic needed.
             return McpToolScope.EMPTY;
         }
-        if (mcpRegister == null) {
-            // The request asks for MCP servers but this agent holds no register. Almost always a
-            // wiring fault: a subclass used the constructor without McpRegister, or the
-            // McpAutoConfiguration conditions did not match (e.g. a mis-spelled
-            // "lingxi.mcp.enabled" key), so no McpRegister bean exists to inject.
-            log.warn("MCP tools disabled: {} server(s) declared for execution {} but no McpRegister is "
-                            + "wired into {}; check the lingxi.mcp.enabled property and that the agent "
-                            + "constructor receives McpRegister",
-                    mcpConfig.getMcp().size(), execution.getId(), getClass().getSimpleName());
+        if (scopeMcpProvider == null) {
             return McpToolScope.EMPTY;
         }
-        return mcpScopes.computeIfAbsent(execution.getId(), ignored -> mcpRegister.open(mcpConfig));
+        return mcpScopes.computeIfAbsent(execution.getId(), ignored -> scopeMcpProvider.openScope(mcpConfig));
     }
 
     /** Closes the MCP scope once the execution can no longer continue; a suspension keeps it. */

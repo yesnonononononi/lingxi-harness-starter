@@ -1,7 +1,8 @@
 package com.summit.harness.springbootautoconfigure.config.agent;
 
 import com.summit.core.conf.ModelConfig;
-import com.summit.core.mcp.McpRegister;
+import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
 import com.summit.core.model.RequestModelInvokerFactory;
 import com.summit.core.runtime.RuntimeFactory;
@@ -27,21 +28,22 @@ public class AgentConfiguration {
     public DefaultChatAgent defaultChatAgent(RuntimeFactory defaultRuntimeFactory,
                                              RequestModelInvokerFactory modelInvokerFactory,
                                              WorkspaceManager workspaceManager,
-                                             @Qualifier("chatModelConfig") ModelConfig modelConfig, McpRegister mcpRegister) {
+                                             @Qualifier("chatModelConfig") ModelConfig modelConfig,  ScopeMcpProvider scopeMcpProvider) {
         return new DefaultChatAgent(
                 defaultRuntimeFactory,
                 modelInvokerFactory,
                 workspaceManager,
                 modelConfig,
-                mcpRegister
+                scopeMcpProvider
         );
     }
 
     @Bean
     @ConditionalOnMissingBean(ExecutionControl.class)
     public ExecutionControl executionControl(ChatAgent agent,
-                                             ExecutionRepository executionRepository) {
-        return new DefaultExecutionController(agent, executionRepository);
+                                             ExecutionRepository executionRepository,
+                                             RuntimeEventPublisher runtimeEvents) {
+        return new DefaultExecutionController(agent, executionRepository, runtimeEvents);
     }
 
     /**
@@ -54,6 +56,7 @@ public class AgentConfiguration {
      * compaction configured at all.</p>
      */
     @Bean
+    @ConditionalOnMissingBean(AgentConfig.class)
     public AgentConfig agentConfig(AgentChatProperties agentProperties,
                                    ObjectProvider<AgentConfig.ProgressiveSqueezePolicy> squeezePolicy) {
         return AgentConfig.builder()

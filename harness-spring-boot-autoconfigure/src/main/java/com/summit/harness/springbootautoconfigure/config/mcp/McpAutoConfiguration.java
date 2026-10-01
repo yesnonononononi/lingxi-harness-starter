@@ -1,8 +1,7 @@
 package com.summit.harness.springbootautoconfigure.config.mcp;
 
 import com.summit.adapter.langchain4j.mcp.McpClientFactory;
-import com.summit.core.mcp.McpProvider;
-import com.summit.core.mcp.McpRegister;
+import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.harness.springbootautoconfigure.config.tool.CommonToolAutoConfiguration;
 import dev.langchain4j.mcp.client.McpClient;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -23,13 +22,9 @@ public class McpAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public McpProvider mcpProvider(McpClientFactory mcpClientFactory) {
-        return new AgentMcpProvider(mcpClientFactory);
+    public ScopeMcpProvider mcpProvider(McpClientFactory mcpClientFactory) {
+        return new AgentScopeMcpProvider(mcpClientFactory);
     }
 
-    @Bean
-    @ConditionalOnMissingBean
-    public McpRegister mcpToolRegistrar(McpProvider provider) {
-        return new McpToolRegistrar(provider);
-    }
+
 }

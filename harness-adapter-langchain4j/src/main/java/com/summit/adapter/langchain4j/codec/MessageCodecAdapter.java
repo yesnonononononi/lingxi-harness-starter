@@ -15,6 +15,7 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.ChatResponseMetadata;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -76,7 +77,6 @@ public class MessageCodecAdapter implements MessageCodec<ChatMessage, ChatRespon
                     .id(request.id())
                     .name(request.name())
                     .arguments(request.arguments())
-
                     .build());
         }
         AiMessageEntity aiMessageEntity = AiMessageEntity.builder()
@@ -93,9 +93,20 @@ public class MessageCodecAdapter implements MessageCodec<ChatMessage, ChatRespon
                     orZero(response.tokenUsage().outputTokenCount())
             );
         }
+
+        ChatResponseMetadata metadata = response.metadata();
+
+
+        ChatResponseEntity.Meta meta = ChatResponseEntity.Meta.builder()
+                .id(metadata.id())
+                .finishReason(metadata.finishReason() == null ? ChatResponseEntity.FinishReason.OTHER :ChatResponseEntity.FinishReason.valueOf(metadata.finishReason().name()))
+                .modelName(metadata.modelName())
+                .build();
+
         return ChatResponseEntity.builder()
                 .aiMessageEntity(aiMessageEntity)
                 .tokenUsage(tokenUsage)
+                .meta(meta)
                 .build();
     }
 

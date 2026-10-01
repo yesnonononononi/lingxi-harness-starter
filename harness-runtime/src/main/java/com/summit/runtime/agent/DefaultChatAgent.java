@@ -1,7 +1,7 @@
 package com.summit.runtime.agent;
 
 import com.summit.core.conf.ModelConfig;
-import com.summit.core.mcp.McpRegister;
+import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.core.model.RequestModelInvokerFactory;
 import com.summit.core.runtime.RuntimeFactory;
 import com.summit.core.workspace.WorkspaceManager;
@@ -20,9 +20,9 @@ public final class DefaultChatAgent extends ChatAgent {
                             RequestModelInvokerFactory modelInvokerFactory,
                             WorkspaceManager workspaceManager,
                             ModelConfig config,
-                            McpRegister mcpRegister
+                            ScopeMcpProvider scopeMcpProvider
     ) {
-        super(defaultRuntimeFactory, modelInvokerFactory, workspaceManager, config, mcpRegister);
+        super(defaultRuntimeFactory, modelInvokerFactory, workspaceManager, config, scopeMcpProvider);
     }
 
     @Override

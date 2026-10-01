@@ -4,6 +4,7 @@ import com.summit.core.tool.ToolCallStatus;
 import lombok.Data;
 
 import java.time.Instant;
+import java.util.Map;
 
 @Data
 public class ToolCallStartEvent implements ToolCallEvent {
@@ -11,9 +12,26 @@ public class ToolCallStartEvent implements ToolCallEvent {
     private final String executionId;
     private final String toolName;
     private final String args;
+    private final Map<String, Object> metaData;
     private final ToolCallStatus resultStatus = ToolCallStatus.STARTED;
     private final Instant timestamp = Instant.now();
 
+    public ToolCallStartEvent(String requestId, String executionId, String toolName, String args, Map<String, Object> metaData) {
+        this.requestId = requestId;
+        this.executionId = executionId;
+        this.toolName = toolName;
+        this.args = args;
+        this.metaData = metaData == null ? Map.of() : Map.copyOf(metaData);
+    }
+
+    /** Compatibility constructor for callers without selected event metadata. */
+    public ToolCallStartEvent(String requestId, String executionId, String toolName, String args) {
+        this(requestId, executionId, toolName, args, Map.of());
+    }
+    @Override
+    public Map<String, Object> eventMetaData() {
+        return metaData;
+    }
     @Override
     public ToolCallStatus resultStatus() {
         return resultStatus;

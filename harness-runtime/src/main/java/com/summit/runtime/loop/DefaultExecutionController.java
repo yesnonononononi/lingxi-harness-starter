@@ -4,8 +4,14 @@ package com.summit.runtime.loop;
 import com.summit.core.agent.Agent;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
+import com.summit.core.conversation.event.ExecutionCancelledEvent;
+import com.summit.core.conversation.event.ExecutionErrorEvent;
+import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.conversation.event.TokenInfo;
 import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.runtime.loop.ExecutionControl;
+import com.summit.core.runtime.loop.ExecutionTransitions;
+import com.summit.core.runtime.loop.ApprovalOutcome;
 import lombok.AllArgsConstructor;
 
 import java.util.Objects;
@@ -14,6 +20,7 @@ import java.util.Objects;
 public class DefaultExecutionController implements ExecutionControl {
     private final Agent agent;
     private final ExecutionRepository executionRepository;
+    private final RuntimeEventPublisher runtimeEvents;
 
 
     @Override
@@ -42,5 +49,44 @@ public class DefaultExecutionController implements ExecutionControl {
         Execution execution = executionRepository.findById(executionId)
                 .orElseThrow(() -> new IllegalArgumentException("Execution not found: " + executionId));
         return resume(execution);
+    }
+
+    @Override
+    public void beginApproval(Execution execution) {
+        ExecutionTransitions.resume(execution);
+        executionRepository.save(execution);
+    }
+
+    @Override
+    public void finishApproval(Execution execution, ApprovalOutcome outcome) {
+        Objects.requireNonNull(outcome, "outcome");
+        if (outcome == ApprovalOutcome.CANCELLED) {
+            ExecutionTransitions.cancel(execution);
+        } else {
+            ExecutionTransitions.suspend(execution);
+        }
+        executionRepository.save(execution);
+        if (outcome == ApprovalOutcome.CANCELLED) {
+            String executionId = execution.getId();
+            TokenInfo tokenInfo = TokenInfo.from(execution.getTokenUsage());
+            executionRepository.afterCommit(() -> runtimeEvents.onExecutionCancelled(
+                    new ExecutionCancelledEvent(executionId, tokenInfo,
+                            execution.eventMetaData())));
+        }
+    }
+
+    @Override
+    public void failApproval(Execution execution, String errorMessage) {
+        ExecutionTransitions.fail(execution, errorMessage);
+        executionRepository.save(execution);
+        String executionId = execution.getId();
+        TokenInfo tokenInfo = TokenInfo.from(execution.getTokenUsage());
+        executionRepository.afterCommit(() -> runtimeEvents.onExecutionError(
+                new ExecutionErrorEvent(errorMessage,
+                        null,
+                        executionId,
+                        tokenInfo,
+                        execution.eventMetaData()
+                )));
     }
 }

@@ -46,6 +46,7 @@ public class ModelRequestFactory {
                 StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
                         .executionId(execution.getId())
                         .agentId(execution.getAgentId())
+                        .eventMetaData(execution.eventMetaData())
                         .future(new CompletableFuture<>())
                         .build(),
                 control);
@@ -71,16 +72,19 @@ public class ModelRequestFactory {
      */
     private List<ToolDefinition<?>> availableTools(List<String> allowedTools) {
         McpToolScope mcpScope = context.getMcpToolScope();
+
         Map<String, ToolDefinition<?>> candidates = new LinkedHashMap<>();
+
         Collection<ToolDefinition<? extends ToolExecutor>> registered = context.getToolExecutionManager()
                 .toolRegistry().getTools().values();
+
         registered.forEach(tool -> candidates.put(tool.name(), tool));
+
         // Only the disclosed slice of the request's MCP tools: everything else stays a résumé in the
         // prompt until the model asks for it.
         mcpScope.disclosedTools().forEach(tool -> candidates.putIfAbsent(tool.name(), tool));
 
         return candidates.values().stream()
-                .<ToolDefinition<?>>map(tool -> tool)
                 .filter(tool -> tool.allowedFor(allowedTools)
                         || mcpScope.isDisclosed(tool.name()))
                 .toList();

@@ -5,8 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.adapter.langchain4j.mcp.McpClientFactory;
 import com.summit.core.conf.McpConfig;
 import com.summit.core.conf.McpTransport;
-import com.summit.core.mcp.McpProvider;
-import com.summit.core.mcp.McpRegister;
+import com.summit.core.mcp.ScopeMcpProvider;
+ 
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.tool.*;
 import com.sun.net.httpserver.HttpServer;
@@ -52,10 +52,10 @@ class McpAutoConfigurationTest {
         });
         try (context) {
             context.refresh();
-            McpRegister register = context.getBean(McpRegister.class);
-            McpToolScope scope = register.open(config(server("broken"), server("healthy")));
+            ScopeMcpProvider register = context.getBean(ScopeMcpProvider.class);
+            McpToolScope scope = register.openScope(config(server("broken"), server("healthy")));
 
-            assertNotNull(scope.getTool("mcp_healthy_search"));
+            assertNotNull(scope.getTool("mcp_search"));
             assertEquals(1, scope.getTools().size());
             assertEquals(0, closed.get(), "the healthy connection stays open for the request");
 
@@ -79,16 +79,16 @@ class McpAutoConfigurationTest {
         });
         try (context) {
             context.refresh();
-            McpRegister register = context.getBean(McpRegister.class);
+            ScopeMcpProvider register = context.getBean(ScopeMcpProvider.class);
             McpConfig config = config(server("healthy"));
 
-            McpToolScope first = register.open(config);
-            McpToolScope second = register.open(config);
+            McpToolScope first = register.openScope(config);
+            McpToolScope second = register.openScope(config);
 
             assertNotSame(first, second);
             assertEquals(2, created.get());
-            assertNotNull(first.getTool("mcp_healthy_search"));
-            assertNotNull(second.getTool("mcp_healthy_search"));
+            assertNotNull(first.getTool("mcp_search"));
+            assertNotNull(second.getTool("mcp_search"));
             assertTrue(context.getBean(ToolRegistry.class).getTools().isEmpty(),
                     "MCP tools must never enter the process-wide registry");
 
@@ -113,7 +113,7 @@ class McpAutoConfigurationTest {
         });
         try (context) {
             context.refresh();
-            McpToolScope scope = context.getBean(McpProvider.class).openScope(new McpConfig());
+            McpToolScope scope = context.getBean(ScopeMcpProvider.class).openScope(new McpConfig());
             assertTrue(scope.isEmpty());
             assertEquals(0, created.get());
             assertSame(McpToolScope.EMPTY, scope);
@@ -132,9 +132,9 @@ class McpAutoConfigurationTest {
         });
         try (context) {
             context.refresh();
-            McpRegister register = context.getBean(McpRegister.class);
-            try (McpToolScope ignored = register.open(config(server("healthy")))) {
-                assertDoesNotThrow(() -> register.open(config(server("healthy"))).close());
+            ScopeMcpProvider register = context.getBean(ScopeMcpProvider.class);
+            try (McpToolScope ignored = register.openScope(config(server("healthy")))) {
+                assertDoesNotThrow(() -> register.openScope(config(server("healthy"))).close());
             }
         }
     }
@@ -191,14 +191,14 @@ class McpAutoConfigurationTest {
             try (var context = context(Map.of("lingxi.mcp.enabled", true))) {
                 context.refresh();
                 String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/mcp";
-                McpConfig.MCP github = new McpConfig.MCP("github", McpTransport.STREAMABLE_HTTP,
+                McpConfig.MCP github = new McpConfig.MCP("github", null, McpTransport.STREAMABLE_HTTP,
                         new McpConfig.StreamableHttp(url, Map.of("Authorization", "Bearer test-token"),
                                 Duration.ofSeconds(3), Duration.ofSeconds(4)),
-                        null, 321);
+                        321);
 
-                McpToolScope scope = context.getBean(McpProvider.class)
+                McpToolScope scope = context.getBean(ScopeMcpProvider.class)
                         .openScope(config(github));
-                ToolDefinition<?> tool = scope.getTool("mcp_github_get_file_contents");
+                ToolDefinition<?> tool = scope.getTool("mcp_get_file_contents");
                 assertNotNull(tool);
                 assertEquals(9L, tool.timeout());
                 assertEquals(321, tool.maxOutput());
@@ -213,7 +213,7 @@ class McpAutoConfigurationTest {
                 assertTrue(authorization.stream().allMatch("Bearer test-token"::equals));
 
                 scope.close();
-                assertNull(scope.getTool("mcp_github_get_file_contents"));
+                assertNull(scope.getTool("mcp_get_file_contents"));
             }
             // This SDK closes the HTTP transport without sending a session DELETE request.
 
@@ -229,10 +229,10 @@ class McpAutoConfigurationTest {
     }
 
     private static McpConfig.MCP server(String name) {
-        return new McpConfig.MCP(name, McpTransport.STREAMABLE_HTTP,
+        return new McpConfig.MCP(name, null, McpTransport.STREAMABLE_HTTP,
                 new McpConfig.StreamableHttp("https://" + name + ".example/mcp", Map.of(),
                         Duration.ofSeconds(3), Duration.ofSeconds(4)),
-                null, 100);
+                100);
     }
 
     private static AnnotationConfigApplicationContext context(Map<String, Object> properties) {

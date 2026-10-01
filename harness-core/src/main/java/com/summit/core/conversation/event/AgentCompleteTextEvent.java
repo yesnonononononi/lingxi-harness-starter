@@ -1,33 +1,35 @@
 package com.summit.core.conversation.event;
 
+import com.summit.core.conversation.api.ChatResponseEntity;
 import lombok.Builder;
 
 import java.time.Instant;
 import java.util.Map;
 
 /**
- * Streaming reasoning / thinking delta of the model response.
- *
- * <p>High-frequency event: one instance per token chunk, hence the immutable {@code record} shape
- * and the lazily defaulted {@link #timestamp}.</p>
+ *  text of the model response.
  */
 @Builder
-public record AgentPartialThinkingEvent(
+public record AgentCompleteTextEvent(
         String agentId,
         String executionId,
         String content,
+        ChatResponseEntity.Meta meta,
         Map<String, Object> metaData,
         Instant timestamp
 ) implements AgentEvent {
+
     @Override
     public Map<String, Object> eventMetaData() {
         return metaData;
     }
-    public AgentPartialThinkingEvent(String agentId, String executionId, String content, Instant timestamp) {
-        this(agentId, executionId, content, Map.of(), timestamp);
+
+    public AgentCompleteTextEvent(String agentId, String executionId, String content,
+                                  ChatResponseEntity.Meta meta, Instant timestamp) {
+        this(agentId, executionId, content, meta, Map.of(), timestamp);
     }
 
-    public AgentPartialThinkingEvent {
+    public AgentCompleteTextEvent {
         metaData = metaData == null ? Map.of() : Map.copyOf(metaData);
         if (timestamp == null) {
             timestamp = Instant.now();
@@ -36,6 +38,6 @@ public record AgentPartialThinkingEvent(
 
     @Override
     public String type() {
-        return RuntimeEventType.PARTIAL_THINKING.type();
+        return RuntimeEventType.COMPLETE_TEXT.type();
     }
 }

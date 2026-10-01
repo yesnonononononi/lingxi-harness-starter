@@ -9,6 +9,7 @@ import com.summit.core.conversation.message.*;
 import com.summit.core.model.ModelInvoker;
 import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.runtime.loop.*;
+import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.tool.*;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.conversation.*;
@@ -37,6 +38,23 @@ class LoopRegressionTest {
                 .messages(new ArrayList<>(messages)).tokenUsage(TokenUsageEntity.empty()).build();
     }
 
+    @Test
+    void aiMessageEventCarriesRequestMetadataThroughTheLoop() {
+        Execution execution = execution();
+        Map<String, Object> metadata = Map.of("turnId", "9007199254740995");
+        execution.getAgentRequest().runtimeParametersOrDefault().setEventMetaData(metadata);
+        AtomicReference<AgentMessageEvent> received = new AtomicReference<>();
+
+        runtime(command -> response(false), List.of(), LoopInterceptor.NOOP, 1,
+                new RuntimeListener() {
+                    public void onAiMessage(AgentMessageEvent event) {
+                        received.set(event);
+                    }
+                }).execute(execution);
+
+        assertNotNull(received.get());
+        assertEquals(metadata, received.get().eventMetaData());
+    }
     private ChatResponseEntity response(boolean tools) {
         return ChatResponseEntity.builder().aiMessageEntity(AiMessageEntity.builder().text("answer")
                 .toolCalls(tools ? List.of(new ToolCallRequest("c", "test", "{}", null)) : List.of()).build())
@@ -45,6 +63,12 @@ class LoopRegressionTest {
 
     private RuntimeProcessorTemplate runtime(ModelInvoker invoker, List<ToolExecuteResult> results,
                                              LoopInterceptor interceptor, int maxSteps, RuntimeListener listener) {
+        return runtime(invoker, results, interceptor, maxSteps, listener, null);
+    }
+
+    private RuntimeProcessorTemplate runtime(ModelInvoker invoker, List<ToolExecuteResult> results,
+                                             LoopInterceptor interceptor, int maxSteps, RuntimeListener listener,
+                                             RuntimeLifeStyleManager lifecycle) {
         var events = new RuntimeEventPublisher(List.of(listener));
         var tools = new ToolExecutionManager() {
             public List<ToolExecuteResult> execute(ToolExecuteCommand command) { return results; }
@@ -52,11 +76,31 @@ class LoopRegressionTest {
         };
         return new RuntimeProcessorTemplate(RuntimeContext.builder().conversationManager(conversations)
                 .executionRepository(repository).loopInterceptor(interceptor)
-                .runtimeLifeStyleManager(new DefaultRuntimeLifeStyleManager(events))
+                .runtimeLifeStyleManager(lifecycle == null ? new DefaultRuntimeLifeStyleManager(events) : lifecycle)
                 .runtimeBoundaryChecker(new BoundaryChecker(AgentConfig.builder().maxIterations(maxSteps).build(),
                         tokenizer, conversations, null, null))
                 .usage(new ContextUsageReporter(tokenizer, 1_024_000, events, 1))
                 .runtimeEventPublisher(events).toolExecutionManager(tools).invoker(invoker).build());
+    }
+
+    @Test
+    void replacingLifecycleNotificationsCannotSkipRequiredStateTransitions() {
+        RuntimeLifeStyleManager silentObserver = new RuntimeLifeStyleManager() {
+            public void onStart(Execution execution) { }
+            public void onCancel(Execution execution) { }
+            public void onSuspend(Execution execution) { }
+            public void onComplete(Execution execution) { }
+            public void onError(Execution execution, Exception error) { }
+            public void onResume(Execution execution) { }
+        };
+        Execution execution = execution();
+
+        runtime(command -> response(false), List.of(), LoopInterceptor.NOOP, 1,
+                new RuntimeListener() { }, silentObserver).execute(execution);
+
+        assertEquals(ExecutionState.COMPLETED, execution.getExecutionState());
+        assertNotNull(execution.getStartAt());
+        assertNotNull(execution.getCompletedAt());
     }
 
     @Test

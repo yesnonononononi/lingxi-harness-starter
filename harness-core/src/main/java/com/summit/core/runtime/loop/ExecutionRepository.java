@@ -13,4 +13,12 @@ public interface ExecutionRepository extends ActiveExecutionRegistry {
     void save(Execution execution);
 
     Optional<Execution> findById(String executionId);
+
+    /**
+     * Run a notification only after the surrounding snapshot transaction commits.
+     * Non-transactional repositories can use the immediate default.
+     */
+    default void afterCommit(Runnable notification) {
+        notification.run();
+    }
 }

@@ -24,6 +24,7 @@ import org.springframework.context.annotation.Bean;
 public class ModelConfiguration {
 
     @Bean
+    @ConditionalOnMissingBean(name = "chatModelConfig")
     public ModelConfig chatModelConfig(AgentChatProperties agentChatProperties) {
         return ModelConfig.builder()
                 .baseUrl(agentChatProperties.getBaseUrl())
@@ -39,6 +40,7 @@ public class ModelConfiguration {
     }
 
     @Bean
+    @ConditionalOnMissingBean(name = "compactContextModelConfig")
     public ModelConfig compactContextModelConfig(CompactContextModelProperties compact,
                                                  AgentChatProperties chat) {
         if (!compact.isModelConfigured()) {
@@ -93,6 +95,7 @@ public class ModelConfiguration {
     }
 
     @Bean
+    @ConditionalOnMissingBean(RequestModelInvokerFactory.class)
     public RequestModelInvokerFactory requestModelInvokerFactory(
             AgentChatProperties properties,
             @Qualifier("chatModelConfig") ModelConfig modelConfig,

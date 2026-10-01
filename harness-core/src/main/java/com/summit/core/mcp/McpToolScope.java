@@ -36,6 +36,8 @@ public final class McpToolScope implements AutoCloseable {
     private final Map<String, ToolDefinition<?>> tools = new ConcurrentHashMap<>();
     /** Server each tool was discovered on, keyed by tool name. */
     private final Map<String, String> toolServers = new ConcurrentHashMap<>();
+    /** Description each server declared in the request configuration, keyed by server name. */
+    private final Map<String, String> serverDescriptions = new ConcurrentHashMap<>();
     private final List<McpSession> sessions = new ArrayList<>();
     /** Names of this scope's tools already disclosed to the model. */
     private final Set<String> disclosed = ConcurrentHashMap.newKeySet();
@@ -74,6 +76,8 @@ public final class McpToolScope implements AutoCloseable {
                 toolServers.put(tool.name(), session.name());
             }
         }
+        String description = session.description();
+        serverDescriptions.put(session.name(), description == null ? "" : description);
         sessions.add(session);
         return true;
     }
@@ -116,26 +120,28 @@ public final class McpToolScope implements AutoCloseable {
                 .toList();
     }
 
-    /** Every tool of this request as a prompt summary, name-ordered — disclosed or not. */
+    /**
+     * The servers of this request as prompt summaries, server-ordered — one entry each, carrying the
+     * description its configuration declared and the number of tools it contributed, disclosed or
+     * not. This is what tells the model which servers exist before any tool is unlocked.
+     */
     public List<McpResume> resumes() {
-        return tools.values().stream()
-                .map(tool -> new McpResume(tool.name(), tool.description(), serverOf(tool.name())))
-                .sorted(Comparator.comparing(McpResume::name))
+        Map<String, Integer> counts = new TreeMap<>();
+        toolServers.values().forEach(server -> counts.merge(server, 1, Integer::sum));
+        return counts.entrySet().stream()
+                .map(entry -> new McpResume(entry.getKey(), descriptionOf(entry.getKey()), entry.getValue()))
                 .toList();
+    }
+
+    /** The description declared for one server, or an empty string when its configuration has none. */
+    private String descriptionOf(String server) {
+        String description = serverDescriptions.get(server);
+        return description == null ? "" : description;
     }
 
     /** The server the named tool belongs to, or {@code null} when this scope does not hold it. */
     public String serverOf(String toolName) {
         return toolName == null ? null : toolServers.get(toolName);
-    }
-
-    /** Tool counts by server, server-ordered: what the prompt's MCP section publishes. */
-    public List<McpServerSummary> serverSummaries() {
-        Map<String, Integer> counts = new TreeMap<>();
-        toolServers.values().forEach(server -> counts.merge(server, 1, Integer::sum));
-        return counts.entrySet().stream()
-                .map(entry -> new McpServerSummary(entry.getKey(), entry.getValue()))
-                .toList();
     }
 
     /**
@@ -165,6 +171,7 @@ public final class McpToolScope implements AutoCloseable {
     public void close() {
         tools.clear();
         toolServers.clear();
+        serverDescriptions.clear();
         disclosed.clear();
         List<McpSession> toClose = new ArrayList<>(sessions);
         sessions.clear();

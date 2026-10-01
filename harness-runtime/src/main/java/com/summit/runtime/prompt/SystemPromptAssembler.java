@@ -96,24 +96,20 @@ public class SystemPromptAssembler implements PromptAssembler {
         return this;
     }
 
+
     /**
-     * Publishes the request's MCP servers as a per-server tool count, plus the two ways to go
-     * deeper: {@code list_mcp_tools} for a server's tool names, {@code search_tool} for one tool's
-     * schema. See {@link com.summit.core.mcp.McpToolScope}.
+     * Publishes the request's MCP servers, one line each — name, the description declared for it,
+     * and how many tools it contributed — plus the two ways to go deeper: {@code list_mcp_tools}
+     * for a server's tool names, {@code search_tool} for one tool's schema.
+     * See {@link com.summit.core.mcp.McpToolScope}.
      */
     @Override
-    public PromptAssembler withMcpToolPrompt(List<McpResume> mcpTools) {
-        if (mcpTools == null || mcpTools.isEmpty()) {
+    public PromptAssembler withMcpToolPrompt(List<McpResume> mcps) {
+        if (mcps == null || mcps.isEmpty()) {
             return this;
         }
 
-        // Counted here rather than passed in, so every caller keeps the flat résumé interface.
-        Map<String, Integer> counts = new TreeMap<>();
-        for (McpResume tool : mcpTools) {
-            counts.merge(tool.server() == null ? "unknown" : tool.server(), 1, Integer::sum);
-        }
-
-        stringBuilder.append("\n\n### MCP Prompt\n")
+        stringBuilder.append("\n\n## MCP Tools\n")
                 .append("""
                         Remote tools are hosted by MCP servers; the counts below are how many each one contributed.
                         Their parameter schemas are deliberately left out of this prompt. Call `list_mcp_tools` with
@@ -121,11 +117,18 @@ public class SystemPromptAssembler implements PromptAssembler {
                         keyword to get one tool's schema directly. A tool found either way becomes callable from your
                         next turn on.
                         """);
-        for (Map.Entry<String, Integer> entry : counts.entrySet()) {
-            stringBuilder.append("\n- ").append(entry.getKey())
-                    .append(" count: ").append(entry.getValue());
+        for (McpResume mcp : mcps) {
+            stringBuilder.append("\n- ").append(mcp.name())
+                    .append(" - ").append(descriptionOf(mcp))
+                    .append(" - ").append(mcp.toolCount()).append(" tools");
         }
         return this;
+    }
+
+    /** One server's declared description, or a placeholder when its configuration declares none. */
+    private static String descriptionOf(McpResume mcp) {
+        String description = normalize(mcp.description());
+        return description.isEmpty() ? "no description" : description;
     }
 
     @Override

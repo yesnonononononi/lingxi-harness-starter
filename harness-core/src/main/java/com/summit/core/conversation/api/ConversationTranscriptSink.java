@@ -4,6 +4,7 @@ import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.ToolMessageEntity;
 
 import java.util.List;
+import java.util.Map;
 
 public interface ConversationTranscriptSink {
     /**
@@ -12,4 +13,10 @@ public interface ConversationTranscriptSink {
      * because later context compaction is allowed to mutate them.
      */
     void appendRound(String executionId, AiMessageEntity aiMessage, List<ToolMessageEntity> toolMessages);
+
+    /** Passes the same selected metadata as runtime events, preserving existing sink implementations. */
+    default void appendRound(String executionId, AiMessageEntity aiMessage,
+                             List<ToolMessageEntity> toolMessages, Map<String, Object> eventMetaData) {
+        appendRound(executionId, aiMessage, toolMessages);
+    }
 }

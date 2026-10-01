@@ -1,6 +1,7 @@
 package com.summit.core.runtime.loop;
 
 import com.summit.core.agent.Execution;
+import com.summit.core.compact.ContextUsageMetric;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.event.ContextUpdateEvent;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
@@ -8,7 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class ContextUsageReporter {
-    private final Tokenizer tokenizer;
+    public final Tokenizer tokenizer;
     private final int maxTokens;
     private final RuntimeEventPublisher publisher;
     /**
@@ -33,14 +34,21 @@ public class ContextUsageReporter {
         if (execution.getModelAttempts() % reportInterval == 0) publish(execution);
     }
 
+    public ContextUsageMetric report(Execution execution){
+        return this.tokenizer.usage(execution.getMessages(), maxTokens);
+    }
+
     public void publish(Execution execution) {
         publish(execution, ContextUpdateEvent.Phase.UPDATE, "");
     }
 
     public void publish(Execution execution, ContextUpdateEvent.Phase phase, String message) {
         try {
-            publisher.onContextUpdate(new ContextUpdateEvent(execution.getId(), phase,
-                    tokenizer.usage(execution.getMessages(), maxTokens), message));
+            publisher.onContextUpdate(new ContextUpdateEvent(
+                    execution.getId(),
+                    phase,
+                    tokenizer.usage(execution.getMessages(), maxTokens),
+                    message, execution.eventMetaData()));
         } catch (Exception e) {
             log.warn("Context usage notification failed: executionId={}", execution.getId(), e);
         }

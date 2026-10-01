@@ -17,6 +17,15 @@ public interface McpSession extends AutoCloseable {
     /** Server name as declared by the request configuration. */
     String name();
 
+    /**
+     * The description the server published while initializing — the MCP {@code instructions} field —
+     * or an empty string when it published none. Defaulted so that a session which carries no
+     * description needs no boilerplate.
+     */
+    default String description() {
+        return "";
+    }
+
     /** Tools discovered on this server, already mapped to the harness tool model. */
     List<ToolDefinition<? extends ToolExecutor>> tools();
 

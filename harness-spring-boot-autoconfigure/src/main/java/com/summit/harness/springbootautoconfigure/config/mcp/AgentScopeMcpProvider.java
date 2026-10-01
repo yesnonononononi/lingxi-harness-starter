@@ -5,7 +5,7 @@ import com.summit.adapter.langchain4j.mcp.MCPToolConverter;
 import com.summit.adapter.langchain4j.mcp.McpClientFactory;
 import com.summit.adapter.langchain4j.mcp.McpValidator;
 import com.summit.core.conf.McpConfig;
-import com.summit.core.mcp.McpProvider;
+import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.core.mcp.McpSession;
 import com.summit.core.mcp.McpToolScope;
 import dev.langchain4j.mcp.client.McpClient;
@@ -26,9 +26,13 @@ import java.util.Map;
  */
 @Slf4j
 @RequiredArgsConstructor
-public class AgentMcpProvider implements McpProvider {
+public class AgentScopeMcpProvider implements ScopeMcpProvider {
 
-    /** Prefix separating remote tool names from the framework's own. */
+    /**
+     * Prefix separating remote tool names from the framework's own. Fixed: a tool is published as
+     * {@code mcp_} plus the name the server gave it, so neither the server name nor anything the
+     * caller configured reaches the model-facing function name.
+     */
     public static final String NAME_MCP_PREFIX = "mcp_";
 
     private static final long RUNTIME_TIMEOUT_GRACE_SECONDS = 5L;
@@ -58,7 +62,7 @@ public class AgentMcpProvider implements McpProvider {
             McpValidator.validate(server);
             client = factory.create(server.name(), server);
 
-            return Langchain4jMcpSession.connect(server.name(), client, converterOf(server));
+            return Langchain4jMcpSession.connect(server.name(), server.description(), client, converterOf(server));
         } catch (Exception failure) {
             closeQuietly(client, server.name());
             logConnectionFailure(server, failure);
@@ -111,9 +115,7 @@ public class AgentMcpProvider implements McpProvider {
     private MCPToolConverter converterOf(McpConfig.MCP server) {
         long runtimeTimeout = (long) Math.ceil(server.executionTimeout().toMillis() / 1000.0)
                 + RUNTIME_TIMEOUT_GRACE_SECONDS;
-        String prefix = NAME_MCP_PREFIX
-                + (server.toolNamePrefix() == null ? server.name() + "_" : server.toolNamePrefix());
-        return new MCPToolConverter(server.maxOutput(), runtimeTimeout, prefix);
+        return new MCPToolConverter(server.maxOutput(), runtimeTimeout, NAME_MCP_PREFIX);
     }
 
     private void closeQuietly(McpClient client, String serverName) {

@@ -7,6 +7,7 @@ import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ConversationTranscriptSink;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.model.chat.ChatModel;
+import com.summit.core.prompt.PromptAssembler;
 import com.summit.core.runtime.loop.ContextUsageReporter;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
 import com.summit.runtime.agent.AgentConfig;
@@ -14,6 +15,7 @@ import com.summit.runtime.compact.DefaultManualCompacter;
 import com.summit.runtime.compact.DefaultModelCompacter;
 import com.summit.runtime.conversation.DefaultConversationManager;
 import com.summit.runtime.conversation.DefaultTokenizer;
+import com.summit.runtime.prompt.SystemPromptAssembler;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -34,11 +36,13 @@ public class ConversationConfig {
     @Bean
     @ConditionalOnMissingBean
     public ConversationManager conversationManager(ContextAttachmentProvider contextAttachmentProvider,
-                                                   ObjectProvider<ConversationTranscriptSink> conversationTranscriptSink
+                                                   ObjectProvider<ConversationTranscriptSink> conversationTranscriptSink,
+                                                   ObjectProvider<PromptAssembler> promptAssembler
     ) {
         return new DefaultConversationManager(
                 conversationTranscriptSink.getIfAvailable(),
-                contextAttachmentProvider
+                contextAttachmentProvider,
+                () -> promptAssembler.getIfAvailable(SystemPromptAssembler::new)
         );
     }
 
@@ -57,15 +61,22 @@ public class ConversationConfig {
                 agentChatProperties.getUsageReportInterval());
     }
 
+    /**
+     * The local truncation compacter of the first squeeze band.
+     *
+     * <p>Gated by name, not by {@code ContextCompacter.class}: both compacters implement that
+     * interface and coexist in the same context, so a type-level condition would make either one
+     * cancel the other depending on registration order.</p>
+     */
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean(name = "manualCompacter")
     public DefaultManualCompacter manualCompacter(ContextAttachmentProvider attachments, Tokenizer tokenizer,
             ContextUsageReporter usage) {
         return new DefaultManualCompacter(attachments, tokenizer, usage);
     }
 
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean(name = "modelCompacter")
     public DefaultModelCompacter modelCompacter(@Qualifier("defaultContextCompactModel") ChatModel model,
             ConversationManager conversations, ContextAttachmentProvider attachments,
             ContextUsageReporter usage) {
@@ -73,7 +84,7 @@ public class ConversationConfig {
     }
 
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean(name = "contextAttachmentProvider")
     public ContextAttachmentProvider contextAttachmentProvider() {
         return ContextAttachmentProvider.NONE;
     }

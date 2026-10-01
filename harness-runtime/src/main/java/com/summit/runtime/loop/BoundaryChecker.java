@@ -30,19 +30,19 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class  BoundaryChecker implements RuntimeBoundaryChecker {
 
-    /** Fallback truncation threshold when the policy is not configured (matches AgentConfig.OriginalSqueeze#defaultPolicy). */
+    /** Fallback truncation threshold when the policy is not configured. */
     private static final double DEFAULT_TRUNCATE_THRESHOLD = 0.7;
+    /** Fallback model-squeeze threshold when the policy is not configured. */
+    private static final double DEFAULT_MODEL_THRESHOLD = 0.85;
     /** Fallback rounds per local truncation pass when the policy is not configured (matches AgentConfig.OriginalSqueeze#defaultPolicy). */
     private static final int DEFAULT_TRUNCATE_TURN = 5;
-    /** Fallback model-squeeze threshold when the policy is not configured (matches AgentConfig.ModelSqueeze#defaultPolicy). */
-    private static final double DEFAULT_MODEL_THRESHOLD = 0.85;
 
     private final AgentConfig agentConfig;
     private final Tokenizer tokenizer;
     private final ConversationManager conversationManager;
-    /** Manual per-round truncation compaction (shouldSqueeze band). */
+    /** Manual per-round truncation compaction (local band). */
     private final DefaultManualCompacter manualCompacter;
-    /** Model deep compaction (expectAdvanceSqueeze band). */
+    /** Model deep compaction (model band). */
     private final DefaultModelCompacter modelCompacter;
 
 
@@ -61,15 +61,16 @@ public class  BoundaryChecker implements RuntimeBoundaryChecker {
         return shouldContinue(execution) ;
     }
     /**
-     * Progressive squeeze decision based on {@link AgentConfig.ProgressiveSqueezePolicy}:
+     * Two-band squeeze decision based on {@link AgentConfig.ProgressiveSqueezePolicy}. The bands are
+     * mutually exclusive and inclusive on their left end:
      * <ul>
-     *   <li>ratio in [truncateThreshold, modelThreshold): local round-based truncation
-     *       ({@code truncateSqueeze}) kicks in — the number of rounds squeezed per pass
-     *       comes from {@code OriginalSqueeze.expectTruncateTurn};</li>
-     *   <li>ratio &gt;= modelThreshold: local truncation stops and the model-based deep
-     *       compaction ({@code DefaultModelCompacter}) is expected, i.e.
+     *   <li>ratio in [truncateThreshold, modelThreshold): the local round-based truncation band —
+     *       {@code shouldSqueeze=true}, and the number of rounds squeezed per pass comes from
+     *       {@code OriginalSqueeze.expectTruncateTurn};</li>
+     *   <li>ratio &gt;= modelThreshold: the model-based deep compaction band —
      *       {@code expectAdvanceSqueeze=true}.</li>
      * </ul>
+     * Below {@code truncateThreshold} neither band is hit.
      */
     public ContextSqueezeRequest shouldSqueezeContext(ConversationManager conversationManager, Execution execution) {
 
@@ -86,6 +87,7 @@ public class  BoundaryChecker implements RuntimeBoundaryChecker {
         double original = truncateThreshold == null ? DEFAULT_TRUNCATE_THRESHOLD : truncateThreshold;
         double advanced = modelThreshold == null ? DEFAULT_MODEL_THRESHOLD : modelThreshold;
         boolean shouldTruncate = ratio >= original && ratio < advanced;
+
         return ContextSqueezeRequest.builder()
                 .shouldSqueeze(shouldTruncate)
                 .truncateTurn(shouldTruncate ? (truncateTurn > 0 ? truncateTurn : DEFAULT_TRUNCATE_TURN) : 0)
@@ -93,10 +95,11 @@ public class  BoundaryChecker implements RuntimeBoundaryChecker {
                 .build();
     }
     /**
-     * Performs one blocking compaction for the progressive squeeze band: the manual compacter truncates
-     * rounds when {@code shouldSqueeze}, or the model compacter summarizes and rebuilds the session when
-     * {@code expectAdvanceSqueeze}. Returns once the compaction is done so the agent loop can start its
-     * next round; does nothing when no band is hit.
+     * Performs one blocking compaction for the squeeze band: the manual compacter truncates rounds
+     * when {@code shouldSqueeze}, or the model compacter summarizes and rebuilds the session when
+     * {@code expectAdvanceSqueeze}. The model band wins when both are somehow true, so a ratio past
+     * the model threshold always triggers the deep compaction. Returns once the compaction is done
+     * so the agent loop can start its next round; does nothing when no band is hit.
      */
     private void compactIfNeeded(Execution execution) {
         ContextSqueezeRequest request = shouldSqueezeContext(conversationManager, execution);
@@ -116,7 +119,9 @@ public class  BoundaryChecker implements RuntimeBoundaryChecker {
                     band, execution.getId());
             return;
         }
+
         boolean compacted = compacter.compact(new ContextCompactRequest(execution, request));
+
         log.info("【context-compact】checkpoint triggered {} band, compacted={}, executionId={}",
                 band, compacted, execution.getId());
     }

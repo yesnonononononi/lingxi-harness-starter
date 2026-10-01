@@ -1,6 +1,7 @@
 package com.summit.core.conversation.context;
 
 
+import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.runtime.loop.*;
@@ -12,10 +13,13 @@ import com.summit.core.tool.ToolExecutionManager;
 import lombok.Getter;
 import lombok.experimental.SuperBuilder;
 
+import java.util.List;
+
 @Getter
 @SuperBuilder
 public class RuntimeContext {
     private final RuntimeLifeStyleManager runtimeLifeStyleManager;
+    private final List<ExecutionFailureObserver> failureObservers;
     private final RuntimeBoundaryChecker runtimeBoundaryChecker;
     private final ExecutionRepository executionRepository;
     private final ModelInvoker invoker;
@@ -25,6 +29,7 @@ public class RuntimeContext {
     private final RuntimeEventPublisher runtimeEventPublisher;
     private final ToolExecutionManager toolExecutionManager;
     private final ContextUsageReporter usage;
+    private final Tokenizer tokenizer;
     /**
      * MCP tools declared by this request. Request-scoped by construction and closed by the runtime
      * when the execution reaches a terminal state.
@@ -49,6 +54,10 @@ public class RuntimeContext {
     /** The MCP tools of this request, never {@code null}. */
     public McpToolScope getMcpToolScope() {
         return mcpToolScope == null ? McpToolScope.EMPTY : mcpToolScope;
+    }
+
+    public List<ExecutionFailureObserver> getFailureObservers() {
+        return failureObservers == null ? List.of() : failureObservers;
     }
 
 }

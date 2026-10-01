@@ -36,6 +36,7 @@ build/
 .tmp-build/
 .probe/
 .workbuddy/
+.workbuddy-ai/
 *.log
 
 ### 反编译/探针产物 ###

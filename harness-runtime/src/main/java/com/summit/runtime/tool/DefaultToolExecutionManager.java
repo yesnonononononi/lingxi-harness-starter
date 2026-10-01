@@ -55,33 +55,54 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
         toolExecutor.shutdownNow();
     }
 
+    /**
+     * Runs every requested call exactly once. The two branches are mutually exclusive on
+     * {@link #canExecuteConcurrently}: a concurrent batch owns both the window it runs in parallel and
+     * the overflow it runs serially, while the serial branch is reached only when nothing runs
+     * concurrently. Gating the overflow on "the batch exceeds the concurrency limit" instead re-runs
+     * the whole batch whenever the batch fits inside the limit — the concurrent half already consumed
+     * it, so every tool would execute twice per request.
+     *
+     * <p>The limit is read only on the concurrent path: {@code concurrentToolLimit} is an optional
+     * setting, and a serial batch must not be failed by unboxing a value it never consults.</p>
+     */
     @Override
     public List<ToolExecuteResult> execute(ToolExecuteCommand toolExecuteCommand) {
+        List<ToolCallRequest> requests = toolExecuteCommand.requests();
         List<ToolExecuteResult> result = new ArrayList<>();
 
-        List<CompletableFuture<ToolExecuteResult>> tasks = new ArrayList<>();
-        if (canExecuteConcurrently(toolExecuteCommand)) {
-
-            for (ToolCallRequest request : toolExecuteCommand.requests()) {
-
-                CompletableFuture<ToolExecuteResult> f = CompletableFuture.supplyAsync(
-                        () -> process(toolExecuteCommand, request), toolExecutor);
-                tasks.add(f);
-            }
-
-            CompletableFuture.allOf(tasks.toArray(new CompletableFuture[0])).join();
-
-            return tasks.stream().map(CompletableFuture::join).toList();
-
-        } else {
-            for (ToolCallRequest request : toolExecuteCommand.requests()) {
+        if (!canExecuteConcurrently(toolExecuteCommand)) {
+            for (ToolCallRequest request : requests) {
                 result.add(process(toolExecuteCommand, request));
             }
+            return result;
         }
 
-        return result;
+        int limit = Math.clamp(toolExecutionContext.concurrentToolLimit(), 1, requests.size());
+        result.addAll(concurrentExecute(requests.subList(0, limit), toolExecuteCommand));
 
+        // Empty when the batch fits inside the limit: the concurrent window already covered it.
+        requests.subList(limit, requests.size()).forEach(request ->
+                result.add(process(toolExecuteCommand, request)));
+        return result;
     }
+
+
+    private List<ToolExecuteResult> concurrentExecute(List<ToolCallRequest> requests,ToolExecuteCommand toolExecuteCommand) {
+        List<CompletableFuture<ToolExecuteResult>> tasks = new ArrayList<>();
+        for (ToolCallRequest request : requests) {
+            CompletableFuture<ToolExecuteResult> f = CompletableFuture.supplyAsync(
+                    () -> process(toolExecuteCommand, request), toolExecutor);
+
+            tasks.add(f);
+        }
+
+        CompletableFuture.allOf(tasks.toArray(new CompletableFuture[0])).join();
+
+        return tasks.stream().map(CompletableFuture::join).toList();
+    }
+
+
 
     /**
      * Concurrent execution admits read-only and isolated mutations with timeouts. A serial mutation or an unlimited timeout keeps the full batch serial.
@@ -127,7 +148,7 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
                 return publishEndEvent(toolExecuteCommand, request, toolDef, result, status);
             }
 
-            ToolExecutionOutcome outcome = this.executeTool(toolDef, toolExecution);
+            ToolExecutionOutcome outcome = this.executeTool(toolDef, toolExecution,toolExecuteCommand);
 
             result = identified(outcome.result(), request.id(), toolDef);
 
@@ -135,9 +156,14 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
 
         } catch (Throwable e) {
             this.toolExecutionContext.runtimeEventPublisher().onToolCallOutput(
-                    new ToolCallEndEvent(request.id(), toolExecuteCommand.executionId(),
+                    new ToolCallEndEvent(request.id(),
+                            toolExecuteCommand.executionId(),
                             toolDef == null ? request.name() : toolDef.name(),
-                            request.arguments(), "Tool execution error" + e.getMessage(), ToolCallStatus.FAILED)
+                            request.arguments(),
+                            "Tool execution error" + e.getMessage(),
+                            toolExecuteCommand.eventMetaData(),
+                            ToolCallStatus.FAILED
+                    )
 
             );
             return identified(ToolExecuteResult.err("Tool execution error" + e.getMessage()), request.id(), toolDef);
@@ -163,6 +189,7 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
                         request.id(),
                         command.executionId(), toolName, request.arguments(),
                         result.getToolOutput(),
+                        command.eventMetaData(),
                         status
                 )
         );
@@ -187,6 +214,7 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
                 .workspace(workspace)
                 .args(request.arguments())
                 .attributes(command.attributes())
+                .eventMetaData(command.eventMetaData())
                 .allowOutsideWorkspace(command.allowOutsideWorkspace())
                 .mcpToolScope(command.mcpToolScope())
                 .build();
@@ -194,7 +222,9 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
 
 
     private ToolExecutionOutcome executeTool(ToolDefinition<?> toolDefinition,
-                                             ToolExecution toolExecution) throws Throwable {
+                                             ToolExecution toolExecution,
+                                             ToolExecuteCommand command
+    ) throws Throwable {
         InvocationContext<ToolExecution> execute = InvocationContext.<ToolExecution>builder()
                 .method(ToolExecutor.class.getMethod(
                         "execute", ToolExecution.class))
@@ -204,12 +234,12 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
 
         long timeoutSeconds = toolDefinition.timeout();
         if (timeoutSeconds <= 0) {
-            ToolExecuteResult result = invokeTool(toolDefinition, toolExecution, execute);
+            ToolExecuteResult result = invokeTool(toolDefinition, toolExecution, command, execute);
             return completedOutcome(result);
         }
         Future<ToolExecuteResult> future = toolExecutor.submit(() -> {
             try {
-                return invokeTool(toolDefinition, toolExecution, execute);
+                return invokeTool(toolDefinition, toolExecution, command, execute);
             } catch (Throwable e) {
                 throw new CompletionException(e);
             }
@@ -240,11 +270,18 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
 
     private ToolExecuteResult invokeTool(ToolDefinition<?> toolDefinition,
                                          ToolExecution toolExecution,
-                                         InvocationContext<ToolExecution> invocation) throws Throwable {
+                                         ToolExecuteCommand command,
+                                         InvocationContext<ToolExecution> invocation
+    ) throws Throwable {
 
         toolExecutionContext.runtimeEventPublisher().onToolCall(new ToolCallStartEvent(
-                toolExecution.getId(), toolExecution.getTurnId(),
-                toolDefinition.name(), toolExecution.getArgs()));
+                toolExecution.getId(),
+                toolExecution.getTurnId(),
+                toolDefinition.name(),
+                toolExecution.getArgs(),
+                command.eventMetaData()
+
+        ));
 
         return (ToolExecuteResult) interceptorProcessor.proceed(invocation);
     }

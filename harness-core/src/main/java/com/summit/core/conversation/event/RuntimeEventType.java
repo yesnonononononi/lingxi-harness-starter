@@ -71,6 +71,13 @@ public enum RuntimeEventType {
             return "PARTIAL_TEXT";
         }
     },
+    /** Complete text of a model turn / response. */
+    COMPLETE_TEXT{
+        @Override
+        public String type() {
+            return "COMPLETE_TEXT";
+        }
+    },
     /** Streaming reasoning / thinking delta from the model. High frequency. */
     PARTIAL_THINKING{
         @Override

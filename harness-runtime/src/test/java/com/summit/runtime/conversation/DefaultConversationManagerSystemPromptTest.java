@@ -76,12 +76,13 @@ class DefaultConversationManagerSystemPromptTest {
                 You are LingXi, a coding agent. Reply in the user's language.
 
                 ## MCP Tools
-                Remote tools are hosted by MCP servers. Their parameter schemas are deliberately left out
-                of this prompt: call `search_tool` with a keyword to get the schema of the one you need,
-                and that tool becomes callable from your next turn on.
+                Remote tools are hosted by MCP servers; the counts below are how many each one contributed.
+                Their parameter schemas are deliberately left out of this prompt. Call `list_mcp_tools` with
+                a server name to list that server's tools (name and description), or `search_tool` with a
+                keyword to get one tool's schema directly. A tool found either way becomes callable from your
+                next turn on.
 
-                - mcp_github_create_issue: Open an issue in a GitHub repository from a one-line summary
-                - mcp_github_get_me: Get the authenticated GitHub user""", prompt);
+                - github - GitHub remote tools - 2 tools""", prompt);
     }
 
     @Test
@@ -160,20 +161,21 @@ class DefaultConversationManagerSystemPromptTest {
     }
 
     /**
-     * A request that declares remote servers gets their résumés and nothing more: the tool list is
-     * built elsewhere, and a summary in the prompt is not a declaration.
+     * The prompt publishes the first level of progressive disclosure only — one line per server,
+     * carrying its description and its tool count. Tool names wait for {@code list_mcp_tools} and
+     * schemas for {@code search_tool}, so a summary in the prompt is never a declaration.
      */
     @Test
-    @DisplayName("远端工具只以「名字 + 描述」出现，参数 schema 不进提示词")
-    void remoteToolsAppearAsResumesOnly() {
+    @DisplayName("提示词只到服务级（名字+描述+工具数），工具名与 schema 都不进")
+    void remoteServersAppearAsResumesOnly() {
         String prompt = startConversation(
                 AgentRequest.builder().messages(List.of(UserMessageEntity.from("hi"))).build(),
                 sandbox(), scopeOf(githubTools()));
 
-        assertTrue(prompt.contains("- mcp_github_get_me: Get the authenticated GitHub user"));
-        assertTrue(prompt.contains(
-                        "- mcp_github_create_issue: Open an issue in a GitHub repository from a one-line summary"),
-                "多行描述压平成一行，摘要列表不会被撑断");
+        assertTrue(prompt.contains("- github - GitHub remote tools - 2 tools"),
+                "一行一个服务：名字 + 描述 + 工具数");
+        assertFalse(prompt.contains("mcp_github_get_me"), "工具级留给 list_mcp_tools，不进提示词");
+        assertFalse(prompt.contains("create_issue"), "工具名不进提示词");
         assertFalse(prompt.contains("owner"), "参数名只存在于 schema，不该出现在提示词里");
         assertFalse(prompt.contains("properties"), "参数 schema 不该出现在提示词里");
     }
@@ -265,6 +267,11 @@ class DefaultConversationManagerSystemPromptTest {
             }
 
             @Override
+            public String description() {
+                return "GitHub remote tools";
+            }
+
+            @Override
             public List<ToolDefinition<? extends ToolExecutor>> tools() {
                 return scoped;
             }
@@ -277,9 +284,9 @@ class DefaultConversationManagerSystemPromptTest {
 
     private static McpConfig mcpConfig() {
         McpConfig config = new McpConfig();
-        config.setMcp(List.of(new McpConfig.MCP("github", McpTransport.STREAMABLE_HTTP,
+        config.setMcp(List.of(new McpConfig.MCP("github", "GitHub remote tools", McpTransport.STREAMABLE_HTTP,
                 new McpConfig.StreamableHttp("https://example.invalid/mcp", Map.of(), null, null),
-                null, 1000)));
+                1000)));
         return config;
     }
 }

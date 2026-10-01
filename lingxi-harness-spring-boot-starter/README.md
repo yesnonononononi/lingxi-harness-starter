@@ -100,7 +100,7 @@ The SDK execution timeout defaults to 60 seconds. The runtime timeout is rounded
 seconds with a further five-second guard. A timeout does not guarantee that a remote operation
 was rolled back. Tool outputs use the existing runtime truncation, with a default budget of 20,000.
 
-MCP is disabled by default. When enabled, application-defined `McpProvider` beans are also
+MCP is disabled by default. When enabled, application-defined `ScopeMcpProvider` beans are also
 discovered and registered. Override the `McpClientFactory` bean to customize configured client
 creation. Configured clients are closed on application shutdown; custom providers own their
 connections. Invalid connection configuration fails startup; connection/discovery failures are

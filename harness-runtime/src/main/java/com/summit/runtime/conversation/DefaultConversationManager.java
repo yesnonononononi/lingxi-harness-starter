@@ -9,14 +9,15 @@ import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.api.ConversationTranscriptSink;
 import com.summit.core.conversation.message.*;
 import com.summit.core.mcp.McpToolScope;
+import com.summit.core.prompt.PromptAssembler;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.ToolExecuteResult;
 import com.summit.runtime.prompt.SystemPromptAssembler;
-import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * Stateless operations over the context owned by one execution.
@@ -30,6 +31,15 @@ public class DefaultConversationManager implements ConversationManager {
 
     private final ContextAttachmentProvider contextAttachmentProvider;
     private final ConversationTranscriptSink conversationTranscriptSink;
+    /**
+     * Factory of the assembler that renders each execution's leading system message.
+     *
+     * <p>A supplier rather than a shared instance because the assembler is stateful during one
+     * assembly — it accumulates sections in a builder before {@code complete()}. Handing out a fresh
+     * one per execution keeps concurrent runs from sharing that scratch state, while still letting
+     * the application swap in its own {@link PromptAssembler} implementation.</p>
+     */
+    private final Supplier<PromptAssembler> promptAssemblerFactory;
 
 
     public DefaultConversationManager(ContextAttachmentProvider contextAttachmentProvider) {
@@ -38,10 +48,18 @@ public class DefaultConversationManager implements ConversationManager {
 
     public DefaultConversationManager(ConversationTranscriptSink conversationTranscriptSink,
                                       ContextAttachmentProvider contextAttachmentProvider) {
+        this(conversationTranscriptSink, contextAttachmentProvider, SystemPromptAssembler::new);
+    }
+
+    public DefaultConversationManager(ConversationTranscriptSink conversationTranscriptSink,
+                                      ContextAttachmentProvider contextAttachmentProvider,
+                                      Supplier<PromptAssembler> promptAssemblerFactory) {
 
         this.contextAttachmentProvider = contextAttachmentProvider == null
                 ? ContextAttachmentProvider.NONE : contextAttachmentProvider;
         this.conversationTranscriptSink = conversationTranscriptSink;
+        this.promptAssemblerFactory = promptAssemblerFactory == null
+                ? SystemPromptAssembler::new : promptAssemblerFactory;
     }
 
     @Override
@@ -54,7 +72,7 @@ public class DefaultConversationManager implements ConversationManager {
 
     @Override
     public void addMessage(Execution execution, ChatResponseEntity response,
-                           @Nullable List<ToolExecuteResult> toolResults) {
+                            List<ToolExecuteResult> toolResults) {
         List<Message> messages = execution.getMessages();
 
         AiMessageEntity aiMessage = response.getAiMessageEntity();
@@ -80,7 +98,7 @@ public class DefaultConversationManager implements ConversationManager {
         execution.getTokenUsage().add(response.getTokenUsage());
 
         if (conversationTranscriptSink != null) {
-            conversationTranscriptSink.appendRound(execution.getId(), aiMessage, List.copyOf(toolMessages));
+            conversationTranscriptSink.appendRound(execution.getId(), aiMessage, List.copyOf(toolMessages), execution.eventMetaData());
         }
     }
 
@@ -180,7 +198,7 @@ public class DefaultConversationManager implements ConversationManager {
                                                   McpToolScope mcpToolScope) {
         McpToolScope scope = mcpToolScope == null ? McpToolScope.EMPTY : mcpToolScope;
 
-        String result = new SystemPromptAssembler()
+        String result = promptAssemblerFactory.get()
                 .startWithWorkspace(workspace)
                 .withBusinessPrompt(businessPromptOf(request))
                 .withMcpToolPrompt(scope.resumes())

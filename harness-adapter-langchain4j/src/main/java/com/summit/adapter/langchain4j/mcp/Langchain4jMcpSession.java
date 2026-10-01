@@ -15,17 +15,25 @@ import java.util.List;
 public class Langchain4jMcpSession implements McpSession {
 
     private final String name;
+    private final String description;
     private final McpClient client;
     private final MCPToolConverter converter;
 
     /** Connects, then discovers and maps this server's tools. Throws when the server is unreachable. */
-    public static Langchain4jMcpSession connect(String name, McpClient client, MCPToolConverter converter) {
-        return new Langchain4jMcpSession(name, client, converter);
+    public static Langchain4jMcpSession connect(String name, String description, McpClient client,
+                                                MCPToolConverter converter) {
+        return new Langchain4jMcpSession(name, description, client, converter);
     }
 
     @Override
     public String name() {
         return name;
+    }
+
+    /** The description declared by the request configuration, never null. */
+    @Override
+    public String description() {
+        return description == null ? "" : description;
     }
 
     @Override

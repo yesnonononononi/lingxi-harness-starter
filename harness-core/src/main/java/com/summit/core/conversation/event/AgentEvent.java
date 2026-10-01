@@ -1,6 +1,10 @@
 package com.summit.core.conversation.event;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.time.Instant;
+import java.util.Map;
+
 
 /**
  * An execution-scoped runtime event.
@@ -10,7 +14,14 @@ import java.time.Instant;
  * without maintaining hard-coded strings.</p>
  */
 public interface AgentEvent extends TypedEvent {
+    @JsonProperty("executionId")
     String executionId();
 
+    @JsonProperty("metaData")
+    default Map<String,Object> eventMetaData(){
+        return Map.of();
+    };
+
+    @JsonProperty("timestamp")
     Instant timestamp();
 }

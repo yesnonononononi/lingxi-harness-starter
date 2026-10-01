@@ -2,9 +2,12 @@ package com.summit.runtime.loop;
 
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
+import com.summit.core.compact.ContextUsageMetric;
 import com.summit.core.conversation.context.RuntimeContext;
 import com.summit.core.runtime.ExecutionRuntime;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
+import com.summit.core.runtime.loop.ExecutionTransitions;
+import com.summit.core.runtime.loop.ExecutionFailureObserver;
 import com.summit.core.runtime.loop.LoopResult;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,35 +39,46 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
             execution.setMessages(new ArrayList<>(execution.getMessages() == null ? List.of() : execution.getMessages()));
             save(execution);
             if (resumed) {
-                this.context.getRuntimeLifeStyleManager().onResume(execution);
+                ExecutionTransitions.resume(execution);
+                save(execution);
+                notifyLifecycle(() -> this.context.getRuntimeLifeStyleManager().onResume(execution));
             } else {
-                // The scope travels with the call: the conversation manager is a singleton, so the
-                // request's remote tools reach the prompt only this way.
+
+                // Step one: initialize the metadata of the execution (messages, tokenUsage, systemMessage)
                 this.context.getConversationManager().startConversation(
                         execution, context.getWorkspace(), context.getMcpToolScope());
-                this.context.getRuntimeLifeStyleManager().onStart(execution);
-            }
-            save(execution);
 
+                // Step two: transition the execution to the STARTED state
+                ExecutionTransitions.start(execution);
+
+                // Step three: save the snapshot of the execution
+                save(execution);
+
+                // Step four: publish the STARTED event
+                notifyLifecycle(() -> this.context.getRuntimeLifeStyleManager().onStart(execution));
+            }
+
+            // Step five: run the agent loop
             LoopResult result = new AgentLoopStepRunner(context).run(execution, control);
 
-            if (result.status() == LoopResult.Status.SUSPENDED) {
-
-                this.context.getRuntimeLifeStyleManager().onSuspend(execution);
-
-            } else {
-                if (result.status() == LoopResult.Status.COMPLETED) {
-
-                    this.context.getRuntimeLifeStyleManager().onComplete(execution);
-
-                } else if (result.status() == LoopResult.Status.CANCELLED) {
-
-                    this.context.getRuntimeLifeStyleManager().onCancel(execution);
-
-                } else {
-                    throw new IllegalStateException("loop returned a non-terminal result: " + result.status());
+            // Step six: handle the result by the status of result
+            switch (result.status()){
+                case SUSPENDED -> {
+                    ExecutionTransitions.suspend(execution);
+                    save(execution);
+                    notifyLifecycle(() -> this.context.getRuntimeLifeStyleManager().onSuspend(execution));
                 }
-
+                case COMPLETED -> {
+                    ExecutionTransitions.complete(execution);
+                    save(execution);
+                    notifyLifecycle(() -> this.context.getRuntimeLifeStyleManager().onComplete(execution));
+                }
+                case CANCELLED -> {
+                    ExecutionTransitions.cancel(execution);
+                    save(execution);
+                    notifyLifecycle(() -> this.context.getRuntimeLifeStyleManager().onCancel(execution));
+                }
+                default -> throw new IllegalStateException("loop returned a non-terminal result: " + result.status());
             }
 
             return execution;
@@ -72,12 +86,21 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
         } catch (Exception e) {
             failure = e instanceof RuntimeException runtime ? runtime : new RuntimeException(e);
             try {
-                this.context.getRuntimeLifeStyleManager().onError(execution, e);
+                // NOT completed / Canceled / Failed
+                if (!execution.getExecutionState().isTerminal()) {
+                    ExecutionTransitions.fail(execution, e.getMessage());
+                    save(execution);
+                    notifyFailureObservers(execution, e);
+                    notifyLifecycle(() -> this.context.getRuntimeLifeStyleManager().onError(execution, e));
+                }
             } catch (Exception callbackFailure) {
                 if (callbackFailure != failure) failure.addSuppressed(callbackFailure);
             }
             throw failure;
         }finally {
+            // END: fill context state with the execution
+            execution.fillContextUsage(this.context.getUsage().report(execution));
+
             clear(execution, control, failure);
         }
     }
@@ -95,18 +118,28 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
             cleanupFailure = e;
         } finally {
             try {
+
                 this.context.getExecutionRepository().unregister(control);
+
             } catch (RuntimeException e) {
+
                 if (cleanupFailure == null) cleanupFailure = e;
+
                 else if (cleanupFailure != e) cleanupFailure.addSuppressed(e);
+
                 } finally {
+
                     if (context.getUsage() != null) context.getUsage().publish(execution);
+
                     notifyRunEnd(execution);
                 }
         }
-        if (cleanupFailure != null) {
+        if (cleanupFailure != null ) {
+
             if (failure != null) {
+
                 if (failure != cleanupFailure) failure.addSuppressed(cleanupFailure);
+
             }
             else throw cleanupFailure;
         }
@@ -130,6 +163,26 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
             context.getExecutionRepository().save(execution);
         }
     }
+
+    private void notifyLifecycle(Runnable notification) {
+        try {
+            notification.run();
+        } catch (RuntimeException e) {
+            log.warn("Execution lifecycle observer failed", e);
+        }
+    }
+
+    private void notifyFailureObservers(Execution execution, Exception cause) {
+        for (ExecutionFailureObserver observer : context.getFailureObservers()) {
+            try {
+                observer.onFailure(execution, cause);
+            } catch (RuntimeException e) {
+                log.warn("Execution failure observer failed: executionId={}", execution.getId(), e);
+            }
+        }
+    }
+
+
 
 
 }

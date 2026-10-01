@@ -9,20 +9,33 @@ import java.util.Map;
 
 /** A batch of tool calls for one agent turn. */
 public record ToolExecuteCommand(List<ToolCallRequest> requests, String executionId,
-                                 Workspace workspace, Map<String, Object> attributes,
+                                 Workspace workspace,
+                                 Map<String, Object> attributes,
+                                 Map<String,Object> eventMetaData,
                                  List<String> allowedTools,
                                  boolean allowOutsideWorkspace,
-                                 McpToolScope mcpToolScope) {
+                                 McpToolScope mcpToolScope
+) {
 
     /** Backwards-compatible form: assumes operations stay inside the workspace. */
     public ToolExecuteCommand(List<ToolCallRequest> requests, String executionId,
                               Workspace workspace, Map<String, Object> attributes,
                               List<String> allowedTools) {
-        this(requests, executionId, workspace, attributes, allowedTools, false, null);
+        this(requests, executionId, workspace, attributes, null, allowedTools, false, null);
+    }
+
+    /** Compatibility overload for callers without event metadata. */
+    public ToolExecuteCommand(List<ToolCallRequest> requests, String executionId,
+                              Workspace workspace, Map<String, Object> attributes,
+                              List<String> allowedTools, boolean allowOutsideWorkspace,
+                              McpToolScope mcpToolScope) {
+        this(requests, executionId, workspace, attributes, Map.of(), allowedTools,
+                allowOutsideWorkspace, mcpToolScope);
     }
 
     public ToolExecuteCommand {
         attributes = attributes == null ? Map.of() : Map.copyOf(attributes);
+        eventMetaData = eventMetaData == null ? Map.of() : Map.copyOf(eventMetaData);
     }
 
     /** The MCP tools of the originating request, never {@code null}. */

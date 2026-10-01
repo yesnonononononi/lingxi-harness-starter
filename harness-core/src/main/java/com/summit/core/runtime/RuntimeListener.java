@@ -65,5 +65,7 @@ public interface RuntimeListener {
     default void onContextUpdate(ContextUpdateEvent event) {
     }
 
+    default void onCompleteText(AgentCompleteTextEvent event){};
+
     ;
 }

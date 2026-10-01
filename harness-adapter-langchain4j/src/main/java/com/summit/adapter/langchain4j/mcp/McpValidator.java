@@ -14,12 +14,9 @@ public class McpValidator {
 
     public static void validate(McpConfig.MCP server) {
         String key = server.name();
-        if (key == null || !key.matches("[a-zA-Z0-9_-]+")) throw invalid(key, "invalid server key");
+        if (key == null || key.isEmpty()) throw invalid(key, "invalid server key");
         if (server.transport() == null) throw invalid(key, "missing transport");
         if (server.conf() == null) throw invalid(key, "missing connection settings");
-        if (server.toolNamePrefix() != null && !server.toolNamePrefix().matches("[a-zA-Z0-9_-]*")) {
-            throw invalid(key, "invalid tool-name-prefix");
-        }
         if (server.maxOutput() <= 0) throw invalid(key, "max-output must be positive");
 
         switch (server.conf()) {

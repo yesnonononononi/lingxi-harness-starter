@@ -1,5 +1,6 @@
 package com.summit.runtime.loop.lifeStyle;
 
+import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
 import com.summit.core.conversation.event.AgentEvent;
@@ -9,6 +10,7 @@ import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.conversation.event.RuntimeEventType;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.runtime.RuntimeListener;
+import com.summit.core.runtime.loop.ExecutionTransitions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -30,9 +32,10 @@ class DefaultRuntimeLifeStyleManagerSuspensionEventTest {
             new RuntimeEventPublisher(List.of(recordingListener())));
 
     @Test
-    void suspendPublishesASuspendedEventAfterMarkingTheState() {
+    void suspendPublishesASuspendedEventAfterFrameworkTransition() {
         Execution execution = execution();
 
+        ExecutionTransitions.suspend(execution);
         manager.onSuspend(execution);
 
         assertEquals(ExecutionState.SUSPENDED, execution.getExecutionState());
@@ -46,7 +49,9 @@ class DefaultRuntimeLifeStyleManagerSuspensionEventTest {
     void resumePublishesAResumedEventAndSuspensionIsNotMistakenForIt() {
         Execution execution = execution();
 
+        ExecutionTransitions.suspend(execution);
         manager.onSuspend(execution);
+        ExecutionTransitions.resume(execution);
         manager.onResume(execution);
 
         assertEquals(ExecutionState.RUNNING, execution.getExecutionState());
@@ -79,7 +84,7 @@ class DefaultRuntimeLifeStyleManagerSuspensionEventTest {
     }
 
     private static Execution execution() {
-        return Execution.builder()
+        return Execution.builder().agentRequest(AgentRequest.builder().build())
                 .id("e-1").agentId("a")
                 .executionState(ExecutionState.RUNNING)
                 .tokenUsage(TokenUsageEntity.empty())

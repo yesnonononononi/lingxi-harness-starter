@@ -55,9 +55,9 @@ public class McpConfig {
 
     public record MCP(
             String name,
+            String description,
             McpTransport transport,
             Conf conf,
-            String toolNamePrefix,
             int maxOutput
     ) {
 

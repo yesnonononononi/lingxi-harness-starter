@@ -22,6 +22,14 @@ public class ToolExecution {
     @Builder.Default
     private Map<String, Object> attributes = Map.of();
 
+    /** Explicitly selected event metadata of the originating execution. */
+    @Builder.Default
+    private Map<String, Object> eventMetaData = Map.of();
+
+    public Map<String, Object> getEventMetaData() {
+        return eventMetaData == null ? Map.of() : Map.copyOf(eventMetaData);
+    }
+
     /** Per-request switch copied from {@code AgentRuntimeParameters#isAllowOutsideWorkspace()}. */
     @Builder.Default
     private boolean allowOutsideWorkspace = false;

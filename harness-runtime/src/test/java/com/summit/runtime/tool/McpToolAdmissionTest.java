@@ -66,8 +66,15 @@ class McpToolAdmissionTest {
             // A static tool has exactly one way in: being named. Omitting it is enough to block it.
             List<ToolExecuteResult> results = manager.execute(new ToolExecuteCommand(
                     List.of(new ToolCallRequest("call-1", STATIC_TOOL, "{}", null)),
-                    "execution-1", workspace(), null,
-                    List.of("something_else"), false, McpToolScope.EMPTY));
+                    "execution-1",
+                    workspace(),
+                    null,
+                    null,
+                    List.of("something_else"),
+                    false,
+                    McpToolScope.EMPTY
+                    )
+            );
 
             assertEquals(1, results.size());
             assertEquals("Tool '" + STATIC_TOOL + "' is not allowed for this agent request",
@@ -95,7 +102,7 @@ class McpToolAdmissionTest {
         try (DefaultToolExecutionManager manager = manager()) {
             List<ToolExecuteResult> results = manager.execute(new ToolExecuteCommand(
                     List.of(new ToolCallRequest("call-1", STATIC_TOOL, "{}", null)),
-                    "execution-1", workspace(), null, null, false, McpToolScope.EMPTY));
+                    "execution-1", workspace(), null,null, null, false, McpToolScope.EMPTY));
 
             assertEquals(1, results.size());
             assertEquals("Tool '" + STATIC_TOOL + "' is not allowed for this agent request",
@@ -134,7 +141,7 @@ class McpToolAdmissionTest {
                                          McpToolScope scope) {
         List<ToolExecuteResult> results = manager.execute(new ToolExecuteCommand(
                 List.of(new ToolCallRequest("call-1", MCP_TOOL, "{}", null)),
-                "execution-1", workspace(), null, allowedTools, false, scope));
+                "execution-1", workspace(), null, null,allowedTools, false, scope));
 
         assertEquals(1, results.size());
         return results.getFirst();

@@ -116,6 +116,14 @@ public class RuntimeEventPublisher {
         }
     }
 
+    public void onCompleteText(AgentCompleteTextEvent event){
+        try {
+            listeners.forEach(listener -> listener.onCompleteText(event));
+        } catch (Exception e) {
+            log.error("Error occurred while publishing complete text event", e);
+        }
+    }
+
     public void onContextUpdate(ContextUpdateEvent event) {
         try {
             listeners.forEach(listener -> listener.onContextUpdate(event));

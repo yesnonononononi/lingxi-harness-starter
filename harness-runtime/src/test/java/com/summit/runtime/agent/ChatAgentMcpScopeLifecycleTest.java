@@ -6,7 +6,7 @@ import com.summit.core.agent.ExecutionState;
 import com.summit.core.conf.McpConfig;
 import com.summit.core.conf.McpTransport;
 import com.summit.core.conversation.message.UserMessageEntity;
-import com.summit.core.mcp.McpRegister;
+import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.core.mcp.McpSession;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.model.RequestModelInvokerFactory;
@@ -85,11 +85,11 @@ class ChatAgentMcpScopeLifecycleTest {
     }
 
     private TestAgent agent(ExecutionState terminalState) {
-        McpRegister register = config -> {
+        ScopeMcpProvider scopeMcpProvider = config -> {
             opened.incrementAndGet();
             return McpToolScope.of(List.of(session()));
         };
-        return new TestAgent(factory(terminalState), register);
+        return new TestAgent(factory(terminalState), scopeMcpProvider);
     }
 
     private TestAgent agentWithoutRegister(ExecutionState terminalState) {
@@ -126,16 +126,16 @@ class ChatAgentMcpScopeLifecycleTest {
 
     private static McpConfig mcpConfig() {
         McpConfig config = new McpConfig();
-        config.setMcp(List.of(new McpConfig.MCP("test-server", McpTransport.STREAMABLE_HTTP,
+        config.setMcp(List.of(new McpConfig.MCP("test-server", null, McpTransport.STREAMABLE_HTTP,
                 new McpConfig.StreamableHttp("https://test.example/mcp", Map.of(),
                         Duration.ofSeconds(3), Duration.ofSeconds(4)),
-                null, 100)));
+                100)));
         return config;
     }
 
     /** Minimal agent: no model, no workspace, only the MCP scope lifecycle under test. */
     private static final class TestAgent extends ChatAgent {
-        private TestAgent(RuntimeFactory factory, McpRegister register) {
+        private TestAgent(RuntimeFactory factory, ScopeMcpProvider register) {
             super(factory, null, null, null, register);
         }
 
