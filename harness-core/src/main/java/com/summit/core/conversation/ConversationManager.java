@@ -1,8 +1,6 @@
 package com.summit.core.conversation;
 
 import com.summit.core.agent.Execution;
-import com.summit.core.compact.CompactSummaryResolver;
-import com.summit.core.compact.ContextSummary;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
@@ -33,8 +31,15 @@ public interface ConversationManager {
 
     TokenUsageEntity tokenUsage(Execution execution);
 
-    /** Rebuilds a session from the given summary, telling whether the round that triggered the rebuild was the model's own answer to the trailing user turn. */
-    void rebuildContext(ContextSummary contextSummary, Execution execution, boolean answeredTrailingUserTurn);
+    /**
+     * Rebuilds a session from an already-resolved summary, telling whether the round that
+     * triggered the rebuild was the model's own answer to the trailing user turn.
+     *
+     * <p>The summary arrives as text: what a compaction produces and how it is parsed belong to
+     * the compaction strategy, so a session can be rebuilt from any source of one without this
+     * contract adopting one summary layout.</p>
+     */
+    void rebuildContext(String summary, Execution execution, boolean answeredTrailingUserTurn);
 
 
 
@@ -50,13 +55,6 @@ public interface ConversationManager {
      * Default no-op keeps existing implementations intact.
      */
     default void appendSystemMessage(Execution execution, String text) {
-    }
-    /** Resolves a model-generated summary and applies it only when usable. */
-    default boolean applyCompactSummary(String output, Execution execution, boolean answeredTrailingUserTurn) {
-        ContextSummary summary = CompactSummaryResolver.resolve(output);
-        if (summary == null) return false;
-        rebuildContext(summary, execution, answeredTrailingUserTurn);
-        return true;
     }
 
     void appendSystemMessage(Execution execution, SystemMessageEntity entity);

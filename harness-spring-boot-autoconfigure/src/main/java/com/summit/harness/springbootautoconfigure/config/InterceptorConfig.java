@@ -2,9 +2,11 @@ package com.summit.harness.springbootautoconfigure.config;
 
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.interceptor.InterceptorProcessor;
+import com.summit.core.runtime.loop.LoopInterceptor;
 import com.summit.core.tool.ToolExecution;
 import com.summit.core.tool.ToolInterceptor;
 import com.summit.runtime.interceptor.DefaultInterceptorProcessor;
+import com.summit.runtime.loop.DefaultLoopInterceptor;
 import com.summit.runtime.tool.DefaultToolInterceptor;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -34,5 +36,10 @@ public class InterceptorConfig {
     @ConditionalOnMissingBean
     public InterceptorProcessor<ToolExecution> interceptorProcessor(List<ToolInterceptor> toolInterceptorList) {
         return new DefaultInterceptorProcessor<>(toolInterceptorList);
+    }
+
+    @Bean
+    public LoopInterceptor loopInterceptor() {
+        return new DefaultLoopInterceptor();
     }
 }

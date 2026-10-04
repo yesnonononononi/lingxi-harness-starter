@@ -4,7 +4,7 @@ import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.api.ToolCallRequest;
-import com.summit.core.conversation.context.RuntimeContext;
+import com.summit.runtime.context.RuntimeContext;
 import com.summit.core.conversation.event.AgentMessageEvent;
 import com.summit.core.conversation.event.ContextUpdateEvent;
 import com.summit.core.conversation.message.AiMessageEntity;
@@ -16,10 +16,12 @@ import com.summit.core.tool.ToolExecuteCommand;
 import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolResultType;
 import com.summit.runtime.agent.AgentConfig;
+import com.summit.runtime.compact.CompactSummaryApplier;
 import com.summit.runtime.model.ModelRequestFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -36,40 +38,39 @@ public class AgentLoopStepRunner {
 
     private final RuntimeContext context;
     private final ModelRequestFactory requests;
+    private final LoopBoundaryGuard boundaries;
+
 
     public AgentLoopStepRunner(RuntimeContext context) {
         this.context = context;
         this.requests = new ModelRequestFactory(context);
+        this.boundaries = new LoopBoundaryGuard(context.getRuntimeBoundaryChecker());
     }
 
     public LoopResult run(Execution execution, ExecutionControlSignal control) throws Exception {
         int consecutiveCompactRounds = 0;
-        CheckPointResult checkPointResult;
+        InterceptorResult interceptorResult;
         LoopResult controlResult;
 
-        LoopInterceptor interceptor = this.context.getLoopInterceptor();
+        LoopInterceptorProcessor interceptor = this.context.getLoopInterceptorProcessor();
 
         LoopContext loopContext = new LoopContext(
-                execution.getId(),
+                execution,
+                control,
+                consecutiveCompactRounds,
                 execution.getAgentRequest().runtimeParametersOrDefault().getAttributes(),
                 e -> e.forEach(m -> this.context.getConversationManager().appendMessage(execution, m))
         );
         while (true) {
-            if ((controlResult = resultOf(control)) != null) return controlResult;
+            try (LoopRoundScope round = new LoopRoundScope(interceptor, loopContext)) {
+                if (!(interceptorResult = interceptor.onLoopStart(loopContext)).shouldContinue())
+                    return interceptorResult.loopResult();
 
-            try {
-                // not different but reserve the semantic
-                interceptor.onLoopStart(loopContext);
+                if (!(interceptorResult = interceptor.onBeforeModelInvoke(loopContext)).shouldContinue())
+                    return interceptorResult.loopResult();
 
-                interceptor.onBeforeModelInvoke(loopContext);
-
-                if ((controlResult = resultOf(control)) != null) return controlResult;
-
-                // Include externally appended messages in budget/compaction checks.
-                if ((checkPointResult = boundaryCheck(true, execution)) != null)
-                    return LoopResult.cancelled(checkPointResult.reason());
-
-                execution.incrementModelAttempts();
+                // External input must be present before compaction and budget checks run.
+                if (!(controlResult = boundaries.beforeModel(execution, control)).shouldContinue()) return controlResult;
 
                 ChatResponseEntity response;
                 try {
@@ -80,39 +81,37 @@ public class AgentLoopStepRunner {
                             : LoopResult.suspended(e.getMessage());
                 }
 
-                interceptor.onAfterModelInvoke(loopContext, response);
-
-                if ((controlResult = resultOf(control)) != null) return controlResult;
+                if (!(interceptorResult = interceptor.onAfterModelInvoke(loopContext, response)).shouldContinue())
+                    return interceptorResult.loopResult();
 
                 AiMessageEntity aiMessage = response.getAiMessageEntity();
+
                 if (hasNoToolCall(aiMessage)) {
                     appendMessage(execution, response, null);
                     return LoopResult.completed();
                 }
 
-                if ((controlResult = resultOf(control)) != null) return controlResult;
-                interceptor.onBeforeToolCall(loopContext);
-                if ((controlResult = resultOf(control)) != null) return controlResult;
+                if (!(interceptorResult = interceptor.onBeforeToolCall(loopContext)).shouldContinue())
+                    return interceptorResult.loopResult();
 
                 List<ToolExecuteResult> toolResults = doToolCall(execution, aiMessage);
+
+                if (!(interceptorResult = interceptor.onAfterToolCall(loopContext, toolResults)).shouldContinue())
+                    return interceptorResult.loopResult();
 
                 if (hasPromise(toolResults)) {
 
                     appendMessage(execution, response, toolResults);
 
-                    interceptor.onAfterToolCall(loopContext, toolResults);
-
                     reportCompletedRound(execution);
 
-                    if ((controlResult = resultOf(control)) != null
+                    if ((controlResult = resolveControlResult(control)) != null
                             && controlResult.status() == LoopResult.Status.CANCELLED) return controlResult;
 
                     return LoopResult.suspended("tool result requested execution suspension");
                 }
 
                 if (applyCompaction(execution, response, toolResults)) {
-
-                    interceptor.onAfterToolCall(loopContext, toolResults);
 
                     reportCompletedRound(execution);
 
@@ -129,27 +128,20 @@ public class AgentLoopStepRunner {
 
                 appendMessage(execution, response, toolResults);
 
-                interceptor.onAfterToolCall(loopContext, toolResults);
-
-                if ((checkPointResult = boundaryCheck(false, execution)) != null)
-                    return LoopResult.cancelled(checkPointResult.reason());
-
+                if (!(controlResult = boundaries.afterTools(execution, control)).shouldContinue()) return controlResult;
                 reportCompletedRound(execution);
 
-            } finally {
-                // A round end notification must not mask the loop result or original failure.
-                try {
-                    interceptor.onLoopEnd(loopContext);
-                } catch (Exception e) {
-                    log.warn("Loop end callback failed: executionId={}", execution.getId(), e);
-                }
             }
         }
     }
 
     private @NonNull ChatResponseEntity invokeModel(Execution execution, ExecutionControlSignal control) throws Exception {
         try {
-            ChatResponseEntity response = context.getInvoker().invoke(requestOf(execution, control));
+
+            ModelChatCommand command = requests.build(execution, configuredTools(execution), control);
+            ChatResponseEntity response = context.getInvoker().invoke(command);
+
+
             context.getRuntimeEventPublisher().onAiMessage(new AgentMessageEvent(
                     response.getAiMessageEntity().text(),
                     response.getAiMessageEntity().getThinking(),
@@ -192,7 +184,7 @@ public class AgentLoopStepRunner {
         return null;
     }
 
-    private @Nullable LoopResult resultOf(@NonNull ExecutionControlSignal control) {
+    private @Nullable LoopResult resolveControlResult(@NonNull ExecutionControlSignal control) {
         if (control.isCancelRequired()) {
             return LoopResult.cancelled("execution cancellation requested");
         }
@@ -207,7 +199,7 @@ public class AgentLoopStepRunner {
         AgentRequest agentRequest = execution.getAgentRequest();
 
         Map<String, Object> attributes = agentRequest.runtimeParametersOrDefault().getAttributes();
-        Map<String,Object> eventAttributes = agentRequest.runtimeParametersOrDefault().getEventMetaData();
+        Map<String, Object> eventAttributes = agentRequest.runtimeParametersOrDefault().getEventMetaData();
         return context.getToolExecutionManager().execute(
                 new ToolExecuteCommand(
                         aiMessageEntity.getToolCalls(),
@@ -226,9 +218,6 @@ public class AgentLoopStepRunner {
         context.getConversationManager().addMessage(execution, response, toolResults);
     }
 
-    private ModelChatCommand requestOf(Execution execution, ExecutionControlSignal control) {
-        return requests.build(execution, configuredTools(execution), control);
-    }
 
     private @Nullable List<String> configuredTools(@NonNull Execution execution) {
         AgentRequest request = execution.getAgentRequest();
@@ -250,7 +239,8 @@ public class AgentLoopStepRunner {
         if (!result.isSuccess() || result.getToolResultType() != ToolResultType.CONTEXT_COMPACT)
             return false;
 
-        if (!context.getConversationManager().applyCompactSummary(result.getToolOutput(), execution, true))
+        if (!new CompactSummaryApplier(context.getConversationManager())
+                .apply(result.getToolOutput(), execution, true))
             return false;
 
         List<Message> compacted = execution.getMessages();
@@ -292,12 +282,6 @@ public class AgentLoopStepRunner {
     private boolean hasNoToolCall(@NonNull AiMessageEntity response) {
         List<ToolCallRequest> toolCalls = response.getToolCalls();
         return toolCalls == null || toolCalls.isEmpty();
-    }
-
-    private @Nullable CheckPointResult boundaryCheck(boolean before, Execution execution) {
-        RuntimeBoundaryChecker runtimeBoundaryChecker = context.getRuntimeBoundaryChecker();
-        CheckPointResult result = before ? runtimeBoundaryChecker.before(execution) : runtimeBoundaryChecker.after(execution);
-        return result.isCancelled() ? result : null;
     }
 
 

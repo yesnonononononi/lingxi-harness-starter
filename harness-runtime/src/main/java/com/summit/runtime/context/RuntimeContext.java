@@ -1,4 +1,4 @@
-package com.summit.core.conversation.context;
+package com.summit.runtime.context;
 
 
 import com.summit.core.compact.Tokenizer;
@@ -15,6 +15,13 @@ import lombok.experimental.SuperBuilder;
 
 import java.util.List;
 
+/**
+ * Everything one loop run needs, gathered by the runtime and handed to the loop.
+ *
+ * <p>An assembly object, not a domain type: it holds no execution state and no invariant, and it
+ * lives in the runtime because only the runtime decides how a run is wired. The callback surface
+ * applications program against is {@link com.summit.core.runtime.loop.LoopContext}.</p>
+ */
 @Getter
 @SuperBuilder
 public class RuntimeContext {
@@ -23,7 +30,7 @@ public class RuntimeContext {
     private final RuntimeBoundaryChecker runtimeBoundaryChecker;
     private final ExecutionRepository executionRepository;
     private final ModelInvoker invoker;
-    private final LoopInterceptor loopInterceptor;
+    private final LoopInterceptorProcessor loopInterceptorProcessor;
     private final Workspace workspace;
     private final ConversationManager conversationManager;
     private final RuntimeEventPublisher runtimeEventPublisher;
@@ -46,10 +53,7 @@ public class RuntimeContext {
     private final Integer maxConsecutiveCompactions;
 
 
-    /** Also supports direct builder use outside Spring. */
-    public LoopInterceptor getLoopInterceptor() {
-        return loopInterceptor == null ? LoopInterceptor.NOOP : loopInterceptor;
-    }
+
 
     /** The MCP tools of this request, never {@code null}. */
     public McpToolScope getMcpToolScope() {

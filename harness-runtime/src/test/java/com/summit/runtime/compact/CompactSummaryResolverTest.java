@@ -1,12 +1,17 @@
-package com.summit.core.compact;
+package com.summit.runtime.compact;
 
+import com.summit.core.conversation.ConversationManager;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Proxy;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CompactSummaryResolverTest {
 
@@ -73,5 +78,43 @@ class CompactSummaryResolverTest {
     void blankOutputResolvesToNull() {
         assertNull(CompactSummaryResolver.resolve(null));
         assertNull(CompactSummaryResolver.resolve("   "));
+    }
+
+    /**
+     * The rebuild contract takes text, so a session can be rebuilt from any summary source. These
+     * cover the two ends of that contract: a blank output must leave the context alone rather than
+     * rebuild it from nothing, and a usable one must reach the manager already rendered.
+     */
+    @Test
+    void blankOutputLeavesTheContextUntouched() {
+        List<String> rebuilt = new ArrayList<>();
+        ConversationManager manager = stubManager(rebuilt);
+
+        assertFalse(new CompactSummaryApplier(manager).apply("   ", null, false));
+        assertTrue(rebuilt.isEmpty());
+    }
+
+    @Test
+    void aUsableSummaryReachesTheManagerAsRenderedText() {
+        List<String> rebuilt = new ArrayList<>();
+        ConversationManager manager = stubManager(rebuilt);
+        String raw = "{\"goal\":\"g\",\"summary\":\"s\",\"completed\":[\"c\"],\"pending\":[],\"state\":\"DONE\"}";
+
+        assertTrue(new CompactSummaryApplier(manager).apply(raw, null, true));
+        assertEquals(1, rebuilt.size());
+        assertTrue(rebuilt.getFirst().contains("summary:\ns"), rebuilt.getFirst());
+        assertTrue(rebuilt.getFirst().contains("completed task:\n[c]"), rebuilt.getFirst());
+    }
+
+    private static ConversationManager stubManager(List<String> rebuilt) {
+        return (ConversationManager) Proxy.newProxyInstance(
+                ConversationManager.class.getClassLoader(),
+                new Class<?>[]{ConversationManager.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("rebuildContext")) {
+                        rebuilt.add((String) args[0]);
+                    }
+                    return null;
+                });
     }
 }

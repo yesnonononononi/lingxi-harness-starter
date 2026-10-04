@@ -4,11 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
-import com.summit.core.runtime.loop.ExecutionRepository;
+import com.summit.core.runtime.loop.*;
 import com.summit.core.runtime.*;
-import com.summit.core.runtime.loop.LoopInterceptor;
-import com.summit.core.runtime.loop.RuntimeBoundaryChecker;
-import com.summit.core.runtime.loop.ExecutionFailureObserver;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.tool.ToolExecutionManager;
 import com.summit.runtime.agent.AgentConfig;
@@ -16,7 +13,8 @@ import com.summit.runtime.conversation.DefaultRuntimeFactory;
 import com.summit.runtime.compact.DefaultManualCompacter;
 import com.summit.runtime.compact.DefaultModelCompacter;
 import com.summit.runtime.loop.BoundaryChecker;
-import com.summit.runtime.loop.lifeStyle.DefaultRuntimeLifeStyleManager;
+import com.summit.runtime.loop.DefaultLoopInterceptorProcessor;
+import com.summit.runtime.loop.DefaultRuntimeLifeStyleManager;
 import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -36,7 +34,7 @@ public class ExecutionRuntimeConfig {
                                                 ExecutionRepository executionRepository,
                                                 DefaultManualCompacter manualCompacter,
                                                 DefaultModelCompacter modelCompacter, RuntimeLifeStyleManager runtimeLifeStyleManager,
-                                                LoopInterceptor loopInterceptor,
+                                                LoopInterceptorProcessor loopInterceptorProcessor,
                                                 RuntimeBoundaryChecker boundaryChecker,
                                                 List<ExecutionFailureObserver> failureObservers
     ) {
@@ -46,7 +44,7 @@ public class ExecutionRuntimeConfig {
                 .conversationManager(conversationManager)
                 .usage(usage)
                 .tokenizer(tokenizer)
-                .loopInterceptor(loopInterceptor)
+                .loopInterceptorProcessor(loopInterceptorProcessor)
                 .executionRepository(executionRepository)
                 .agentConfig(agentConfig)
                 .manualCompacter(manualCompacter)
@@ -76,10 +74,11 @@ public class ExecutionRuntimeConfig {
                 manualCompacter, modelCompacter);
     }
 
+    /** The dispatcher orders callbacks only; runtime limits are owned by the loop. */
     @Bean
     @ConditionalOnMissingBean
-    public LoopInterceptor defaultLoopInterceptor() {
-        return LoopInterceptor.NOOP;
+    public LoopInterceptorProcessor defaultLoopInterceptorProcessor(List<LoopInterceptor> interceptors) {
+        return new DefaultLoopInterceptorProcessor(interceptors);
     }
 
     @Bean

@@ -35,7 +35,7 @@ public class  BoundaryChecker implements RuntimeBoundaryChecker {
     /** Fallback model-squeeze threshold when the policy is not configured. */
     private static final double DEFAULT_MODEL_THRESHOLD = 0.85;
     /** Fallback rounds per local truncation pass when the policy is not configured (matches AgentConfig.OriginalSqueeze#defaultPolicy). */
-    private static final int DEFAULT_TRUNCATE_TURN = 5;
+    private static final int DEFAULT_TRUNCATE_TURN = 10;
 
     private final AgentConfig agentConfig;
     private final Tokenizer tokenizer;
@@ -52,13 +52,13 @@ public class  BoundaryChecker implements RuntimeBoundaryChecker {
             throw new MaxStepsExceededException("loop exceeded maximum steps");
         }
         compactIfNeeded(execution);
-        return shouldContinue(execution);
+        return CheckPointResult.continueWith();
     }
 
     @Override
     public CheckPointResult after(Execution execution) {
         compactIfNeeded(execution);
-        return shouldContinue(execution) ;
+        return CheckPointResult.continueWith();
     }
     /**
      * Two-band squeeze decision based on {@link AgentConfig.ProgressiveSqueezePolicy}. The bands are
@@ -77,10 +77,13 @@ public class  BoundaryChecker implements RuntimeBoundaryChecker {
         double ratio = this.tokenizer.calcCurrentTokenRatio(conversationManager.messages(execution), agentConfig.maxTokens());
 
         AgentConfig.ProgressiveSqueezePolicy policy = agentConfig.squeezeThreshold();
+
         Double truncateThreshold = policy == null || policy.truncateSqueeze() == null
                 ? null : policy.truncateSqueeze().threshold();
+
         int truncateTurn = policy == null || policy.truncateSqueeze() == null
                 ? 0 : Math.max(policy.truncateSqueeze().expectTruncateTurn(), 0);
+
         Double modelThreshold = policy == null || policy.modelSqueeze() == null
                 ? null : policy.modelSqueeze().threshold();
 
@@ -128,13 +131,10 @@ public class  BoundaryChecker implements RuntimeBoundaryChecker {
 
 
 
-    private CheckPointResult shouldContinue(Execution execution) throws TokenBudgetExceededException,MaxStepsExceededException {
-        if( tokenIsExhausted(execution, conversationManager))  throw new TokenBudgetExceededException("token has been exhausted");
 
 
 
-        return CheckPointResult.continueWith();
-    }
+
 
     /**
      * Max loop iterations for this execution. {@code Execution.maxSteps} is not
@@ -149,12 +149,7 @@ public class  BoundaryChecker implements RuntimeBoundaryChecker {
         return maxIterations == null ? Integer.MAX_VALUE : Math.max(maxIterations, 1);
     }
 
-    private boolean tokenIsExhausted(Execution execution, ConversationManager conversationManager) {
-        Integer maxTokens = agentConfig.maxTokens();
-        if (maxTokens == null) return true;
-        int currentContextTokens = tokenizer.count(conversationManager.messages(execution));
-        return currentContextTokens >= maxTokens;
-    }
+
 
 
 

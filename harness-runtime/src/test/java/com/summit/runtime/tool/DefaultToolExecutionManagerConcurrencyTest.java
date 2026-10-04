@@ -116,7 +116,7 @@ class DefaultToolExecutionManagerConcurrencyTest {
 
     private ToolExecuteCommand command(String toolName, int calls) {
         List<ToolCallRequest> requests = IntStream.range(0, calls)
-                .mapToObj(index -> new ToolCallRequest("call-" + index, toolName, "{}", null))
+                .mapToObj(index -> new ToolCallRequest("call-" + index, toolName, "{}"))
                 .toList();
         return new ToolExecuteCommand(requests, "execution-1", workspace(), null, List.of(toolName));
     }

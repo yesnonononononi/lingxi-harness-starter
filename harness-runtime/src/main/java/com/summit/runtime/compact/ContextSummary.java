@@ -1,4 +1,4 @@
-package com.summit.core.compact;
+package com.summit.runtime.compact;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

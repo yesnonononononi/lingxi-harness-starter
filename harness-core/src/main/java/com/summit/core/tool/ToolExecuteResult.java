@@ -1,9 +1,11 @@
 package com.summit.core.tool;
 
 
+import com.summit.core.conversation.event.AgentEvent;
 import lombok.Builder;
 import lombok.Data;
 
+import java.util.Map;
 import java.util.Objects;
 
 @Builder
@@ -14,6 +16,11 @@ public class ToolExecuteResult {
     private ToolDefinition<?> toolSpecification;
     private String toolOutput;
     private ToolResultType toolResultType;
+    /**
+     * the field allows the user to carry some extra information to the {@link AgentEvent}
+     */
+    private Map<String,Object> toolMetaData;
+
     public static ToolExecuteResult success(String toolOutput){
         return ToolExecuteResult.builder()
                 .code(1)
@@ -21,6 +28,17 @@ public class ToolExecuteResult {
                 .toolOutput(Objects.requireNonNullElse(toolOutput,""))
                 .build();
     }
+
+    public static ToolExecuteResult success(String output,ToolResultType toolResultType, Map<String,Object> toolMetaData) {
+        return ToolExecuteResult.builder()
+                .code(1)
+                .toolResultType(toolResultType)
+                .toolOutput(Objects.requireNonNullElse(output, ""))
+                .toolMetaData(toolMetaData)
+                .build();
+    }
+
+
     public static  ToolExecuteResult success(String toolOutput, ToolResultType toolResultType){
         return ToolExecuteResult.builder()
                 .code(1)
@@ -36,18 +54,23 @@ public class ToolExecuteResult {
     public static ToolExecuteResult promise(String toolOutput) {
         return success(toolOutput, ToolResultType.PROMISE);
     }
+    public static ToolExecuteResult promise(String toolOutput,Map<String,Object> toolMetaData) {
+        return success(toolOutput, ToolResultType.PROMISE,toolMetaData);
+    }
 
     public static ToolExecuteResult err(String toolOutput){
-        return ToolExecuteResult.builder()
-                .code(0)
-                .toolResultType(ToolResultType.NORMAL)
-                .toolOutput(Objects.requireNonNullElse(toolOutput,""))
-                .build();
+        return err(toolOutput, ToolResultType.NORMAL, null);
     }
+
+
     public static ToolExecuteResult err(String toolOutput,ToolResultType toolResultType){
+        return err(toolOutput, toolResultType,null);
+    }
+    public static ToolExecuteResult err(String toolOutput,ToolResultType toolResultType,Map<String,Object> toolMetaData){
         return ToolExecuteResult.builder()
                 .code(0)
                 .toolResultType(toolResultType)
+                .toolMetaData(toolMetaData)
                 .toolOutput(Objects.requireNonNullElse(toolOutput,""))
                 .build();
     }

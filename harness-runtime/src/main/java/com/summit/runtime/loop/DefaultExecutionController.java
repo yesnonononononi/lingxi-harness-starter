@@ -10,7 +10,6 @@ import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.conversation.event.TokenInfo;
 import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.runtime.loop.ExecutionControl;
-import com.summit.core.runtime.loop.ExecutionTransitions;
 import com.summit.core.runtime.loop.ApprovalOutcome;
 import lombok.AllArgsConstructor;
 
@@ -45,15 +44,8 @@ public class DefaultExecutionController implements ExecutionControl {
     }
 
     @Override
-    public Execution resume(String executionId) {
-        Execution execution = executionRepository.findById(executionId)
-                .orElseThrow(() -> new IllegalArgumentException("Execution not found: " + executionId));
-        return resume(execution);
-    }
-
-    @Override
     public void beginApproval(Execution execution) {
-        ExecutionTransitions.resume(execution);
+        execution.resumeChecked();
         executionRepository.save(execution);
     }
 
@@ -61,9 +53,9 @@ public class DefaultExecutionController implements ExecutionControl {
     public void finishApproval(Execution execution, ApprovalOutcome outcome) {
         Objects.requireNonNull(outcome, "outcome");
         if (outcome == ApprovalOutcome.CANCELLED) {
-            ExecutionTransitions.cancel(execution);
+            execution.cancelChecked();
         } else {
-            ExecutionTransitions.suspend(execution);
+            execution.suspendChecked();
         }
         executionRepository.save(execution);
         if (outcome == ApprovalOutcome.CANCELLED) {
@@ -77,7 +69,7 @@ public class DefaultExecutionController implements ExecutionControl {
 
     @Override
     public void failApproval(Execution execution, String errorMessage) {
-        ExecutionTransitions.fail(execution, errorMessage);
+        execution.failChecked(errorMessage);
         executionRepository.save(execution);
         String executionId = execution.getId();
         TokenInfo tokenInfo = TokenInfo.from(execution.getTokenUsage());

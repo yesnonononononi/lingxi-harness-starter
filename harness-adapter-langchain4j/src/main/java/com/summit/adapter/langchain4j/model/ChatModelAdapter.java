@@ -38,6 +38,7 @@ public class ChatModelAdapter implements ChatModel {
     public ChatResponseEntity chat(ChatRequestEntity request) {
         ChatRequest chatRequest = ChatRequestBuilder.buildRequest(request, messageCodec, toolCodec);
         ChatResponse chatResponse = delegate.chat(chatRequest);
+
         return messageCodec.toChatResponseEntity(chatResponse);
     }
 

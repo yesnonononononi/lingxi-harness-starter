@@ -1,16 +1,14 @@
 package com.summit.runtime.conversation;
 
+import com.summit.core.agent.Execution;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
-import com.summit.core.conversation.context.RuntimeContext;
+import com.summit.runtime.context.RuntimeContext;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.mcp.McpToolScope;
-import com.summit.core.runtime.loop.ExecutionRepository;
+import com.summit.core.runtime.loop.*;
 import com.summit.core.model.ModelInvoker;
 import com.summit.core.runtime.*;
-import com.summit.core.runtime.loop.LoopInterceptor;
-import com.summit.core.runtime.loop.RuntimeBoundaryChecker;
-import com.summit.core.runtime.loop.ExecutionFailureObserver;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.ToolExecutionManager;
@@ -36,7 +34,7 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
     private final RuntimeLifeStyleManager runtimeLifeStyleManager;
     private final List<ExecutionFailureObserver> failureObservers;
     private final ExecutionRepository executionRepository;
-    private final LoopInterceptor loopInterceptor;
+    private final LoopInterceptorProcessor loopInterceptorProcessor;
     /** Manual per-round truncation compaction (shouldSqueeze band). */
     private final DefaultManualCompacter manualCompacter;
     /** Model deep compaction (expectAdvanceSqueeze band). */
@@ -64,7 +62,7 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
                         .failureObservers(failureObservers)
                         .usage(usage)
                         .tokenizer(tokenizer)
-                        .loopInterceptor(loopInterceptor)
+                        .loopInterceptorProcessor(loopInterceptorProcessor)
                         .executionRepository(executionRepository)
                         .mcpToolScope(mcpToolScope)
                         .maxConsecutiveCompactions(agentConfig.maxConsecutiveCompactions())

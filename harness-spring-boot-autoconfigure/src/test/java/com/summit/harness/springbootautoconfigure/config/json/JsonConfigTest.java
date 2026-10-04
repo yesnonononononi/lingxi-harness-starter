@@ -1,7 +1,9 @@
 package com.summit.harness.springbootautoconfigure.config.json;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
+import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.UserMessageEntity;
 import org.junit.jupiter.api.Test;
 
@@ -15,9 +17,11 @@ class JsonConfigTest {
     @Test
     void sharedMapperRestoresExecutionsAndStillReadsPlainToolArguments() throws Exception {
         ObjectMapper mapper = new JsonConfig().objectMapper();
+        List<Message> messages = List.of(UserMessageEntity.from("hello"));
         Execution original = Execution.builder().id("execution")
                 .createAt(Instant.parse("2026-09-27T00:00:00Z"))
-                .messages(List.of(UserMessageEntity.from("hello"))).build();
+                .messages(messages)
+                .agentRequest(AgentRequest.builder().messages(messages).build()).build();
 
         Execution restored = mapper.readValue(mapper.writeValueAsString(original), Execution.class);
 

@@ -1,4 +1,4 @@
-package com.summit.runtime.loop.lifeStyle;
+package com.summit.runtime.loop;
 
 import com.summit.core.agent.Execution;
 import com.summit.core.conversation.event.*;

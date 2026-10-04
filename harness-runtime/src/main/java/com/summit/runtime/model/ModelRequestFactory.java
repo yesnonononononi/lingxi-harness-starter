@@ -2,7 +2,7 @@ package com.summit.runtime.model;
 
 import com.summit.core.agent.Execution;
 import com.summit.core.conversation.api.ChatRequestEntity;
-import com.summit.core.conversation.context.RuntimeContext;
+import com.summit.runtime.context.RuntimeContext;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.model.ModelChatCommand;
 import com.summit.core.runtime.loop.ExecutionControlSignal;

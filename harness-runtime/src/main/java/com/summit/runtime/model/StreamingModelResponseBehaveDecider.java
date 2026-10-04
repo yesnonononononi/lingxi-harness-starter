@@ -2,6 +2,7 @@ package com.summit.runtime.model;
 
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.event.*;
+import com.summit.core.model.streaming.StreamingHandler;
 import com.summit.core.model.streaming.StreamingModelResponseHandler;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.loop.suspension.ExecutionInterruptedException;
@@ -25,10 +26,6 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
             eventMetaData = eventMetaData == null ? Map.of() : Map.copyOf(eventMetaData);
         }
 
-        public StreamingResponseContext(String executionId, String agentId,
-                                        CompletableFuture<ChatResponseEntity> future) {
-            this(executionId, agentId, future, Map.of());
-        }
     }
     private final RuntimeEventPublisher runtimeEventPublisher;
     private final StreamingResponseContext streamingResponseContext;
@@ -42,8 +39,11 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
     private final ExecutionControlSignal control;
 
     @Override
-    public void onPartialResponse(String partialResponse) {
-        if (interruptIfRequested()) return;
+    public void onPartialResponse(String partialResponse,StreamingHandler streamingHandler) {
+        if (interruptIfRequested()) {
+            streamingHandler.cancel();
+            return;
+        };
         this.runtimeEventPublisher.onPartialText(
                 AgentPartialTextEvent.builder()
                         .content(partialResponse)
@@ -56,8 +56,11 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
 
 
     @Override
-    public void onPartialThinking(String partialThinking) {
-        if (interruptIfRequested()) return;
+    public void onPartialThinking(String partialThinking, StreamingHandler streamingHandler) {
+        if (interruptIfRequested()) {
+            streamingHandler.cancel();
+            return;
+        };
         this.runtimeEventPublisher.onPartialThinking(
                 AgentPartialThinkingEvent.builder()
                         .agentId(streamingResponseContext.agentId())
@@ -66,6 +69,20 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
                         .content(partialThinking)
                         .build()
         );
+    }
+
+    /**
+     * A streamed tool call's arguments carry no text, but they are still part of the same stream: a
+     * control request arriving while they are being emitted has to cut the stream here too,
+     * otherwise the loop would only notice once the whole call had been read — which is exactly the
+     * wait this handler exists to avoid. Nothing is published: the assembled call arrives with the
+     * round's final response.
+     */
+    @Override
+    public void onPartialToolCall(String partialArguments, StreamingHandler streamingHandler) {
+        if (interruptIfRequested()) {
+            streamingHandler.cancel();
+        }
     }
 
     /**
@@ -80,21 +97,25 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
      */
     private boolean interruptIfRequested() {
         if (control == null) return false;
+
         ExecutionInterruptedException.Kind kind = control.isCancelRequired()
                 ? ExecutionInterruptedException.Kind.CANCEL
                 : control.isSuspendRequired() ? ExecutionInterruptedException.Kind.SUSPEND : null;
+
         if (kind == null) return false;
+
         if (!streamingResponseContext.future().isDone()) {
             streamingResponseContext.future().completeExceptionally(
                     new ExecutionInterruptedException(kind,
                             "execution interrupted mid-stream: " + kind.name().toLowerCase()));
         }
+
         return true;
     }
 
     @Override
     public void onFinalResponse(ChatResponseEntity completeResponse) {
-        if (interruptIfRequested()) return;
+        if (interruptIfRequested())  return;
 
         this.runtimeEventPublisher.onCompleteText(
                 AgentCompleteTextEvent.builder()

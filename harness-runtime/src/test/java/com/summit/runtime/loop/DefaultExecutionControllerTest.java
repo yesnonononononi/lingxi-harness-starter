@@ -46,8 +46,13 @@ class DefaultExecutionControllerTest {
     }
 
 
+    /**
+     * Resuming by id would decode a detached copy from the snapshot store, so the suspended
+     * execution object itself would never resume and two divergent objects could overwrite the same
+     * checkpoint. The ban is part of the contract, so it must fail loudly instead of forking.
+     */
     @Test
-    void resumesSavedExecutionById() {
+    void refusesResumeByIdInsteadOfRunningADetachedCopy() {
         AtomicInteger executeCalls = new AtomicInteger();
         InMemoryActiveExecutionRegistry repository = new InMemoryActiveExecutionRegistry();
         Execution execution = Execution.builder().agentRequest(AgentRequest.builder().build())
@@ -58,8 +63,8 @@ class DefaultExecutionControllerTest {
         DefaultExecutionController controller = new DefaultExecutionController(
                 agentThatExecutes(executeCalls), repository, new RuntimeEventPublisher(List.of()));
 
-        assertEquals(execution, controller.resume("execution-2"));
-        assertEquals(1, executeCalls.get());
+        assertThrows(UnsupportedOperationException.class, () -> controller.resume("execution-2"));
+        assertEquals(0, executeCalls.get());
     }
 
     @Test

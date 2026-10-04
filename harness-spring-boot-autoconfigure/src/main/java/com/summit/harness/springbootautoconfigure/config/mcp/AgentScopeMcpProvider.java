@@ -42,12 +42,17 @@ public class AgentScopeMcpProvider implements ScopeMcpProvider {
     @Override
     public McpToolScope openScope(@NonNull McpConfig mcpConfig) {
         List<McpConfig.MCP> servers = mcpConfig.getMcp();
+
         if (servers == null || servers.isEmpty()) {
             return McpToolScope.EMPTY;
         }
+
         List<McpSession> sessions = new ArrayList<>();
+
         for (McpConfig.MCP server : servers) {
+
             McpSession session = openSession(server);
+
             if (session != null) {
                 sessions.add(session);
             }

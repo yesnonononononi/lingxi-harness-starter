@@ -6,11 +6,20 @@ public record LoopResult(
         String message
 ) {
     public enum Status {
+        CONTINUE,
         CANCELLED,
         SUSPENDED,
         COMPLETED
     }
 
+    public boolean shouldContinue() {
+        return status == Status.CONTINUE;
+    }
+
+
+    public static LoopResult continueLoop() {
+        return new LoopResult(Status.CONTINUE, null);
+    }
     public static LoopResult completed() {
         return new LoopResult(Status.COMPLETED, null);
     }

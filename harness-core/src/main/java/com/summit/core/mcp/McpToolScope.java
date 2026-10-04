@@ -30,43 +30,60 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 public final class McpToolScope implements AutoCloseable {
 
-    /** Shared empty scope, used whenever a request declares no MCP server. */
+    /**
+     * Shared empty scope, used whenever a request declares no MCP server.
+     */
     public static final McpToolScope EMPTY = new McpToolScope();
 
     private final Map<String, ToolDefinition<?>> tools = new ConcurrentHashMap<>();
-    /** Server each tool was discovered on, keyed by tool name. */
+    /**
+     * Server each tool was discovered on, keyed by tool name.
+     */
     private final Map<String, String> toolServers = new ConcurrentHashMap<>();
-    /** Description each server declared in the request configuration, keyed by server name. */
+    /**
+     * Description each server declared in the request configuration, keyed by server name.
+     */
     private final Map<String, String> serverDescriptions = new ConcurrentHashMap<>();
     private final List<McpSession> sessions = new ArrayList<>();
-    /** Names of this scope's tools already disclosed to the model. */
+    /**
+     * Names of this scope's tools already disclosed to the model.
+     */
     private final Set<String> disclosed = ConcurrentHashMap.newKeySet();
 
     private McpToolScope() {
     }
 
-    /** Creates a scope over the given sessions, materialising their tools now. */
+    /**
+     * Creates a scope over the given sessions, materializing their tools now.
+     * <p>The behavior will actually conduct a physical connection to network servers.</p>
+     */
     public static McpToolScope of(List<McpSession> sessions) {
         if (sessions == null || sessions.isEmpty()) {
             return EMPTY;
         }
         McpToolScope scope = new McpToolScope();
         for (McpSession session : sessions) {
-            if (!scope.adopt(session)) {
+            if (!scope.adopt(session) && session.type() != McpSessionType.REUSE) {
                 scope.closeQuietly(session);
             }
         }
         return scope;
     }
 
-    /** @return {@code false} when the session cannot list its tools, so the caller drops it. */
+    /**
+     * @return {@code false} when the session cannot list its tools, so the caller drops it.
+     */
     private boolean adopt(McpSession session) {
         List<ToolDefinition<? extends ToolExecutor>> discovered;
         try {
             discovered = session.tools();
         } catch (Exception failure) {
-            log.warn("MCP server {} tool discovery failed ({}); continuing without its tools",
-                    session.name(), failure.getClass().getSimpleName());
+            // Only the root cause is logged: the wrapper exceptions the transports and the
+            // session add carry no diagnosis, and the class name alone cannot tell an
+            // unreachable endpoint from a closed client or a refused launch command.
+            Throwable root = rootCauseOf(failure);
+            log.warn("MCP server {} tool discovery failed ({}: {}); continuing without its tools",
+                    session.name(), root.getClass().getSimpleName(), root.getMessage());
             return false;
         }
         for (ToolDefinition<? extends ToolExecutor> tool : discovered) {
@@ -82,12 +99,16 @@ public final class McpToolScope implements AutoCloseable {
         return true;
     }
 
-    /** The tool of this request carrying the given name, or {@code null}. */
+    /**
+     * The tool of this request carrying the given name, or {@code null}.
+     */
     public ToolDefinition<?> getTool(String name) {
         return name == null || name.isBlank() ? null : tools.get(name);
     }
 
-    /** Every tool this request declared. */
+    /**
+     * Every tool this request declared.
+     */
     public Collection<ToolDefinition<?>> getTools() {
         return Collections.unmodifiableCollection(tools.values());
     }
@@ -107,12 +128,16 @@ public final class McpToolScope implements AutoCloseable {
         });
     }
 
-    /** Whether the named tool of this request has been disclosed to the model. */
+    /**
+     * Whether the named tool of this request has been disclosed to the model.
+     */
     public boolean isDisclosed(String name) {
         return name != null && disclosed.contains(name);
     }
 
-    /** The disclosed tools, name-ordered; only these may enter a model request's tool list. */
+    /**
+     * The disclosed tools, name-ordered; only these may enter a model request's tool list.
+     */
     public List<ToolDefinition<?>> disclosedTools() {
         return tools.values().stream()
                 .filter(tool -> disclosed.contains(tool.name()))
@@ -133,13 +158,17 @@ public final class McpToolScope implements AutoCloseable {
                 .toList();
     }
 
-    /** The description declared for one server, or an empty string when its configuration has none. */
+    /**
+     * The description declared for one server, or an empty string when its configuration has none.
+     */
     private String descriptionOf(String server) {
         String description = serverDescriptions.get(server);
         return description == null ? "" : description;
     }
 
-    /** The server the named tool belongs to, or {@code null} when this scope does not hold it. */
+    /**
+     * The server the named tool belongs to, or {@code null} when this scope does not hold it.
+     */
     public String serverOf(String toolName) {
         return toolName == null ? null : toolServers.get(toolName);
     }
@@ -157,7 +186,9 @@ public final class McpToolScope implements AutoCloseable {
                 .toList();
     }
 
-    /** Names of every server this request connected to, server-ordered. */
+    /**
+     * Names of every server this request connected to, server-ordered.
+     */
     public List<String> serverNames() {
         return sessions.stream().map(McpSession::name).sorted().toList();
     }
@@ -166,7 +197,10 @@ public final class McpToolScope implements AutoCloseable {
         return tools.isEmpty();
     }
 
-    /** Releases the tools and closes every MCP connection opened for this request. */
+    /**
+     * Releases the tools and closes every request-owned MCP connection. Shared sessions
+     * ({@code AUTO}, {@code REUSE}) outlive the scope — their provider owns them.
+     */
     @Override
     public void close() {
         tools.clear();
@@ -175,7 +209,16 @@ public final class McpToolScope implements AutoCloseable {
         disclosed.clear();
         List<McpSession> toClose = new ArrayList<>(sessions);
         sessions.clear();
-        toClose.forEach(this::closeQuietly);
+        toClose.stream().filter(McpSession::requireAutoClose).forEach(this::closeQuietly);
+    }
+
+    /** Unwraps wrapper exceptions so the transport-level reason is reached. */
+    private static Throwable rootCauseOf(Throwable failure) {
+        Throwable current = failure;
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        return current;
     }
 
     private void closeQuietly(McpSession session) {

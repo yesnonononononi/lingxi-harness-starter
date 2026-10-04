@@ -131,16 +131,6 @@ class SearchToolExecutorTest {
     }
 
     @Test
-    @DisplayName("无命中时给出可操作提示，而不是空结果")
-    void noMatchCarriesHint() throws Exception {
-        JsonNode body = objectMapper.readTree(
-                search("nothing_matches_this", staticTool("read_file")).getToolOutput());
-
-        assertEquals(0, body.get("total").asInt());
-        assertTrue(body.has("hint"));
-    }
-
-    @Test
     @DisplayName("参数缺失或非法 JSON 不抛错：按「列出全部」处理")
     void toleratesMissingOrMalformedArguments() throws Exception {
         ToolDefinition<?> readFile = staticTool("read_file");

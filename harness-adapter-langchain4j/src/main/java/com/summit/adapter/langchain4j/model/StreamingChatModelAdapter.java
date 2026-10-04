@@ -8,14 +8,11 @@ import com.summit.core.conversation.api.ChatRequestEntity;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.model.streaming.StreamingChatModel;
 import com.summit.core.model.streaming.StreamingChatResponseHandler;
+import com.summit.core.model.streaming.StreamingHandler;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.request.ChatRequest;
-import dev.langchain4j.model.chat.response.ChatResponse;
-import dev.langchain4j.model.chat.response.PartialResponse;
-import dev.langchain4j.model.chat.response.PartialResponseContext;
-import dev.langchain4j.model.chat.response.PartialThinking;
-import dev.langchain4j.model.chat.response.PartialThinkingContext;
+import dev.langchain4j.model.chat.response.*;
 
 /**
  * Adapts the langchain4j {@link dev.langchain4j.model.chat.StreamingChatModel StreamingChatModel}
@@ -44,6 +41,7 @@ public class StreamingChatModelAdapter implements StreamingChatModel {
     public void chat(ChatRequestEntity request, StreamingChatResponseHandler handler) {
         ChatRequest chatRequest = ChatRequestBuilder.buildRequest(request, messageCodec, toolCodec);
         delegate.chat(chatRequest, new StreamingHandlerBridge(handler, messageCodec));
+
     }
 
     private static class StreamingHandlerBridge implements dev.langchain4j.model.chat.response.StreamingChatResponseHandler {
@@ -59,13 +57,34 @@ public class StreamingChatModelAdapter implements StreamingChatModel {
 
         @Override
         public void onPartialResponse(PartialResponse partialResponse, PartialResponseContext context) {
-            target.onPartialResponse(partialResponse.text());
+            target.onPartialResponse(partialResponse.text(), handle(context.streamingHandle()));
         }
 
         @Override
         public void onPartialThinking(PartialThinking partialThinking, PartialThinkingContext context) {
-            target.onPartialThinking(partialThinking.text());
+            target.onPartialThinking(partialThinking.text(), handle(context.streamingHandle()));
         }
+
+        @Override
+        public void onPartialToolCall(PartialToolCall partialToolCall, PartialToolCallContext context) {
+            target.onPartialToolCall(partialToolCall.partialArguments(), handle(context.streamingHandle()));
+        }
+
+        /** Exposes langchain4j's cancellation handle under the core's own handle interface. */
+        private static StreamingHandler handle(dev.langchain4j.model.chat.response.StreamingHandle streamingHandle) {
+            return new StreamingHandler() {
+                @Override
+                public void cancel() {
+                    streamingHandle.cancel();
+                }
+
+                @Override
+                public boolean isCancelled() {
+                    return streamingHandle.isCancelled();
+                }
+            };
+        }
+
 
         @Override
         public void onCompleteResponse(ChatResponse chatResponse) {

@@ -42,3 +42,7 @@ build/
 ### 反编译/探针产物 ###
 # dev/ 存放从 jar 解包出来用于核对行为的 .class（如 langchain4j 传输层），非源码。
 dev/
+
+### javadoc 插件误产出的 HTML（非源码，位于 src/main 内故不受 target/ 规则约束） ###
+**/src/main/javadoc/
+**/src/test/javadoc/

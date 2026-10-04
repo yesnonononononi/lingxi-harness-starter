@@ -3,7 +3,6 @@ package com.summit.runtime.conversation;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
-import com.summit.core.compact.ContextSummary;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.api.ConversationTranscriptSink;
@@ -144,8 +143,8 @@ public class DefaultConversationManager implements ConversationManager {
 
 
     @Override
-    public void rebuildContext(ContextSummary summary, Execution execution, boolean answeredTrailingUserTurn) {
-        if (summary == null) return;
+    public void rebuildContext(String summary, Execution execution, boolean answeredTrailingUserTurn) {
+        if (summary == null || summary.isBlank()) return;
         List<Message> current = execution.getMessages();
         SystemMessageEntity leading = current.stream()
                 .filter(SystemMessageEntity.class::isInstance)
@@ -159,24 +158,10 @@ public class DefaultConversationManager implements ConversationManager {
                 .filter(value -> !value.isBlank())
                 .ifPresent(value -> rebuilt.add(SystemMessageEntity.builder().text(String.format("""
                         The protected application state produced earlier is reproduced below. Keep following it:
-                        
+
                         %s
                         """, value)).build()));
-        rebuilt.add(SystemMessageEntity.builder().text(String.format("""
-                        The compact_context tool has been executed successfully, and the conversation history has been compressed into the following summary:
-                        goal:
-                        %s
-                        summary:
-                        %s
-                        completed task:
-                        %s
-                        pending task:
-                        %s
-                        summary-task state:
-                        %s
-                        Continue the conversation based on this summary. Do NOT execute anything about this summary
-                        """, summary.getGoal(), summary.getSummary(), summary.getCompleted(), summary.getPending(),
-                summary.getState())).build());
+        rebuilt.add(SystemMessageEntity.builder().text(summary).build());
         if (tail.isEmpty()) rebuilt.add(UserMessageEntity.from(CONTINUE_AFTER_COMPACTION_PROMPT));
         else rebuilt.addAll(tail);
         execution.setMessages(rebuilt);

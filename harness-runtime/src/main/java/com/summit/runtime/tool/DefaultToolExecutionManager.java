@@ -11,8 +11,7 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
@@ -25,6 +24,7 @@ import java.util.concurrent.TimeoutException;
 @Slf4j
 @Getter
 public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCloseable {
+    private record ToolExecutionOutcome(ToolExecuteResult result, ToolCallStatus status) {}
     private final ToolExecutionContext toolExecutionContext;
     private final InterceptorProcessor<ToolExecution> interceptorProcessor;
     private final List<ToolExecutionPolicy> executionPolicies;
@@ -78,17 +78,20 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
             return result;
         }
 
-        int limit = Math.clamp(toolExecutionContext.concurrentToolLimit(), 1, requests.size());
+        int limit = Math.clamp(Objects.requireNonNullElse(toolExecutionContext.concurrentToolLimit(), requests.size()),
+                1, requests.size());
+
         result.addAll(concurrentExecute(requests.subList(0, limit), toolExecuteCommand));
 
         // Empty when the batch fits inside the limit: the concurrent window already covered it.
         requests.subList(limit, requests.size()).forEach(request ->
                 result.add(process(toolExecuteCommand, request)));
+
         return result;
     }
 
 
-    private List<ToolExecuteResult> concurrentExecute(List<ToolCallRequest> requests,ToolExecuteCommand toolExecuteCommand) {
+    private List<ToolExecuteResult> concurrentExecute(List<ToolCallRequest> requests, ToolExecuteCommand toolExecuteCommand) {
         List<CompletableFuture<ToolExecuteResult>> tasks = new ArrayList<>();
         for (ToolCallRequest request : requests) {
             CompletableFuture<ToolExecuteResult> f = CompletableFuture.supplyAsync(
@@ -101,7 +104,6 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
 
         return tasks.stream().map(CompletableFuture::join).toList();
     }
-
 
 
     /**
@@ -148,26 +150,21 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
                 return publishEndEvent(toolExecuteCommand, request, toolDef, result, status);
             }
 
-            ToolExecutionOutcome outcome = this.executeTool(toolDef, toolExecution,toolExecuteCommand);
+            ToolExecutionOutcome outcome = this.executeTool(toolDef, toolExecution, toolExecuteCommand);
 
             result = identified(outcome.result(), request.id(), toolDef);
 
             return publishEndEvent(toolExecuteCommand, request, toolDef, result, outcome.status());
 
         } catch (Throwable e) {
-            this.toolExecutionContext.runtimeEventPublisher().onToolCallOutput(
-                    new ToolCallEndEvent(request.id(),
-                            toolExecuteCommand.executionId(),
-                            toolDef == null ? request.name() : toolDef.name(),
-                            request.arguments(),
-                            "Tool execution error" + e.getMessage(),
-                            toolExecuteCommand.eventMetaData(),
-                            ToolCallStatus.FAILED
-                    )
 
-            );
-            return identified(ToolExecuteResult.err("Tool execution error" + e.getMessage()), request.id(), toolDef);
+            ToolExecuteResult err = ToolExecuteResult.err("Tool execution error" + e.getMessage());
 
+            identified(err, request.id(), toolDef);
+
+            publishEndEvent(toolExecuteCommand, request, toolDef, err, ToolCallStatus.FAILED);
+
+            return err;
         }
     }
 
@@ -182,14 +179,31 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
                 || command.mcpToolScope().getTool(tool.name()) != null;
     }
 
-    private ToolExecuteResult publishEndEvent(ToolExecuteCommand command, ToolCallRequest request,                                              ToolDefinition<?> tool, ToolExecuteResult result,
-                                              ToolCallStatus status) {
+
+    private Map<String, Object> mergeMetaData(Map<String, Object> metaData, Map<String, Object> toolMetaData) {
+        Map<String, Object> newMapData = new HashMap<>(Map.copyOf(metaData));
+
+        Objects.requireNonNullElse(toolMetaData, Map.<String, Object>of())
+                .forEach(newMapData::putIfAbsent);
+
+        return newMapData;
+    }
+
+
+    private ToolExecuteResult publishEndEvent(ToolExecuteCommand command,
+                                              ToolCallRequest request,
+                                              ToolDefinition<?> tool,
+                                              ToolExecuteResult result,
+                                              ToolCallStatus status
+    ) {
         String toolName = tool == null ? request.name() : tool.name();
         toolExecutionContext.runtimeEventPublisher().onToolCallOutput(new ToolCallEndEvent(
                         request.id(),
-                        command.executionId(), toolName, request.arguments(),
+                        command.executionId(),
+                        toolName,
+                        request.arguments(),
                         result.getToolOutput(),
-                        command.eventMetaData(),
+                        mergeMetaData(command.eventMetaData(), result.getToolMetaData()),
                         status
                 )
         );
@@ -292,15 +306,12 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
 
     private static ToolCallStatus resultStatus(ToolExecuteResult result, ToolCallStatus failureStatus) {
         if (result != null && result.isPromise()) return ToolCallStatus.PROMISED;
-        return isSuccessful(result) ? ToolCallStatus.COMPLETED : failureStatus;
+        return (result != null && result.isSuccess()) ? ToolCallStatus.COMPLETED : failureStatus;
     }
 
-    private static boolean isSuccessful(ToolExecuteResult result) {
-        return result != null && result.isSuccess();
-    }
 
-    private record ToolExecutionOutcome(ToolExecuteResult result, ToolCallStatus status) {
-    }
+
+
 
 
     /**

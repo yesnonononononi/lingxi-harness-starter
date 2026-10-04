@@ -2,10 +2,9 @@ package com.summit.runtime.model;
 
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
-import com.summit.core.compact.ContextSummary;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ChatResponseEntity;
-import com.summit.core.conversation.context.RuntimeContext;
+import com.summit.runtime.context.RuntimeContext;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;
@@ -158,7 +157,7 @@ class ModelRequestFactoryVisibilityTest {
 
             public TokenUsageEntity tokenUsage(Execution execution) { return TokenUsageEntity.empty(); }
 
-            public void rebuildContext(ContextSummary summary, Execution execution,
+            public void rebuildContext(String summary, Execution execution,
                                        boolean answeredTrailingUserTurn) { }
 
             public void appendSystemMessage(Execution execution, SystemMessageEntity entity) { }

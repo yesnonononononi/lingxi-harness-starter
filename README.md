@@ -53,9 +53,15 @@ dispatch, workspaces, conversations and lifecycle events. Two rules define the b
 
 Applications extend the loop through these SPIs:
 
-- `LoopInterceptor` observes round boundaries and model/tool calls. Its
-  `onRunEnd(Execution)` callback observes COMPLETED, CANCELLED and FAILED,
-  including write-executor facts accumulated across suspension; SUSPENDED is not terminal.
+- `LoopInterceptor` observes round boundaries and model/tool calls. Register one bean per module:
+  the runtime collects every `LoopInterceptor` into a single chain ordered by ascending `order()`,
+  and callback failures are contained by default; `catchErr() = false` propagates them during
+  round/model/tool phases. An `onLoopEnd` failure is suppressed onto an existing round failure;
+  otherwise it fails the round. Runtime budget and compaction checks run outside that chain,
+  after all before-model callbacks have appended their input. Its `onRunEnd(Execution)` callback
+  observes COMPLETED, CANCELLED and FAILED, including write-executor facts accumulated across
+  suspension; SUSPENDED is not terminal. Run-end failures are logged without changing the
+  execution outcome, even when `catchErr() = false`.
 - `ToolExecutionPolicy` decides whether a tool call is admitted at all, before its timeout starts.
 - `ToolResultType.PROMISE` lets either a tool or a policy commit a result and request that the
   current loop stop in the generic suspended state.

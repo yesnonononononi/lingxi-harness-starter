@@ -1,4 +1,4 @@
-package com.summit.core.compact;
+package com.summit.runtime.compact;
 
 /** Prompt constants for the model deep compaction ({@code compact_context}). */
 public final class ContextCompactionPrompt {

@@ -34,7 +34,7 @@ class DefaultToolExecutionManagerPromiseTest {
                 .runtimeEventPublisher(new RuntimeEventPublisher(List.of())).build();
         // The whitelist is an allow-list with no implicit default, so the tool under test is named
         // explicitly — this case is about policy bypass, not about admission.
-        var command = new ToolExecuteCommand(List.of(new ToolCallRequest("c", "write", "{}", null)),
+        var command = new ToolExecuteCommand(List.of(new ToolCallRequest("c", "write", "{}")),
                 "e", workspace(), null, List.of("write"));
         for (boolean bypass : List.of(true, false)) {
             List<com.summit.core.tool.ToolExecutionPolicy> policies = bypass
@@ -75,7 +75,7 @@ class DefaultToolExecutionManagerPromiseTest {
                 invocation -> invocation.getMethod().invoke(invocation.getTarget(), invocation.getContext()),
                 List.of(execution -> ToolExecuteResult.promise("waiting")))) {
             List<ToolExecuteResult> results = manager.execute(new ToolExecuteCommand(
-                    List.of(new ToolCallRequest("call-1", "choice", "{}", null)),
+                    List.of(new ToolCallRequest("call-1", "choice", "{}")),
                     "execution-1",
                     workspace(),
                     null,

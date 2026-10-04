@@ -1,5 +1,6 @@
 package com.summit.runtime.compact;
 
+import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.*;
 import com.summit.core.conversation.api.*;
@@ -28,8 +29,10 @@ class CompactionRegressionTest {
             return ChatResponseEntity.builder().aiMessageEntity(AiMessageEntity.builder()
                     .text("{\"summary\":\"summary\"}").build()).build();
         }, conversations, id -> Optional.of("protected state"), usage);
-        var execution = Execution.builder().id("e").messages(new ArrayList<>(List.of(
-                SystemMessageEntity.builder().text("system").build(), UserMessageEntity.from("history")))).build();
+        var history = new ArrayList<Message>(List.of(
+                SystemMessageEntity.builder().text("system").build(), UserMessageEntity.from("history")));
+        var execution = Execution.builder().id("e").messages(history)
+                .agentRequest(AgentRequest.builder().messages(history).build()).build();
         assertTrue(compacter.compact(new ContextCompactRequest(execution, null)));
         assertEquals(com.summit.core.tool.ToolResultType.CONTEXT_COMPACT,
                 compacter.execute(ToolExecution.builder().executionId("e").args("{\"context\":\"history\"}").build()).getToolResultType());
@@ -43,10 +46,11 @@ class CompactionRegressionTest {
         var messages = new ArrayList<Message>();
         messages.add(SystemMessageEntity.builder().text("system").build());
         for (int i = 0; i < 2; i++) {
-            messages.add(AiMessageEntity.builder().toolCalls(List.of(new ToolCallRequest("c" + i, "read", "{}", null))).build());
+            messages.add(AiMessageEntity.builder().toolCalls(List.of(new ToolCallRequest("c" + i, "read", "{}"))).build());
             messages.add(ToolMessageEntity.builder().id("c" + i).name("read").text("x".repeat(2_000)).build());
         }
-        var execution = Execution.builder().id("e").messages(messages).build();
+        var execution = Execution.builder().id("e").messages(messages)
+                .agentRequest(AgentRequest.builder().messages(messages).build()).build();
         var compacter = new DefaultManualCompacter(ContextAttachmentProvider.NONE, tokenizer, usage);
         assertTrue(compacter.compact(new ContextCompactRequest(execution,
                 ContextSqueezeRequest.builder().shouldSqueeze(true).truncateTurn(2).build())));

@@ -1,4 +1,4 @@
-package com.summit.core.compact;
+package com.summit.runtime.compact;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.summit.core.json.LenientJsonReader;

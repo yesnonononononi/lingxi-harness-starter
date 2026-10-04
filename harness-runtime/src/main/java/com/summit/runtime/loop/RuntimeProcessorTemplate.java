@@ -3,10 +3,9 @@ package com.summit.runtime.loop;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
 import com.summit.core.compact.ContextUsageMetric;
-import com.summit.core.conversation.context.RuntimeContext;
+import com.summit.runtime.context.RuntimeContext;
 import com.summit.core.runtime.ExecutionRuntime;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
-import com.summit.core.runtime.loop.ExecutionTransitions;
 import com.summit.core.runtime.loop.ExecutionFailureObserver;
 import com.summit.core.runtime.loop.LoopResult;
 import lombok.AllArgsConstructor;
@@ -39,7 +38,7 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
             execution.setMessages(new ArrayList<>(execution.getMessages() == null ? List.of() : execution.getMessages()));
             save(execution);
             if (resumed) {
-                ExecutionTransitions.resume(execution);
+                execution.resumeChecked();
                 save(execution);
                 notifyLifecycle(() -> this.context.getRuntimeLifeStyleManager().onResume(execution));
             } else {
@@ -49,7 +48,7 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
                         execution, context.getWorkspace(), context.getMcpToolScope());
 
                 // Step two: transition the execution to the STARTED state
-                ExecutionTransitions.start(execution);
+                execution.startChecked();
 
                 // Step three: save the snapshot of the execution
                 save(execution);
@@ -64,17 +63,17 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
             // Step six: handle the result by the status of result
             switch (result.status()){
                 case SUSPENDED -> {
-                    ExecutionTransitions.suspend(execution);
+                    execution.suspendChecked();
                     save(execution);
                     notifyLifecycle(() -> this.context.getRuntimeLifeStyleManager().onSuspend(execution));
                 }
                 case COMPLETED -> {
-                    ExecutionTransitions.complete(execution);
+                    execution.completeChecked();
                     save(execution);
                     notifyLifecycle(() -> this.context.getRuntimeLifeStyleManager().onComplete(execution));
                 }
                 case CANCELLED -> {
-                    ExecutionTransitions.cancel(execution);
+                    execution.cancelChecked();
                     save(execution);
                     notifyLifecycle(() -> this.context.getRuntimeLifeStyleManager().onCancel(execution));
                 }
@@ -88,7 +87,7 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
             try {
                 // NOT completed / Canceled / Failed
                 if (!execution.getExecutionState().isTerminal()) {
-                    ExecutionTransitions.fail(execution, e.getMessage());
+                    execution.failChecked(e.getMessage());
                     save(execution);
                     notifyFailureObservers(execution, e);
                     notifyLifecycle(() -> this.context.getRuntimeLifeStyleManager().onError(execution, e));
@@ -110,9 +109,13 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
         RuntimeException cleanupFailure = null;
 
         try {
-            if (execution.getMessages() != null) {
-                execution.setMessages(List.copyOf(execution.getMessages()));
-            }
+            // The message list is deliberately left mutable: this is the live domain object, and it
+            // outlives the loop — RuntimeLifeStyleManager, LoopInterceptor and usage reporting all
+            // observe it after the run, and a caller may still append to it before resuming
+            // (ConversationManager#appendUserMessage / #appendSystemMessage). Wrapping it in
+            // List.copyOf() made those append calls throw UnsupportedOperationException on any
+            // execution that had already run once. Snapshot isolation is already guaranteed by
+            // save(), which serialises the execution into a value copy, so no read-only view is needed.
             save(execution);
         } catch (RuntimeException e) {
             cleanupFailure = e;
@@ -152,7 +155,7 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
         ExecutionState state = execution.getExecutionState();
         if (state != ExecutionState.COMPLETED && state != ExecutionState.CANCELLED && state != ExecutionState.FAILED) return;
         try {
-            context.getLoopInterceptor().onRunEnd(execution);
+            context.getLoopInterceptorProcessor().onRunEnd(execution);
         } catch (Exception e) {
             log.warn("Terminal callback failed: executionId={}", execution.getId(), e);
         }

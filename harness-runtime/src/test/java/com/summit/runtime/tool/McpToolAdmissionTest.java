@@ -65,7 +65,7 @@ class McpToolAdmissionTest {
         try (DefaultToolExecutionManager manager = manager()) {
             // A static tool has exactly one way in: being named. Omitting it is enough to block it.
             List<ToolExecuteResult> results = manager.execute(new ToolExecuteCommand(
-                    List.of(new ToolCallRequest("call-1", STATIC_TOOL, "{}", null)),
+                    List.of(new ToolCallRequest("call-1", STATIC_TOOL, "{}")),
                     "execution-1",
                     workspace(),
                     null,
@@ -101,7 +101,7 @@ class McpToolAdmissionTest {
     void absentWhitelistStillRejectsStaticTools() {
         try (DefaultToolExecutionManager manager = manager()) {
             List<ToolExecuteResult> results = manager.execute(new ToolExecuteCommand(
-                    List.of(new ToolCallRequest("call-1", STATIC_TOOL, "{}", null)),
+                    List.of(new ToolCallRequest("call-1", STATIC_TOOL, "{}")),
                     "execution-1", workspace(), null,null, null, false, McpToolScope.EMPTY));
 
             assertEquals(1, results.size());
@@ -140,7 +140,7 @@ class McpToolAdmissionTest {
                                          List<String> allowedTools,
                                          McpToolScope scope) {
         List<ToolExecuteResult> results = manager.execute(new ToolExecuteCommand(
-                List.of(new ToolCallRequest("call-1", MCP_TOOL, "{}", null)),
+                List.of(new ToolCallRequest("call-1", MCP_TOOL, "{}")),
                 "execution-1", workspace(), null, null,allowedTools, false, scope));
 
         assertEquals(1, results.size());

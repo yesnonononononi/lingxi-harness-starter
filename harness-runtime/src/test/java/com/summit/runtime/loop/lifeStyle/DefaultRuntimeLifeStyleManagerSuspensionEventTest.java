@@ -10,7 +10,7 @@ import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.conversation.event.RuntimeEventType;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.runtime.RuntimeListener;
-import com.summit.core.runtime.loop.ExecutionTransitions;
+import com.summit.runtime.loop.DefaultRuntimeLifeStyleManager;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -35,7 +35,7 @@ class DefaultRuntimeLifeStyleManagerSuspensionEventTest {
     void suspendPublishesASuspendedEventAfterFrameworkTransition() {
         Execution execution = execution();
 
-        ExecutionTransitions.suspend(execution);
+        execution.suspendChecked();
         manager.onSuspend(execution);
 
         assertEquals(ExecutionState.SUSPENDED, execution.getExecutionState());
@@ -49,9 +49,9 @@ class DefaultRuntimeLifeStyleManagerSuspensionEventTest {
     void resumePublishesAResumedEventAndSuspensionIsNotMistakenForIt() {
         Execution execution = execution();
 
-        ExecutionTransitions.suspend(execution);
+        execution.suspendChecked();
         manager.onSuspend(execution);
-        ExecutionTransitions.resume(execution);
+        execution.resumeChecked();
         manager.onResume(execution);
 
         assertEquals(ExecutionState.RUNNING, execution.getExecutionState());

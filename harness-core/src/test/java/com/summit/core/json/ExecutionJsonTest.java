@@ -26,18 +26,31 @@ class ExecutionJsonTest {
     @Test
     void ignoresRetiredWriteTrackingInLegacySnapshots() throws Exception {
         Execution restored = mapper.readValue(
-                "{\"id\":\"legacy\",\"writeToolExecuted\":true}", Execution.class);
+                "{\"id\":\"legacy\",\"agentRequest\":{},\"writeToolExecuted\":true}", Execution.class);
         assertEquals("legacy", restored.getId());
         assertFalse(mapper.readTree(mapper.writeValueAsString(restored)).has("writeToolExecuted"));
         assertThrows(com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException.class,
                 () -> mapper.readValue("{\"unexpectedField\":true}", Execution.class));
     }
 
+    /** Retired per-call fields survive in stored snapshots and must restore without failure. */
+    @Test
+    void ignoresRetiredIntentionInLegacyToolCalls() throws Exception {
+        Execution restored = mapper.readValue(
+                "{\"id\":\"legacy\",\"agentRequest\":{},\"aiMessage\":{\"type\":\"AI\",\"text\":\"answer\",\"toolCalls\":"
+                        + "[{\"id\":\"c1\",\"name\":\"search\",\"arguments\":\"{}\",\"intention\":\"lookup\"}]}}",
+                Execution.class);
+        ToolCallRequest call = restored.getAiMessage().getToolCalls().getFirst();
+        assertEquals("c1", call.id());
+        assertEquals("{}", call.arguments());
+        assertFalse(mapper.readTree(mapper.writeValueAsString(call)).has("intention"));
+    }
+
 
     @Test
     void restoresExecutionAndEveryMessageAndContentType() throws Exception {
         AiMessageEntity ai = AiMessageEntity.builder().text("answer").thinking("reason")
-                .toolCalls(List.of(new ToolCallRequest("call-1", "search", "{}", "lookup"))).build();
+                .toolCalls(List.of(new ToolCallRequest("call-1", "search", "{}"))).build();
         List<Message> messages = List.of(
                 SystemMessageEntity.builder().text("system").build(),
                 UserMessageEntity.builder().content(List.of(TextContent.from("question"),

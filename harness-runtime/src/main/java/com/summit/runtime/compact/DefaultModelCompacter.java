@@ -10,12 +10,10 @@ import com.summit.core.conversation.event.ContextUpdateEvent;
 import com.summit.core.model.chat.ChatModel;
 import com.summit.core.runtime.loop.ContextUsageReporter;
 import com.summit.core.tool.*;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import java.util.*;
 
 /** Both automatic and tool-requested model compaction use the same generation pipeline. */
-@RequiredArgsConstructor
 @Slf4j
 public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -23,6 +21,16 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
     private final ConversationManager conversationManager;
     private final ContextAttachmentProvider contextAttachmentProvider;
     private final ContextUsageReporter usage;
+    private final CompactSummaryApplier summaryApplier;
+
+    public DefaultModelCompacter(ChatModel chatModel, ConversationManager conversationManager,
+                                 ContextAttachmentProvider contextAttachmentProvider, ContextUsageReporter usage) {
+        this.chatModel = chatModel;
+        this.conversationManager = conversationManager;
+        this.contextAttachmentProvider = contextAttachmentProvider;
+        this.usage = usage;
+        this.summaryApplier = new CompactSummaryApplier(conversationManager);
+    }
 
     @Override
     public boolean compact(ContextCompactRequest request) {
@@ -31,7 +39,7 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
         if (messages.isEmpty()) return false;
         usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_STARTED, "Model compaction started");
         try {
-            if (!conversationManager.applyCompactSummary(
+            if (!summaryApplier.apply(
                     generate(execution.getId(), renderConversation(messages)), execution, false)) return false;
             usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_COMPLETED, "Model compaction completed");
             return true;
