@@ -9,6 +9,12 @@ public interface RuntimeListener {
     default void onExecutionStart(ExecutionStartEvent event) {
     }
 
+    default void onExecutionResumed(ExecutionResumedEvent event){}
+
+    ;
+
+    default void onExecutionSuspended(ExecutionSuspendedEvent event){}
+
     ;
 
     default void onToolCall(ToolCallStartEvent event) {
@@ -36,13 +42,30 @@ public interface RuntimeListener {
 
     ;
 
-    default void onFileEdit(FileEditEvent event) {
+    default void onExecutionCancelled(ExecutionCancelledEvent event) {
     }
+
+    ;
+
+    default void onApplicationEvent(Object event) {
+    }
+
+    ;
 
     default void onPartialText(AgentPartialTextEvent event) {
     }
 
+    ;
+
     default void onPartialThinking(AgentPartialThinkingEvent event) {
     }
-}
 
+    ;
+
+    default void onContextUpdate(ContextUpdateEvent event) {
+    }
+
+    default void onCompleteText(AgentCompleteTextEvent event){};
+
+    ;
+}

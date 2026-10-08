@@ -1,6 +1,5 @@
 package com.summit.adapter.langchain4j.codec;
 
-import com.summit.core.adapter.ToolCodec;
 import com.summit.core.tool.ToolDefinition;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;

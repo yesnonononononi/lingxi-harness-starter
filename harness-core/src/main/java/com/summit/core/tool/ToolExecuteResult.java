@@ -1,9 +1,11 @@
 package com.summit.core.tool;
 
 
+import com.summit.core.conversation.event.AgentEvent;
 import lombok.Builder;
 import lombok.Data;
 
+import java.util.Map;
 import java.util.Objects;
 
 @Builder
@@ -14,45 +16,70 @@ public class ToolExecuteResult {
     private ToolDefinition<?> toolSpecification;
     private String toolOutput;
     private ToolResultType toolResultType;
-    public static <T extends ToolExecutor>ToolExecuteResult success(String id, ToolDefinition<T> toolSpecification, String toolOutput){
+    /**
+     * the field allows the user to carry some extra information to the {@link AgentEvent}
+     */
+    private Map<String,Object> toolMetaData;
+
+    public static ToolExecuteResult success(String toolOutput){
         return ToolExecuteResult.builder()
                 .code(1)
-                .id(id)
                 .toolResultType(ToolResultType.NORMAL)
-                .toolSpecification(toolSpecification)
-                .toolOutput(Objects.requireNonNullElse(toolOutput,""))
-                .build();
-    }
-    public static <T extends ToolExecutor>ToolExecuteResult success(String id, ToolDefinition<T> toolSpecification, String toolOutput, ToolResultType toolResultType){
-        return ToolExecuteResult.builder()
-                .code(1)
-                .id(id)
-                .toolResultType(toolResultType)
-                .toolSpecification(toolSpecification)
                 .toolOutput(Objects.requireNonNullElse(toolOutput,""))
                 .build();
     }
 
-    public static ToolExecuteResult err(String id, ToolDefinition<?> toolSpecification, String toolOutput){
+    public static ToolExecuteResult success(String output,ToolResultType toolResultType, Map<String,Object> toolMetaData) {
         return ToolExecuteResult.builder()
-                .code(0)
-                .id(id)
-                .toolResultType(ToolResultType.NORMAL)
-                .toolSpecification(toolSpecification)
+                .code(1)
+                .toolResultType(toolResultType)
+                .toolOutput(Objects.requireNonNullElse(output, ""))
+                .toolMetaData(toolMetaData)
+                .build();
+    }
+
+
+    public static  ToolExecuteResult success(String toolOutput, ToolResultType toolResultType){
+        return ToolExecuteResult.builder()
+                .code(1)
+                .toolResultType(toolResultType)
                 .toolOutput(Objects.requireNonNullElse(toolOutput,""))
                 .build();
     }
-    public static ToolExecuteResult err(String id, ToolDefinition<?> toolSpecification, String toolOutput,ToolResultType toolResultType){
+
+    /**
+     * Returns a successful placeholder result that asks the loop to commit this tool round and
+     * suspend. No thread or future is retained by the framework.
+     */
+    public static ToolExecuteResult promise(String toolOutput) {
+        return success(toolOutput, ToolResultType.PROMISE);
+    }
+    public static ToolExecuteResult promise(String toolOutput,Map<String,Object> toolMetaData) {
+        return success(toolOutput, ToolResultType.PROMISE,toolMetaData);
+    }
+
+    public static ToolExecuteResult err(String toolOutput){
+        return err(toolOutput, ToolResultType.NORMAL, null);
+    }
+
+
+    public static ToolExecuteResult err(String toolOutput,ToolResultType toolResultType){
+        return err(toolOutput, toolResultType,null);
+    }
+    public static ToolExecuteResult err(String toolOutput,ToolResultType toolResultType,Map<String,Object> toolMetaData){
         return ToolExecuteResult.builder()
                 .code(0)
-                .id(id)
                 .toolResultType(toolResultType)
-                .toolSpecification(toolSpecification)
+                .toolMetaData(toolMetaData)
                 .toolOutput(Objects.requireNonNullElse(toolOutput,""))
                 .build();
     }
 
     public  boolean isSuccess(){
-        return this.code == 1;
+        return Integer.valueOf(1).equals(this.code);
+    }
+
+    public boolean isPromise() {
+        return this.toolResultType == ToolResultType.PROMISE;
     }
 }

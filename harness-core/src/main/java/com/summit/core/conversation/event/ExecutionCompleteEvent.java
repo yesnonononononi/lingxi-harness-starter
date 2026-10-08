@@ -1,20 +1,33 @@
 package com.summit.core.conversation.event;
 
 
-import lombok.Builder;
 import lombok.Data;
 
-import java.io.Serializable;
 import java.time.Instant;
+import java.util.Map;
 
 @Data
 public class ExecutionCompleteEvent implements AgentEvent{
-    @Builder
-    public record TokenInfo(Integer inputTokenCount, Integer outputTokenCount, Integer totalTokenCount){}
     private final String executionId;
-    private final Serializable sessionId;
-    private final TokenInfo tokenInfo   ;
+    private final TokenInfo tokenInfo;
+    private final Instant timestamp = Instant.now();
+    private final Map<String, Object> metaData;
 
+
+    public ExecutionCompleteEvent(String executionId, TokenInfo tokenInfo, Map<String, Object> metaData) {
+        this.executionId = executionId;
+        this.tokenInfo = tokenInfo;
+        this.metaData = metaData == null ? Map.of() : Map.copyOf(metaData);
+    }
+
+    /** Compatibility constructor for callers without selected event metadata. */
+    public ExecutionCompleteEvent(String executionId, TokenInfo tokenInfo) {
+        this(executionId, tokenInfo, Map.of());
+    }
+    @Override
+    public Map<String, Object> eventMetaData() {
+        return metaData;
+    }
     @Override
     public String executionId() {
         return executionId;
@@ -22,6 +35,11 @@ public class ExecutionCompleteEvent implements AgentEvent{
 
     @Override
     public Instant timestamp() {
-        return Instant.now();
+        return timestamp;
+    }
+
+    @Override
+    public String type() {
+        return RuntimeEventType.EXECUTION_COMPLETED.type();
     }
 }

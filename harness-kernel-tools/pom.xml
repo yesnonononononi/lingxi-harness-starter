@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <name>harness-kernel-tools</name>
+    <artifactId>harness-kernel-tools</artifactId>
+    <parent>
+        <groupId>io.github.yesnonononononi</groupId>
+        <artifactId>lingXi-harness-agent</artifactId>
+        <version>1.1.0</version>
+    </parent>
+
+    <dependencies>
+        <!--
+            The kernel tools live beside the runtime rather than inside it: they are the framework's
+            own tools, they ship with their own auto-configuration, and a consumer that replaces one
+            should not have to fork the loop runtime to do it.
+        -->
+        <dependency>
+            <groupId>io.github.yesnonononononi</groupId>
+            <artifactId>harness-runtime</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

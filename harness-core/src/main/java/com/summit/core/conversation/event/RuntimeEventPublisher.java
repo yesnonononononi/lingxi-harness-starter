@@ -1,5 +1,6 @@
 package com.summit.core.conversation.event;
 
+
 import com.summit.core.runtime.RuntimeListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +21,22 @@ public class RuntimeEventPublisher {
             listeners.forEach(listener -> listener.onExecutionStart(event));
         } catch (Exception e) {
             log.error("Error occurred while publishing execution start event", e);
+        }
+    }
+
+    public void onExecutionResumed(ExecutionResumedEvent executionResumeEvent){
+        try{
+            listeners.forEach(listener -> listener.onExecutionResumed(executionResumeEvent));
+        }catch (Exception e) {
+            log.error("Error occurred while publishing execution resumed event", e);
+        }
+    }
+
+    public void onExecutionSuspended(ExecutionSuspendedEvent executionSuspendedEvent){
+        try{
+            listeners.forEach(listener -> listener.onExecutionSuspended(executionSuspendedEvent));
+        }catch (Exception e) {
+            log.error("Error occurred while publishing execution suspended event", e);
         }
     }
 
@@ -67,11 +84,19 @@ public class RuntimeEventPublisher {
 
     }
 
-    public void onFileEdit(FileEditEvent event) {
+    public void onExecutionCancelled(ExecutionCancelledEvent event) {
         try {
-            listeners.forEach(listener -> listener.onFileEdit(event));
+            listeners.forEach(listener -> listener.onExecutionCancelled(event));
         } catch (Exception e) {
-            log.error("Error occurred while publishing file edit event", e);
+            log.error("Error occurred while publishing execution cancelled event", e);
+        }
+    }
+
+    public void onApplicationEvent(Object event) {
+        try {
+            listeners.forEach(listener -> listener.onApplicationEvent(event));
+        } catch (Exception e) {
+            log.error("Error occurred while publishing application event", e);
         }
     }
 
@@ -90,4 +115,22 @@ public class RuntimeEventPublisher {
             log.error("Error occurred while publishing partial thinking event", e);
         }
     }
+
+    public void onCompleteText(AgentCompleteTextEvent event){
+        try {
+            listeners.forEach(listener -> listener.onCompleteText(event));
+        } catch (Exception e) {
+            log.error("Error occurred while publishing complete text event", e);
+        }
+    }
+
+    public void onContextUpdate(ContextUpdateEvent event) {
+        try {
+            listeners.forEach(listener -> listener.onContextUpdate(event));
+        } catch (Exception e) {
+            log.error("Error occurred while publishing context update event", e);
+        }
+    }
+
+
 }

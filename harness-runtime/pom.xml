@@ -6,13 +6,21 @@
     <parent>
         <groupId>io.github.yesnonononononi</groupId>
         <artifactId>lingXi-harness-agent</artifactId>
-        <version>1.0.0</version>
+        <version>1.1.0</version>
     </parent>
     <name>lingxi-harness-runtime</name>
     <dependencies>
         <dependency>
             <groupId>io.github.yesnonononononi</groupId>
             <artifactId>harness-core</artifactId>
+        </dependency>
+        <!--
+            Declared explicitly rather than relied on transitively: SearchToolExecutor decodes the
+            model's raw argument string and serialises its answer with Jackson directly.
+        -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
         </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -21,6 +29,33 @@
         <dependency>
             <groupId>org.jspecify</groupId>
             <artifactId>jspecify</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark-ext-yaml-front-matter</artifactId>
+        </dependency>
+        <!--
+            Test-scope logging binding. Without a provider slf4j discards every log line, so a
+            warning that exists only to make a fault observable would itself be unobservable.
+            logback-core is pinned too: it otherwise resolves transitively to a different version,
+            which logback reports as a mismatch at startup.
+        -->
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>1.5.38</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-core</artifactId>
+            <version>1.5.38</version>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 </project>

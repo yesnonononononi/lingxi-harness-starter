@@ -1,0 +1,42 @@
+package com.summit.core.conversation.event;
+
+import com.summit.core.conversation.api.ChatResponseEntity;
+import lombok.Builder;
+
+import java.time.Instant;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ *  text of the model response.
+ */
+@Builder
+public record AgentCompleteTextEvent(
+        String agentId,
+        String executionId,
+        String content,
+        UUID responseId,
+        ChatResponseEntity.Meta meta,
+        Map<String, Object> metaData,
+        Instant timestamp
+) implements AgentEvent {
+
+    @Override
+    public Map<String, Object> eventMetaData() {
+        return metaData;
+    }
+
+
+
+    public AgentCompleteTextEvent {
+        metaData = metaData == null ? Map.of() : Map.copyOf(metaData);
+        if (timestamp == null) {
+            timestamp = Instant.now();
+        }
+    }
+
+    @Override
+    public String type() {
+        return RuntimeEventType.COMPLETE_TEXT.type();
+    }
+}

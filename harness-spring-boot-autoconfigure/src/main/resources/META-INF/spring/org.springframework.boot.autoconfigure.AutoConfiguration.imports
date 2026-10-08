@@ -1,0 +1,10 @@
+com.summit.harness.springbootautoconfigure.config.WorkspaceAutoConfiguration
+com.summit.harness.springbootautoconfigure.config.agent.AgentConfiguration
+com.summit.harness.springbootautoconfigure.config.ModelConfiguration
+com.summit.harness.springbootautoconfigure.config.ModelProviderConfig
+com.summit.harness.springbootautoconfigure.config.json.JsonConfig
+com.summit.harness.springbootautoconfigure.config.tool.CommonToolAutoConfiguration
+com.summit.harness.springbootautoconfigure.config.mcp.McpAutoConfiguration
+com.summit.harness.springbootautoconfigure.config.ConversationConfig
+com.summit.harness.springbootautoconfigure.config.execution.ExecutionRuntimeConfig
+com.summit.harness.springbootautoconfigure.config.InterceptorConfig

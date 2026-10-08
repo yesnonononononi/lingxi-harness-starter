@@ -7,4 +7,9 @@ import lombok.NonNull;
 public interface ToolExecutor {
     @NonNull
     ToolExecuteResult execute(ToolExecution toolExecution);
+
+    /** Workspace tools require a workspace; host-side resource readers may opt out. */
+    default boolean requiresWorkspace() {
+        return true;
+    }
 }
