@@ -32,6 +32,7 @@ public class ExecutionRuntimeConfig {
                                                 AgentConfig agentConfig, com.summit.core.runtime.loop.ContextUsageReporter usage,
                                                 Tokenizer tokenizer,
                                                 ExecutionRepository executionRepository,
+                                                ExecutionControl executionControl,
                                                 DefaultManualCompacter manualCompacter,
                                                 DefaultModelCompacter modelCompacter, RuntimeLifeStyleManager runtimeLifeStyleManager,
                                                 LoopInterceptorProcessor loopInterceptorProcessor,
@@ -46,6 +47,7 @@ public class ExecutionRuntimeConfig {
                 .tokenizer(tokenizer)
                 .loopInterceptorProcessor(loopInterceptorProcessor)
                 .executionRepository(executionRepository)
+                .executionControl(executionControl)
                 .agentConfig(agentConfig)
                 .manualCompacter(manualCompacter)
                 .runtimeLifeStyleManager(runtimeLifeStyleManager)

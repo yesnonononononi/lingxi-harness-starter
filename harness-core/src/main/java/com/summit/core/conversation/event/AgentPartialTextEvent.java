@@ -5,6 +5,7 @@ import lombok.Builder;
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Streaming text delta of the model response.
@@ -16,6 +17,7 @@ import java.util.Map;
 public record AgentPartialTextEvent(
         String agentId,
         String executionId,
+        UUID responseId,
         String content,
         Map<String,Object> metaData,
         Instant timestamp
@@ -25,9 +27,7 @@ public record AgentPartialTextEvent(
         return metaData;
     }
 
-    public AgentPartialTextEvent(String agentId, String executionId, String content, Instant timestamp) {
-        this(agentId, executionId, content, Map.of(), timestamp);
-    }
+
 
     public AgentPartialTextEvent {
         metaData = metaData == null ? Map.of() : Map.copyOf(metaData);

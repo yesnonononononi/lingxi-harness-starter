@@ -25,6 +25,7 @@ import org.jspecify.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 
@@ -62,7 +63,8 @@ public class AgentLoopStepRunner {
                 e -> e.forEach(m -> this.context.getConversationManager().appendMessage(execution, m))
         );
         while (true) {
-            try (LoopRoundScope round = new LoopRoundScope(interceptor, loopContext)) {
+
+            try (LoopRoundScope ignored = new LoopRoundScope(interceptor, loopContext)) {
                 if (!(interceptorResult = interceptor.onLoopStart(loopContext)).shouldContinue())
                     return interceptorResult.loopResult();
 
@@ -74,7 +76,7 @@ public class AgentLoopStepRunner {
 
                 ChatResponseEntity response;
                 try {
-                    response = invokeModel(execution, control);
+                    response = invokeModel(execution, control, UUID.randomUUID());
                 } catch (ExecutionInterruptedException e) {
                     return e.kind() == ExecutionInterruptedException.Kind.CANCEL
                             ? LoopResult.cancelled(e.getMessage())
@@ -94,7 +96,7 @@ public class AgentLoopStepRunner {
                 if (!(interceptorResult = interceptor.onBeforeToolCall(loopContext)).shouldContinue())
                     return interceptorResult.loopResult();
 
-                List<ToolExecuteResult> toolResults = doToolCall(execution, aiMessage);
+                List<ToolExecuteResult> toolResults = doToolCall(execution, aiMessage, response.getResponseId());
 
                 if (!(interceptorResult = interceptor.onAfterToolCall(loopContext, toolResults)).shouldContinue())
                     return interceptorResult.loopResult();
@@ -135,17 +137,19 @@ public class AgentLoopStepRunner {
         }
     }
 
-    private @NonNull ChatResponseEntity invokeModel(Execution execution, ExecutionControlSignal control) throws Exception {
+    private @NonNull ChatResponseEntity invokeModel(Execution execution, ExecutionControlSignal control,UUID responseId) throws Exception {
         try {
 
-            ModelChatCommand command = requests.build(execution, configuredTools(execution), control);
+            ModelChatCommand command = requests.build(execution, configuredTools(execution), responseId,control);
             ChatResponseEntity response = context.getInvoker().invoke(command);
+            response.setResponseId(responseId);
 
 
             context.getRuntimeEventPublisher().onAiMessage(new AgentMessageEvent(
                     response.getAiMessageEntity().text(),
                     response.getAiMessageEntity().getThinking(),
                     execution.getId(),
+                    responseId,
                     execution.eventMetaData()
             ));
 
@@ -195,7 +199,9 @@ public class AgentLoopStepRunner {
     }
 
     private List<ToolExecuteResult> doToolCall(@NonNull Execution execution,
-                                               @NonNull AiMessageEntity aiMessageEntity) {
+                                               @NonNull AiMessageEntity aiMessageEntity,
+                                               UUID responseId
+    ) {
         AgentRequest agentRequest = execution.getAgentRequest();
 
         Map<String, Object> attributes = agentRequest.runtimeParametersOrDefault().getAttributes();
@@ -208,8 +214,10 @@ public class AgentLoopStepRunner {
                         attributes,
                         eventAttributes,
                         configuredTools(execution),
+                        responseId,
                         agentRequest.runtimeParametersOrDefault().isAllowOutsideWorkspace(),
-                        context.getMcpToolScope()
+                        context.getMcpToolScope(),
+                        agentRequest.getSkillConfig()
                 )
         );
     }
@@ -247,7 +255,7 @@ public class AgentLoopStepRunner {
         execution.setMessages(new ArrayList<>(compacted));
         try {
             // Record the compact round in the transcript and accounting only: it must not stay in
-            // the model context, so the rebuilt view captured above is restored afterwards.
+            // the model context, so the rebuilt view captured above is restored afterward.
             appendMessage(execution, response, results);
         } finally {
             execution.setMessages(compacted);

@@ -200,6 +200,7 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
         toolExecutionContext.runtimeEventPublisher().onToolCallOutput(new ToolCallEndEvent(
                         request.id(),
                         command.executionId(),
+                        command.responseId(),
                         toolName,
                         request.arguments(),
                         result.getToolOutput(),
@@ -212,11 +213,12 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
 
 
     /**
-     * Builds the per-call execution. The workspace ALWAYS comes from the originating {@link ToolExecuteCommand} (i.e. the {@code AgentRequest}); a missing workspace is a programming error and fails the call.
+     * Builds the per-call execution from its request. Workspace tools require a workspace;
+     * host-side resource readers explicitly opt out through their executor contract.
      */
     private ToolExecution createToolExecution(@NonNull ToolCallRequest request, ToolDefinition<?> tool, ToolExecuteCommand command) {
         Workspace workspace = command.workspace();
-        if (workspace == null) {
+        if (workspace == null && tool.executor().requiresWorkspace()) {
             throw new IllegalStateException(
                     "No workspace provided for tool '" + request.name() + "': AgentRequest.workspace is required");
         }
@@ -224,8 +226,10 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
                 .id(request.id())
                 .toolDefinition(tool)
                 .executionId(command.executionId())
+                .responseId(command.responseId())
                 .turnId(command.executionId())
                 .workspace(workspace)
+                .skillConfig(command.skillConfig())
                 .args(request.arguments())
                 .attributes(command.attributes())
                 .eventMetaData(command.eventMetaData())
@@ -268,11 +272,13 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
                     toolDefinition.name(), timeoutSeconds);
             return new ToolExecutionOutcome(ToolExecuteResult.err(
                     "tool execution timeout after " + timeoutSeconds + "s"), ToolCallStatus.TIMED_OUT);
+
         } catch (InterruptedException e) {
             future.cancel(true);
             Thread.currentThread().interrupt();
             return new ToolExecutionOutcome(
                     ToolExecuteResult.err("tool execution interrupted"), ToolCallStatus.CANCELLED);
+
         } catch (ExecutionException e) {
             Throwable cause = e.getCause();
             if (cause instanceof CompletionException completion && completion.getCause() != null) {
@@ -280,6 +286,7 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
             }
             throw cause;
         }
+
     }
 
     private ToolExecuteResult invokeTool(ToolDefinition<?> toolDefinition,
@@ -293,6 +300,7 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
                 toolExecution.getTurnId(),
                 toolDefinition.name(),
                 toolExecution.getArgs(),
+                command.responseId(),
                 command.eventMetaData()
 
         ));

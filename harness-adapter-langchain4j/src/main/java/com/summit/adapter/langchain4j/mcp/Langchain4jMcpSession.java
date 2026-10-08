@@ -14,10 +14,11 @@ import java.util.List;
 /**
  * One langchain4j {@link McpClient} bound to a lifetime chosen by its {@link McpSessionType}.
  *
- * <p>The underlying client connects lazily: building the session performs no I/O, the first
- * {@link #tools()} call starts the transport and the MCP handshake. A session may therefore be
- * created long before it is used, and a {@link McpSessionType#REUSE} session created up front is
- * connected by whichever request reaches it first and reused by the rest.</p>
+ * <p>{@link McpClientFactory#create} constructs a client and completes transport startup and
+ * protocol initialization before returning. The {@code connect} methods only wrap that client;
+ * they perform no additional connection work. {@link #tools()} discovers tool definitions and
+ * may perform I/O unless the client already has a cached tool list. A {@link McpSessionType#REUSE}
+ * session shares its already initialized client across requests until its provider closes it.</p>
  */
 @RequiredArgsConstructor
 public class Langchain4jMcpSession implements McpSession {

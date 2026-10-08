@@ -34,6 +34,7 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
     private final RuntimeLifeStyleManager runtimeLifeStyleManager;
     private final List<ExecutionFailureObserver> failureObservers;
     private final ExecutionRepository executionRepository;
+    private final ExecutionControl executionControl;
     private final LoopInterceptorProcessor loopInterceptorProcessor;
     /** Manual per-round truncation compaction (shouldSqueeze band). */
     private final DefaultManualCompacter manualCompacter;
@@ -64,6 +65,7 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
                         .tokenizer(tokenizer)
                         .loopInterceptorProcessor(loopInterceptorProcessor)
                         .executionRepository(executionRepository)
+                        .executionControl(executionControl)
                         .mcpToolScope(mcpToolScope)
                         .maxConsecutiveCompactions(agentConfig.maxConsecutiveCompactions())
                         .runtimeBoundaryChecker(boundaryCheckerOrDefault())

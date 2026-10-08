@@ -8,6 +8,7 @@ import com.summit.core.runtime.ExecutionRuntime;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.loop.ExecutionFailureObserver;
 import com.summit.core.runtime.loop.LoopResult;
+import com.summit.runtime.util.RuntimeUtil;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -25,18 +26,21 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
 
     @Override
     public Execution execute(Execution execution) {
-        boolean resumed = execution.getExecutionState() == ExecutionState.SUSPENDED;
+
         ExecutionControlSignal control = this.context.getExecutionRepository()
                 .register(execution.getId());
-        return process(execution, control, resumed);
-    }
 
+        return process(execution, control, execution.isSuspended());
+    }
 
     private Execution process(Execution execution, ExecutionControlSignal control, boolean resumed) {
         RuntimeException failure = null;
+        Runnable pendingEvent = null;
         try {
             execution.setMessages(new ArrayList<>(execution.getMessages() == null ? List.of() : execution.getMessages()));
+
             save(execution);
+
             if (resumed) {
                 execution.resumeChecked();
                 save(execution);
@@ -61,24 +65,25 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
             LoopResult result = new AgentLoopStepRunner(context).run(execution, control);
 
             // Step six: handle the result by the status of result
-            switch (result.status()){
+            switch (result.status()) {
                 case SUSPENDED -> {
                     execution.suspendChecked();
                     save(execution);
-                    notifyLifecycle(() -> this.context.getRuntimeLifeStyleManager().onSuspend(execution));
+                    pendingEvent = () -> this.context.getRuntimeLifeStyleManager().onSuspend(execution);
                 }
                 case COMPLETED -> {
                     execution.completeChecked();
                     save(execution);
-                    notifyLifecycle(() -> this.context.getRuntimeLifeStyleManager().onComplete(execution));
+                    pendingEvent = () -> this.context.getRuntimeLifeStyleManager().onComplete(execution);
                 }
                 case CANCELLED -> {
                     execution.cancelChecked();
                     save(execution);
-                    notifyLifecycle(() -> this.context.getRuntimeLifeStyleManager().onCancel(execution));
+                    pendingEvent = () -> this.context.getRuntimeLifeStyleManager().onCancel(execution);
                 }
                 default -> throw new IllegalStateException("loop returned a non-terminal result: " + result.status());
             }
+
 
             return execution;
 
@@ -87,73 +92,56 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
             try {
                 // NOT completed / Canceled / Failed
                 if (!execution.getExecutionState().isTerminal()) {
-                    execution.failChecked(e.getMessage());
-                    save(execution);
+                    pendingEvent = this.context.getExecutionControl().fail(execution, e);
                     notifyFailureObservers(execution, e);
-                    notifyLifecycle(() -> this.context.getRuntimeLifeStyleManager().onError(execution, e));
+
                 }
             } catch (Exception callbackFailure) {
                 if (callbackFailure != failure) failure.addSuppressed(callbackFailure);
             }
             throw failure;
-        }finally {
-            // END: fill context state with the execution
-            execution.fillContextUsage(this.context.getUsage().report(execution));
-
-            clear(execution, control, failure);
-        }
-    }
-
-
-    private void clear(Execution execution, ExecutionControlSignal control, RuntimeException failure){
-        RuntimeException cleanupFailure = null;
-
-        try {
+        } finally {
+            final Runnable pe = pendingEvent;
             // The message list is deliberately left mutable: this is the live domain object, and it
             // outlives the loop — RuntimeLifeStyleManager, LoopInterceptor and usage reporting all
             // observe it after the run, and a caller may still append to it before resuming
             // (ConversationManager#appendUserMessage / #appendSystemMessage). Wrapping it in
             // List.copyOf() made those append calls throw UnsupportedOperationException on any
             // execution that had already run once. Snapshot isolation is already guaranteed by
-            // save(), which serialises the execution into a value copy, so no read-only view is needed.
-            save(execution);
-        } catch (RuntimeException e) {
-            cleanupFailure = e;
-        } finally {
-            try {
+            // save(), which serializes the execution into a value copy, so no read-only view is needed.
 
-                this.context.getExecutionRepository().unregister(control);
+            // END: fill context state with the execution
+            Throwable throwable = RuntimeUtil.runAll(
+                    () -> execution.fillContextUsage(this.context.getUsage().report(execution)),
+                    () -> this.save(execution),
+                    () -> this.context.getExecutionRepository().unregister(control),
+                    () -> this.context.getUsage().publish(execution),
+                    () -> this.notifyRunEnd(execution),
+                    () -> {
+                        // ensure that the AgentEvent is sent after all tasks are completed
+                        if (pe != null) this.notifyLifecycle(pe);
+                    }
+            );
 
-            } catch (RuntimeException e) {
-
-                if (cleanupFailure == null) cleanupFailure = e;
-
-                else if (cleanupFailure != e) cleanupFailure.addSuppressed(e);
-
-                } finally {
-
-                    if (context.getUsage() != null) context.getUsage().publish(execution);
-
-                    notifyRunEnd(execution);
+            if (throwable != null) {
+                if (failure != null) {
+                    if (throwable != failure) failure.addSuppressed(throwable);
+                } else {
+                    throw new RuntimeException(throwable);
                 }
-        }
-        if (cleanupFailure != null ) {
-
-            if (failure != null) {
-
-                if (failure != cleanupFailure) failure.addSuppressed(cleanupFailure);
-
             }
-            else throw cleanupFailure;
         }
     }
 
 
-    
-    /** Terminal notification only: suspending an execution is not its end. */
+
+    /**
+     * Terminal notification only: suspending an execution is not its end.
+     */
     private void notifyRunEnd(Execution execution) {
         ExecutionState state = execution.getExecutionState();
-        if (state != ExecutionState.COMPLETED && state != ExecutionState.CANCELLED && state != ExecutionState.FAILED) return;
+        if (state != ExecutionState.COMPLETED && state != ExecutionState.CANCELLED && state != ExecutionState.FAILED)
+            return;
         try {
             context.getLoopInterceptorProcessor().onRunEnd(execution);
         } catch (Exception e) {
@@ -184,8 +172,6 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
             }
         }
     }
-
-
 
 
 }

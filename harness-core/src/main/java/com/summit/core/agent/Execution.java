@@ -1,6 +1,7 @@
 package com.summit.core.agent;
 
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.summit.core.compact.ContextUsageMetric;
 import com.summit.core.conf.McpConfig;
@@ -131,8 +132,13 @@ public class Execution {
         this.executionState = ExecutionState.RUNNING;
     }
 
-    public void suspended(){
+    public void suspend(){
         this.executionState = ExecutionState.SUSPENDED;
+    }
+
+    @JsonIgnore
+    public boolean isSuspended(){
+        return this.executionState == ExecutionState.SUSPENDED;
     }
 
     // --- checked lifecycle -------------------------------------------------------------
@@ -156,7 +162,7 @@ public class Execution {
     /** Suspends a running execution, e.g. waiting on a tool. Only {@code RUNNING} may suspend. */
     public void suspendChecked() {
         requireState(ExecutionState.RUNNING);
-        suspended();
+        suspend();
     }
 
     /**

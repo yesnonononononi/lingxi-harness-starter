@@ -8,5 +8,6 @@ import com.summit.core.agent.Execution;
  * @author summit
  */
 public interface ExecutionRuntime {
-    Execution execute(Execution execution);
+
+    Execution execute(Execution execution) ;
 }

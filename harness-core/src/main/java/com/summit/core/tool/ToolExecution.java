@@ -1,12 +1,14 @@
 package com.summit.core.tool;
 
 import com.summit.core.mcp.McpToolScope;
+import com.summit.core.conf.SkillConfig;
 import com.summit.core.runtime.workspace.Workspace;
 
 import lombok.Builder;
 import lombok.Data;
 
 import java.util.Map;
+import java.util.UUID;
 
 @Builder
 @Data
@@ -15,9 +17,13 @@ public class ToolExecution {
     private ToolDefinition<? extends ToolExecutor> toolDefinition;
     private String args;
     private final String executionId;
+    /** Identity of the model invocation that requested this tool, retained across approval. */
+    private UUID responseId;
     /** Id of the agent request (turn) this tool call belongs to. */
     private String turnId;
     private Workspace workspace;
+    /** Host-side Skill resource root of this request; independent of the tool workspace. */
+    private SkillConfig skillConfig;
     /** Opaque attributes carried from the originating {@code AgentRequest} down to the tool. */
     @Builder.Default
     private Map<String, Object> attributes = Map.of();

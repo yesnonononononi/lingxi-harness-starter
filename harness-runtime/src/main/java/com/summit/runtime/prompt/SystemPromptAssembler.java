@@ -142,9 +142,15 @@ public class SystemPromptAssembler implements PromptAssembler {
         if(skills == null || skills.isEmpty())return this;
 
         stringBuilder.append("\n\n## Skill Prompt\n");
+        stringBuilder.append("Before using a skill, call `read_skill` if you have  with its entry path below. ")
+                .append("Paths refer to the host-side Skill resources, independently of the execution workspace. ")
+                .append("Read referenced files with the same tool, resolving references against the directory of the file that contains them.\n");
 
         for (SkillResume skill : skills) {
             stringBuilder.append("\n- ").append(skill.name()).append(": ").append(normalize(skill.description()));
+            if (skill.path() != null && !skill.path().isBlank()) {
+                stringBuilder.append("\n  Entry path: ").append(skill.path());
+            }
         }
 
         return this;

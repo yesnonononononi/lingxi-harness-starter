@@ -9,6 +9,8 @@ import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.model.chat.ChatModel;
 import com.summit.core.prompt.PromptAssembler;
 import com.summit.core.runtime.loop.ContextUsageReporter;
+import com.summit.core.skill.SkillLoader;
+import com.summit.core.skill.SkillResolver;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.compact.DefaultManualCompacter;
@@ -16,11 +18,15 @@ import com.summit.runtime.compact.DefaultModelCompacter;
 import com.summit.runtime.conversation.DefaultConversationManager;
 import com.summit.runtime.conversation.DefaultTokenizer;
 import com.summit.runtime.prompt.SystemPromptAssembler;
+import com.summit.runtime.skill.DefaultSkillResolver;
+import com.summit.runtime.skill.FileSystemSkillLoader;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
 @AutoConfiguration
 public class ConversationConfig {
@@ -37,13 +43,34 @@ public class ConversationConfig {
     @ConditionalOnMissingBean
     public ConversationManager conversationManager(ContextAttachmentProvider contextAttachmentProvider,
                                                    ObjectProvider<ConversationTranscriptSink> conversationTranscriptSink,
-                                                   ObjectProvider<PromptAssembler> promptAssembler
-    ) {
+                                                   ObjectProvider<PromptAssembler> promptAssembler,
+                                                   SkillLoader skillLoader) {
         return new DefaultConversationManager(
                 conversationTranscriptSink.getIfAvailable(),
                 contextAttachmentProvider,
-                () -> promptAssembler.getIfAvailable(SystemPromptAssembler::new)
+                () -> promptAssembler.getIfAvailable(SystemPromptAssembler::new),
+                skillLoader
         );
+    }
+
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SkillLoader skillLoader(ObjectProvider<SkillResolver> skillResolver){
+        return new FileSystemSkillLoader(skillResolver.getIfAvailable());
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = {
+            "org.commonmark.ext.front.matter.YamlFrontMatterVisitor",
+            "org.commonmark.parser.Parser"
+    })
+    static class DefaultSkillResolverConfiguration {
+        @Bean
+        @ConditionalOnMissingBean(SkillResolver.class)
+        SkillResolver skillResolver() {
+            return new DefaultSkillResolver();
+        }
     }
 
     @Bean

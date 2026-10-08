@@ -22,6 +22,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -31,11 +32,88 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class DefaultExecutionControllerTest {
 
     @Test
+    void failureNotificationExceptionsRemainContainedAfterCommit() {
+        DeferredRepository repository = new DeferredRepository();
+        RuntimeEventPublisher events = new RuntimeEventPublisher(List.of());
+        DefaultRuntimeLifeStyleManager notifications = new DefaultRuntimeLifeStyleManager(events) {
+            public void onError(Execution execution, Exception cause) {
+                throw new IllegalStateException("observer failed");
+            }
+        };
+        DefaultExecutionController controller = new DefaultExecutionController(
+                () -> null, repository, events, notifications);
+        Execution execution = Execution.builder().id("observer-failure")
+                .agentRequest(AgentRequest.builder().build()).executionState(ExecutionState.CREATED).build();
+
+        assertDoesNotThrow(() -> controller.failApproval(execution, "original failure"));
+        assertDoesNotThrow(repository::commit);
+        assertEquals(ExecutionState.FAILED, execution.getExecutionState());
+        assertEquals("original failure", execution.getErrorMessage());
+    }
+
+    @Test
+    void failureIsSavedBeforeItsDeferredNotificationAndRejectsAnotherFailure() {
+        DeferredRepository repository = new DeferredRepository();
+        List<ExecutionErrorEvent> notifications = new ArrayList<>();
+        RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(new RuntimeListener() {
+            @Override
+            public void onExecutionError(ExecutionErrorEvent event) {
+                notifications.add(event);
+            }
+        }));
+        DefaultExecutionController controller = new DefaultExecutionController(
+                () -> agentThatExecutes(new AtomicInteger()), repository, events, new DefaultRuntimeLifeStyleManager(events));
+        Execution execution = Execution.builder().id("initialization-failure")
+                .agentRequest(AgentRequest.builder().build()).executionState(ExecutionState.CREATED).build();
+        repository.save(execution);
+        assertTrue(repository.findById(execution.getId()).isPresent());
+
+        Runnable notification = controller.fail(execution, new IllegalStateException("model unavailable"));
+
+        assertEquals(ExecutionState.FAILED, execution.getExecutionState());
+        assertTrue(repository.findById(execution.getId()).isEmpty(), "the in-memory save removes terminal snapshots");
+        assertEquals("model unavailable", execution.getErrorMessage());
+        repository.commit();
+        assertTrue(notifications.isEmpty(), "the caller still owns the cleanup boundary");
+        execution.setTokenUsage(TokenUsageEntity.of(3, 2, 1));
+        notification.run();
+        assertTrue(notifications.isEmpty(), "notification must also wait for commit");
+        repository.commit();
+        assertEquals(1, notifications.size());
+        assertEquals(3, notifications.getFirst().getTokenInfo().totalTokenCount());
+        assertThrows(IllegalStateException.class,
+                () -> controller.fail(execution, new IllegalStateException("late failure")));
+        repository.commit();
+        assertEquals(1, notifications.size());
+    }
+
+    @Test
+    void resolvesTheAgentOnlyWhenResumingAndKeepsTheSuspendedStateForIt() {
+        AtomicInteger resolutions = new AtomicInteger();
+        AtomicInteger executions = new AtomicInteger();
+        RuntimeEventPublisher events = new RuntimeEventPublisher(List.of());
+        DefaultExecutionController controller = new DefaultExecutionController(() -> {
+            resolutions.incrementAndGet();
+            return agentThatExecutes(executions);
+        }, new InMemoryActiveExecutionRegistry(), events, new DefaultRuntimeLifeStyleManager(events));
+        Execution execution = Execution.builder().id("resume")
+                .agentRequest(AgentRequest.builder().build())
+                .executionState(ExecutionState.SUSPENDED).build();
+
+        assertEquals(0, resolutions.get());
+        assertSame(execution, controller.resume(execution));
+        assertEquals(1, resolutions.get());
+        assertEquals(1, executions.get());
+        assertEquals(ExecutionState.SUSPENDED, execution.getExecutionState());
+    }
+
+    @Test
     void forwardsExternalSuspendAndCancelToTheActiveRun() {
         InMemoryActiveExecutionRegistry registry = new InMemoryActiveExecutionRegistry();
         ExecutionControlSignal signal = registry.register("execution-1");
         DefaultExecutionController controller = new DefaultExecutionController(
-                agentThatExecutes(new AtomicInteger()), registry, new RuntimeEventPublisher(List.of()));
+                () -> agentThatExecutes(new AtomicInteger()), registry, new RuntimeEventPublisher(List.of()),
+                new DefaultRuntimeLifeStyleManager(new RuntimeEventPublisher(List.of())));
 
         controller.suspend("execution-1");
         assertTrue(signal.isSuspendRequired());
@@ -61,9 +139,9 @@ class DefaultExecutionControllerTest {
                 .build();
         repository.save(execution);
         DefaultExecutionController controller = new DefaultExecutionController(
-                agentThatExecutes(executeCalls), repository, new RuntimeEventPublisher(List.of()));
+                () -> agentThatExecutes(executeCalls), repository, new RuntimeEventPublisher(List.of()),
+                new DefaultRuntimeLifeStyleManager(new RuntimeEventPublisher(List.of())));
 
-        assertThrows(UnsupportedOperationException.class, () -> controller.resume("execution-2"));
         assertEquals(0, executeCalls.get());
     }
 
@@ -73,7 +151,8 @@ class DefaultExecutionControllerTest {
         Execution execution = Execution.builder().agentRequest(AgentRequest.builder().build()).id("approval-1")
                 .executionState(ExecutionState.SUSPENDED).build();
         DefaultExecutionController controller = new DefaultExecutionController(
-                agentThatExecutes(new AtomicInteger()), repository, new RuntimeEventPublisher(List.of()));
+                () -> agentThatExecutes(new AtomicInteger()), repository, new RuntimeEventPublisher(List.of()),
+                new DefaultRuntimeLifeStyleManager(new RuntimeEventPublisher(List.of())));
 
         controller.beginApproval(execution);
         assertEquals(ExecutionState.RUNNING, repository.findById("approval-1").orElseThrow().getExecutionState());
@@ -106,7 +185,7 @@ class DefaultExecutionControllerTest {
             }
         }));
         DefaultExecutionController controller = new DefaultExecutionController(
-                agentThatExecutes(new AtomicInteger()), repository, events);
+                () -> agentThatExecutes(new AtomicInteger()), repository, events, new DefaultRuntimeLifeStyleManager(events));
 
         Execution cancelled = Execution.builder().agentRequest(AgentRequest.builder().build()).id("cancelled")
                 .executionState(ExecutionState.SUSPENDED).build();
@@ -148,7 +227,7 @@ class DefaultExecutionControllerTest {
             }
         }));
         DefaultExecutionController controller = new DefaultExecutionController(
-                agentThatExecutes(new AtomicInteger()), repository, events);
+                () -> agentThatExecutes(new AtomicInteger()), repository, events, new DefaultRuntimeLifeStyleManager(events));
 
         // 还没采到用量：事件必须带 null，不能伪装成 0。
         Execution noUsage = Execution.builder().agentRequest(AgentRequest.builder().build())
@@ -211,6 +290,11 @@ class DefaultExecutionControllerTest {
             public Execution execute(Execution execution) {
                 executeCalls.incrementAndGet();
                 return execution;
+            }
+
+            @Override
+            public Execution createExecution(AgentRequest agentRequest) {
+                return null;
             }
         };
     }

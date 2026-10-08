@@ -8,6 +8,7 @@ import com.summit.core.model.RequestModelInvokerFactory;
 import com.summit.core.runtime.RuntimeFactory;
 import com.summit.core.runtime.loop.ExecutionControl;
 import com.summit.core.runtime.loop.ExecutionRepository;
+import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.workspace.WorkspaceManager;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.agent.ChatAgent;
@@ -28,22 +29,28 @@ public class AgentConfiguration {
     public DefaultChatAgent defaultChatAgent(RuntimeFactory defaultRuntimeFactory,
                                              RequestModelInvokerFactory modelInvokerFactory,
                                              WorkspaceManager workspaceManager,
-                                             @Qualifier("chatModelConfig") ModelConfig modelConfig,  ScopeMcpProvider scopeMcpProvider) {
+                                             @Qualifier("chatModelConfig") ModelConfig modelConfig,
+                                             ScopeMcpProvider scopeMcpProvider,
+                                             ExecutionRepository executionRepository,
+                                             ExecutionControl executionControl) {
         return new DefaultChatAgent(
                 defaultRuntimeFactory,
                 modelInvokerFactory,
                 workspaceManager,
                 modelConfig,
-                scopeMcpProvider
+                scopeMcpProvider,
+                executionRepository,
+                executionControl
         );
     }
 
     @Bean
     @ConditionalOnMissingBean(ExecutionControl.class)
-    public ExecutionControl executionControl(ChatAgent agent,
+    public ExecutionControl executionControl(ObjectProvider<ChatAgent> agent,
                                              ExecutionRepository executionRepository,
-                                             RuntimeEventPublisher runtimeEvents) {
-        return new DefaultExecutionController(agent, executionRepository, runtimeEvents);
+                                             RuntimeEventPublisher runtimeEvents,
+                                             RuntimeLifeStyleManager runtimeLifeStyleManager) {
+        return new DefaultExecutionController(agent::getObject, executionRepository, runtimeEvents, runtimeLifeStyleManager);
     }
 
     /**

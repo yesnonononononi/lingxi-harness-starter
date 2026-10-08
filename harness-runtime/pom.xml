@@ -35,6 +35,10 @@
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark-ext-yaml-front-matter</artifactId>
+        </dependency>
         <!--
             Test-scope logging binding. Without a provider slf4j discards every log line, so a
             warning that exists only to make a fault observable would itself be unobservable.

@@ -31,21 +31,24 @@ configuration. Configure `compact` only when compaction should use a different p
 
 ## Minimal execution
 
-Every request carries its complete message context and a workspace. The starter includes the `local` workspace provider:
+Every request carries its complete message context. The starter includes the `local` workspace provider;
+when `workspaceSpec` is absent, execution uses the local process working directory (`user.dir`):
 
 ```java
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.conversation.message.UserMessageEntity;
-import com.summit.core.workspace.BasicWorkspaceSpec;
 import com.summit.runtime.agent.DefaultChatAgent;
 import java.util.List;
 
 Execution execution = agent.execute(AgentRequest.builder()
         .messages(List.of(UserMessageEntity.from("Inspect this project")))
-        .workspaceSpec(new BasicWorkspaceSpec("local", System.getProperty("user.dir")))
         .build());
 ```
+
+To select another directory, set `.workspaceSpec(new BasicWorkspaceSpec("local", "your project directory"))`
+with `com.summit.core.workspace.BasicWorkspaceSpec`. Docker requires the optional `harness-sandbox-docker`
+dependency and an explicit `DockerWorkspaceSpec`.
 
 No tools are enabled by default. Enable only the capabilities the application needs:
 
@@ -63,6 +66,44 @@ lingxi:
 ```
 
 Tool timeout, output limits, execution boundary and system prompt all have defaults.
+
+## Skill resources
+
+The default Skill loader scans a host-side directory for `SKILL.md` entries with `name` and
+`description` in YAML frontmatter. Set the directory on each request and explicitly allow the
+reader in the tool whitelist:
+
+```java
+AgentRequest.builder()
+        .messages(List.of(UserMessageEntity.from("Review this project")))
+        .skillConfig(new com.summit.core.conf.SkillConfig(java.nio.file.Path.of("D:/skills")))
+        .toolList(List.of("read_skill"))
+        .build();
+```
+
+The system prompt lists entry paths and explains how to load them. `read_skill` accepts a required
+`path` and optional `name`, reads the entry or referenced text files, and returns their containing
+directory for resolving further references. Relative paths start at the configured Skill root.
+The default reader uses the host filesystem independently of the execution workspace and rejects
+resources outside that root, including symbolic links that escape it. It does not execute scripts.
+
+```yaml
+lingxi:
+  agent:
+    runtime:
+      tool:
+        read-skill:
+          enabled: true
+          max-output: 20000
+          timeout: 10s
+```
+
+These are the defaults. Setting `enabled: false` removes the reader; the application should then
+omit Skill configuration from requests or provide its own reading capability. A custom
+`SkillResolver` or `SkillLoader` bean replaces metadata parsing or discovery. For custom resource
+storage, provide a `ToolDefinition` bean named `readSkillToolDefinition`, retaining the `read_skill`
+name and `name`/`path` arguments, to replace the reader. Missing CommonMark does not prevent plain
+requests from starting; Skill requests require a custom loader/resolver or that dependency.
 
 ## MCP: connect, discover and register
 

@@ -12,9 +12,13 @@ import com.summit.core.model.DefaultModelProviderNames;
 import com.summit.core.model.RequestModelInvokerFactory;
 import com.summit.core.runtime.ExecutionRuntime;
 import com.summit.core.runtime.RuntimeFactory;
+import com.summit.core.runtime.loop.ExecutionRepository;
+import com.summit.core.runtime.loop.ExecutionControl;
 import com.summit.core.runtime.workspace.Workspace;
+import com.summit.core.workspace.BasicWorkspaceSpec;
 import com.summit.core.workspace.WorkspaceManager;
 import com.summit.core.workspace.WorkspaceSpec;
+import com.summit.runtime.workspace.LocalWorkspaceProvider;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
@@ -37,6 +41,8 @@ public abstract class ChatAgent implements Agent {
     protected final WorkspaceManager workspaceManager;
     private final ModelConfig modelConfig;
     private final ScopeMcpProvider scopeMcpProvider;
+    private final ExecutionRepository executionRepository;
+    private final ExecutionControl executionControl;
 
     /**
      * MCP scopes of the executions currently in flight, so a resumed execution reuses the scope its
@@ -54,15 +60,33 @@ public abstract class ChatAgent implements Agent {
     public ChatAgent(RuntimeFactory defaultRuntimeFactory,
                      RequestModelInvokerFactory modelInvokerFactory,
                      WorkspaceManager workspaceManager,
-                     ModelConfig modelConfig
+                     ModelConfig modelConfig,
+                     ExecutionRepository executionRepository,
+                     ExecutionControl executionControl
     ) {
-        this(defaultRuntimeFactory, modelInvokerFactory, workspaceManager, modelConfig, null);
+        this(defaultRuntimeFactory,
+                modelInvokerFactory,
+                workspaceManager,
+                modelConfig,
+                null,
+                executionRepository,
+                executionControl
+        );
     }
 
 
     @Override
+    public Execution createExecution(AgentRequest agentRequest) {
+        Execution execution = Execution.create(agentRequest, id());
+
+        executionRepository.save(execution);
+
+        return execution;
+    }
+
+    @Override
     public Execution execute(AgentRequest agentRequest) {
-        return execute(Execution.create(agentRequest, id()));
+        return this.execute(this.createExecution(agentRequest));
     }
 
     @Override
@@ -70,8 +94,24 @@ public abstract class ChatAgent implements Agent {
         if (execution == null) {
             throw new IllegalArgumentException("Execution must not be null");
         }
-        ExecutionRuntime executionRuntime = prepareExecutionRuntime(execution);
+        if (execution.getExecutionState() != ExecutionState.CREATED && !execution.isSuspended()) {
+            throw new IllegalStateException("Only a created or suspended execution can run: " + execution.getId());
+        }
         try {
+            ExecutionRuntime executionRuntime;
+            try {
+                executionRuntime = prepareExecutionRuntime(execution);
+            } catch (RuntimeException e) {
+                // Only fresh initialization belongs here; the loop owns its own outcome.
+                if (execution.getExecutionState() == ExecutionState.CREATED) {
+                    try {
+                        executionControl.fail(execution, e).run();
+                    } catch (RuntimeException saveFailure) {
+                        if (saveFailure != e) e.addSuppressed(saveFailure);
+                    }
+                }
+                throw e;
+            }
             return executionRuntime.execute(execution);
         } finally {
             releaseIfTerminal(execution);
@@ -140,11 +180,9 @@ public abstract class ChatAgent implements Agent {
         ensureNotBlank(requestConfig.getModelName(), "modelName");
         return requestConfig.toBuilder()
                 .provider(requestConfig.isReturnThinking()
-                ? DefaultModelProviderNames.DEFAULT_STREAMING : DefaultModelProviderNames.DEFAULT)
+                        ? DefaultModelProviderNames.DEFAULT_STREAMING : DefaultModelProviderNames.DEFAULT)
                 .build();
     }
-
-
 
 
     private static void ensureNotBlank(String value, String name) {
@@ -155,6 +193,7 @@ public abstract class ChatAgent implements Agent {
 
     /**
      * Resolves the workspace of one request without ever owning its lifetime.
+     * A request without a spec uses the local process working directory ({@code user.dir}).
      *
      * <p>The request's spec is resolved through {@link WorkspaceManager#acquire(WorkspaceSpec)}, which
      * reuses the sandbox already provisioned for that configuration and creates
@@ -166,7 +205,7 @@ public abstract class ChatAgent implements Agent {
 
         WorkspaceSpec spec = request.getWorkspaceSpec();
         if (spec == null) {
-            return null;
+            spec = new BasicWorkspaceSpec(LocalWorkspaceProvider.TYPE, System.getProperty("user.dir"));
         }
         return workspaceManager.acquire(spec);
     }
@@ -192,11 +231,15 @@ public abstract class ChatAgent implements Agent {
         return mcpScopes.computeIfAbsent(execution.getId(), ignored -> scopeMcpProvider.openScope(mcpConfig));
     }
 
-    /** Closes the MCP scope once the execution can no longer continue; a suspension keeps it. */
+    /**
+     * Closes the MCP scope once the execution can no longer continue; a suspension keeps it.
+     */
     private void releaseIfTerminal(Execution execution) {
         ExecutionState state = execution.getExecutionState();
+
         if (state != ExecutionState.COMPLETED && state != ExecutionState.CANCELLED
                 && state != ExecutionState.FAILED) return;
+
         McpToolScope scope = mcpScopes.remove(execution.getId());
         if (scope != null) {
             scope.close();

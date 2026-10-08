@@ -29,6 +29,7 @@ public class RuntimeContext {
     private final List<ExecutionFailureObserver> failureObservers;
     private final RuntimeBoundaryChecker runtimeBoundaryChecker;
     private final ExecutionRepository executionRepository;
+    private final ExecutionControl executionControl;
     private final ModelInvoker invoker;
     private final LoopInterceptorProcessor loopInterceptorProcessor;
     private final Workspace workspace;

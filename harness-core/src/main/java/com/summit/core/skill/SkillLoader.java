@@ -1,8 +1,10 @@
 package com.summit.core.skill;
 
+import com.summit.core.conf.SkillConfig;
+
+import java.util.List;
+
 public interface SkillLoader {
-    default String loadById(String id){
-        return "";
-    };
-    String loadByName(String name);
+    SkillResolver provideSkillResolver();
+    List<SkillResume> load(SkillConfig skillConfig);
 }

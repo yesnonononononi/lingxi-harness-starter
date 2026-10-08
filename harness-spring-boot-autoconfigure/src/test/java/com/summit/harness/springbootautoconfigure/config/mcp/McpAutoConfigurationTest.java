@@ -3,6 +3,7 @@ package com.summit.harness.springbootautoconfigure.config.mcp;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.adapter.langchain4j.mcp.McpClientFactory;
+import com.summit.adapter.langchain4j.mcp.AgentScopeMcpProvider;
 import com.summit.core.conf.McpConfig;
 import com.summit.core.conf.McpTransport;
 import com.summit.core.mcp.ScopeMcpProvider;
@@ -10,14 +11,12 @@ import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.tool.*;
 import com.sun.net.httpserver.HttpServer;
-import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.mcp.client.McpClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.core.env.MapPropertySource;
 
-import java.lang.reflect.Proxy;
 import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.List;
@@ -39,103 +38,49 @@ class McpAutoConfigurationTest {
     }
 
     @Test
-    void connectionFailureDoesNotHideHealthyServerAndOwnedClientClosesOnce() {
-        AtomicInteger closed = new AtomicInteger();
-        var context = context(Map.of("lingxi.mcp.enabled", true));
-        context.registerBean(McpClientFactory.class, () -> new McpClientFactory() {
-            @Override
-            public McpClient create(String key, McpConfig.MCP server) {
-                if (key.equals("broken")) throw new IllegalStateException("connection failed");
-                assertEquals("healthy", key);
-                return fakeClient(closed);
-            }
-        });
-        try (context) {
+    void enabledConfigurationRegistersAdapterProviderWithoutOpeningConnections() {
+        try (AnnotationConfigApplicationContext context = context(Map.of("lingxi.mcp.enabled", true))) {
+            context.registerBean(McpClientFactory.class, () -> new McpClientFactory() {
+                @Override
+                public McpClient create(String key, McpConfig.MCP server) {
+                    throw new AssertionError("Auto-configuration must not open request connections");
+                }
+            });
             context.refresh();
-            ScopeMcpProvider register = context.getBean(ScopeMcpProvider.class);
-            McpToolScope scope = register.openScope(config(server("broken"), server("healthy")));
-
-            assertNotNull(scope.getTool("mcp_search"));
-            assertEquals(1, scope.getTools().size());
-            assertEquals(0, closed.get(), "the healthy connection stays open for the request");
-
-            scope.close();
-            assertEquals(1, closed.get());
+            assertInstanceOf(AgentScopeMcpProvider.class, context.getBean(ScopeMcpProvider.class));
+            assertEquals(1, context.getBeansOfType(ScopeMcpProvider.class).size());
+            assertTrue(context.getBean(ToolRegistry.class).getTools().isEmpty());
         }
     }
 
-    /** A repeated request must not collide, and the registry must stay free of remote tools. */
     @Test
-    void eachRequestGetsItsOwnScopeAndNeverTouchesTheRegistry() {
-        AtomicInteger created = new AtomicInteger();
-        AtomicInteger closed = new AtomicInteger();
-        var context = context(Map.of("lingxi.mcp.enabled", true));
-        context.registerBean(McpClientFactory.class, () -> new McpClientFactory() {
-            @Override
-            public McpClient create(String key, McpConfig.MCP server) {
-                created.incrementAndGet();
-                return fakeClient(closed);
-            }
-        });
-        try (context) {
+    void applicationProviderReplacesDefault() {
+        try (AnnotationConfigApplicationContext context = context(Map.of("lingxi.mcp.enabled", true))) {
+            ScopeMcpProvider custom = configuration -> McpToolScope.EMPTY;
+            context.registerBean("customProvider", ScopeMcpProvider.class, () -> custom);
             context.refresh();
-            ScopeMcpProvider register = context.getBean(ScopeMcpProvider.class);
-            McpConfig config = config(server("healthy"));
-
-            McpToolScope first = register.openScope(config);
-            McpToolScope second = register.openScope(config);
-
-            assertNotSame(first, second);
-            assertEquals(2, created.get());
-            assertNotNull(first.getTool("mcp_search"));
-            assertNotNull(second.getTool("mcp_search"));
-            assertTrue(context.getBean(ToolRegistry.class).getTools().isEmpty(),
-                    "MCP tools must never enter the process-wide registry");
-
-            first.close();
-            assertEquals(1, closed.get());
-            second.close();
-            assertEquals(2, closed.get());
+            assertSame(custom, context.getBean(ScopeMcpProvider.class));
+            assertEquals(1, context.getBeansOfType(ScopeMcpProvider.class).size());
         }
     }
 
-    /** A request without MCP configuration opens no connection at all. */
     @Test
-    void emptyConfigurationOpensNoConnection() {
+    void applicationFactoryIsUsedByDefaultProvider() {
         AtomicInteger created = new AtomicInteger();
-        var context = context(Map.of("lingxi.mcp.enabled", true));
-        context.registerBean(McpClientFactory.class, () -> new McpClientFactory() {
+        McpClientFactory custom = new McpClientFactory() {
             @Override
             public McpClient create(String key, McpConfig.MCP server) {
                 created.incrementAndGet();
-                return fakeClient(new AtomicInteger());
+                throw new IllegalStateException("test connection failure");
             }
-        });
-        try (context) {
+        };
+        try (AnnotationConfigApplicationContext context = context(Map.of("lingxi.mcp.enabled", true))) {
+            context.registerBean("customFactory", McpClientFactory.class, () -> custom);
             context.refresh();
-            McpToolScope scope = context.getBean(ScopeMcpProvider.class).openScope(new McpConfig());
-            assertTrue(scope.isEmpty());
+            assertSame(custom, context.getBean(McpClientFactory.class));
             assertEquals(0, created.get());
-            assertSame(McpToolScope.EMPTY, scope);
-        }
-    }
-
-    /** The same name declared twice stays confined to its own scope instead of throwing. */
-    @Test
-    void duplicateToolNamesAcrossRequestsDoNotCollide() {
-        var context = context(Map.of("lingxi.mcp.enabled", true));
-        context.registerBean(McpClientFactory.class, () -> new McpClientFactory() {
-            @Override
-            public McpClient create(String key, McpConfig.MCP server) {
-                return fakeClient(new AtomicInteger());
-            }
-        });
-        try (context) {
-            context.refresh();
-            ScopeMcpProvider register = context.getBean(ScopeMcpProvider.class);
-            try (McpToolScope ignored = register.openScope(config(server("healthy")))) {
-                assertDoesNotThrow(() -> register.openScope(config(server("healthy"))).close());
-            }
+            assertTrue(context.getBean(ScopeMcpProvider.class).openScope(config(server("test"))).isEmpty());
+            assertEquals(1, created.get());
         }
     }
 
@@ -243,13 +188,4 @@ class McpAutoConfigurationTest {
         return context;
     }
 
-    private static McpClient fakeClient(AtomicInteger closed) {
-        return (McpClient) Proxy.newProxyInstance(McpClient.class.getClassLoader(), new Class<?>[]{McpClient.class},
-                (proxy, method, arguments) -> switch (method.getName()) {
-                    case "key" -> "healthy";
-                    case "listTools" -> List.of(ToolSpecification.builder().name("search").build());
-                    case "close" -> { closed.incrementAndGet(); yield null; }
-                    default -> throw new UnsupportedOperationException(method.getName());
-                });
-    }
 }

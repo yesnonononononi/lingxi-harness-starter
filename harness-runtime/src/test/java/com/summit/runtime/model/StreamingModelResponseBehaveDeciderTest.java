@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
@@ -229,7 +230,7 @@ class StreamingModelResponseBehaveDeciderTest {
         return new StreamingModelResponseBehaveDecider(
                 publisher,
                 StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
-                        .executionId("execution-1").agentId("chatAgent").future(future).build(),
+                        .executionId("execution-1").agentId("chatAgent").responseId(UUID.randomUUID()).future(future).build(),
                 control);
     }
 

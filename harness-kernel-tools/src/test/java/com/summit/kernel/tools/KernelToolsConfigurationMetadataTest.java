@@ -28,6 +28,9 @@ class KernelToolsConfigurationMetadataTest {
             assertTrue(metadata.contains("lingxi.agent.runtime.tool.search-tool.enabled"));
             assertTrue(metadata.contains("lingxi.agent.runtime.tool.search-tool.max-matches"));
             assertTrue(metadata.contains("lingxi.agent.runtime.tool.search-tool.timeout"));
+            assertTrue(metadata.contains("lingxi.agent.runtime.tool.read-skill.enabled"));
+            assertTrue(metadata.contains("lingxi.agent.runtime.tool.read-skill.max-output"));
+            assertTrue(metadata.contains("lingxi.agent.runtime.tool.read-skill.timeout"));
             assertTrue(metadata.contains("lingxi.agent.runtime.tool.context-compact.enabled"));
             assertTrue(metadata.contains("lingxi.agent.runtime.tool.context-compact.truncate-threshold"));
             assertTrue(metadata.contains("lingxi.agent.runtime.tool.context-compact.model-threshold"));

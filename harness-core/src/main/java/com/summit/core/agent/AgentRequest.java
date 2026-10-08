@@ -3,6 +3,7 @@ package com.summit.core.agent;
 
 import com.summit.core.conf.McpConfig;
 import com.summit.core.conf.ModelConfig;
+import com.summit.core.conf.SkillConfig;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.workspace.WorkspaceSpec;
 import lombok.Builder;
@@ -33,14 +34,14 @@ public class AgentRequest {
      * orchestration from it.
      */
     private List<String> task;
-    /** Optional request-level whitelist of tool names. A {@code null} list keeps all registered tools available; an empty list exposes no tools. Applications retain final authority over every model-visible capability. */
+    /** Optional request-level whitelist of tool names. A {@code null} list keeps all registered tools unavailable; an empty list exposes no tools. Applications retain final authority over every model-visible capability. */
     private List<String> toolList;
-    /** Creates and acquires a managed workspace when no reference exists yet. */
+    /** Optional managed workspace specification. When absent, the runtime uses the local process working directory. */
     private final  WorkspaceSpec workspaceSpec;
 
     private McpConfig mcpConfig;
 
-
+    private SkillConfig skillConfig;
     @Builder.Default
     private AgentRuntimeParameters runtimeParameters = AgentRuntimeParameters.builder().build();
 

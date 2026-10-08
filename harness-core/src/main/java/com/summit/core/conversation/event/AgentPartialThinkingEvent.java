@@ -4,6 +4,7 @@ import lombok.Builder;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Streaming reasoning / thinking delta of the model response.
@@ -16,6 +17,7 @@ public record AgentPartialThinkingEvent(
         String agentId,
         String executionId,
         String content,
+        UUID responseId,
         Map<String, Object> metaData,
         Instant timestamp
 ) implements AgentEvent {
@@ -23,9 +25,7 @@ public record AgentPartialThinkingEvent(
     public Map<String, Object> eventMetaData() {
         return metaData;
     }
-    public AgentPartialThinkingEvent(String agentId, String executionId, String content, Instant timestamp) {
-        this(agentId, executionId, content, Map.of(), timestamp);
-    }
+
 
     public AgentPartialThinkingEvent {
         metaData = metaData == null ? Map.of() : Map.copyOf(metaData);

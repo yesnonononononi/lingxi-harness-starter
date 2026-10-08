@@ -1,9 +1,5 @@
-package com.summit.harness.springbootautoconfigure.config.mcp;
+package com.summit.adapter.langchain4j.mcp;
 
-import com.summit.adapter.langchain4j.mcp.Langchain4jMcpSession;
-import com.summit.adapter.langchain4j.mcp.MCPToolConverter;
-import com.summit.adapter.langchain4j.mcp.McpClientFactory;
-import com.summit.adapter.langchain4j.mcp.McpValidator;
 import com.summit.core.conf.McpConfig;
 import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.core.mcp.McpSession;

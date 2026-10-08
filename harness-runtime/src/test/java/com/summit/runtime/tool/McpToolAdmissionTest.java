@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -71,6 +72,7 @@ class McpToolAdmissionTest {
                     null,
                     null,
                     List.of("something_else"),
+                    UUID.randomUUID(),
                     false,
                     McpToolScope.EMPTY
                     )
@@ -102,7 +104,7 @@ class McpToolAdmissionTest {
         try (DefaultToolExecutionManager manager = manager()) {
             List<ToolExecuteResult> results = manager.execute(new ToolExecuteCommand(
                     List.of(new ToolCallRequest("call-1", STATIC_TOOL, "{}")),
-                    "execution-1", workspace(), null,null, null, false, McpToolScope.EMPTY));
+                    "execution-1", workspace(), null,null, null, UUID.randomUUID(), false, McpToolScope.EMPTY));
 
             assertEquals(1, results.size());
             assertEquals("Tool '" + STATIC_TOOL + "' is not allowed for this agent request",
@@ -141,7 +143,7 @@ class McpToolAdmissionTest {
                                          McpToolScope scope) {
         List<ToolExecuteResult> results = manager.execute(new ToolExecuteCommand(
                 List.of(new ToolCallRequest("call-1", MCP_TOOL, "{}")),
-                "execution-1", workspace(), null, null,allowedTools, false, scope));
+                "execution-1", workspace(), null, null,allowedTools, UUID.randomUUID(), false, scope));
 
         assertEquals(1, results.size());
         return results.getFirst();

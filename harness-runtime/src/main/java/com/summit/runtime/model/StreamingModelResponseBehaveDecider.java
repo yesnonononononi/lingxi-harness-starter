@@ -12,6 +12,7 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 @Slf4j
@@ -19,9 +20,12 @@ import java.util.concurrent.CompletableFuture;
 @AllArgsConstructor
 public class StreamingModelResponseBehaveDecider implements StreamingModelResponseHandler {
     @Builder
-    public record StreamingResponseContext(String executionId, String agentId,
+    public record StreamingResponseContext(
+            String executionId, String agentId,
+                                           UUID responseId,
                                            CompletableFuture<ChatResponseEntity> future,
-                                           Map<String, Object> eventMetaData) {
+                                           Map<String, Object> eventMetaData
+    ) {
         public StreamingResponseContext {
             eventMetaData = eventMetaData == null ? Map.of() : Map.copyOf(eventMetaData);
         }
@@ -47,6 +51,7 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
         this.runtimeEventPublisher.onPartialText(
                 AgentPartialTextEvent.builder()
                         .content(partialResponse)
+                        .responseId(streamingResponseContext.responseId())
                         .agentId(streamingResponseContext.agentId())
                         .executionId(streamingResponseContext.executionId())
                         .metaData(streamingResponseContext.eventMetaData())
@@ -63,6 +68,7 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
         };
         this.runtimeEventPublisher.onPartialThinking(
                 AgentPartialThinkingEvent.builder()
+                        .responseId(streamingResponseContext.responseId())
                         .agentId(streamingResponseContext.agentId())
                         .executionId(streamingResponseContext.executionId())
                         .metaData(streamingResponseContext.eventMetaData())
@@ -117,9 +123,11 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
     public void onFinalResponse(ChatResponseEntity completeResponse) {
         if (interruptIfRequested())  return;
 
+        completeResponse.setResponseId(streamingResponseContext.responseId());
         this.runtimeEventPublisher.onCompleteText(
                 AgentCompleteTextEvent.builder()
                         .agentId(streamingResponseContext.agentId())
+                        .responseId(streamingResponseContext.responseId())
                         .executionId(streamingResponseContext.executionId())
                         .metaData(streamingResponseContext.eventMetaData())
                         .content(completeResponse.getAiMessageEntity().getText())

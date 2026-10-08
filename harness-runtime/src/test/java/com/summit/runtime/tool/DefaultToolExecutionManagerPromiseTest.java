@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -34,8 +35,8 @@ class DefaultToolExecutionManagerPromiseTest {
                 .runtimeEventPublisher(new RuntimeEventPublisher(List.of())).build();
         // The whitelist is an allow-list with no implicit default, so the tool under test is named
         // explicitly — this case is about policy bypass, not about admission.
-        var command = new ToolExecuteCommand(List.of(new ToolCallRequest("c", "write", "{}")),
-                "e", workspace(), null, List.of("write"));
+        ToolExecuteCommand command = new ToolExecuteCommand(List.of(new ToolCallRequest("c", "write", "{}")),
+                "e", workspace(), null, List.of("write"), UUID.randomUUID());
         for (boolean bypass : List.of(true, false)) {
             List<com.summit.core.tool.ToolExecutionPolicy> policies = bypass
                     ? List.of(execution -> ToolExecuteResult.success("cached")) : List.of();
@@ -79,7 +80,7 @@ class DefaultToolExecutionManagerPromiseTest {
                     "execution-1",
                     workspace(),
                     null,
-                    List.of("choice")));
+                    List.of("choice"), UUID.randomUUID()));
 
             assertEquals(1, results.size());
             assertTrue(results.getFirst().isPromise());

@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.util.Map;
+import java.util.UUID;
 
 @Builder
 @Data
@@ -43,6 +44,8 @@ public class ChatResponseEntity {
         private  String modelName;
         private  FinishReason finishReason;
     }
+    /** Runtime identity of this model invocation, independent of the provider response ID. */
+    private UUID responseId;
     private AiMessageEntity aiMessageEntity;
     private Meta meta;
     private TokenUsageEntity tokenUsage;

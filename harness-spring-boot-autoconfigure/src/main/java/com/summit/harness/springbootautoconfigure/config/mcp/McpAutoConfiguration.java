@@ -1,6 +1,7 @@
 package com.summit.harness.springbootautoconfigure.config.mcp;
 
 import com.summit.adapter.langchain4j.mcp.McpClientFactory;
+import com.summit.adapter.langchain4j.mcp.AgentScopeMcpProvider;
 import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.harness.springbootautoconfigure.config.tool.CommonToolAutoConfiguration;
 import dev.langchain4j.mcp.client.McpClient;
@@ -15,13 +16,13 @@ import org.springframework.context.annotation.Bean;
 @ConditionalOnProperty(prefix = "lingxi.mcp", name = "enabled", havingValue = "true")
 public class McpAutoConfiguration {
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean(McpClientFactory.class)
     public McpClientFactory mcpClientFactory() {
         return new McpClientFactory();
     }
 
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean(ScopeMcpProvider.class)
     public ScopeMcpProvider mcpProvider(McpClientFactory mcpClientFactory) {
         return new AgentScopeMcpProvider(mcpClientFactory);
     }

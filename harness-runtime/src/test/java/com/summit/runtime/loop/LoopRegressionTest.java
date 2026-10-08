@@ -2,6 +2,7 @@ package com.summit.runtime.loop;
 
 import com.summit.core.agent.*;
 import com.summit.core.compact.ContextAttachmentProvider;
+import com.summit.core.conf.SkillConfig;
 import com.summit.core.exception.MaxStepsExceededException;
 import com.summit.core.conversation.api.*;
 import com.summit.runtime.context.RuntimeContext;
@@ -18,6 +19,7 @@ import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.util.*;
+import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -31,11 +33,73 @@ class LoopRegressionTest {
             (id, ai, tools) -> transcripts.incrementAndGet(),
             ContextAttachmentProvider.NONE);
 
+    @Test
+    void failureNotificationOccursOnceAfterUsageAndRunEnd() {
+        Execution execution = execution();
+        List<String> notifications = new ArrayList<>();
+        IllegalStateException failure = new IllegalStateException("model failed");
+        LoopInterceptor interceptor = new LoopInterceptor() {
+            public int order() { return 0; }
+            public InterceptorResult onRunEnd(Execution finished) {
+                notifications.add("run-end");
+                return InterceptorResult.NONE;
+            }
+        };
+        RuntimeListener listener = new RuntimeListener() {
+            public void onContextUpdate(ContextUpdateEvent event) { notifications.add("usage"); }
+            public void onExecutionError(ExecutionErrorEvent event) {
+                assertEquals(ExecutionState.FAILED, execution.getExecutionState());
+                assertTrue(repository.findById(execution.getId()).isEmpty());
+                notifications.add("failed");
+            }
+        };
+
+        assertSame(failure, assertThrows(IllegalStateException.class,
+                () -> runtime(command -> { throw failure; }, List.of(), interceptor, 1, listener).execute(execution)));
+
+        assertEquals(1, Collections.frequency(notifications, "failed"));
+        assertEquals("failed", notifications.getLast());
+        assertTrue(notifications.indexOf("usage") < notifications.indexOf("failed"));
+        assertTrue(notifications.indexOf("run-end") < notifications.indexOf("failed"));
+        ExecutionControlSignal nextRun = repository.register(execution.getId());
+        repository.unregister(nextRun);
+    }
+
     private Execution execution() {
         List<Message> messages = List.of(UserMessageEntity.from("task"));
         return Execution.builder().id("e").agentId("a").executionState(ExecutionState.CREATED)
                 .agentRequest(AgentRequest.builder().messages(messages).build())
                 .messages(new ArrayList<>(messages)).tokenUsage(TokenUsageEntity.empty()).build();
+    }
+
+    @Test
+    void requestSkillConfigurationReachesToolBatch() throws Exception {
+        Execution execution = execution();
+        SkillConfig skills = new SkillConfig(Path.of("skills").toAbsolutePath());
+        execution.getAgentRequest().setSkillConfig(skills);
+        AtomicReference<ToolExecuteCommand> captured = new AtomicReference<>();
+        ToolExecutionManager tools = new ToolExecutionManager() {
+            public List<ToolExecuteResult> execute(ToolExecuteCommand command) {
+                captured.set(command);
+                return List.of(ToolExecuteResult.success("resource"));
+            }
+            public ToolRegistry toolRegistry() { return new ToolRegistry(List.of()); }
+        };
+        AtomicInteger rounds = new AtomicInteger();
+        RuntimeEventPublisher events = new RuntimeEventPublisher(List.of());
+        RuntimeContext context = RuntimeContext.builder().conversationManager(conversations)
+                .toolExecutionManager(tools).runtimeEventPublisher(events)
+                .loopInterceptorProcessor(new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor())))
+                .runtimeBoundaryChecker(boundaryChecker(3))
+                .usage(new ContextUsageReporter(tokenizer, 1_024_000, events, 1))
+                .invoker(command -> response(rounds.getAndIncrement() == 0)).build();
+        ExecutionControlSignal control = repository.register(execution.getId());
+        try {
+            assertEquals(LoopResult.Status.COMPLETED, new AgentLoopStepRunner(context).run(execution, control).status());
+            assertEquals(skills.getPath(), captured.get().skillConfig().getPath());
+        } finally {
+            repository.unregister(control);
+        }
     }
 
     @Test
@@ -94,10 +158,12 @@ class LoopRegressionTest {
             public List<ToolExecuteResult> execute(ToolExecuteCommand command) { return results; }
             public ToolRegistry toolRegistry() { return new ToolRegistry(List.of()); }
         };
+        RuntimeLifeStyleManager notifications = lifecycle == null ? new DefaultRuntimeLifeStyleManager(events) : lifecycle;
         return new RuntimeProcessorTemplate(RuntimeContext.builder().conversationManager(conversations)
                 .executionRepository(repository)
+                .executionControl(new DefaultExecutionController(() -> null, repository, events, notifications))
                 .loopInterceptorProcessor(interceptorProcessor)
-                .runtimeLifeStyleManager(lifecycle == null ? new DefaultRuntimeLifeStyleManager(events) : lifecycle)
+                .runtimeLifeStyleManager(notifications)
                 .runtimeBoundaryChecker(checker)
                 .usage(new ContextUsageReporter(tokenizer, 1_024_000, events, 1))
                 .runtimeEventPublisher(events).toolExecutionManager(tools).invoker(invoker).build());

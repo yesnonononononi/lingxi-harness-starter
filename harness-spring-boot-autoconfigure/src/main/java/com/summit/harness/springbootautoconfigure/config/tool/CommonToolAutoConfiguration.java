@@ -27,6 +27,9 @@ public class CommonToolAutoConfiguration {
         return new ToolRegistry(list);
     }
 
+
+
+
     @Bean
     @ConditionalOnMissingBean(ToolExecutionManager.class)
     public ToolExecutionManager defaultToolExecutionManager(ToolRegistry toolRegistry, RuntimeEventPublisher runtimeEventPublisher, InterceptorProcessor<ToolExecution> interceptorProcessor, List<ToolExecutionPolicy> executionPolicies, ToolProperties toolProperties) {

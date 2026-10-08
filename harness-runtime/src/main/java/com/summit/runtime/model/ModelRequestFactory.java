@@ -9,10 +9,8 @@ import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.tool.ToolDefinition;
 import com.summit.core.tool.ToolExecutor;
 import lombok.RequiredArgsConstructor;
-import java.util.Collection;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
 /** Assembles the {@link ModelChatCommand} of one loop round: the conversation so far, the tools the model may see under the current whitelist, and — for streaming executions — the handler that turns model deltas into runtime events. */
@@ -26,7 +24,10 @@ public class ModelRequestFactory {
      *                handler so a suspend or cancel request interrupts the model call in flight.
      *                May be {@code null} for non-streaming or detached invocations.
      */
-    public ModelChatCommand build(Execution execution, List<String> allowedTools, ExecutionControlSignal control) {
+    public ModelChatCommand build(Execution execution,
+                                  List<String> allowedTools,
+                                  UUID responseId,
+                                  ExecutionControlSignal control) {
         ModelChatCommand.ModelChatCommandBuilder builder = ModelChatCommand.builder()
                 .chatRequest(ChatRequestEntity.builder()
                         .messages(context.getConversationManager().messages(execution))
@@ -35,18 +36,19 @@ public class ModelRequestFactory {
                 .thinking(execution.isThinking())
                 .streaming(execution.isStreaming());
         if (execution.isStreaming()) {
-            builder.streamingChatResponseHandler(streamingHandler(execution, control));
+            builder.streamingChatResponseHandler(streamingHandler(execution, control, responseId));
         }
         return builder.build();
     }
 
     /** Publishes partial text / thinking as runtime events and completes the future on the final response. */
-    private StreamingModelResponseBehaveDecider streamingHandler(Execution execution, ExecutionControlSignal control) {
+    private StreamingModelResponseBehaveDecider streamingHandler(Execution execution, ExecutionControlSignal control,UUID responseId) {
         return new StreamingModelResponseBehaveDecider(context.getRuntimeEventPublisher(),
                 StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
                         .executionId(execution.getId())
                         .agentId(execution.getAgentId())
                         .eventMetaData(execution.eventMetaData())
+                        .responseId(responseId)
                         .future(new CompletableFuture<>())
                         .build(),
                 control);

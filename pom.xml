@@ -50,6 +50,7 @@
         <langchain4j-mcp.version>1.20.0-beta30</langchain4j-mcp.version>
         <lombok.version>1.18.46</lombok.version>
         <java-diff-utils.version>4.15</java-diff-utils.version>
+        <commonmark-ext-yaml-front-matter.version>0.22.0</commonmark-ext-yaml-front-matter.version>
         <java-mcp.version>2.0.1</java-mcp.version>
         <spring-boot.version>4.1.1</spring-boot.version>
     </properties>
@@ -127,16 +128,11 @@
                 <artifactId>lombok</artifactId>
                 <version>${lombok.version}</version>
             </dependency>
-
             <dependency>
-                <groupId>org.jetbrains</groupId>
-                <artifactId>annotations</artifactId>
-                <version>25.0.0</version>
-            </dependency>
-            <dependency>
-                <groupId>io.github.java-diff-utils</groupId>
-                <artifactId>java-diff-utils</artifactId>
-                <version>${java-diff-utils.version}</version>
+                <groupId>org.commonmark</groupId>
+                <artifactId>commonmark-ext-yaml-front-matter</artifactId>
+                <version>${commonmark-ext-yaml-front-matter.version}</version>
+                <optional>true</optional>
             </dependency>
             <dependency>
                 <groupId>org.jspecify</groupId>

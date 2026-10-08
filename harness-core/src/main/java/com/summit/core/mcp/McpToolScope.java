@@ -18,8 +18,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * Request-scoped container of the MCP tools of one execution.
  *
  * <p>MCP tools are request data declared by {@code AgentRequest.mcpConfig} and never leak into the
- * process-wide {@link com.summit.core.tool.ToolRegistry}. Closing the scope reclaims the tools and
- * their connections together.</p>
+ * process-wide {@link com.summit.core.tool.ToolRegistry}. Closing the scope reclaims its tools and
+ * request-owned connections; shared connections remain owned by their provider.</p>
  *
  * <h2>Progressive disclosure</h2>
  *
@@ -55,7 +55,7 @@ public final class McpToolScope implements AutoCloseable {
 
     /**
      * Creates a scope over the given sessions, materializing their tools now.
-     * <p>The behavior will actually conduct a physical connection to network servers.</p>
+     * <p>Tool discovery may perform I/O; transport startup and protocol initialization belong to the session provider.</p>
      */
     public static McpToolScope of(List<McpSession> sessions) {
         if (sessions == null || sessions.isEmpty()) {

@@ -5,6 +5,7 @@ import lombok.Builder;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  *  text of the model response.
@@ -14,6 +15,7 @@ public record AgentCompleteTextEvent(
         String agentId,
         String executionId,
         String content,
+        UUID responseId,
         ChatResponseEntity.Meta meta,
         Map<String, Object> metaData,
         Instant timestamp
@@ -24,10 +26,7 @@ public record AgentCompleteTextEvent(
         return metaData;
     }
 
-    public AgentCompleteTextEvent(String agentId, String executionId, String content,
-                                  ChatResponseEntity.Meta meta, Instant timestamp) {
-        this(agentId, executionId, content, meta, Map.of(), timestamp);
-    }
+
 
     public AgentCompleteTextEvent {
         metaData = metaData == null ? Map.of() : Map.copyOf(metaData);

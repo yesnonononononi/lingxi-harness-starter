@@ -5,21 +5,25 @@ import com.summit.core.agent.Agent;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
 import com.summit.core.conversation.event.ExecutionCancelledEvent;
-import com.summit.core.conversation.event.ExecutionErrorEvent;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.conversation.event.TokenInfo;
 import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.runtime.loop.ExecutionControl;
 import com.summit.core.runtime.loop.ApprovalOutcome;
+import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import lombok.AllArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.Objects;
+import java.util.function.Supplier;
 
 @AllArgsConstructor
+@Slf4j
 public class DefaultExecutionController implements ExecutionControl {
-    private final Agent agent;
+    private final Supplier<? extends Agent> agent;
     private final ExecutionRepository executionRepository;
     private final RuntimeEventPublisher runtimeEvents;
+    private final RuntimeLifeStyleManager runtimeLifeStyleManager;
 
 
     @Override
@@ -34,13 +38,17 @@ public class DefaultExecutionController implements ExecutionControl {
 
     @Override
     public Execution resume(Execution execution) {
-        Objects.requireNonNull(execution,"execution");
+        Objects.requireNonNull(execution, "execution");
         Objects.requireNonNull(execution.getId(), "execution.id");
         Objects.requireNonNull(execution.getExecutionState(), "execution.executionState");
+
+
         if (execution.getExecutionState() != ExecutionState.SUSPENDED) {
             throw new IllegalStateException("Only a suspended execution can be resumed: " + execution.getId());
         }
-        return agent.execute(execution);
+
+        return agent.get().execute(execution);
+
     }
 
     @Override
@@ -69,16 +77,20 @@ public class DefaultExecutionController implements ExecutionControl {
 
     @Override
     public void failApproval(Execution execution, String errorMessage) {
-        execution.failChecked(errorMessage);
+        fail(execution, new IllegalStateException(errorMessage)).run();
+    }
+
+    @Override
+    public Runnable fail(Execution execution, Exception cause) {
+        Objects.requireNonNull(cause, "cause");
+        execution.failChecked(cause.getMessage());
         executionRepository.save(execution);
-        String executionId = execution.getId();
-        TokenInfo tokenInfo = TokenInfo.from(execution.getTokenUsage());
-        executionRepository.afterCommit(() -> runtimeEvents.onExecutionError(
-                new ExecutionErrorEvent(errorMessage,
-                        null,
-                        executionId,
-                        tokenInfo,
-                        execution.eventMetaData()
-                )));
+        return () -> executionRepository.afterCommit(() -> {
+            try {
+                runtimeLifeStyleManager.onError(execution, cause);
+            } catch (RuntimeException e) {
+                log.warn("Execution lifecycle observer failed", e);
+            }
+        });
     }
 }

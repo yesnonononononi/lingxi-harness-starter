@@ -5,11 +5,13 @@ import lombok.Data;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.UUID;
 
 @Data
 public class ToolCallEndEvent implements ToolCallEvent {
     private final String requestId;
     private final String executionId;
+    private final UUID responseId;
     private final String toolName;
     private final String args;
     private final String output;
@@ -17,9 +19,10 @@ public class ToolCallEndEvent implements ToolCallEvent {
     private final ToolCallStatus resultStatus;
     private final Instant timestamp = Instant.now();
 
-    public ToolCallEndEvent(String requestId, String executionId, String toolName, String args, String output, Map<String, Object> metaData, ToolCallStatus resultStatus) {
+    public ToolCallEndEvent(String requestId, String executionId,UUID responseId, String toolName, String args, String output, Map<String, Object> metaData, ToolCallStatus resultStatus) {
         this.requestId = requestId;
         this.executionId = executionId;
+        this.responseId = responseId;
         this.toolName = toolName;
         this.args = args;
         this.output = output;
@@ -28,8 +31,8 @@ public class ToolCallEndEvent implements ToolCallEvent {
     }
 
     /** Compatibility constructor for callers without selected event metadata. */
-    public ToolCallEndEvent(String requestId, String executionId, String toolName, String args, String output, ToolCallStatus resultStatus) {
-        this(requestId, executionId, toolName, args, output, Map.of(), resultStatus);
+    public ToolCallEndEvent(String requestId, String executionId,UUID responseId, String toolName, String args, String output, ToolCallStatus resultStatus) {
+        this(requestId, executionId, responseId, toolName, args, output, Map.of(), resultStatus);
     }
     @Override
     public Map<String, Object> eventMetaData() {

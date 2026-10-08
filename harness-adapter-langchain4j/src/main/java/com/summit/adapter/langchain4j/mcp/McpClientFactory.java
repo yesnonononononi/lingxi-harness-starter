@@ -12,7 +12,7 @@ import java.util.Map;
 
 /**
  * Creates owned MCP connections; the client transport is chosen by the server's {@code conf}
- * type. Applications can replace this factory.
+ * type. Client construction starts the transport and completes protocol initialization before returning. Applications can replace this factory.
  */
 public class McpClientFactory {
 

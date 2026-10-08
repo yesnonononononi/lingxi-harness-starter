@@ -3,6 +3,7 @@ package com.summit.runtime.conversation;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
+import com.summit.core.conf.SkillConfig;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.api.ConversationTranscriptSink;
@@ -10,17 +11,23 @@ import com.summit.core.conversation.message.*;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.prompt.PromptAssembler;
 import com.summit.core.runtime.workspace.Workspace;
+import com.summit.core.skill.SkillLoader;
+import com.summit.core.skill.SkillResume;
 import com.summit.core.tool.ToolExecuteResult;
+import com.summit.core.tool.ToolDefinition;
 import com.summit.runtime.prompt.SystemPromptAssembler;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Supplier;
 
 /**
  * Stateless operations over the context owned by one execution.
  */
+@Slf4j
 public class DefaultConversationManager implements ConversationManager {
     private static final String CONTINUE_AFTER_COMPACTION_PROMPT = """
             The conversation history before this point has been compacted into the summary above.
@@ -30,6 +37,7 @@ public class DefaultConversationManager implements ConversationManager {
 
     private final ContextAttachmentProvider contextAttachmentProvider;
     private final ConversationTranscriptSink conversationTranscriptSink;
+    private final SkillLoader skillLoader;
     /**
      * Factory of the assembler that renders each execution's leading system message.
      *
@@ -46,19 +54,23 @@ public class DefaultConversationManager implements ConversationManager {
     }
 
     public DefaultConversationManager(ConversationTranscriptSink conversationTranscriptSink,
-                                      ContextAttachmentProvider contextAttachmentProvider) {
-        this(conversationTranscriptSink, contextAttachmentProvider, SystemPromptAssembler::new);
+                                      ContextAttachmentProvider contextAttachmentProvider
+    ) {
+        this(conversationTranscriptSink, contextAttachmentProvider, SystemPromptAssembler::new, null);
     }
 
     public DefaultConversationManager(ConversationTranscriptSink conversationTranscriptSink,
                                       ContextAttachmentProvider contextAttachmentProvider,
-                                      Supplier<PromptAssembler> promptAssemblerFactory) {
+                                      Supplier<PromptAssembler> promptAssemblerFactory,
+                                      SkillLoader skillLoader
+    ) {
 
         this.contextAttachmentProvider = contextAttachmentProvider == null
                 ? ContextAttachmentProvider.NONE : contextAttachmentProvider;
         this.conversationTranscriptSink = conversationTranscriptSink;
         this.promptAssemblerFactory = promptAssemblerFactory == null
                 ? SystemPromptAssembler::new : promptAssemblerFactory;
+        this.skillLoader = skillLoader;
     }
 
     @Override
@@ -79,7 +91,7 @@ public class DefaultConversationManager implements ConversationManager {
 
         if (toolResults != null) {
             for (ToolExecuteResult result : toolResults) {
-                var definition = result.getToolSpecification();
+                ToolDefinition<?> definition = result.getToolSpecification();
                 toolMessages.add(ToolMessageEntity.builder()
                         .id(result.getId())
                         .name(definition == null ? "unknown tool" : definition.name())
@@ -97,7 +109,8 @@ public class DefaultConversationManager implements ConversationManager {
         execution.getTokenUsage().add(response.getTokenUsage());
 
         if (conversationTranscriptSink != null) {
-            conversationTranscriptSink.appendRound(execution.getId(), aiMessage, List.copyOf(toolMessages), execution.eventMetaData());
+            conversationTranscriptSink.appendRound(execution.getId(), aiMessage, List.copyOf(toolMessages),
+                    response.getResponseId(), execution.eventMetaData());
         }
     }
 
@@ -181,17 +194,22 @@ public class DefaultConversationManager implements ConversationManager {
      */
     private SystemMessageEntity buildSystemMessage(AgentRequest request, Workspace workspace,
                                                   McpToolScope mcpToolScope) {
+        Objects.requireNonNull(request);
+
         McpToolScope scope = mcpToolScope == null ? McpToolScope.EMPTY : mcpToolScope;
+
+        List<SkillResume> skillResumes = loadSkill(request.getSkillConfig());
 
         String result = promptAssemblerFactory.get()
                 .startWithWorkspace(workspace)
                 .withBusinessPrompt(businessPromptOf(request))
                 .withMcpToolPrompt(scope.resumes())
-                .withTaskPrompt(request == null ? null : request.getTask())
+                .withTaskPrompt(request.getTask())
+                .withSkillPrompt(skillResumes)
                 .complete();
 
         return SystemMessageEntity.builder()
-                .text(result )
+                .text(result)
                 .build();
     }
 
@@ -242,5 +260,15 @@ public class DefaultConversationManager implements ConversationManager {
     private static boolean isThinkingSafe(Message message) {
         if (!(message instanceof AiMessageEntity ai)) return true;
         return ai.getThinking() != null && !ai.getThinking().isBlank();
+    }
+
+    private List<SkillResume> loadSkill(SkillConfig skillConfig){
+        try {
+            if (skillConfig == null) return List.of();
+            return skillLoader.load(skillConfig);
+        }catch (Exception e){
+            log.error("Failed to load skill", e);
+            throw e;
+        }
     }
 }
