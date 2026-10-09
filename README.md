@@ -23,7 +23,7 @@ Requires Java 21. Add the starter to a Spring Boot application:
 <dependency>
     <groupId>io.github.yesnonononononi</groupId>
     <artifactId>lingxi-harness-spring-boot-starter</artifactId>
-    <version>1.1.0</version>
+    <version>1.1.1</version>
 </dependency>
 ```
 
