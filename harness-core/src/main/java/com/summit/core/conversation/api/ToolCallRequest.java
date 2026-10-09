@@ -1,6 +1,7 @@
 package com.summit.core.conversation.api;
 
 
+
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Builder;
 
@@ -10,9 +11,11 @@ import lombok.Builder;
  *
  * <p>{@code intention} is retired: snapshots written before its removal still carry the key, so it
  * is ignored by name instead of failing snapshot restore.</p>
+ *
+ * @param requestIndex zero-based position in the model response's original tool-call list
  */
 @Builder
 @JsonIgnoreProperties("intention")
-public record ToolCallRequest(String id, String name, String arguments) {
+public record ToolCallRequest(String id, String name,int requestIndex, String arguments) {
 
 }

@@ -26,7 +26,7 @@ public class ModelRequestFactory {
      */
     public ModelChatCommand build(Execution execution,
                                   List<String> allowedTools,
-                                  UUID responseId,
+                                  String responseId,
                                   ExecutionControlSignal control) {
         ModelChatCommand.ModelChatCommandBuilder builder = ModelChatCommand.builder()
                 .chatRequest(ChatRequestEntity.builder()
@@ -42,7 +42,7 @@ public class ModelRequestFactory {
     }
 
     /** Publishes partial text / thinking as runtime events and completes the future on the final response. */
-    private StreamingModelResponseBehaveDecider streamingHandler(Execution execution, ExecutionControlSignal control,UUID responseId) {
+    private StreamingModelResponseBehaveDecider streamingHandler(Execution execution, ExecutionControlSignal control,String responseId) {
         return new StreamingModelResponseBehaveDecider(context.getRuntimeEventPublisher(),
                 StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
                         .executionId(execution.getId())

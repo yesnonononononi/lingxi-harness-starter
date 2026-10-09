@@ -17,119 +17,144 @@ public class RuntimeEventPublisher {
     }
 
     public void onExecutionStart(ExecutionStartEvent event) {
-        try {
-            listeners.forEach(listener -> listener.onExecutionStart(event));
-        } catch (Exception e) {
-            log.error("Error occurred while publishing execution start event", e);
-        }
+
+            listeners.forEach(listener -> {
+                try {
+                    listener.onExecutionStart(event);
+                }catch (Exception e){
+                    log.error("Error occurred while publishing execution start event, listenerId:{}",listener.id(), e);
+                }
+            });
     }
 
-    public void onExecutionResumed(ExecutionResumedEvent executionResumeEvent){
-        try{
-            listeners.forEach(listener -> listener.onExecutionResumed(executionResumeEvent));
-        }catch (Exception e) {
-            log.error("Error occurred while publishing execution resumed event", e);
-        }
+    public void onExecutionResumed(ExecutionResumedEvent executionResumeEvent) {
+        listeners.forEach(listener -> {
+            try {
+                listener.onExecutionResumed(executionResumeEvent);
+            } catch (Exception e) {
+                log.error("Error occurred while publishing execution resumed event, listenerId:{}", listener.id(), e);
+            }
+        });
     }
 
-    public void onExecutionSuspended(ExecutionSuspendedEvent executionSuspendedEvent){
-        try{
-            listeners.forEach(listener -> listener.onExecutionSuspended(executionSuspendedEvent));
-        }catch (Exception e) {
-            log.error("Error occurred while publishing execution suspended event", e);
-        }
+    public void onExecutionSuspended(ExecutionSuspendedEvent executionSuspendedEvent) {
+        listeners.forEach(listener -> {
+            try {
+                listener.onExecutionSuspended(executionSuspendedEvent);
+            } catch (Exception e) {
+                log.error("Error occurred while publishing execution suspended event, listenerId:{}", listener.id(), e);
+            }
+        });
     }
 
     public void onToolCall(ToolCallStartEvent event) {
-        try {
-            listeners.forEach(listener -> listener.onToolCall(event));
-        } catch (Exception e) {
-            log.error("Error occurred while publishing tool call event", e);
-        }
+        listeners.forEach(listener -> {
+            try {
+                listener.onToolCall(event);
+            } catch (Exception e) {
+                log.error("Error occurred while publishing tool call event, listenerId:{}", listener.id(), e);
+            }
+        });
     }
 
     public void onToolCallOutput(ToolCallEndEvent event) {
-        try {
-            listeners.forEach(listener -> listener.onToolCallOutput(event));
-        } catch (Exception e) {
-            log.error("Error occurred while publishing tool call output event", e);
-        }
-
+        listeners.forEach(listener -> {
+            try {
+                listener.onToolCallOutput(event);
+            } catch (Exception e) {
+                log.error("Error occurred while publishing tool call output event, listenerId:{}", listener.id(), e);
+            }
+        });
     }
 
     public void onAiMessage(AgentMessageEvent event) {
-        try {
-            listeners.forEach(listener -> listener.onAiMessage(event));
-        } catch (Exception e) {
-            log.error("Error occurred while publishing ai message event", e);
-        }
-
+        listeners.forEach(listener -> {
+            try {
+                listener.onAiMessage(event);
+            } catch (Exception e) {
+                log.error("Error occurred while publishing ai message event, listenerId:{}", listener.id(), e);
+            }
+        });
     }
 
     public void onExecutionError(ExecutionErrorEvent event) {
-        try {
-            listeners.forEach(listener -> listener.onExecutionError(event));
-        } catch (Exception e) {
-            log.error("Error occurred while publishing execution error event", e);
-        }
-
+        listeners.forEach(listener -> {
+            try {
+                listener.onExecutionError(event);
+            } catch (Exception e) {
+                log.error("Error occurred while publishing execution error event, listenerId:{}", listener.id(), e);
+            }
+        });
     }
 
     public void onExecutionComplete(ExecutionCompleteEvent event) {
-        try {
-            listeners.forEach(listener -> listener.onExecutionCompleted(event));
-        } catch (Exception e) {
-            log.error("Error occurred while publishing execution completed event", e);
-        }
-
+        listeners.forEach(listener -> {
+            try {
+                listener.onExecutionCompleted(event);
+            } catch (Exception e) {
+                log.error("Error occurred while publishing execution completed event, listenerId:{}", listener.id(), e);
+            }
+        });
     }
 
     public void onExecutionCancelled(ExecutionCancelledEvent event) {
-        try {
-            listeners.forEach(listener -> listener.onExecutionCancelled(event));
-        } catch (Exception e) {
-            log.error("Error occurred while publishing execution cancelled event", e);
-        }
+        listeners.forEach(listener -> {
+            try {
+                listener.onExecutionCancelled(event);
+            } catch (Exception e) {
+                log.error("Error occurred while publishing execution cancelled event, listenerId:{}", listener.id(), e);
+            }
+        });
     }
 
     public void onApplicationEvent(Object event) {
-        try {
-            listeners.forEach(listener -> listener.onApplicationEvent(event));
-        } catch (Exception e) {
-            log.error("Error occurred while publishing application event", e);
-        }
+        listeners.forEach(listener -> {
+            try {
+                listener.onApplicationEvent(event);
+            } catch (Exception e) {
+                log.error("Error occurred while publishing application event, listenerId:{}", listener.id(), e);
+            }
+        });
     }
 
     public void onPartialText(AgentPartialTextEvent event) {
-        try {
-            listeners.forEach(listener -> listener.onPartialText(event));
-        } catch (Exception e) {
-            log.error("Error occurred while publishing partial text event", e);
-        }
+        listeners.forEach(listener -> {
+            try {
+                listener.onPartialText(event);
+            } catch (Exception e) {
+                log.error("Error occurred while publishing partial text event, listenerId:{}", listener.id(), e);
+            }
+        });
     }
 
     public void onPartialThinking(AgentPartialThinkingEvent event) {
-        try {
-            listeners.forEach(listener -> listener.onPartialThinking(event));
-        } catch (Exception e) {
-            log.error("Error occurred while publishing partial thinking event", e);
-        }
+        listeners.forEach(listener -> {
+            try {
+                listener.onPartialThinking(event);
+            } catch (Exception e) {
+                log.error("Error occurred while publishing partial thinking event, listenerId:{}", listener.id(), e);
+            }
+        });
     }
 
-    public void onCompleteText(AgentCompleteTextEvent event){
-        try {
-            listeners.forEach(listener -> listener.onCompleteText(event));
-        } catch (Exception e) {
-            log.error("Error occurred while publishing complete text event", e);
-        }
+    public void onCompleteText(AgentCompleteTextEvent event) {
+        listeners.forEach(listener -> {
+            try {
+                listener.onCompleteText(event);
+            } catch (Exception e) {
+                log.error("Error occurred while publishing complete text event, listenerId:{}", listener.id(), e);
+            }
+        });
     }
 
     public void onContextUpdate(ContextUpdateEvent event) {
-        try {
-            listeners.forEach(listener -> listener.onContextUpdate(event));
-        } catch (Exception e) {
-            log.error("Error occurred while publishing context update event", e);
-        }
+        listeners.forEach(listener -> {
+            try {
+                listener.onContextUpdate(event);
+            } catch (Exception e) {
+                log.error("Error occurred while publishing context update event, listenerId:{}", listener.id(), e);
+            }
+        });
     }
 
 

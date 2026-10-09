@@ -18,7 +18,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.Map;
 import java.util.Set;
 
@@ -115,7 +114,7 @@ class ModelRequestFactoryVisibilityTest {
         }
 
         private Map<String, ToolDefinition<?>> visibleTools(List<String> whitelist) {
-            ModelChatCommand command = factory().build(execution(whitelist), whitelist, UUID.randomUUID(), null);
+            ModelChatCommand command = factory().build(execution(whitelist), whitelist, "1234567890123456789", null);
             Map<String, ToolDefinition<?>> visible = new java.util.LinkedHashMap<>();
             for (ToolDefinition<?> tool : command.chatRequest().getTools()) {
                 visible.put(tool.name(), tool);

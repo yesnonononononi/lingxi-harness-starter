@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.summit.core.compact.ContextUsageMetric;
 import com.summit.core.conf.McpConfig;
+import com.summit.core.conversation.api.ResponseIdGenerator;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;
@@ -81,6 +82,20 @@ public class Execution {
     private int maxSteps;
     /** Model attempts consumed across all resumes of this execution. */
     private int modelAttempts;
+    /** Last allocated response ID, including interrupted rounds, retained in execution snapshots. */
+    private String lastResponseId;
+
+    /** Allocates before model output is published; failed rounds must not reuse their identity. */
+    public String nextResponseId(ResponseIdGenerator generator) {
+        String next = Objects.requireNonNull(generator.nextId(lastResponseId), "responseId");
+        long value = Long.parseLong(next);
+        if (value <= 0 || !Long.toString(value).equals(next)
+                || (lastResponseId != null && value <= Long.parseLong(lastResponseId))) {
+            throw new IllegalStateException("response ID must be a positive decimal integer greater than its predecessor");
+        }
+        lastResponseId = next;
+        return next;
+    }
 
     /**
      *  having value when the end of execution

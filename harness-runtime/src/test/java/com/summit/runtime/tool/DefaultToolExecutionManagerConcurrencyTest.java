@@ -15,7 +15,6 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -117,9 +116,9 @@ class DefaultToolExecutionManagerConcurrencyTest {
 
     private ToolExecuteCommand command(String toolName, int calls) {
         List<ToolCallRequest> requests = IntStream.range(0, calls)
-                .mapToObj(index -> new ToolCallRequest("call-" + index, toolName, "{}"))
+                .mapToObj(index -> new ToolCallRequest("call-" + index, toolName, index, "{}"))
                 .toList();
-        return new ToolExecuteCommand(requests, "execution-1", workspace(), null, List.of(toolName), UUID.randomUUID());
+        return new ToolExecuteCommand(requests, "execution-1", workspace(), null, List.of(toolName), "1234567890123456789");
     }
 
     private List<String> idsOf(List<ToolExecuteResult> results) {

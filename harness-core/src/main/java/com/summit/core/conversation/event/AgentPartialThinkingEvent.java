@@ -4,20 +4,22 @@ import lombok.Builder;
 
 import java.time.Instant;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * Streaming reasoning / thinking delta of the model response.
  *
  * <p>High-frequency event: one instance per token chunk, hence the immutable {@code record} shape
  * and the lazily defaulted {@link #timestamp}.</p>
+ *
+ * @param offset zero-based start position in UTF-16 code units within this response's thinking stream
  */
 @Builder
 public record AgentPartialThinkingEvent(
         String agentId,
         String executionId,
         String content,
-        UUID responseId,
+        int offset,
+        String responseId,
         Map<String, Object> metaData,
         Instant timestamp
 ) implements AgentEvent {

@@ -6,23 +6,26 @@ import com.summit.core.model.streaming.StreamingHandler;
 import com.summit.core.model.streaming.StreamingModelResponseHandler;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.loop.suspension.ExecutionInterruptedException;
-import lombok.AllArgsConstructor;
+import lombok.RequiredArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 @Slf4j
 @Getter
-@AllArgsConstructor
+@RequiredArgsConstructor
 public class StreamingModelResponseBehaveDecider implements StreamingModelResponseHandler {
+    private int responseOffset;
+    private int thinkingOffset;
+
+
     @Builder
     public record StreamingResponseContext(
             String executionId, String agentId,
-                                           UUID responseId,
+                                           String responseId,
                                            CompletableFuture<ChatResponseEntity> future,
                                            Map<String, Object> eventMetaData
     ) {
@@ -31,6 +34,7 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
         }
 
     }
+
     private final RuntimeEventPublisher runtimeEventPublisher;
     private final StreamingResponseContext streamingResponseContext;
 
@@ -47,10 +51,15 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
         if (interruptIfRequested()) {
             streamingHandler.cancel();
             return;
-        };
+        }
+
+        int offset = responseOffset;
+        responseOffset += partialResponse.length();
+
         this.runtimeEventPublisher.onPartialText(
                 AgentPartialTextEvent.builder()
                         .content(partialResponse)
+                        .offset(offset)
                         .responseId(streamingResponseContext.responseId())
                         .agentId(streamingResponseContext.agentId())
                         .executionId(streamingResponseContext.executionId())
@@ -65,7 +74,10 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
         if (interruptIfRequested()) {
             streamingHandler.cancel();
             return;
-        };
+        }
+        int offset = thinkingOffset;
+        thinkingOffset += partialThinking.length();
+
         this.runtimeEventPublisher.onPartialThinking(
                 AgentPartialThinkingEvent.builder()
                         .responseId(streamingResponseContext.responseId())
@@ -73,6 +85,7 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
                         .executionId(streamingResponseContext.executionId())
                         .metaData(streamingResponseContext.eventMetaData())
                         .content(partialThinking)
+                        .offset(offset)
                         .build()
         );
     }

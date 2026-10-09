@@ -3,6 +3,7 @@ package com.summit.runtime.conversation;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
+import com.summit.core.conversation.api.ResponseIdGenerator;
 import com.summit.runtime.context.RuntimeContext;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.mcp.McpToolScope;
@@ -26,6 +27,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class DefaultRuntimeFactory implements RuntimeFactory {
     private final RuntimeEventPublisher runtimeEventPublisher;
+    private final ResponseIdGenerator responseIdGenerator;
     private final ToolExecutionManager toolExecutionManager;
     private final ConversationManager conversationManager;
     private final Tokenizer tokenizer;
@@ -57,6 +59,7 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
                         .workspace(workspace)
                         .invoker(modelInvoker)
                         .runtimeEventPublisher(runtimeEventPublisher)
+                        .responseIdGenerator(responseIdGenerator)
                         .toolExecutionManager(toolExecutionManager)
                         .conversationManager(conversationManager)
                         .runtimeLifeStyleManager(runtimeLifeStyleManager)

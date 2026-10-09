@@ -15,7 +15,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.UUID;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -117,8 +116,8 @@ class ReadSkillToolTest {
     }
 
     private ToolExecuteCommand command(Path root, List<String> allowed) {
-        return new ToolExecuteCommand(List.of(new ToolCallRequest("call", ReadSkillTool.NAME,
+        return new ToolExecuteCommand(List.of(new ToolCallRequest("call", ReadSkillTool.NAME, 0,
                 "{\"path\":\"SKILL.md\"}")), "test", null, Map.of(), Map.of(), allowed,
-                UUID.randomUUID(), false, null, new SkillConfig(root));
+                "1234567890123456789", false, null, new SkillConfig(root));
     }
 }

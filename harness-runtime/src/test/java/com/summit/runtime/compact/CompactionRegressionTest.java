@@ -46,7 +46,7 @@ class CompactionRegressionTest {
         var messages = new ArrayList<Message>();
         messages.add(SystemMessageEntity.builder().text("system").build());
         for (int i = 0; i < 2; i++) {
-            messages.add(AiMessageEntity.builder().toolCalls(List.of(new ToolCallRequest("c" + i, "read", "{}"))).build());
+            messages.add(AiMessageEntity.builder().toolCalls(List.of(new ToolCallRequest("c" + i, "read", 0, "{}"))).build());
             messages.add(ToolMessageEntity.builder().id("c" + i).name("read").text("x".repeat(2_000)).build());
         }
         var execution = Execution.builder().id("e").messages(messages)

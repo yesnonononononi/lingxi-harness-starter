@@ -50,7 +50,8 @@ class ExecutionJsonTest {
     @Test
     void restoresExecutionAndEveryMessageAndContentType() throws Exception {
         AiMessageEntity ai = AiMessageEntity.builder().text("answer").thinking("reason")
-                .toolCalls(List.of(new ToolCallRequest("call-1", "search", "{}"))).build();
+                .toolCalls(List.of(new ToolCallRequest("call-1", "search", 0, "{}"),
+                        new ToolCallRequest("call-2", "search", 1, "{\"query\":\"next\"}"))).build();
         List<Message> messages = List.of(
                 SystemMessageEntity.builder().text("system").build(),
                 UserMessageEntity.builder().content(List.of(TextContent.from("question"),
@@ -75,6 +76,8 @@ class ExecutionJsonTest {
         String json = mapper.writeValueAsString(original);
         Execution restored = mapper.readValue(json, Execution.class);
 
+        assertEquals(List.of(0, 1), restored.getAiMessage().getToolCalls().stream()
+                .map(ToolCallRequest::requestIndex).toList());
         assertEquals(mapper.readTree(json), mapper.readTree(mapper.writeValueAsString(restored)));
         assertEquals(timestamp, restored.getCreateAt());
         assertEquals(ExecutionState.SUSPENDED, restored.getExecutionState());

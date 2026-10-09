@@ -121,7 +121,7 @@ class LoopRegressionTest {
     }
     private ChatResponseEntity response(boolean tools) {
         return ChatResponseEntity.builder().aiMessageEntity(AiMessageEntity.builder().text("answer")
-                .toolCalls(tools ? List.of(new ToolCallRequest("c", "test", "{}")) : List.of()).build())
+                .toolCalls(tools ? List.of(new ToolCallRequest("c", "test", 0, "{}")) : List.of()).build())
                 .tokenUsage(TokenUsageEntity.of(3, 2, 1)).build();
     }
 
@@ -362,7 +362,7 @@ class LoopRegressionTest {
             if (calls.getAndIncrement() > 0) return response(false);
             ChatResponseEntity response = response(true);
             response.getAiMessageEntity().setToolCalls(List.of(
-                    new ToolCallRequest("a", "compact", "{}"), new ToolCallRequest("b", "read", "{}")));
+                    new ToolCallRequest("a", "compact", 0, "{}"), new ToolCallRequest("b", "read", 1, "{}")));
             return response;
         }, List.of(ToolExecuteResult.success("summary", ToolResultType.CONTEXT_COMPACT), ToolExecuteResult.success("read result")),
                 LoopInterceptor.NOOP, 2, new RuntimeListener() {}).execute(execution);

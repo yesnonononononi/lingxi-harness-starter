@@ -30,7 +30,6 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
-import java.util.UUID;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -87,7 +86,7 @@ class EventMetadataPropagationTest {
                 .conversationManager(new DefaultConversationManager(
                         (id, ai, toolMessages) -> { }, ContextAttachmentProvider.NONE))
                 .build();
-        ModelChatCommand command = new ModelRequestFactory(context).build(execution, List.of(), UUID.randomUUID(), null);
+        ModelChatCommand command = new ModelRequestFactory(context).build(execution, List.of(), "1234567890123456789", null);
         command.streamingChatResponseHandler().onPartialResponse("hello", NOOP_TRANSPORT);
         command.streamingChatResponseHandler().onPartialThinking("reason", NOOP_TRANSPORT);
         command.streamingChatResponseHandler().onFinalResponse(ChatResponseEntity.builder()
@@ -195,10 +194,10 @@ class EventMetadataPropagationTest {
 
     private ToolExecuteCommand command(String id, Map<String, Object> metadata) {
         return new ToolExecuteCommand(List.of(
-                new ToolCallRequest(id + "-success", "test", "{}"),
-                new ToolCallRequest(id + "-failure", "test", "fail"),
-                new ToolCallRequest(id + "-unknown", "missing", "{}")),
-                id, workspace(), Map.of("private", "internal"), metadata, List.of("test"), UUID.randomUUID(), false, null);
+                new ToolCallRequest(id + "-success", "test", 0, "{}"),
+                new ToolCallRequest(id + "-failure", "test", 1, "fail"),
+                new ToolCallRequest(id + "-unknown", "missing", 2, "{}")),
+                id, workspace(), Map.of("private", "internal"), metadata, List.of("test"), "1234567890123456789", false, null);
     }
 
     private Workspace workspace() {

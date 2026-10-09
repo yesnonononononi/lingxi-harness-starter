@@ -12,10 +12,18 @@ import java.util.Objects;
 @Data
 public class ToolExecuteResult {
     private Integer code;
+
     private String id;
+
+    // tool request index
+    private int requestIndex;
+
     private ToolDefinition<?> toolSpecification;
+
     private String toolOutput;
+
     private ToolResultType toolResultType;
+
     /**
      * the field allows the user to carry some extra information to the {@link AgentEvent}
      */

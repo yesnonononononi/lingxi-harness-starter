@@ -8,7 +8,6 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.util.Map;
-import java.util.UUID;
 
 @Builder
 @Data
@@ -18,7 +17,7 @@ public class ToolExecution {
     private String args;
     private final String executionId;
     /** Identity of the model invocation that requested this tool, retained across approval. */
-    private UUID responseId;
+    private String responseId;
     /** Id of the agent request (turn) this tool call belongs to. */
     private String turnId;
     private Workspace workspace;

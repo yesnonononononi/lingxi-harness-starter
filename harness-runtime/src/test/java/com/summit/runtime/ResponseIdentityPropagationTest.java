@@ -2,9 +2,11 @@ package com.summit.runtime;
 
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
+import com.summit.core.agent.ExecutionState;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.api.ConversationTranscriptSink;
+import com.summit.core.conversation.api.ResponseIdGenerator;
 import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.event.AgentCompleteTextEvent;
 import com.summit.core.conversation.event.AgentMessageEvent;
@@ -19,10 +21,12 @@ import com.summit.core.conversation.message.ToolMessageEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.model.ModelChatCommand;
+import com.summit.core.mcp.McpToolScope;
 import com.summit.core.model.streaming.StreamingHandler;
 import com.summit.core.runtime.RuntimeEnvironment;
 import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
+import com.summit.core.runtime.loop.ContextUsageReporter;
 import com.summit.core.runtime.loop.LoopResult;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.ConcurrentPolicy;
@@ -38,11 +42,15 @@ import com.summit.core.tool.ToolResultType;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.context.RuntimeContext;
 import com.summit.runtime.conversation.DefaultConversationManager;
+import com.summit.runtime.conversation.DefaultRuntimeFactory;
 import com.summit.runtime.conversation.DefaultTokenizer;
 import com.summit.runtime.loop.AgentLoopStepRunner;
 import com.summit.runtime.loop.BoundaryChecker;
 import com.summit.runtime.loop.DefaultLoopInterceptor;
 import com.summit.runtime.loop.DefaultLoopInterceptorProcessor;
+import com.summit.runtime.loop.DefaultExecutionController;
+import com.summit.runtime.loop.DefaultRuntimeLifeStyleManager;
+import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
 import com.summit.runtime.model.ModelRequestFactory;
 import com.summit.runtime.model.StreamingModelResponseBehaveDecider;
 import com.summit.runtime.tool.DefaultToolExecutionManager;
@@ -50,9 +58,9 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -68,10 +76,51 @@ class ResponseIdentityPropagationTest {
     };
 
     @Test
+    void runtimeFactoryPassesTheConfiguredGeneratorToTheExecution() {
+        try (Fixture fixture = new Fixture(ToolExecuteResult.success("ok"), List.of())) {
+            RuntimeEventPublisher publisher = fixture.context.getRuntimeEventPublisher();
+            InMemoryActiveExecutionRegistry repository = new InMemoryActiveExecutionRegistry();
+            DefaultRuntimeLifeStyleManager lifecycle = new DefaultRuntimeLifeStyleManager(publisher);
+            DefaultTokenizer tokenizer = new DefaultTokenizer();
+            DefaultRuntimeFactory factory = DefaultRuntimeFactory.builder()
+                    .responseIdGenerator(previous -> previous == null ? "2000" : "2001")
+                    .agentConfig(AgentConfig.builder().maxIterations(4).build())
+                    .conversationManager(fixture.context.getConversationManager())
+                    .toolExecutionManager(fixture.tools).runtimeEventPublisher(publisher)
+                    .runtimeLifeStyleManager(lifecycle).executionRepository(repository)
+                    .executionControl(new DefaultExecutionController(() -> null, repository, publisher, lifecycle))
+                    .loopInterceptorProcessor(fixture.context.getLoopInterceptorProcessor())
+                    .boundaryChecker(fixture.context.getRuntimeBoundaryChecker()).tokenizer(tokenizer)
+                    .usage(new ContextUsageReporter(tokenizer, 100000, publisher, 5)).build();
+            fixture.execution.setExecutionState(ExecutionState.CREATED);
+
+            factory.createRuntime(fixture.context.getInvoker(), workspace(), McpToolScope.EMPTY)
+                    .execute(fixture.execution);
+
+            assertEquals(ExecutionState.COMPLETED, fixture.execution.getExecutionState());
+            assertEquals(List.of("2000", "2001"), fixture.rounds);
+            assertEquals("2001", fixture.execution.getLastResponseId());
+        }
+    }
+
+    @Test
+    void loopUsesTheConfiguredGeneratorAndSuppliesThePreviousInvocationId() throws Exception {
+        List<String> lowerBounds = new ArrayList<>();
+        try (Fixture fixture = new Fixture(ToolExecuteResult.success("ok"), List.of(), previous -> {
+            lowerBounds.add(previous);
+            return previous == null ? "1000" : Long.toString(Long.parseLong(previous) + 1);
+        })) {
+            assertEquals(LoopResult.Status.COMPLETED, fixture.run().status());
+            assertEquals(Arrays.asList(null, "1000"), lowerBounds);
+            assertEquals(List.of("1000", "1001"), fixture.rounds);
+        }
+    }
+
+    @Test
     void streamedEventsAndCompletedResponseShareTheRuntimeIdentity() {
         try (Fixture fixture = new Fixture(ToolExecuteResult.success("ok"), List.of())) {
             fixture.execution.setStreaming(true);
-            UUID responseId = UUID.randomUUID();
+            String responseId = "1234567890123456789";
             ModelChatCommand command = new ModelRequestFactory(fixture.context)
                     .build(fixture.execution, List.of("test"), responseId, null);
             StreamingModelResponseBehaveDecider handler = assertInstanceOf(
@@ -93,11 +142,13 @@ class ResponseIdentityPropagationTest {
         try (Fixture fixture = new Fixture(ToolExecuteResult.success("ok"), List.of())) {
             assertEquals(LoopResult.Status.COMPLETED, fixture.run().status());
             assertEquals(2, fixture.events.messages.size());
-            UUID first = fixture.events.messages.getFirst().getResponseId();
-            UUID second = fixture.events.messages.getLast().getResponseId();
+            String first = fixture.events.messages.getFirst().getResponseId();
+            String second = fixture.events.messages.getLast().getResponseId();
             assertNotNull(first);
             assertNotNull(second);
             assertNotEquals(first, second);
+            assertTrue(Long.parseLong(second) > Long.parseLong(first));
+            assertEquals(second, fixture.execution.getLastResponseId());
             assertEquals(List.of(first, second), fixture.rounds);
             assertEquals(first, fixture.policyExecutions.getFirst().getResponseId());
             assertEquals(first, fixture.events.starts.getFirst().getResponseId());
@@ -112,7 +163,7 @@ class ResponseIdentityPropagationTest {
         try (Fixture fixture = new Fixture(ToolExecuteResult.success("unused"),
                 List.of(call -> ToolExecuteResult.promise("waiting")))) {
             assertEquals(LoopResult.Status.SUSPENDED, fixture.run().status());
-            UUID original = fixture.events.messages.getFirst().getResponseId();
+            String original = fixture.events.messages.getFirst().getResponseId();
             ToolExecution promised = fixture.policyExecutions.getFirst();
             assertNotNull(original);
             assertEquals(original, promised.getResponseId());
@@ -121,8 +172,9 @@ class ResponseIdentityPropagationTest {
             assertEquals(ToolCallStatus.PROMISED, fixture.events.ends.getFirst().resultStatus());
 
             assertEquals(LoopResult.Status.COMPLETED, fixture.run().status());
-            UUID resumed = fixture.events.messages.getLast().getResponseId();
+            String resumed = fixture.events.messages.getLast().getResponseId();
             assertNotEquals(original, resumed);
+            assertTrue(Long.parseLong(resumed) > Long.parseLong(original));
             assertEquals(List.of(original, resumed), fixture.rounds);
             assertEquals(original, promised.getResponseId());
         }
@@ -133,9 +185,10 @@ class ResponseIdentityPropagationTest {
         try (Fixture fixture = new Fixture(ToolExecuteResult.success(
                 "{\"summary\":\"finished earlier work\"}", ToolResultType.CONTEXT_COMPACT), List.of())) {
             assertEquals(LoopResult.Status.COMPLETED, fixture.run().status());
-            List<UUID> identities = fixture.events.messages.stream().map(AgentMessageEvent::getResponseId).toList();
+            List<String> identities = fixture.events.messages.stream().map(AgentMessageEvent::getResponseId).toList();
             assertEquals(2, identities.size());
             assertNotNull(identities.getFirst());
+            assertTrue(Long.parseLong(identities.getLast()) > Long.parseLong(identities.getFirst()));
             assertEquals(identities, fixture.rounds);
             assertFalse(fixture.execution.getMessages().stream().anyMatch(ToolMessageEntity.class::isInstance));
         }
@@ -144,15 +197,15 @@ class ResponseIdentityPropagationTest {
     @Test
     void concurrentBatchesKeepIdentityOnSuccessFailureAndRejection() {
         try (Fixture fixture = new Fixture(ToolExecuteResult.success("ok"), List.of())) {
-            UUID first = UUID.randomUUID();
-            UUID second = UUID.randomUUID();
+            String first = "1234567890123456789";
+            String second = "1234567890123456790";
             CompletableFuture<Void> one = CompletableFuture.runAsync(() -> fixture.tools.execute(command("first", first)));
             CompletableFuture<Void> two = CompletableFuture.runAsync(() -> fixture.tools.execute(command("second", second)));
             CompletableFuture.allOf(one, two).join();
 
             assertEquals(6, fixture.events.ends.size());
             assertEquals(4, fixture.policyExecutions.size());
-            Map<String, UUID> expected = Map.of("first", first, "second", second);
+            Map<String, String> expected = Map.of("first", first, "second", second);
             for (ToolExecution call : fixture.policyExecutions) {
                 assertEquals(expected.get(call.getExecutionId()), call.getResponseId());
             }
@@ -171,7 +224,7 @@ class ResponseIdentityPropagationTest {
     void legacyTranscriptSinksStillReceiveRoundsAndSelectedMetadata() {
         AtomicInteger legacyCalls = new AtomicInteger();
         ConversationTranscriptSink legacy = (id, ai, tools) -> legacyCalls.incrementAndGet();
-        UUID responseId = UUID.randomUUID();
+        String responseId = "1234567890123456789";
         legacy.appendRound("legacy", AiMessageEntity.builder().text("answer").build(), List.of(), responseId, METADATA);
         assertEquals(1, legacyCalls.get());
 
@@ -190,15 +243,15 @@ class ResponseIdentityPropagationTest {
 
     private static ChatResponseEntity response(boolean tools) {
         return ChatResponseEntity.builder().aiMessageEntity(AiMessageEntity.builder().text("answer")
-                .toolCalls(tools ? List.of(new ToolCallRequest("call-1", "test", "{}")) : List.of()).build())
+                .toolCalls(tools ? List.of(new ToolCallRequest("call-1", "test", 0, "{}")) : List.of()).build())
                 .meta(ChatResponseEntity.Meta.builder().id("provider-response").build())
                 .tokenUsage(TokenUsageEntity.of(3, 2, 1)).build();
     }
 
-    private static ToolExecuteCommand command(String executionId, UUID responseId) {
-        return new ToolExecuteCommand(List.of(new ToolCallRequest(executionId + "-ok", "test", "{}"),
-                new ToolCallRequest(executionId + "-fail", "test", "fail"),
-                new ToolCallRequest(executionId + "-missing", "missing", "{}")),
+    private static ToolExecuteCommand command(String executionId, String responseId) {
+        return new ToolExecuteCommand(List.of(new ToolCallRequest(executionId + "-ok", "test", 0, "{}"),
+                new ToolCallRequest(executionId + "-fail", "test", 1, "fail"),
+                new ToolCallRequest(executionId + "-missing", "missing", 2, "{}")),
                 executionId, workspace(), Map.of(), METADATA, List.of("test"), responseId, false, null);
     }
 
@@ -213,13 +266,17 @@ class ResponseIdentityPropagationTest {
 
     private static final class Fixture implements AutoCloseable {
         private final Capture events = new Capture();
-        private final List<UUID> rounds = new ArrayList<>();
+        private final List<String> rounds = new ArrayList<>();
         private final List<ToolExecution> policyExecutions = new CopyOnWriteArrayList<>();
         private final DefaultToolExecutionManager tools;
         private final RuntimeContext context;
         private final Execution execution;
 
         private Fixture(ToolExecuteResult result, List<ToolExecutionPolicy> policies) {
+            this(result, policies, null);
+        }
+
+        private Fixture(ToolExecuteResult result, List<ToolExecutionPolicy> policies, ResponseIdGenerator generator) {
             List<Message> messages = List.of(UserMessageEntity.from("task"));
             AgentRequest request = AgentRequest.builder().messages(messages).toolList(List.of("test")).build();
             request.runtimeParametersOrDefault().setEventMetaData(METADATA);
@@ -230,7 +287,7 @@ class ResponseIdentityPropagationTest {
                     fail("The response-aware overload must be used");
                 }
                 public void appendRound(String id, AiMessageEntity ai, List<ToolMessageEntity> toolMessages,
-                                        UUID responseId, Map<String, Object> metadata) {
+                                        String responseId, Map<String, Object> metadata) {
                     assertEquals(METADATA, metadata);
                     rounds.add(responseId);
                 }
@@ -250,6 +307,7 @@ class ResponseIdentityPropagationTest {
                     invocation -> invocation.getMethod().invoke(invocation.getTarget(), invocation.getContext()), chain);
             AtomicInteger calls = new AtomicInteger();
             context = RuntimeContext.builder().conversationManager(conversations).workspace(workspace())
+                    .responseIdGenerator(generator)
                     .runtimeEventPublisher(publisher).toolExecutionManager(tools)
                     .loopInterceptorProcessor(new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor())))
                     .runtimeBoundaryChecker(new BoundaryChecker(AgentConfig.builder().maxIterations(4).build(),
@@ -265,7 +323,7 @@ class ResponseIdentityPropagationTest {
     }
 
     private static final class Capture implements RuntimeListener {
-        private final List<UUID> streamedIds = new ArrayList<>();
+        private final List<String> streamedIds = new ArrayList<>();
         private final List<AgentMessageEvent> messages = new CopyOnWriteArrayList<>();
         private final List<ToolCallStartEvent> starts = new CopyOnWriteArrayList<>();
         private final List<ToolCallEndEvent> ends = new CopyOnWriteArrayList<>();

@@ -24,7 +24,9 @@ import java.util.concurrent.TimeoutException;
 @Slf4j
 @Getter
 public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCloseable {
-    private record ToolExecutionOutcome(ToolExecuteResult result, ToolCallStatus status) {}
+    private record ToolExecutionOutcome(ToolExecuteResult result, ToolCallStatus status) {
+    }
+
     private final ToolExecutionContext toolExecutionContext;
     private final InterceptorProcessor<ToolExecution> interceptorProcessor;
     private final List<ToolExecutionPolicy> executionPolicies;
@@ -128,7 +130,8 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
                 return publishEndEvent(toolExecuteCommand, request, null,
                         identified(ToolExecuteResult.err("Tool not found"),
                                 request.id(),
-                                null
+                                null,
+                                request.requestIndex()
                         ),
                         ToolCallStatus.REJECTED);
             }
@@ -137,7 +140,7 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
                 return publishEndEvent(toolExecuteCommand, request, toolDef, identified(ToolExecuteResult.err(
                                 "Tool '" + toolDef.name() + "' is not allowed for this agent request: "
                                         + "it is not part of the tool set this run is confined to"),
-                        request.id(), toolDef), ToolCallStatus.REJECTED);
+                        request.id(), toolDef, request.requestIndex()), ToolCallStatus.REJECTED);
             }
 
             ToolExecution toolExecution = createToolExecution(request, toolDef, toolExecuteCommand);
@@ -145,14 +148,14 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
             ToolExecuteResult result = applyPolicies(toolExecution);
 
             if (result != null) { // tool has not been conducted
-                result = identified(result, request.id(), toolDef);
+                result = identified(result, request.id(), toolDef, request.requestIndex());
                 ToolCallStatus status = resultStatus(result, ToolCallStatus.REJECTED);
                 return publishEndEvent(toolExecuteCommand, request, toolDef, result, status);
             }
 
-            ToolExecutionOutcome outcome = this.executeTool(toolDef, toolExecution, toolExecuteCommand);
+            ToolExecutionOutcome outcome = this.executeTool(toolDef, toolExecution, toolExecuteCommand,request);
 
-            result = identified(outcome.result(), request.id(), toolDef);
+            result = identified(outcome.result(), request.id(), toolDef, request.requestIndex());
 
             return publishEndEvent(toolExecuteCommand, request, toolDef, result, outcome.status());
 
@@ -160,7 +163,7 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
 
             ToolExecuteResult err = ToolExecuteResult.err("Tool execution error" + e.getMessage());
 
-            identified(err, request.id(), toolDef);
+            identified(err, request.id(), toolDef, request.requestIndex());
 
             publishEndEvent(toolExecuteCommand, request, toolDef, err, ToolCallStatus.FAILED);
 
@@ -205,7 +208,8 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
                         request.arguments(),
                         result.getToolOutput(),
                         mergeMetaData(command.eventMetaData(), result.getToolMetaData()),
-                        status
+                        status,
+                        request.requestIndex()
                 )
         );
         return result;
@@ -241,7 +245,8 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
 
     private ToolExecutionOutcome executeTool(ToolDefinition<?> toolDefinition,
                                              ToolExecution toolExecution,
-                                             ToolExecuteCommand command
+                                             ToolExecuteCommand command,
+                                             ToolCallRequest request
     ) throws Throwable {
         InvocationContext<ToolExecution> execute = InvocationContext.<ToolExecution>builder()
                 .method(ToolExecutor.class.getMethod(
@@ -252,12 +257,12 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
 
         long timeoutSeconds = toolDefinition.timeout();
         if (timeoutSeconds <= 0) {
-            ToolExecuteResult result = invokeTool(toolDefinition, toolExecution, command, execute);
+            ToolExecuteResult result = invokeTool(toolDefinition, toolExecution, command, execute,request);
             return completedOutcome(result);
         }
         Future<ToolExecuteResult> future = toolExecutor.submit(() -> {
             try {
-                return invokeTool(toolDefinition, toolExecution, command, execute);
+                return invokeTool(toolDefinition, toolExecution, command, execute,request);
             } catch (Throwable e) {
                 throw new CompletionException(e);
             }
@@ -292,8 +297,9 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
     private ToolExecuteResult invokeTool(ToolDefinition<?> toolDefinition,
                                          ToolExecution toolExecution,
                                          ToolExecuteCommand command,
-                                         InvocationContext<ToolExecution> invocation
-    ) throws Throwable {
+                                         InvocationContext<ToolExecution> invocation,
+                                         ToolCallRequest request
+                                         ) throws Throwable {
 
         toolExecutionContext.runtimeEventPublisher().onToolCall(new ToolCallStartEvent(
                 toolExecution.getId(),
@@ -301,8 +307,8 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
                 toolDefinition.name(),
                 toolExecution.getArgs(),
                 command.responseId(),
-                command.eventMetaData()
-
+                command.eventMetaData(),
+                request.requestIndex()
         ));
 
         return (ToolExecuteResult) interceptorProcessor.proceed(invocation);
@@ -318,19 +324,16 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
     }
 
 
-
-
-
-
     /**
      * Stamps the call identity onto a result: executors report their output only, while the conversation needs the tool-call id and the definition to build a tool message that answers the right call — the manager is where both are known.
      */
-    private static @NonNull ToolExecuteResult identified(ToolExecuteResult result, String id, ToolDefinition<?> toolDefinition) {
+    private static @NonNull ToolExecuteResult identified(ToolExecuteResult result, String id, ToolDefinition<?> toolDefinition, int requestIndex) {
         ToolExecuteResult identified = result != null
                 ? result
                 : ToolExecuteResult.err("tool executor returned no result");
         identified.setId(id);
         identified.setToolSpecification(toolDefinition);
+        identified.setRequestIndex(requestIndex);
         return identified;
     }
 

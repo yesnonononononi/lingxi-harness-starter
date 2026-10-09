@@ -4,8 +4,14 @@ package com.summit.core.runtime;
 
 import com.summit.core.conversation.event.*;
 
+import java.util.UUID;
+
 
 public interface RuntimeListener {
+    default String id(){
+        return UUID.randomUUID().toString();
+    }
+
     default void onExecutionStart(ExecutionStartEvent event) {
     }
 

@@ -19,7 +19,6 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
-import java.util.UUID;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -101,8 +100,8 @@ class DefaultToolExecutionManagerMetaDataTest {
         var context = ToolExecutionContext.builder().toolRegistry(new ToolRegistry(List.of(a, b)))
                 .runtimeEventPublisher(new RuntimeEventPublisher(List.of(listener))).build();
         ToolExecuteCommand command = new ToolExecuteCommand(
-                List.of(new ToolCallRequest("call-a", "a", "{}"), new ToolCallRequest("call-b", "b", "{}")),
-                "exec-1", workspace(), null, List.of("a", "b"), UUID.randomUUID());
+                List.of(new ToolCallRequest("call-a", "a", 0, "{}"), new ToolCallRequest("call-b", "b", 1, "{}")),
+                "exec-1", workspace(), null, List.of("a", "b"), "1234567890123456789");
 
         try (DefaultToolExecutionManager manager = newManager(context)) {
             List<ToolExecuteResult> results = manager.execute(command);
@@ -144,8 +143,8 @@ class DefaultToolExecutionManagerMetaDataTest {
                 .executor(execution -> toolResult).build();
         var context = ToolExecutionContext.builder().toolRegistry(new ToolRegistry(List.of(tool)))
                 .runtimeEventPublisher(new RuntimeEventPublisher(List.of(listener))).build();
-        ToolExecuteCommand command = new ToolExecuteCommand(List.of(new ToolCallRequest("call-1", "meta", "{}")),
-                "exec-1", workspace(), null, eventMetaData, List.of("meta"), UUID.randomUUID(), false, null);
+        ToolExecuteCommand command = new ToolExecuteCommand(List.of(new ToolCallRequest("call-1", "meta", 0, "{}")),
+                "exec-1", workspace(), null, eventMetaData, List.of("meta"), "1234567890123456789", false, null);
 
         try (DefaultToolExecutionManager manager = newManager(context)) {
             List<ToolExecuteResult> results = manager.execute(command);

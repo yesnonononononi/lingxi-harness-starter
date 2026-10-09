@@ -72,13 +72,18 @@ public class MessageCodecAdapter implements MessageCodec<ChatMessage, ChatRespon
     public ChatResponseEntity toChatResponseEntity(ChatResponse response) {
         AiMessage aiMessage = response.aiMessage();
         List<ToolCallRequest> toolCalls = new ArrayList<>();
-        for (ToolExecutionRequest request : aiMessage.toolExecutionRequests()) {
+
+        for (int i = 0; i < aiMessage.toolExecutionRequests().size(); i++) {
+            ToolExecutionRequest request = aiMessage.toolExecutionRequests().get(i);
             toolCalls.add(ToolCallRequest.builder()
                     .id(request.id())
                     .name(request.name())
+                    .requestIndex(i)
                     .arguments(request.arguments())
                     .build());
         }
+
+
         AiMessageEntity aiMessageEntity = AiMessageEntity.builder()
                 .text(aiMessage.text())
                 .thinking(aiMessage.thinking())
@@ -99,7 +104,7 @@ public class MessageCodecAdapter implements MessageCodec<ChatMessage, ChatRespon
 
         ChatResponseEntity.Meta meta = ChatResponseEntity.Meta.builder()
                 .id(metadata.id())
-                .finishReason(metadata.finishReason() == null ? ChatResponseEntity.FinishReason.OTHER :ChatResponseEntity.FinishReason.valueOf(metadata.finishReason().name()))
+                .finishReason(metadata.finishReason() == null ? ChatResponseEntity.FinishReason.OTHER : ChatResponseEntity.FinishReason.valueOf(metadata.finishReason().name()))
                 .modelName(metadata.modelName())
                 .build();
 

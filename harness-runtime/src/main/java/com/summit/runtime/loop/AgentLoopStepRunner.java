@@ -25,7 +25,6 @@ import org.jspecify.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 
@@ -65,6 +64,7 @@ public class AgentLoopStepRunner {
         while (true) {
 
             try (LoopRoundScope ignored = new LoopRoundScope(interceptor, loopContext)) {
+
                 if (!(interceptorResult = interceptor.onLoopStart(loopContext)).shouldContinue())
                     return interceptorResult.loopResult();
 
@@ -74,17 +74,28 @@ public class AgentLoopStepRunner {
                 // External input must be present before compaction and budget checks run.
                 if (!(controlResult = boundaries.beforeModel(execution, control)).shouldContinue()) return controlResult;
 
+
+
                 ChatResponseEntity response;
                 try {
-                    response = invokeModel(execution, control, UUID.randomUUID());
+                    response = invokeModel(execution, control,
+                            execution.nextResponseId(context.getResponseIdGenerator()));
                 } catch (ExecutionInterruptedException e) {
                     return e.kind() == ExecutionInterruptedException.Kind.CANCEL
                             ? LoopResult.cancelled(e.getMessage())
                             : LoopResult.suspended(e.getMessage());
                 }
 
+
                 if (!(interceptorResult = interceptor.onAfterModelInvoke(loopContext, response)).shouldContinue())
                     return interceptorResult.loopResult();
+
+                context.getRuntimeEventPublisher().onAiMessage(new AgentMessageEvent(
+                        response,
+                        execution.getId(),
+                        response.getResponseId(),
+                        execution.eventMetaData()
+                ));
 
                 AiMessageEntity aiMessage = response.getAiMessageEntity();
 
@@ -137,22 +148,12 @@ public class AgentLoopStepRunner {
         }
     }
 
-    private @NonNull ChatResponseEntity invokeModel(Execution execution, ExecutionControlSignal control,UUID responseId) throws Exception {
+    private @NonNull ChatResponseEntity invokeModel(Execution execution, ExecutionControlSignal control,String responseId) throws Exception {
         try {
 
             ModelChatCommand command = requests.build(execution, configuredTools(execution), responseId,control);
             ChatResponseEntity response = context.getInvoker().invoke(command);
             response.setResponseId(responseId);
-
-
-            context.getRuntimeEventPublisher().onAiMessage(new AgentMessageEvent(
-                    response.getAiMessageEntity().text(),
-                    response.getAiMessageEntity().getThinking(),
-                    execution.getId(),
-                    responseId,
-                    execution.eventMetaData()
-            ));
-
             return response;
         } catch (Exception e) {
             // A control request reached the streaming handler while the model was still producing
@@ -200,7 +201,7 @@ public class AgentLoopStepRunner {
 
     private List<ToolExecuteResult> doToolCall(@NonNull Execution execution,
                                                @NonNull AiMessageEntity aiMessageEntity,
-                                               UUID responseId
+                                               String responseId
     ) {
         AgentRequest agentRequest = execution.getAgentRequest();
 

@@ -3,6 +3,7 @@ package com.summit.runtime.context;
 
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
+import com.summit.core.conversation.api.ResponseIdGenerator;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.runtime.loop.*;
 import com.summit.core.mcp.McpToolScope;
@@ -10,6 +11,7 @@ import com.summit.core.model.ModelInvoker;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.ToolExecutionManager;
+import com.summit.runtime.conversation.SnowflakeResponseIdGenerator;
 import lombok.Getter;
 import lombok.experimental.SuperBuilder;
 
@@ -35,6 +37,7 @@ public class RuntimeContext {
     private final Workspace workspace;
     private final ConversationManager conversationManager;
     private final RuntimeEventPublisher runtimeEventPublisher;
+    private final ResponseIdGenerator responseIdGenerator;
     private final ToolExecutionManager toolExecutionManager;
     private final ContextUsageReporter usage;
     private final Tokenizer tokenizer;
@@ -63,6 +66,11 @@ public class RuntimeContext {
 
     public List<ExecutionFailureObserver> getFailureObservers() {
         return failureObservers == null ? List.of() : failureObservers;
+    }
+
+    /** Direct builder users share one generator so separate runtimes do not reuse worker sequences. */
+    public ResponseIdGenerator getResponseIdGenerator() {
+        return responseIdGenerator == null ? SnowflakeResponseIdGenerator.DEFAULT : responseIdGenerator;
     }
 
 }

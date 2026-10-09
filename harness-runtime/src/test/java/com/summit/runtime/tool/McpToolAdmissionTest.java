@@ -16,7 +16,6 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -66,13 +65,13 @@ class McpToolAdmissionTest {
         try (DefaultToolExecutionManager manager = manager()) {
             // A static tool has exactly one way in: being named. Omitting it is enough to block it.
             List<ToolExecuteResult> results = manager.execute(new ToolExecuteCommand(
-                    List.of(new ToolCallRequest("call-1", STATIC_TOOL, "{}")),
+                    List.of(new ToolCallRequest("call-1", STATIC_TOOL, 0, "{}")),
                     "execution-1",
                     workspace(),
                     null,
                     null,
                     List.of("something_else"),
-                    UUID.randomUUID(),
+                    "1234567890123456789",
                     false,
                     McpToolScope.EMPTY
                     )
@@ -103,8 +102,8 @@ class McpToolAdmissionTest {
     void absentWhitelistStillRejectsStaticTools() {
         try (DefaultToolExecutionManager manager = manager()) {
             List<ToolExecuteResult> results = manager.execute(new ToolExecuteCommand(
-                    List.of(new ToolCallRequest("call-1", STATIC_TOOL, "{}")),
-                    "execution-1", workspace(), null,null, null, UUID.randomUUID(), false, McpToolScope.EMPTY));
+                    List.of(new ToolCallRequest("call-1", STATIC_TOOL, 0, "{}")),
+                    "execution-1", workspace(), null,null, null, "1234567890123456789", false, McpToolScope.EMPTY));
 
             assertEquals(1, results.size());
             assertEquals("Tool '" + STATIC_TOOL + "' is not allowed for this agent request",
@@ -142,8 +141,8 @@ class McpToolAdmissionTest {
                                          List<String> allowedTools,
                                          McpToolScope scope) {
         List<ToolExecuteResult> results = manager.execute(new ToolExecuteCommand(
-                List.of(new ToolCallRequest("call-1", MCP_TOOL, "{}")),
-                "execution-1", workspace(), null, null,allowedTools, UUID.randomUUID(), false, scope));
+                List.of(new ToolCallRequest("call-1", MCP_TOOL, 0, "{}")),
+                "execution-1", workspace(), null, null,allowedTools, "1234567890123456789", false, scope));
 
         assertEquals(1, results.size());
         return results.getFirst();

@@ -1,10 +1,14 @@
 package com.summit.runtime.model;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.event.AgentPartialTextEvent;
+import com.summit.core.conversation.event.AgentPartialThinkingEvent;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;
+import com.summit.core.json.ExecutionJson;
 import com.summit.core.model.streaming.StreamingHandler;
 import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
@@ -13,7 +17,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
@@ -31,6 +34,59 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 调用方拿回控制权，而不是等模型把用户已经要求放弃的内容全部输出完。</p>
  */
 class StreamingModelResponseBehaveDeciderTest {
+
+    @Test
+    void publishesIndependentUtf16StartOffsetsForTextAndThinking() throws Exception {
+        RecordingListener listener = new RecordingListener();
+        StreamingModelResponseBehaveDecider handler = decider(
+                new CompletableFuture<>(), null, new RuntimeEventPublisher(List.of(listener)));
+        RecordingTransport transport = new RecordingTransport();
+
+        handler.onPartialResponse("A\uD83D\uDE00", transport);
+        handler.onPartialThinking("\uD83D\uDE00", transport);
+        handler.onPartialResponse("", transport);
+        handler.onPartialThinking("why", transport);
+        handler.onPartialResponse("B", transport);
+        handler.onPartialThinking("?", transport);
+
+        assertEquals(List.of(0, 3, 3), listener.textEvents.stream()
+                .map(AgentPartialTextEvent::offset).toList());
+        assertEquals(List.of(0, 2, 5), listener.thinkingEvents.stream()
+                .map(AgentPartialThinkingEvent::offset).toList());
+        assertEquals("A\uD83D\uDE00B", listener.textEvents.stream()
+                .map(AgentPartialTextEvent::content).reduce("", String::concat));
+
+        ObjectMapper mapper = ExecutionJson.newObjectMapper();
+        JsonNode textJson = mapper.readTree(mapper.writeValueAsString(listener.textEvents.get(2)));
+        JsonNode thinkingJson = mapper.readTree(mapper.writeValueAsString(listener.thinkingEvents.get(1)));
+        assertTrue(textJson.get("offset").isIntegralNumber());
+        assertEquals(3, textJson.get("offset").intValue());
+        assertEquals("B", textJson.get("content").textValue());
+        assertTrue(thinkingJson.get("offset").isIntegralNumber());
+        assertEquals(2, thinkingJson.get("offset").intValue());
+    }
+
+    @Test
+    void newResponseHandlerStartsBothOffsetsAtZero() {
+        RecordingListener listener = new RecordingListener();
+        RuntimeEventPublisher publisher = new RuntimeEventPublisher(List.of(listener));
+        RecordingTransport transport = new RecordingTransport();
+        StreamingModelResponseBehaveDecider first = decider(new CompletableFuture<>(), null, publisher);
+        first.onPartialResponse("previous text", transport);
+        first.onPartialThinking("previous thinking", transport);
+
+        StreamingModelResponseBehaveDecider next = new StreamingModelResponseBehaveDecider(
+                publisher, StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
+                        .executionId("execution-1").agentId("chatAgent").responseId("1234567890123456790")
+                        .future(new CompletableFuture<>()).build(), null);
+        next.onPartialResponse("next text", transport);
+        next.onPartialThinking("next thinking", transport);
+
+        assertEquals(0, listener.textEvents.get(1).offset());
+        assertEquals(0, listener.thinkingEvents.get(1).offset());
+        assertEquals("1234567890123456790", listener.textEvents.get(1).responseId());
+        assertEquals("1234567890123456790", listener.thinkingEvents.get(1).responseId());
+    }
 
     @Test
     void finalResponseObservesCancellationEvenWithoutAnotherDelta() {
@@ -230,7 +286,7 @@ class StreamingModelResponseBehaveDeciderTest {
         return new StreamingModelResponseBehaveDecider(
                 publisher,
                 StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
-                        .executionId("execution-1").agentId("chatAgent").responseId(UUID.randomUUID()).future(future).build(),
+                        .executionId("execution-1").agentId("chatAgent").responseId("1234567890123456789").future(future).build(),
                 control);
     }
 
@@ -255,10 +311,18 @@ class StreamingModelResponseBehaveDeciderTest {
 
     private static final class RecordingListener implements RuntimeListener {
         private final List<String> partialTexts = new ArrayList<>();
+        private final List<AgentPartialTextEvent> textEvents = new ArrayList<>();
+        private final List<AgentPartialThinkingEvent> thinkingEvents = new ArrayList<>();
 
         @Override
         public void onPartialText(AgentPartialTextEvent event) {
             partialTexts.add(event.content());
+            textEvents.add(event);
+        }
+
+        @Override
+        public void onPartialThinking(AgentPartialThinkingEvent event) {
+            thinkingEvents.add(event);
         }
     }
 }
