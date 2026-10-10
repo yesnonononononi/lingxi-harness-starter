@@ -6,7 +6,7 @@
     <parent>
         <groupId>io.github.yesnonononononi</groupId>
         <artifactId>lingXi-harness-agent</artifactId>
-        <version>1.1.2</version>
+        <version>1.1.3</version>
     </parent>
     <artifactId>harness-sandbox-docker</artifactId>
     <name>lingxi-harness-sandbox-docker</name>
