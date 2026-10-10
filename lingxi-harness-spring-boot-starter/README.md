@@ -4,7 +4,7 @@
 
 ```xml
 <dependency>
-    <groupId>io.github.yesnononononi</groupId>
+    <groupId>io.github.yesnonononononi</groupId>
     <artifactId>lingxi-harness-spring-boot-starter</artifactId>
     <version>1.1.3</version>
 </dependency>
