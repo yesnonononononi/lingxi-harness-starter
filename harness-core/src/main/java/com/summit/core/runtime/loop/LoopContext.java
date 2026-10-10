@@ -2,32 +2,44 @@ package com.summit.core.runtime.loop;
 
 import com.summit.core.agent.Execution;
 import com.summit.core.conversation.message.Message;
-
+import lombok.AllArgsConstructor;
+import lombok.AccessLevel;
+import lombok.Data;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
+import java.util.function.IntSupplier;
+import java.util.function.Supplier;
 
 /**
  * Execution identity and controlled message append operation for synchronous loop callbacks.
  */
-public record LoopContext(
-        Execution execution,
-        ExecutionControlSignal signal,
-        Integer consecutiveCompactTurns,
-        Map<String, Object> attributes,
-
+@Data
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
+public class LoopContext {
+        private final LoopMessages loopMessages;
+        private final ExecutionControlSignal signal;
+        private final Supplier<Integer> consecutiveCompactTurns;
         // It will be put into context as the message of user
-        Consumer<List<? extends Message>> appendMessage
-) {
-    public LoopContext( Execution execution, ExecutionControlSignal signal, Integer consecutiveCompactTurns, Map<String, Object> attributes,
-                       Consumer<List<? extends Message>> appendMessage) {
-        this.execution = execution;
-        this.signal = signal;
-        this.consecutiveCompactTurns = consecutiveCompactTurns;
-        this.attributes = attributes == null ? Map.of()
-                : Map.copyOf(attributes);
-        this.appendMessage = Objects.requireNonNull(appendMessage, "appendMessage");
+        private final Consumer<List<? extends Message>> appendMessage;
+
+    public LoopContext(LoopMessages loopMessages, ExecutionControlSignal signal,
+                       Integer consecutiveCompactTurns, Consumer<List<? extends Message>> appendMessage) {
+        this(loopMessages, signal, () -> consecutiveCompactTurns, appendMessage);
+    }
+
+    public static LoopContext withCompactionCounter(LoopMessages loopMessages, ExecutionControlSignal signal,
+                                                    IntSupplier counter, Consumer<List<? extends Message>> appendMessage) {
+        Objects.requireNonNull(counter, "counter");
+        return new LoopContext(loopMessages, signal, counter::getAsInt, appendMessage);
+    }
+
+    /**
+     * Committed consecutive dedicated compaction rounds in this run. Updated before onLoopEnd;
+     * a committed non-compaction round resets it. A resumed run starts at zero.
+     */
+    public Integer getConsecutiveCompactTurns() {
+        return consecutiveCompactTurns.get();
     }
 
     /**
@@ -40,7 +52,7 @@ public record LoopContext(
      * "how far has this run got" from drifting apart.</p>
      */
     public int loopCount() {
-        return execution.getModelAttempts();
+        return loopMessages.getExecution().getModelAttempts();
     }
 
     /**

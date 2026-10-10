@@ -52,6 +52,16 @@ public interface LoopInterceptor {
     }
 
     /**
+     * Called only for a response without tool calls, after its event, messages, token accounting,
+     * transcript and execution checkpoint have been recorded, but before natural completion.
+     * The execution is still RUNNING. NONE/CONTINUE allow completion; suspension/cancellation
+     * retain the committed round. Do not commit the round again from this callback.
+     */
+    default InterceptorResult onBeforeComplete(LoopContext context) {
+        return InterceptorResult.NONE;
+    }
+
+    /**
      * Always paired with an entered round, including failure/suspension; failures follow catchErr().
      * A propagated failure becomes suppressed when the round already has a primary failure.
      */
@@ -69,4 +79,7 @@ public interface LoopInterceptor {
     default InterceptorResult onRunEnd(Execution execution) {
         return InterceptorResult.NONE;
     }
+
+
+
 }

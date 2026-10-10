@@ -6,6 +6,7 @@ import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.mcp.McpToolScope;
+import com.summit.core.runtime.loop.LoopMessages;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.ToolExecuteResult;
 
@@ -25,7 +26,7 @@ public interface ConversationManager {
      */
     void startConversation(Execution execution, Workspace workspace, McpToolScope mcpToolScope);
 
-    void addMessage(Execution execution, ChatResponseEntity chatResponse, List<ToolExecuteResult> toolExecutionResultMessage);
+    void addMessage(LoopMessages loopMessages);
 
     List<Message> messages(Execution execution);
 

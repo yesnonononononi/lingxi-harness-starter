@@ -252,7 +252,9 @@ LoopInterceptor businessLoopInterceptor() {
         public int order() { return 100; }
 
         public InterceptorResult onBeforeModelInvoke(LoopContext context) {
-            if (Boolean.TRUE.equals(context.attributes().get("pauseBeforeModel"))) {
+            var attributes = context.getLoopMessages().getExecution().getAgentRequest()
+                    .runtimeParametersOrDefault().getAttributes();
+            if (Boolean.TRUE.equals(attributes.get("pauseBeforeModel"))) {
                 return InterceptorResult.of(LoopResult.suspended("Waiting for application confirmation"));
             }
             // If external messages have been claimed, call context.appendMessage(...) here.
@@ -271,10 +273,15 @@ The `pauseBeforeModel` attribute in the example is application-defined and must 
 | `onAfterModelInvoke` | After the model returns, before the assistant message is committed | Can inspect the response; when short-circuiting, this round's response is not yet written to the context |
 | `onBeforeToolCall` | When tool calls exist, before the whole batch executes | Can stop the entire batch of tool calls |
 | `onAfterToolCall` | After the whole batch returns, before Promise/compaction handling and checkpoint commit | Side effects may have occurred, but this round's results are not yet committed |
+| `onBeforeComplete` | After a response without tool calls is committed and checkpointed, before natural completion | Returning suspension keeps the reply, transcript and token accounting; `NONE`/`CONTINUE` allow completion |
 | `onLoopEnd` | When a round that has been entered exits | Triggered on failure, suspension, and normal exit; the return value does not change the loop result |
 | `onRunEnd` | When the runtime reaches `COMPLETED` / `CANCELLED` / `FAILED` | Not triggered on suspension; notification exceptions are only logged, and the return value does not change the terminal state |
 
 Control callbacks return `InterceptorResult.NONE` to continue; returning `InterceptorResult.of(LoopResult.suspended(...))`, `cancelled(...)`, or `completed()` stops this loop, and later interceptors in the same phase are not invoked. If `onAfterToolCall` wants to keep this round's results and suspend, prefer returning `NONE` so the tool's `PROMISE` follows the normal commit path; short-circuiting directly bypasses subsequent message commits.
+
+Use `onBeforeComplete` to postpone completion while waiting for application work such as child agents. Inspect the committed response through `context.getLoopMessages().getResponse()` and return `InterceptorResult.of(LoopResult.suspended("Waiting for child agents"))` when needed; do not commit it again. The execution is still `RUNNING` at this point. The runtime checks cancellation/suspension signals before and after this hook, with cancellation taking priority. The application owns delivery and scheduling a resume after the execution becomes `SUSPENDED`.
+
+Round response/tool data remains available through `onLoopEnd` and is then cleared on every exit, including compaction continuation, suspension and failure.
 
 `catchErr()` defaults to `true`: the dispatcher logs the exception and continues the chain. Override it to `false` when failures should propagate; exceptions in `onLoopEnd` may fail the execution, and are kept as suppressed exceptions when a primary exception already exists. The runtime's `onRunEnd` notification is always best-effort. The runtime budget is checked independently by `RuntimeBoundaryChecker` and cannot be bypassed by "interceptor continues".
 

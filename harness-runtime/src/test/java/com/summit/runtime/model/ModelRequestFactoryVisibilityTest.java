@@ -3,7 +3,7 @@ package com.summit.runtime.model;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.conversation.ConversationManager;
-import com.summit.core.conversation.api.ChatResponseEntity;
+import com.summit.core.runtime.loop.LoopMessages;
 import com.summit.runtime.context.RuntimeContext;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
@@ -150,8 +150,7 @@ class ModelRequestFactoryVisibilityTest {
         return new ConversationManager() {
             public void startConversation(Execution execution, Workspace workspace, McpToolScope scope) { }
 
-            public void addMessage(Execution execution, ChatResponseEntity response,
-                                   List<ToolExecuteResult> results) { }
+            public void addMessage(LoopMessages loopMessages) { }
 
             public List<Message> messages(Execution execution) { return execution.getMessages(); }
 

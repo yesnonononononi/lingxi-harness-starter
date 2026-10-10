@@ -132,6 +132,23 @@ public class DefaultLoopInterceptorProcessor implements LoopInterceptorProcessor
     }
 
     @Override
+    public InterceptorResult onBeforeComplete(LoopContext context) {
+        for (LoopInterceptor interceptor : interceptors) {
+            try {
+                InterceptorResult result = interceptor.onBeforeComplete(context);
+                if (!result.shouldContinue()) return result;
+            } catch (Exception e) {
+                if (interceptor.catchErr()) {
+                    log.error("Error occurred while processing loop interceptor before completion order:{}", interceptor.order(), e);
+                } else {
+                    throw e;
+                }
+            }
+        }
+        return NONE;
+    }
+
+    @Override
     public InterceptorResult onLoopEnd(LoopContext context) {
         InterceptorResult result;
 

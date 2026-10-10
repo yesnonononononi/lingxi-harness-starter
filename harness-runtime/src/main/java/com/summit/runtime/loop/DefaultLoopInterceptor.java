@@ -25,32 +25,37 @@ public class DefaultLoopInterceptor implements LoopInterceptor {
 
     @Override
     public InterceptorResult onLoopStart(@NonNull LoopContext context) {
-        return checkSignal(context.signal());
+        return checkSignal(context.getSignal());
     }
 
     @Override
     public InterceptorResult onBeforeModelInvoke(@NonNull LoopContext context) {
-        return checkSignal(context.signal());
+        return checkSignal(context.getSignal());
     }
 
     @Override
     public InterceptorResult onAfterModelInvoke(@NonNull LoopContext context, ChatResponseEntity response) {
-        return checkSignal(context.signal());
+        return checkSignal(context.getSignal());
     }
 
     @Override
     public InterceptorResult onBeforeToolCall(@NonNull LoopContext context) {
-        return checkSignal(context.signal());
+        return checkSignal(context.getSignal());
     }
 
     @Override
     public InterceptorResult onAfterToolCall(@NonNull LoopContext context, List<ToolExecuteResult> results) {
-        return checkSignal(context.signal());
+        return checkSignal(context.getSignal());
+    }
+
+    @Override
+    public InterceptorResult onBeforeComplete(@NonNull LoopContext context) {
+        return checkSignal(context.getSignal());
     }
 
     @Override
     public InterceptorResult onLoopEnd(@NonNull LoopContext context) {
-        return checkSignal(context.signal());
+        return checkSignal(context.getSignal());
     }
 
     private InterceptorResult checkSignal(ExecutionControlSignal control) {

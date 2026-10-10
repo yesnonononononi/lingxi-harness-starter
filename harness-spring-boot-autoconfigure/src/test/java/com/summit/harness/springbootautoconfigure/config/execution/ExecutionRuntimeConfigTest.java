@@ -23,6 +23,7 @@ import com.summit.core.runtime.loop.InterceptorResult;
 import com.summit.core.runtime.loop.LoopContext;
 import com.summit.core.runtime.loop.LoopInterceptor;
 import com.summit.core.runtime.loop.LoopInterceptorProcessor;
+import com.summit.core.runtime.loop.LoopMessages;
 import com.summit.harness.springbootautoconfigure.config.InterceptorConfig;
 import com.summit.harness.springbootautoconfigure.config.agent.AgentConfiguration;
 import com.summit.runtime.agent.ChatAgent;
@@ -152,7 +153,7 @@ class ExecutionRuntimeConfigTest {
         LoopInterceptor interceptor = new InterceptorConfig().loopInterceptor();
 
         assertEquals(InterceptorResult.NONE, interceptor.onBeforeModelInvoke(context));
-        assertEquals(0, context.execution().getModelAttempts());
+        assertEquals(0, context.getLoopMessages().getExecution().getModelAttempts());
     }
 
     private static LoopContext context() {
@@ -161,8 +162,8 @@ class ExecutionRuntimeConfigTest {
                 .agentRequest(AgentRequest.builder()
                         .messages(List.of(UserMessageEntity.from("task"))).build())
                 .build();
-        return new LoopContext(execution, new ExecutionControlSignal("e-1"), 0,
-                Map.of(), messages -> { });
+        return new LoopContext(LoopMessages.builder().execution(execution).build(),
+                new ExecutionControlSignal("e-1"), 0, messages -> { });
     }
 
     private static LoopInterceptor interceptor(String name, int order, List<String> seen) {

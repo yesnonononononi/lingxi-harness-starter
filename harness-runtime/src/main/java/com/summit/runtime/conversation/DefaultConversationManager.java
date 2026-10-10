@@ -10,6 +10,7 @@ import com.summit.core.conversation.api.ConversationTranscriptSink;
 import com.summit.core.conversation.message.*;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.prompt.PromptAssembler;
+import com.summit.core.runtime.loop.LoopMessages;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.skill.SkillLoader;
 import com.summit.core.skill.SkillResume;
@@ -82,15 +83,16 @@ public class DefaultConversationManager implements ConversationManager {
     }
 
     @Override
-    public void addMessage(Execution execution, ChatResponseEntity response,
-                            List<ToolExecuteResult> toolResults) {
+    public void addMessage(LoopMessages loopMessages) {
+        Execution execution = loopMessages.getExecution();
+        ChatResponseEntity response = loopMessages.getResponse();
         List<Message> messages = execution.getMessages();
 
         AiMessageEntity aiMessage = response.getAiMessageEntity();
         List<ToolMessageEntity> toolMessages = new ArrayList<>();
 
-        if (toolResults != null) {
-            for (ToolExecuteResult result : toolResults) {
+        if (loopMessages.getToolExecuteResults() != null) {
+            for (ToolExecuteResult result : loopMessages.getToolExecuteResults()) {
                 ToolDefinition<?> definition = result.getToolSpecification();
                 toolMessages.add(ToolMessageEntity.builder()
                         .id(result.getId())

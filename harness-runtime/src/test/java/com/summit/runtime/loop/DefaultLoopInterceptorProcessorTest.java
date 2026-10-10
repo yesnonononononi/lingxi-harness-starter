@@ -10,12 +10,13 @@ import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.loop.InterceptorResult;
 import com.summit.core.runtime.loop.LoopContext;
 import com.summit.core.runtime.loop.LoopInterceptor;
+import com.summit.core.runtime.loop.LoopMessages;
+import com.summit.core.runtime.loop.LoopResult;
 import com.summit.core.tool.ToolExecuteResult;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -39,7 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class DefaultLoopInterceptorProcessorTest {
 
     private static final List<String> ALL_HOOKS = List.of(
-            "loopStart", "beforeModel", "afterModel", "beforeTool", "afterTool", "loopEnd", "runEnd");
+            "loopStart", "beforeModel", "afterModel", "beforeTool", "afterTool", "beforeComplete", "loopEnd", "runEnd");
 
     @Test
     void interceptorsRunInAscendingOrderRegardlessOfRegistrationOrder() {
@@ -103,6 +104,11 @@ class DefaultLoopInterceptorProcessorTest {
             }
 
             @Override
+            public InterceptorResult onBeforeComplete(LoopContext context) {
+                throw new IllegalStateException("boom");
+            }
+
+            @Override
             public InterceptorResult onRunEnd(Execution execution) {
                 throw new IllegalStateException("boom");
             }
@@ -119,6 +125,7 @@ class DefaultLoopInterceptorProcessorTest {
         assertDoesNotThrow(() -> processor.onAfterModelInvoke(context, response()));
         assertDoesNotThrow(() -> processor.onBeforeToolCall(context));
         assertDoesNotThrow(() -> processor.onAfterToolCall(context, results));
+        assertDoesNotThrow(() -> processor.onBeforeComplete(context));
         assertDoesNotThrow(() -> processor.onLoopEnd(context));
         assertDoesNotThrow(() -> processor.onRunEnd(execution));
 
@@ -182,6 +189,13 @@ class DefaultLoopInterceptorProcessorTest {
             }
 
             @Override
+            public InterceptorResult onBeforeComplete(LoopContext context) {
+                seen.add("beforeComplete");
+                contextSeen.set(context);
+                return InterceptorResult.NONE;
+            }
+
+            @Override
             public InterceptorResult onRunEnd(Execution execution) {
                 seen.add("runEnd");
                 executionSeen.set(execution);
@@ -200,6 +214,7 @@ class DefaultLoopInterceptorProcessorTest {
         processor.onAfterModelInvoke(context, response);
         processor.onBeforeToolCall(context);
         processor.onAfterToolCall(context, results);
+        processor.onBeforeComplete(context);
         processor.onLoopEnd(context);
         processor.onRunEnd(execution);
 
@@ -219,8 +234,43 @@ class DefaultLoopInterceptorProcessorTest {
         assertDoesNotThrow(() -> processor.onAfterModelInvoke(context(), response()));
         assertDoesNotThrow(() -> processor.onBeforeToolCall(context()));
         assertDoesNotThrow(() -> processor.onAfterToolCall(context(), List.of()));
+        assertDoesNotThrow(() -> processor.onBeforeComplete(context()));
         assertDoesNotThrow(() -> processor.onLoopEnd(context()));
         assertDoesNotThrow(() -> processor.onRunEnd(execution()));
+    }
+
+    @Test
+    void completionDecisionRunsInOrderAndStopsLaterInterceptors() {
+        List<String> seen = new ArrayList<>();
+        InterceptorResult suspended = InterceptorResult.of(LoopResult.suspended("waiting for child"));
+        LoopInterceptor late = new LoopInterceptor() {
+            public int order() { return 10; }
+            public InterceptorResult onBeforeComplete(LoopContext context) {
+                seen.add("late");
+                return InterceptorResult.NONE;
+            }
+        };
+        LoopInterceptor early = new LoopInterceptor() {
+            public int order() { return -1; }
+            public InterceptorResult onBeforeComplete(LoopContext context) {
+                seen.add("early");
+                return suspended;
+            }
+        };
+        assertSame(suspended, processor(late, early).onBeforeComplete(context()));
+        assertEquals(List.of("early"), seen);
+    }
+
+    @Test
+    void mandatoryCompletionCallbackFailurePropagates() {
+        IllegalStateException failure = new IllegalStateException("completion decision failed");
+        LoopInterceptor mandatory = new LoopInterceptor() {
+            public int order() { return 0; }
+            public boolean catchErr() { return false; }
+            public InterceptorResult onBeforeComplete(LoopContext context) { throw failure; }
+        };
+        assertSame(failure, assertThrows(IllegalStateException.class,
+                () -> processor(mandatory).onBeforeComplete(context())));
     }
 
     @Test
@@ -233,6 +283,7 @@ class DefaultLoopInterceptorProcessorTest {
     void noopIsSafeAndOrdersFirst() {
         assertEquals(0, LoopInterceptor.NOOP.order());
         assertDoesNotThrow(() -> LoopInterceptor.NOOP.onAfterToolCall(context(), List.of()));
+        assertDoesNotThrow(() -> LoopInterceptor.NOOP.onBeforeComplete(context()));
         assertDoesNotThrow(() -> LoopInterceptor.NOOP.onRunEnd(execution()));
     }
 
@@ -301,6 +352,12 @@ class DefaultLoopInterceptorProcessorTest {
             }
 
             @Override
+            public InterceptorResult onBeforeComplete(LoopContext context) {
+                calls.incrementAndGet();
+                return InterceptorResult.NONE;
+            }
+
+            @Override
             public InterceptorResult onRunEnd(Execution execution) {
                 calls.incrementAndGet();
                 return InterceptorResult.NONE;
@@ -315,8 +372,8 @@ class DefaultLoopInterceptorProcessorTest {
     @Test
     void loopCountTracksRoundsAcrossTheWholeRun() {
         Execution execution = execution();
-        LoopContext context = new LoopContext(execution, new ExecutionControlSignal("e-1"), 0,
-                Map.of("agentId", "7"), messages -> { });
+        LoopContext context = new LoopContext(LoopMessages.builder().execution(execution).build(),
+                new ExecutionControlSignal("e-1"), 0, messages -> { });
 
         assertEquals(0, context.loopCount());
         execution.incrementModelAttempts();
@@ -325,8 +382,24 @@ class DefaultLoopInterceptorProcessorTest {
     }
 
     private static LoopContext context() {
-        return new LoopContext(execution(), new ExecutionControlSignal("e-1"), 0,
-                Map.of("agentId", "7"), messages -> { });
+        return new LoopContext(LoopMessages.builder().execution(execution()).build(),
+                new ExecutionControlSignal("e-1"), 0, messages -> { });
+    }
+
+    @Test
+    void compactionCounterIsLiveWithoutChangingTheExistingConstructor() {
+        AtomicInteger counter = new AtomicInteger();
+        LoopMessages messages = LoopMessages.builder().execution(execution()).build();
+        ExecutionControlSignal signal = new ExecutionControlSignal("e-1");
+        LoopContext live = LoopContext.withCompactionCounter(messages, signal, counter::get, ignored -> { });
+        LoopContext fixed = new LoopContext(messages, signal, 7, ignored -> { });
+        LoopContext nullable = new LoopContext(messages, signal, null, ignored -> { });
+
+        assertEquals(0, live.getConsecutiveCompactTurns());
+        counter.set(2);
+        assertEquals(2, live.getConsecutiveCompactTurns());
+        assertEquals(7, fixed.getConsecutiveCompactTurns());
+        assertNull(nullable.getConsecutiveCompactTurns());
     }
 
     private static ChatResponseEntity response() {

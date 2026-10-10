@@ -17,6 +17,7 @@ import com.summit.core.model.streaming.StreamingHandler;
 import com.summit.core.runtime.RuntimeEnvironment;
 import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.runtime.loop.ContextUsageReporter;
+import com.summit.core.runtime.loop.LoopMessages;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.*;
 import com.summit.runtime.conversation.DefaultConversationManager;
@@ -163,9 +164,9 @@ class EventMetadataPropagationTest {
         Execution execution = execution("transcript", METADATA);
         execution.setTokenUsage(TokenUsageEntity.empty());
 
-        conversations.addMessage(execution, ChatResponseEntity.builder()
+        conversations.addMessage(LoopMessages.builder().execution(execution).response(ChatResponseEntity.builder()
                 .aiMessageEntity(AiMessageEntity.builder().text("answer").build())
-                .tokenUsage(TokenUsageEntity.empty()).build(), List.of());
+                .tokenUsage(TokenUsageEntity.empty()).build()).toolExecuteResults(List.of()).build());
 
         assertEquals(METADATA, received.get());
     }

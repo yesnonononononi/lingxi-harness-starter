@@ -23,7 +23,8 @@ public interface ConversationTranscriptSink {
     /** Preserves the model invocation identity while keeping existing sinks compatible. */
     default void appendRound(String executionId, AiMessageEntity aiMessage,
                              List<ToolMessageEntity> toolMessages, String responseId,
-                             Map<String, Object> eventMetaData) {
+                             Map<String, Object> eventMetaData
+    ) {
         appendRound(executionId, aiMessage, toolMessages, eventMetaData);
     }
 }
