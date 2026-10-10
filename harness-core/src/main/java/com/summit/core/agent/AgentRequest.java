@@ -5,6 +5,7 @@ import com.summit.core.conf.McpConfig;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.conf.SkillConfig;
 import com.summit.core.conversation.message.Message;
+import com.summit.core.memory.MemoryConfig;
 import com.summit.core.workspace.WorkspaceSpec;
 import lombok.Builder;
 import lombok.Data;
@@ -39,6 +40,8 @@ public class AgentRequest {
     /** Optional managed workspace specification. When absent, the runtime uses the local process working directory. */
     private final  WorkspaceSpec workspaceSpec;
 
+    /** Optional per-execution memory access configuration; absent means no memory integration. */
+    private MemoryConfig memoryConfig;
     private McpConfig mcpConfig;
 
     private SkillConfig skillConfig;
