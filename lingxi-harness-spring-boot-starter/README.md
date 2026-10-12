@@ -6,7 +6,7 @@
 <dependency>
     <groupId>io.github.yesnonononononi</groupId>
     <artifactId>lingxi-harness-spring-boot-starter</artifactId>
-    <version>1.1.3</version>
+    <version>1.1.4</version>
 </dependency>
 ```
 

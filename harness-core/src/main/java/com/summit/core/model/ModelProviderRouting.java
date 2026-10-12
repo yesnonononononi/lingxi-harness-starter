@@ -20,6 +20,6 @@ public final class ModelProviderRouting {
     }
 
     private static boolean isAnthropic(String modelName) {
-        return modelName != null && modelName.strip().toLowerCase(Locale.ROOT).startsWith("claude-");
+        return modelName != null && (modelName.strip().toLowerCase(Locale.ROOT).startsWith("claude-") || modelName.contains("claude"));
     }
 }
