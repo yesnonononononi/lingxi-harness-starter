@@ -25,6 +25,8 @@ public class AnthropicCompactContextModelProvider implements CompactContextModel
                 .thinkingType(settings.thinkingType())
                 .thinkingBudgetTokens(settings.budget())
                 .customParameters(settings.customParameters())
+                .cacheSystemMessages(config.isPromptCache())
+                .cacheTools(config.isPromptCache())
                 .build());
     }
 }

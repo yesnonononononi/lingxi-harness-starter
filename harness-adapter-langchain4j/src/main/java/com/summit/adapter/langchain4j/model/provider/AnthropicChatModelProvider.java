@@ -25,6 +25,8 @@ public class AnthropicChatModelProvider implements ChatModelProvider {
                 .thinkingType(settings.thinkingType())
                 .thinkingBudgetTokens(settings.budget())
                 .customParameters(settings.customParameters())
+                .cacheSystemMessages(config.isPromptCache())
+                .cacheTools(config.isPromptCache())
                 .build());
     }
 }

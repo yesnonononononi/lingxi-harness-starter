@@ -23,6 +23,8 @@ public class CompactContextModelProperties {
     private Integer thinkingBudgetTokens;
     private boolean returnThinking = false;
     private boolean sendThinking = false;
+    /** Whether Anthropic may cache the system prompt and tool definitions across requests. */
+    private boolean promptCache = true;
     private Duration timeout = Duration.ofSeconds(60);
 
     /** Whether the application selected a dedicated compaction model. */

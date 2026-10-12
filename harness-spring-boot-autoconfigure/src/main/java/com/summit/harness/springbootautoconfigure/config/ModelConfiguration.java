@@ -38,6 +38,7 @@ public class ModelConfiguration {
                 .thinkingType(agentChatProperties.getThinkingType())
                 .thinkingBudgetTokens(agentChatProperties.getThinkingBudgetTokens())
                 .returnThinking(agentChatProperties.isReturnThinking())
+                .promptCache(agentChatProperties.isPromptCache())
                 .provider(ModelProviderRouting.chatProvider(agentChatProperties.getProvider(),
                         agentChatProperties.getModelName(), false))
                 .build();
@@ -60,6 +61,7 @@ public class ModelConfiguration {
                     .thinkingType(chat.getThinkingType())
                     .thinkingBudgetTokens(chat.getThinkingBudgetTokens())
                     .returnThinking(chat.isReturnThinking())
+                    .promptCache(chat.isPromptCache())
                     .provider(ModelProviderRouting.compactProvider(chat.getProvider(), chat.getModelName()))
                     .build();
         }
@@ -74,6 +76,7 @@ public class ModelConfiguration {
                 .thinkingType(compact.getThinkingType())
                 .thinkingBudgetTokens(compact.getThinkingBudgetTokens())
                 .returnThinking(compact.isReturnThinking())
+                .promptCache(compact.isPromptCache())
                 .provider(ModelProviderRouting.compactProvider(compact.getProvider(), compact.getModelName()))
                 .build();
     }

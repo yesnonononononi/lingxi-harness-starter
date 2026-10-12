@@ -6,8 +6,11 @@ import com.summit.core.conf.ModelConfig;
 import com.summit.core.conversation.api.ChatRequestEntity;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.ToolMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
+import com.summit.core.tool.ToolDefinition;
+import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.model.streaming.StreamingChatResponseHandler;
 import com.summit.core.model.streaming.StreamingHandler;
 import com.sun.net.httpserver.HttpServer;
@@ -103,6 +106,36 @@ class ProviderWireContractTest {
             assertNotNull(request);
             assertEquals("disabled", request.path("thinking").path("type").asText());
             assertFalse(request.has("output_config"));
+        }
+    }
+
+    /**
+     * Anthropic reports zero cache reads unless the request marks the reusable prefix with
+     * {@code cache_control}; the flag has to reach the wire, not just sit in the config.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void anthropicMarksReusablePrefixOnlyWhenPromptCacheEnabled(boolean enabled) throws Exception {
+        try (Endpoint endpoint = new Endpoint()) {
+            ModelConfig config = config(endpoint, "claude-sonnet-4-6").promptCache(enabled).build();
+            ToolDefinition<?> lookup = ToolDefinition.builder()
+                    .id("lookup").name("lookup").description("Lookup something")
+                    .maxOutput(100).timeout(5L)
+                    .executor(execution -> ToolExecuteResult.success("ok"))
+                    .build();
+            ChatRequestEntity request = ChatRequestEntity.builder()
+                    .messages(List.of(SystemMessageEntity.builder().text("system prompt").build(),
+                            UserMessageEntity.from("question")))
+                    .tools(List.of(lookup))
+                    .build();
+            new AnthropicChatModelProvider().create(config).chat(request);
+
+            JsonNode body = endpoint.requests.poll(10, TimeUnit.SECONDS);
+            assertNotNull(body);
+            String systemCache = body.path("system").get(0).path("cache_control").path("type").asText("");
+            String toolCache = body.path("tools").get(0).path("cache_control").path("type").asText("");
+            assertEquals(enabled, "ephemeral".equals(systemCache), "system prompt cache marker");
+            assertEquals(enabled, "ephemeral".equals(toolCache), "tool definitions cache marker");
         }
     }
 

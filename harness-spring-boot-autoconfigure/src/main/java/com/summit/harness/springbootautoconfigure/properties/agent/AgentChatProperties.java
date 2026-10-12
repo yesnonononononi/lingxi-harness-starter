@@ -21,6 +21,17 @@ public class AgentChatProperties {
     private Integer thinkingBudgetTokens;
     private boolean returnThinking = true;
     private boolean sendThinking = true;
+    /**
+     * Whether Anthropic may cache the system prompt and tool definitions across requests.
+     *
+     * <p>Anthropic only reuses a prompt prefix that the request marks with {@code cache_control};
+     * with no marker the provider reports zero cache reads however often the prefix repeats, which
+     * is what a caller sees as "the cache never hits". A write costs 1.25x and a read 0.1x, so the
+     * marker pays off from the second request that shares the prefix.</p>
+     *
+     * <p>Maps to lingxi.agent.model.conf.chat.prompt-cache</p>
+     */
+    private boolean promptCache = true;
     private Duration timeout = Duration.ofSeconds(60);
     /**
      * How many compaction rounds may run back to back before the loop gives up on the run.

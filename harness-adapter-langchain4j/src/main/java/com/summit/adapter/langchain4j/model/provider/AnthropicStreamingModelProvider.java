@@ -25,6 +25,8 @@ public class AnthropicStreamingModelProvider implements StreamingChatModelProvid
                 .thinkingType(settings.thinkingType())
                 .thinkingBudgetTokens(settings.budget())
                 .customParameters(settings.customParameters())
+                .cacheSystemMessages(config.isPromptCache())
+                .cacheTools(config.isPromptCache())
                 .build());
     }
 }
