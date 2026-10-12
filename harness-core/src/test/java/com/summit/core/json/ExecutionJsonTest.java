@@ -52,6 +52,7 @@ class ExecutionJsonTest {
     @Test
     void restoresExecutionAndEveryMessageAndContentType() throws Exception {
         AiMessageEntity ai = AiMessageEntity.builder().text("answer").thinking("reason")
+                .attributes(Map.of("thinking_signature", "signed", "redacted_thinking", List.of("opaque")))
                 .toolCalls(List.of(new ToolCallRequest("call-1", "search", 0, "{}"),
                         new ToolCallRequest("call-2", "search", 1, "{\"query\":\"next\"}"))).build();
         List<Message> messages = List.of(
@@ -73,7 +74,8 @@ class ExecutionJsonTest {
                         .runtimeParameters(AgentRuntimeParameters.builder().allowOutsideWorkspace(true)
                                 .attributes(Map.of("attempt", 2, "labels", List.of("a", "b"))).build())
                         .modelConfig(ModelConfig.builder().baseUrl("https://example.invalid")
-                                .apiKey("test-key").modelName("test-model").timeout(Duration.ofMillis(1250)).build())
+                                .apiKey("test-key").modelName("test-model").timeout(Duration.ofMillis(1250))
+                                .thinkingType("enabled").thinkingBudgetTokens(2048).build())
                         .build()).build();
 
         String json = mapper.writeValueAsString(original);
@@ -97,6 +99,9 @@ class ExecutionJsonTest {
         assertEquals(original.getAgentRequest().getWorkspaceSpec(), restored.getAgentRequest().getWorkspaceSpec());
         assertEquals(Duration.ofMillis(1250), restored.getAgentRequest().getModelConfig().getTimeout());
         assertEquals(ai.getToolCalls(), restored.getAiMessage().getToolCalls());
+        assertEquals(ai.getAttributes(), restored.getAiMessage().getAttributes());
+        assertEquals("enabled", restored.getAgentRequest().getModelConfig().getThinkingType());
+        assertEquals(2048, restored.getAgentRequest().getModelConfig().getThinkingBudgetTokens());
         assertEquals(12, restored.getTokenUsage().getTotalTokens());
         assertEquals(new TokenUsageEntity.InputTokens(8, 3), restored.getTokenUsage().getInputTokens());
         assertEquals(new TokenUsageEntity.OutputTokens(4, 2), restored.getTokenUsage().getOutputTokens());

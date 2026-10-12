@@ -175,6 +175,21 @@ The limit is clamped at execution time to `[1, batch size]`; when the manager is
 
 Source: [DefaultToolExecutionManager](harness-runtime/src/main/java/com/summit/runtime/tool/DefaultToolExecutionManager.java), [ConcurrentPolicy](harness-core/src/main/java/com/summit/core/tool/ConcurrentPolicy.java).
 
+## Model Protocol Selection
+
+Explicit `ModelConfig.provider` always wins, including when a Claude model uses an OpenAI-compatible gateway. For request-level configurations without a provider, a case-insensitive `claude-` prefix selects native Anthropic; other names use OpenAI. The existing `returnThinking` convention selects the streaming variant for request-level inference. Application chat and compaction defaults infer the protocol from the same prefix while retaining synchronous invocation.
+
+| Protocol | Chat | Streaming | Compaction |
+| --- | --- | --- | --- |
+| OpenAI | `default` | `default-streaming` | `default-compact` |
+| Anthropic | `anthropic` | `anthropic-streaming` | `anthropic-compact` |
+
+OpenAI passes `reasoningEffort` unchanged. Anthropic maps effort to native `output_config.effort` with adaptive thinking on modern Claude models. `minimal` maps to `low`, `xhigh` maps to `high`, and `none` disables thinking. Claude 3 and early Claude 4 models use manual thinking budgets (1024/4096/8192/16384 for low/medium/high/max); budgets must be at least 1024 and below `maxTokens`. Opus 4.5 also receives native effort. Explicit `thinkingType` and `thinkingBudgetTokens` override the inferred mode/budget, so custom model aliases and capability differences can be configured without relying on their name.
+
+`sendThinking` controls replay of historical thinking; `returnThinking` controls retention of returned thinking. Neither is a substitute for the provider's reasoning configuration. `AiMessageEntity.attributes` preserves thinking signatures and redacted blocks across execution snapshots and subsequent model rounds. Anthropic usage includes uncached input, cache creation and cache reads in the input total; cache reads remain available as a subcount.
+
+The corresponding Spring properties are `lingxi.agent.model.conf.chat.thinking-type` / `thinking-budget-tokens` and the same properties under `compact`.
+
 ## Human Interaction and Approval Resume
 
 The framework hands execution back to the application using the `PROMISE` tool result. It is a marker meaning "suspend after this round's results are submitted" — not a Java Future, and the framework does not hold a thread waiting for the user.

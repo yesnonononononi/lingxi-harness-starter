@@ -1,0 +1,30 @@
+package com.summit.adapter.langchain4j.model.provider;
+
+import com.summit.adapter.langchain4j.model.ChatModelAdapter;
+import com.summit.core.conf.ModelConfig;
+import com.summit.core.model.DefaultModelProviderNames;
+import com.summit.core.model.compact.CompactContextModelProvider;
+import dev.langchain4j.model.anthropic.AnthropicChatModel;
+
+/** Native Anthropic protocol provider. */
+public class AnthropicCompactContextModelProvider implements CompactContextModelProvider {
+    @Override
+    public String name() { return DefaultModelProviderNames.ANTHROPIC_COMPACT; }
+
+    @Override
+    public ChatModelAdapter create(ModelConfig config) {
+        AnthropicModelSettings settings = AnthropicModelSettings.resolve(config);
+        return new ChatModelAdapter(AnthropicChatModel.builder()
+                .baseUrl(config.getBaseUrl())
+                .apiKey(config.getApiKey())
+                .modelName(config.getModelName())
+                .timeout(config.getTimeout())
+                .maxTokens(settings.maxTokens())
+                .sendThinking(config.isSendThinking())
+                .returnThinking(config.isReturnThinking())
+                .thinkingType(settings.thinkingType())
+                .thinkingBudgetTokens(settings.budget())
+                .customParameters(settings.customParameters())
+                .build());
+    }
+}

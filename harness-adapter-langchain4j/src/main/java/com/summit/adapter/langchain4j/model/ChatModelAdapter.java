@@ -1,7 +1,8 @@
 package com.summit.adapter.langchain4j.model;
 
 import com.summit.adapter.langchain4j.codec.MessageCodec;
-import com.summit.adapter.langchain4j.codec.MessageCodecAdapter;
+import com.summit.adapter.langchain4j.codec.AnthropicMessageCodecAdapter;
+import com.summit.adapter.langchain4j.codec.OpenAiMessageCodecAdapter;
 import com.summit.adapter.langchain4j.codec.ToolCodec;
 import com.summit.adapter.langchain4j.codec.ToolCodecAdapter;
 import com.summit.core.conversation.api.ChatRequestEntity;
@@ -9,6 +10,7 @@ import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.model.chat.ChatModel;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.model.anthropic.AnthropicChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 
@@ -23,7 +25,14 @@ public class ChatModelAdapter implements ChatModel {
     private final ToolCodec<ToolSpecification> toolCodec;
 
     public ChatModelAdapter(dev.langchain4j.model.chat.ChatModel delegate) {
-        this(delegate, new MessageCodecAdapter(), new ToolCodecAdapter());
+        this(delegate, delegate instanceof AnthropicChatModel
+                ? new AnthropicMessageCodecAdapter() : new OpenAiMessageCodecAdapter());
+    }
+
+    /** Use explicit codec injection when the delegate is a wrapper or a custom provider. */
+    public ChatModelAdapter(dev.langchain4j.model.chat.ChatModel delegate,
+                            MessageCodec<ChatMessage, ChatResponse> messageCodec) {
+        this(delegate, messageCodec, new ToolCodecAdapter());
     }
 
     public ChatModelAdapter(dev.langchain4j.model.chat.ChatModel delegate,

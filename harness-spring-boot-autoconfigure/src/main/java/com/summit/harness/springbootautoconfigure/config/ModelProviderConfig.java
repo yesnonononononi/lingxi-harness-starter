@@ -7,6 +7,9 @@ import com.summit.core.model.ModelProviderRegistry;
 import com.summit.adapter.langchain4j.model.provider.OpenAiChatModelProvider;
 import com.summit.adapter.langchain4j.model.provider.OpenAiCompactContextModelProvider;
 import com.summit.adapter.langchain4j.model.provider.OpenAiStreamingModelProvider;
+import com.summit.adapter.langchain4j.model.provider.AnthropicChatModelProvider;
+import com.summit.adapter.langchain4j.model.provider.AnthropicStreamingModelProvider;
+import com.summit.adapter.langchain4j.model.provider.AnthropicCompactContextModelProvider;
 import com.summit.core.model.chat.ChatModel;
 import com.summit.core.model.streaming.StreamingChatModel;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -17,8 +20,7 @@ import org.springframework.context.annotation.Bean;
 import java.util.List;
 
 /**
- * Registers the three built-in model providers: default (reasoning), default-streaming (streaming),
- * default-compact (context compaction). Custom providers registered as beans are collected by the
+ * Registers OpenAI and Anthropic chat, streaming and compaction providers. Custom providers registered as beans are collected by the
  * registry automatically.
  *
  * <p>The providers are gated by bean <em>name</em>, not by type. They are contributed into collected
@@ -54,6 +56,24 @@ public class ModelProviderConfig {
         ModelProviderRegistry<StreamingChatModel> registry = new ModelProviderRegistry<>();
         providers.forEach(registry::register);
         return registry;
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(name = "anthropicChatModelProvider")
+    public ModelProvider<ChatModel> anthropicChatModelProvider() {
+        return new AnthropicChatModelProvider();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(name = "anthropicStreamingModelProvider")
+    public ModelProvider<StreamingChatModel> anthropicStreamingModelProvider() {
+        return new AnthropicStreamingModelProvider();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(name = "anthropicCompactContextModelProvider")
+    public ModelProvider<ChatModel> anthropicCompactContextModelProvider() {
+        return new AnthropicCompactContextModelProvider();
     }
 
     @Bean

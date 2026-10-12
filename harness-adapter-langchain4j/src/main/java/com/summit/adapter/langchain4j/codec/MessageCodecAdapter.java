@@ -16,14 +16,13 @@ import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.ChatResponseMetadata;
-import dev.langchain4j.model.openai.OpenAiTokenUsage;
 import dev.langchain4j.model.output.TokenUsage;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Bi-directional codec between core {@link Message} and langchain4j {@link ChatMessage}.
+ * Provider-neutral codec between core {@link Message} and langchain4j {@link ChatMessage}.
  */
 public class MessageCodecAdapter implements MessageCodec<ChatMessage, ChatResponse> {
 
@@ -37,6 +36,9 @@ public class MessageCodecAdapter implements MessageCodec<ChatMessage, ChatRespon
         }
         if (message instanceof AiMessageEntity aiMessage) {
             AiMessage.Builder builder = AiMessage.builder();
+            if (aiMessage.getAttributes() != null) {
+                builder.attributes(aiMessage.getAttributes());
+            }
             if (aiMessage.getText() != null) {
                 builder.text(aiMessage.getText());
             }
@@ -89,30 +91,11 @@ public class MessageCodecAdapter implements MessageCodec<ChatMessage, ChatRespon
         AiMessageEntity aiMessageEntity = AiMessageEntity.builder()
                 .text(aiMessage.text())
                 .thinking(aiMessage.thinking())
+                .attributes(aiMessage.attributes())
                 .toolCalls(toolCalls)
                 .build();
 
-        TokenUsageEntity tokenUsageEntity = TokenUsageEntity.empty();
-
-        TokenUsage tokenUsage = response.tokenUsage();
-
-        if (tokenUsage != null) {
-            if (tokenUsage instanceof OpenAiTokenUsage openAiTokenUsage) {
-                tokenUsageEntity = new TokenUsageEntity(orZero(openAiTokenUsage.totalTokenCount()),
-                        new TokenUsageEntity.InputTokens(orZero(openAiTokenUsage.inputTokenCount()),
-                                openAiTokenUsage.inputTokensDetails() == null ? 0
-                                        : orZero(openAiTokenUsage.inputTokensDetails().cachedTokens())),
-                        new TokenUsageEntity.OutputTokens(orZero(openAiTokenUsage.outputTokenCount()),
-                                openAiTokenUsage.outputTokensDetails() == null ? 0
-                                        : orZero(openAiTokenUsage.outputTokensDetails().reasoningTokens())));
-            } else {
-                tokenUsageEntity = TokenUsageEntity.of(
-                        orZero(tokenUsage.totalTokenCount()),
-                        orZero(tokenUsage.inputTokenCount()),
-                        orZero(tokenUsage.outputTokenCount())
-                );
-            }
-        }
+        TokenUsageEntity tokenUsageEntity = toTokenUsageEntity(response.tokenUsage());
 
         ChatResponseMetadata metadata = response.metadata();
 
@@ -142,7 +125,16 @@ public class MessageCodecAdapter implements MessageCodec<ChatMessage, ChatRespon
         return requests;
     }
 
-    private static int orZero(Integer value) {
+    /** Provider codecs override this conversion to preserve their usage details. */
+    protected TokenUsageEntity toTokenUsageEntity(TokenUsage usage) {
+        if (usage == null) {
+            return TokenUsageEntity.empty();
+        }
+        return TokenUsageEntity.of(orZero(usage.totalTokenCount()),
+                orZero(usage.inputTokenCount()), orZero(usage.outputTokenCount()));
+    }
+
+    protected static int orZero(Integer value) {
         return value == null ? 0 : value;
     }
 }

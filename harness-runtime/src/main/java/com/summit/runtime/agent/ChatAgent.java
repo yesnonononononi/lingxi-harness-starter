@@ -8,7 +8,7 @@ import com.summit.core.conf.McpConfig;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.core.mcp.McpToolScope;
-import com.summit.core.model.DefaultModelProviderNames;
+import com.summit.core.model.ModelProviderRouting;
 import com.summit.core.model.RequestModelInvokerFactory;
 import com.summit.core.runtime.ExecutionRuntime;
 import com.summit.core.runtime.RuntimeFactory;
@@ -167,9 +167,8 @@ public abstract class ChatAgent implements Agent {
 
     /**
      * Completes a request-level configuration the caller did not bind to a provider. Such a
-     * configuration carries no protocol of its own, so the framework derives one: the three
-     * attributes a model cannot be built without are required up front, and {@code returnThinking}
-     * selects the streaming protocol because thinking output is delivered as a stream.
+     * configuration carries no protocol of its own, so the model name selects the provider family.
+     * {@code returnThinking} retains the existing synchronous/streaming selection convention.
      */
     protected ModelConfig completeRequestConfig(@NonNull ModelConfig requestConfig) {
         if (requestConfig.getProvider() != null && !requestConfig.getProvider().isBlank()) {
@@ -179,8 +178,8 @@ public abstract class ChatAgent implements Agent {
         ensureNotBlank(requestConfig.getApiKey(), "apiKey");
         ensureNotBlank(requestConfig.getModelName(), "modelName");
         return requestConfig.toBuilder()
-                .provider(requestConfig.isReturnThinking()
-                        ? DefaultModelProviderNames.DEFAULT_STREAMING : DefaultModelProviderNames.DEFAULT)
+                .provider(ModelProviderRouting.chatProvider(null, requestConfig.getModelName(),
+                        requestConfig.isReturnThinking()))
                 .build();
     }
 

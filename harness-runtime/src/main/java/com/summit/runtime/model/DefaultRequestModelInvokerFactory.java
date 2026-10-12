@@ -81,6 +81,8 @@ public final class DefaultRequestModelInvokerFactory implements RequestModelInvo
                 config.getTimeout() + KEY_SEPARATOR +
                 config.getMaxTokens() + KEY_SEPARATOR +
                 config.getReasoningEffort() + KEY_SEPARATOR +
+                config.getThinkingType() + KEY_SEPARATOR +
+                config.getThinkingBudgetTokens() + KEY_SEPARATOR +
                 config.isReturnThinking() + KEY_SEPARATOR +
                 config.isSendThinking();
     }

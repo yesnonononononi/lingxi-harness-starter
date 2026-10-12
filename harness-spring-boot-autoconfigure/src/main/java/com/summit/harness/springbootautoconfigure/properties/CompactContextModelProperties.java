@@ -19,6 +19,8 @@ public class CompactContextModelProperties {
     private int maxTokens = 32768;
     /** none | minimal | low | medium | high | xhigh | max */
     private String reasoningEffort = "none";
+    private String thinkingType;
+    private Integer thinkingBudgetTokens;
     private boolean returnThinking = false;
     private boolean sendThinking = false;
     private Duration timeout = Duration.ofSeconds(60);

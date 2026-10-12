@@ -18,6 +18,10 @@ public class ModelConfig {
     private Duration timeout;
     private Integer maxTokens;
     private String reasoningEffort;
+    /** Optional Anthropic thinking mode; inferred from the model name and effort when absent. */
+    private String thinkingType;
+    /** Optional token budget for Anthropic manual thinking. */
+    private Integer thinkingBudgetTokens;
     private boolean returnThinking;
     private boolean sendThinking;
 }

@@ -4,6 +4,7 @@ import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProp
 import com.summit.harness.springbootautoconfigure.properties.CompactContextModelProperties;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.model.ModelProviderRegistry;
+import com.summit.core.model.ModelProviderRouting;
 import com.summit.core.model.RequestModelInvokerFactory;
 import com.summit.runtime.model.DefaultRequestModelInvokerFactory;
 import com.summit.adapter.langchain4j.codec.TokenEstimatorAdapter;
@@ -34,8 +35,11 @@ public class ModelConfiguration {
                 .sendThinking(agentChatProperties.isSendThinking())
                 .maxTokens(agentChatProperties.getMaxTokens())
                 .reasoningEffort(agentChatProperties.getReasoningEffort())
+                .thinkingType(agentChatProperties.getThinkingType())
+                .thinkingBudgetTokens(agentChatProperties.getThinkingBudgetTokens())
                 .returnThinking(agentChatProperties.isReturnThinking())
-                .provider(agentChatProperties.getProvider())
+                .provider(ModelProviderRouting.chatProvider(agentChatProperties.getProvider(),
+                        agentChatProperties.getModelName(), false))
                 .build();
     }
 
@@ -53,8 +57,10 @@ public class ModelConfiguration {
                     .sendThinking(chat.isSendThinking())
                     .maxTokens(chat.getMaxTokens())
                     .reasoningEffort(chat.getReasoningEffort())
+                    .thinkingType(chat.getThinkingType())
+                    .thinkingBudgetTokens(chat.getThinkingBudgetTokens())
                     .returnThinking(chat.isReturnThinking())
-                    .provider(chat.getProvider())
+                    .provider(ModelProviderRouting.compactProvider(chat.getProvider(), chat.getModelName()))
                     .build();
         }
         return ModelConfig.builder()
@@ -65,9 +71,10 @@ public class ModelConfiguration {
                 .sendThinking(compact.isSendThinking())
                 .maxTokens(compact.getMaxTokens())
                 .reasoningEffort(compact.getReasoningEffort())
+                .thinkingType(compact.getThinkingType())
+                .thinkingBudgetTokens(compact.getThinkingBudgetTokens())
                 .returnThinking(compact.isReturnThinking())
-                .provider(compact.getProvider() == null || compact.getProvider().isBlank()
-                        ? "default-compact" : compact.getProvider())
+                .provider(ModelProviderRouting.compactProvider(compact.getProvider(), compact.getModelName()))
                 .build();
     }
 

@@ -9,14 +9,16 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "lingxi.agent.model.conf.chat")
 public class AgentChatProperties {
     /** Provider used when an AgentRequest does not select one explicitly. */
-    private String provider = "default";
+    private String provider;
     private String baseUrl;
     private  String apiKey;
     private String modelName;
     private Integer maxIterations = 50;
     private int maxTokens = 102400;
-    // `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` a
+    /** Reasoning effort interpreted by the selected provider. */
     private String reasoningEffort = "low";
+    private String thinkingType;
+    private Integer thinkingBudgetTokens;
     private boolean returnThinking = true;
     private boolean sendThinking = true;
     private Duration timeout = Duration.ofSeconds(60);

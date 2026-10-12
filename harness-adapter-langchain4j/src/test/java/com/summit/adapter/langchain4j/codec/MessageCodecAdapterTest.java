@@ -52,7 +52,7 @@ class MessageCodecAdapterTest {
     }
 
     private void assertUsage(TokenUsage usage, int total, int input, int output, int cache, int reasoning) {
-        TokenUsageEntity converted = new MessageCodecAdapter().toChatResponseEntity(ChatResponse.builder()
+        TokenUsageEntity converted = new OpenAiMessageCodecAdapter().toChatResponseEntity(ChatResponse.builder()
                 .aiMessage(AiMessage.from("answer"))
                 .metadata(ChatResponseMetadata.builder().tokenUsage(usage).build()).build()).getTokenUsage();
         assertEquals(total, converted.getTotalTokens());
