@@ -13,8 +13,17 @@ public class ListMcpToolsProperties {
     /** Whether the entry is registered at all. */
     private boolean enabled = true;
 
-    /** Tools returned by one listing; the rest are counted but withheld. */
-    private int maxTools = 50;
+    /**
+     * Largest window one listing may read. A server holding more tools than this is listed in
+     * successive windows; the cap keeps a single call from flooding the context.
+     */
+    private int maxWindow = 50;
+
+    /**
+     * Window one listing reads when the caller names no range. Smaller than {@link #maxWindow} so
+     * the common "just show me the inventory" call stays cheap.
+     */
+    private int defaultWindow = 20;
 
     /** How long one listing may run before the runtime reports a timeout. */
     private Duration timeout = Duration.ofSeconds(10);

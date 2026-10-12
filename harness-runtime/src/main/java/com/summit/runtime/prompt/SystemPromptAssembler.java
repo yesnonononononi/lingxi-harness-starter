@@ -115,7 +115,9 @@ public class SystemPromptAssembler implements PromptAssembler {
                         Their parameter schemas are deliberately left out of this prompt. Call `list_mcp_tools` with
                         a server name to list that server's tools (name and description), or `search_tool` with a
                         keyword to get one tool's schema directly. A tool found either way becomes callable from your
-                        next turn on.
+                        next turn on. A server holding more tools than one listing shows is listed in successive
+                        windows: pass `start` and `end` to read a later one, and keep going while the result reports
+                        `hasMore`.
                         """);
         for (McpResume mcp : mcps) {
             stringBuilder.append("\n- ").append(mcp.name())
