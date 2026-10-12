@@ -26,6 +26,7 @@ public interface ConversationManager {
      */
     void startConversation(Execution execution, Workspace workspace, McpToolScope mcpToolScope);
 
+    /** Commits round messages; the runtime accounts for returned model usage before this call. */
     void addMessage(LoopMessages loopMessages);
 
     List<Message> messages(Execution execution);

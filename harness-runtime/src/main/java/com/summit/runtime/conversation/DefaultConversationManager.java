@@ -108,8 +108,6 @@ public class DefaultConversationManager implements ConversationManager {
 
         execution.setAiMessage(aiMessage);
 
-        execution.getTokenUsage().add(response.getTokenUsage());
-
         if (conversationTranscriptSink != null) {
             conversationTranscriptSink.appendRound(execution.getId(), aiMessage, List.copyOf(toolMessages),
                     response.getResponseId(), execution.eventMetaData());

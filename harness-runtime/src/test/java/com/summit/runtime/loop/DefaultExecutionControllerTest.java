@@ -239,7 +239,8 @@ class DefaultExecutionControllerTest {
 
         Execution withUsage = Execution.builder().agentRequest(AgentRequest.builder().build())
                 .id("with-usage").executionState(ExecutionState.SUSPENDED)
-                .tokenUsage(TokenUsageEntity.of(150, 100, 50)).build();
+                .tokenUsage(new TokenUsageEntity(150, new TokenUsageEntity.InputTokens(100, 60),
+                        new TokenUsageEntity.OutputTokens(50, 20))).build();
         controller.beginApproval(withUsage);
         controller.failApproval(withUsage, "command result uncertain");
         repository.commit();
@@ -249,6 +250,16 @@ class DefaultExecutionControllerTest {
         assertEquals(100, failed.inputTokenCount());
         assertEquals(50, failed.outputTokenCount());
         assertEquals(150, failed.totalTokenCount());
+        assertEquals(60, failed.cacheTokens());
+        assertEquals(20, failed.reasoningTokens());
+
+        Execution cancelled = Execution.builder().agentRequest(AgentRequest.builder().build())
+                .id("cancelled-with-usage").executionState(ExecutionState.SUSPENDED)
+                .tokenUsage(withUsage.getTokenUsage()).build();
+        controller.beginApproval(cancelled);
+        controller.finishApproval(cancelled, ApprovalOutcome.CANCELLED);
+        repository.commit();
+        assertEquals(failed, usage.get(2));
     }
 
     private static final class DeferredRepository implements ExecutionRepository {

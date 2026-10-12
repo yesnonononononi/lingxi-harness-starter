@@ -64,7 +64,8 @@ class ExecutionJsonTest {
         Execution original = Execution.builder().id("exec-1").agentId("agent-1")
                 .executionState(ExecutionState.SUSPENDED).createAt(timestamp).startAt(timestamp)
                 .completedAt(timestamp).messages(messages).aiMessage(ai)
-                .tokenUsage(TokenUsageEntity.of(12, 8, 4)).thinking(true).streaming(true)
+                .tokenUsage(new TokenUsageEntity(12, new TokenUsageEntity.InputTokens(8, 3),
+                        new TokenUsageEntity.OutputTokens(4, 2))).thinking(true).streaming(true)
                 .maxSteps(9).errorMessage("example")
                 .agentRequest(AgentRequest.builder().executionId("exec-1").messages(messages)
                         .systemPrompt("system").task(Collections.singletonList("task")).toolList(List.of("search"))
@@ -97,6 +98,13 @@ class ExecutionJsonTest {
         assertEquals(Duration.ofMillis(1250), restored.getAgentRequest().getModelConfig().getTimeout());
         assertEquals(ai.getToolCalls(), restored.getAiMessage().getToolCalls());
         assertEquals(12, restored.getTokenUsage().getTotalTokens());
+        assertEquals(new TokenUsageEntity.InputTokens(8, 3), restored.getTokenUsage().getInputTokens());
+        assertEquals(new TokenUsageEntity.OutputTokens(4, 2), restored.getTokenUsage().getOutputTokens());
+        restored.getTokenUsage().add(new TokenUsageEntity(5, new TokenUsageEntity.InputTokens(3, 1),
+                new TokenUsageEntity.OutputTokens(2, 1)));
+        assertEquals(17, restored.getTokenUsage().getTotalTokens());
+        assertEquals(new TokenUsageEntity.InputTokens(11, 4), restored.getTokenUsage().getInputTokens());
+        assertEquals(new TokenUsageEntity.OutputTokens(6, 3), restored.getTokenUsage().getOutputTokens());
     }
 
     @Test

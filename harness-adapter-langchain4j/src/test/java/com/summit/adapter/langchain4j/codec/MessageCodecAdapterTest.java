@@ -4,12 +4,15 @@ import com.summit.core.agent.Image;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.message.UserMessageEntity;
+import com.summit.core.conversation.message.TokenUsageEntity;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.ChatResponseMetadata;
+import dev.langchain4j.model.openai.OpenAiTokenUsage;
+import dev.langchain4j.model.output.TokenUsage;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -18,6 +21,46 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 class MessageCodecAdapterTest {
+
+    @Test
+    void preservesOpenAiUsageDetailsWithoutAddingSubcountsToTotals() {
+        assertUsage(OpenAiTokenUsage.builder().inputTokenCount(100).outputTokenCount(30).totalTokenCount(130)
+                .inputTokensDetails(OpenAiTokenUsage.InputTokensDetails.builder().cachedTokens(60).build())
+                .outputTokensDetails(OpenAiTokenUsage.OutputTokensDetails.builder().reasoningTokens(12).build())
+                .build(), 130, 100, 30, 60, 12);
+    }
+
+    @Test
+    void acceptsOpenAiUsageWithoutOptionalDetails() {
+        assertUsage(OpenAiTokenUsage.builder().inputTokenCount(100).outputTokenCount(30).totalTokenCount(130)
+                .build(), 130, 100, 30, 0, 0);
+    }
+
+    @Test
+    void acceptsNullOpenAiCountsAndNullDetailCounts() {
+        assertUsage(OpenAiTokenUsage.builder()
+                .inputTokensDetails(OpenAiTokenUsage.InputTokensDetails.builder().build())
+                .outputTokensDetails(OpenAiTokenUsage.OutputTokensDetails.builder().build())
+                .build(), 0, 0, 0, 0, 0);
+    }
+
+    @Test
+    void acceptsGenericAndMissingUsage() {
+        assertUsage(new TokenUsage(100, 30, 130), 130, 100, 30, 0, 0);
+        assertUsage(new TokenUsage(null, null, null), 0, 0, 0, 0, 0);
+        assertUsage(null, 0, 0, 0, 0, 0);
+    }
+
+    private void assertUsage(TokenUsage usage, int total, int input, int output, int cache, int reasoning) {
+        TokenUsageEntity converted = new MessageCodecAdapter().toChatResponseEntity(ChatResponse.builder()
+                .aiMessage(AiMessage.from("answer"))
+                .metadata(ChatResponseMetadata.builder().tokenUsage(usage).build()).build()).getTokenUsage();
+        assertEquals(total, converted.getTotalTokens());
+        assertEquals(input, converted.getInputTokens().getInputTokens());
+        assertEquals(output, converted.getOutputTokens().getOutputTokens());
+        assertEquals(cache, converted.getInputTokens().getCacheHitTokens());
+        assertEquals(reasoning, converted.getOutputTokens().getReasoningTokens());
+    }
 
     @Test
     void assignsRequestIndicesFromModelListOrderAndPreservesCallIdentity() {

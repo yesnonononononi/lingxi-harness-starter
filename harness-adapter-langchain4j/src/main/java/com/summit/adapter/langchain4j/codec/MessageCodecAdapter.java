@@ -16,6 +16,8 @@ import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.ChatResponseMetadata;
+import dev.langchain4j.model.openai.OpenAiTokenUsage;
+import dev.langchain4j.model.output.TokenUsage;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -90,13 +92,26 @@ public class MessageCodecAdapter implements MessageCodec<ChatMessage, ChatRespon
                 .toolCalls(toolCalls)
                 .build();
 
-        TokenUsageEntity tokenUsage = TokenUsageEntity.empty();
-        if (response.tokenUsage() != null) {
-            tokenUsage = TokenUsageEntity.of(
-                    orZero(response.tokenUsage().totalTokenCount()),
-                    orZero(response.tokenUsage().inputTokenCount()),
-                    orZero(response.tokenUsage().outputTokenCount())
-            );
+        TokenUsageEntity tokenUsageEntity = TokenUsageEntity.empty();
+
+        TokenUsage tokenUsage = response.tokenUsage();
+
+        if (tokenUsage != null) {
+            if (tokenUsage instanceof OpenAiTokenUsage openAiTokenUsage) {
+                tokenUsageEntity = new TokenUsageEntity(orZero(openAiTokenUsage.totalTokenCount()),
+                        new TokenUsageEntity.InputTokens(orZero(openAiTokenUsage.inputTokenCount()),
+                                openAiTokenUsage.inputTokensDetails() == null ? 0
+                                        : orZero(openAiTokenUsage.inputTokensDetails().cachedTokens())),
+                        new TokenUsageEntity.OutputTokens(orZero(openAiTokenUsage.outputTokenCount()),
+                                openAiTokenUsage.outputTokensDetails() == null ? 0
+                                        : orZero(openAiTokenUsage.outputTokensDetails().reasoningTokens())));
+            } else {
+                tokenUsageEntity = TokenUsageEntity.of(
+                        orZero(tokenUsage.totalTokenCount()),
+                        orZero(tokenUsage.inputTokenCount()),
+                        orZero(tokenUsage.outputTokenCount())
+                );
+            }
         }
 
         ChatResponseMetadata metadata = response.metadata();
@@ -110,7 +125,7 @@ public class MessageCodecAdapter implements MessageCodec<ChatMessage, ChatRespon
 
         return ChatResponseEntity.builder()
                 .aiMessageEntity(aiMessageEntity)
-                .tokenUsage(tokenUsage)
+                .tokenUsage(tokenUsageEntity)
                 .meta(meta)
                 .build();
     }

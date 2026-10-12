@@ -17,6 +17,8 @@ import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.conversation.*;
 import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.*;
 import java.nio.file.Path;
@@ -153,11 +155,18 @@ class LoopRegressionTest {
                                              LoopInterceptorProcessor interceptorProcessor,
                                              RuntimeListener listener, RuntimeLifeStyleManager lifecycle,
                                              RuntimeBoundaryChecker checker) {
-        RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(listener));
         ToolExecutionManager tools = new ToolExecutionManager() {
             public List<ToolExecuteResult> execute(ToolExecuteCommand command) { return results; }
             public ToolRegistry toolRegistry() { return new ToolRegistry(List.of()); }
         };
+        return runtimeWithTools(invoker, tools, interceptorProcessor, listener, lifecycle, checker);
+    }
+
+    private RuntimeProcessorTemplate runtimeWithTools(ModelInvoker invoker, ToolExecutionManager tools,
+                                             LoopInterceptorProcessor interceptorProcessor,
+                                             RuntimeListener listener, RuntimeLifeStyleManager lifecycle,
+                                             RuntimeBoundaryChecker checker) {
+        RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(listener));
         RuntimeLifeStyleManager notifications = lifecycle == null ? new DefaultRuntimeLifeStyleManager(events) : lifecycle;
         return new RuntimeProcessorTemplate(RuntimeContext.builder().conversationManager(conversations)
                 .executionRepository(repository)
@@ -176,6 +185,7 @@ class LoopRegressionTest {
         AtomicInteger aiEvents = new AtomicInteger();
         AtomicInteger runEnds = new AtomicInteger();
         AtomicReference<LoopMessages> observedRound = new AtomicReference<>();
+        AtomicReference<TokenInfo> completedUsage = new AtomicReference<>();
         LoopInterceptor interceptor = new LoopInterceptor() {
             public int order() { return 0; }
             public InterceptorResult onBeforeComplete(LoopContext context) {
@@ -189,10 +199,13 @@ class LoopRegressionTest {
                 assertEquals(round, aiEvents.get());
                 assertEquals(round, transcripts.get());
                 assertEquals(round * 3, current.getTokenUsage().getTotalTokens());
+                assertEquals(round, current.getTokenUsage().getInputTokens().getCacheHitTokens());
+                assertEquals(round, current.getTokenUsage().getOutputTokens().getReasoningTokens());
                 assertNull(messages.getToolExecuteResults());
                 Execution saved = repository.findById(current.getId()).orElseThrow();
                 assertEquals(current.getAiMessage().getText(), saved.getAiMessage().getText());
                 assertEquals(current.getTokenUsage().getTotalTokens(), saved.getTokenUsage().getTotalTokens());
+                assertEquals(TokenInfo.from(current.getTokenUsage()), TokenInfo.from(saved.getTokenUsage()));
                 return round == 1 ? InterceptorResult.of(LoopResult.suspended("waiting for child"))
                         : InterceptorResult.NONE;
             }
@@ -207,9 +220,13 @@ class LoopRegressionTest {
         };
         RuntimeListener listener = new RuntimeListener() {
             public void onAiMessage(AgentMessageEvent event) { aiEvents.incrementAndGet(); }
+            @Override
+            public void onExecutionCompleted(ExecutionCompleteEvent event) {
+                completedUsage.set(event.getTokenInfo());
+            }
         };
 
-        runtime(command -> response(false), List.of(), interceptor, 2, listener).execute(execution);
+        runtime(command -> detailedResponse(), List.of(), interceptor, 2, listener).execute(execution);
 
         assertEquals(ExecutionState.SUSPENDED, execution.getExecutionState());
         assertEquals(0, runEnds.get());
@@ -219,10 +236,11 @@ class LoopRegressionTest {
         assertEquals(ExecutionState.SUSPENDED, restored.getExecutionState());
         assertEquals(1, restored.getModelAttempts());
         assertEquals(3, restored.getTokenUsage().getTotalTokens());
+        assertEquals(new TokenInfo(2, 1, 3, 1, 1), TokenInfo.from(restored.getTokenUsage()));
         runtime(command -> {
             assertTrue(command.chatRequest().getMessages().stream()
                     .anyMatch(message -> message instanceof AiMessageEntity ai && "answer".equals(ai.getText())));
-            ChatResponseEntity next = response(false);
+            ChatResponseEntity next = detailedResponse();
             next.getAiMessageEntity().setText("child result accepted");
             return next;
         }, List.of(), interceptor, 2, listener).execute(restored);
@@ -231,8 +249,108 @@ class LoopRegressionTest {
         assertEquals(2, restored.getModelAttempts());
         assertEquals(2, transcripts.get(), "resume must not recommit the suspended reply");
         assertEquals(6, restored.getTokenUsage().getTotalTokens());
+        assertEquals(new TokenInfo(4, 2, 6, 2, 2), completedUsage.get());
         assertEquals(1, runEnds.get());
         assertNull(observedRound.get().getResponse());
+    }
+
+    private ChatResponseEntity detailedResponse() {
+        ChatResponseEntity response = response(false);
+        response.setTokenUsage(new TokenUsageEntity(3, new TokenUsageEntity.InputTokens(2, 1),
+                new TokenUsageEntity.OutputTokens(1, 1)));
+        return response;
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"after-model", "before-tools", "after-tools"})
+    void uncommittedCancellationStillReportsReturnedModelUsage(String stage) {
+        Execution execution = execution();
+        AtomicReference<TokenInfo> cancelledUsage = new AtomicReference<>();
+        LoopInterceptor interceptor = new LoopInterceptor() {
+            public int order() { return 0; }
+            private InterceptorResult stopAt(String current) {
+                return stage.equals(current) ? InterceptorResult.of(LoopResult.cancelled("stop"))
+                        : InterceptorResult.NONE;
+            }
+            public InterceptorResult onAfterModelInvoke(LoopContext context, ChatResponseEntity response) {
+                return stopAt("after-model");
+            }
+            public InterceptorResult onBeforeToolCall(LoopContext context) { return stopAt("before-tools"); }
+            public InterceptorResult onAfterToolCall(LoopContext context, List<ToolExecuteResult> results) {
+                return stopAt("after-tools");
+            }
+        };
+        runtime(command -> {
+            ChatResponseEntity response = detailedResponse();
+            response.getAiMessageEntity().setToolCalls(List.of(new ToolCallRequest("c", "test", 0, "{}")));
+            return response;
+        }, List.of(ToolExecuteResult.success("ok")), interceptor, 1, new RuntimeListener() {
+            @Override public void onExecutionCancelled(ExecutionCancelledEvent event) {
+                cancelledUsage.set(event.getTokenInfo());
+            }
+        }).execute(execution);
+
+        assertEquals(ExecutionState.CANCELLED, execution.getExecutionState());
+        assertEquals(0, transcripts.get());
+        assertFalse(execution.getMessages().stream().anyMatch(AiMessageEntity.class::isInstance));
+        assertEquals(new TokenInfo(2, 1, 3, 1, 1), cancelledUsage.get());
+    }
+
+    @Test
+    void uncommittedSuspensionPersistsUsageAndResumeCountsEachResponseOnce() {
+        Execution execution = execution();
+        AtomicInteger rounds = new AtomicInteger();
+        AtomicReference<TokenInfo> completedUsage = new AtomicReference<>();
+        LoopInterceptor interceptor = new LoopInterceptor() {
+            public int order() { return 0; }
+            public InterceptorResult onAfterModelInvoke(LoopContext context, ChatResponseEntity response) {
+                return rounds.getAndIncrement() == 0 ? InterceptorResult.of(LoopResult.suspended("wait"))
+                        : InterceptorResult.NONE;
+            }
+        };
+        RuntimeListener listener = new RuntimeListener() {
+            @Override public void onExecutionCompleted(ExecutionCompleteEvent event) {
+                completedUsage.set(event.getTokenInfo());
+            }
+        };
+        runtime(command -> detailedResponse(), List.of(), interceptor, 2, listener).execute(execution);
+        assertEquals(ExecutionState.SUSPENDED, execution.getExecutionState());
+        assertEquals(0, transcripts.get());
+        Execution restored = repository.findById(execution.getId()).orElseThrow();
+        assertEquals(new TokenInfo(2, 1, 3, 1, 1), TokenInfo.from(restored.getTokenUsage()));
+        assertFalse(restored.getMessages().stream().anyMatch(AiMessageEntity.class::isInstance));
+
+        runtime(command -> detailedResponse(), List.of(), interceptor, 2, listener).execute(restored);
+        assertEquals(ExecutionState.COMPLETED, restored.getExecutionState());
+        assertEquals(1, transcripts.get());
+        assertEquals(new TokenInfo(4, 2, 6, 2, 2), completedUsage.get());
+    }
+
+    @Test
+    void toolFailureReportsReturnedModelUsageWithoutCommittingMessages() {
+        Execution execution = execution();
+        IllegalStateException failure = new IllegalStateException("tool failed");
+        AtomicReference<TokenInfo> failedUsage = new AtomicReference<>();
+        ToolExecutionManager tools = new ToolExecutionManager() {
+            public List<ToolExecuteResult> execute(ToolExecuteCommand command) { throw failure; }
+            public ToolRegistry toolRegistry() { return new ToolRegistry(List.of()); }
+        };
+        RuntimeProcessorTemplate runtime = runtimeWithTools(command -> {
+            ChatResponseEntity response = detailedResponse();
+            response.getAiMessageEntity().setToolCalls(List.of(new ToolCallRequest("c", "test", 0, "{}")));
+            return response;
+        }, tools, new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor())),
+                new RuntimeListener() {
+                    @Override public void onExecutionError(ExecutionErrorEvent event) {
+                        failedUsage.set(event.getTokenInfo());
+                    }
+                }, null, boundaryChecker(1));
+
+        assertSame(failure, assertThrows(IllegalStateException.class, () -> runtime.execute(execution)));
+        assertEquals(ExecutionState.FAILED, execution.getExecutionState());
+        assertEquals(0, transcripts.get());
+        assertFalse(execution.getMessages().stream().anyMatch(AiMessageEntity.class::isInstance));
+        assertEquals(new TokenInfo(2, 1, 3, 1, 1), failedUsage.get());
     }
 
     @Test

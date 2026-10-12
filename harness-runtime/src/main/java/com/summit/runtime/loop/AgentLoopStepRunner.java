@@ -133,6 +133,8 @@ public class AgentLoopStepRunner {
                 return RoundOutcome.finish(toLoopResult(e));
             }
             messages.response(response);
+            // Returned usage is incurred even when this round is never committed to the conversation.
+            execution.getTokenUsage().add(response.getTokenUsage());
 
             halt = haltOf(interceptor.onAfterModelInvoke(loopContext, response));
             if (halt != null) return RoundOutcome.finish(halt);

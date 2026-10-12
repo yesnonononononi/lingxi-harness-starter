@@ -10,17 +10,22 @@ import lombok.Builder;
  * A {@code null} count means "not collected" and is deliberately distinct from a real zero.</p>
  */
 @Builder
-public record TokenInfo(Integer inputTokenCount, Integer outputTokenCount, Integer totalTokenCount) {
+public record TokenInfo(Integer inputTokenCount, Integer outputTokenCount, Integer totalTokenCount,
+                        Integer reasoningTokens, Integer cacheTokens) {
 
     /** Projects an execution's accumulated usage; missing usage stays {@code null} instead of zero. */
     public static TokenInfo from(TokenUsageEntity usage) {
         if (usage == null) {
             return null;
         }
+        TokenUsageEntity.InputTokens inputTokens = usage.getInputTokens();
+        TokenUsageEntity.OutputTokens outputTokens = usage.getOutputTokens();
         return TokenInfo.builder()
-                .inputTokenCount(usage.getInputTokens())
-                .outputTokenCount(usage.getOutputTokens())
+                .inputTokenCount(inputTokens == null ? null : inputTokens.getInputTokens())
+                .outputTokenCount(outputTokens == null ? null : outputTokens.getOutputTokens())
                 .totalTokenCount(usage.getTotalTokens())
+                .reasoningTokens(outputTokens == null ? null : outputTokens.getReasoningTokens())
+                .cacheTokens(inputTokens == null ? null : inputTokens.getCacheHitTokens())
                 .build();
     }
 }
