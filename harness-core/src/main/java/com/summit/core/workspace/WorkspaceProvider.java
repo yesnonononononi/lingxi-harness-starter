@@ -4,7 +4,7 @@ import com.summit.core.runtime.workspace.Workspace;
 
 import java.util.List;
 
-/** Runtime backend SPI for local, Docker, Kubernetes, SSH, or other workspace kinds. */
+/** Runtime backend SPI for local or custom execution environments. */
 public interface WorkspaceProvider {
     String type();
 

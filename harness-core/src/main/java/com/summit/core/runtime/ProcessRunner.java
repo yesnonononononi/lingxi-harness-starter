@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Shared process-running logic used by {@link WorkspaceBridge} implementations
  * that ultimately spawn a host-side process (the local bridge directly, a
- * sandbox bridge via its sandbox CLI such as {@code docker exec}).
+ * sandbox bridge via its sandbox CLI).
  *
  * <p>Owns the output-buffering budget, the timeout kill switch and the
  * combined stdout/stderr decoding so every bridge behaves identically.</p>

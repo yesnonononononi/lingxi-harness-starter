@@ -25,7 +25,7 @@ public record WorkspaceRef(String id) implements Serializable {
      * Derives the identity of the workspace that {@code naturalKey} describes.
      *
      * <p>The result is a pure function of its inputs, so a provider natural key
-     * such as {@code "docker|/home/me/project"} always yields the same ref. That
+     * such as {@code "local|/home/me/project"} always yields the same ref. That
      * is what lets a recreated process re-adopt the resource an earlier run
      * provisioned instead of creating a second one.</p>
      *

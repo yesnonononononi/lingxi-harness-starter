@@ -81,7 +81,7 @@ AgentRequest request = AgentRequest.builder()
 
 The local directory must already exist. The same provider, scope, and provider identity configuration reuses a managed workspace; finishing a request does not destroy it automatically. Call `WorkspaceManager.destroy(ref)` when cleanup is needed. The local provider uses `ATTACHED` ownership and is not responsible for deleting user directories.
 
-Docker is an optional module: add the `harness-sandbox-docker` dependency and pass a `DockerWorkspaceSpec` explicitly. See the [Docker README](harness-sandbox-docker/src/main/docker/README.md) for image builds. To customize a remote environment, implement `WorkspaceProvider` and return your own `Workspace` and `WorkspaceBridge`.
+To customize an execution environment, implement `WorkspaceProvider` and return your own `Workspace` and `WorkspaceBridge`. The framework currently ships only the local provider, which runs commands on the host without OS sandbox isolation.
 
 `allowOutsideWorkspace` defaults to `false` and is passed to tools with the request. Custom tools should use the workspace path resolution, `encloses` checks, and the bridge; when a tool uses host file APIs or starts processes directly, the framework does not automatically convert those operations into workspace operations.
 
@@ -342,7 +342,7 @@ AgentRequest request = AgentRequest.builder()
         .build();
 ```
 
-The default `SkillResolver` depends on CommonMark; when that parsing dependency is missing, ordinary requests can still start, while Skills requests need a custom resolver/loader or the dependency added. `read_skill` is enabled by default in the kernel tools module and can be disabled via `lingxi.agent.runtime.tool.read-skill.enabled`. The default reader accesses the Skills host directory, does not borrow the Docker workspace, and does not execute Skill scripts automatically.
+The default `SkillResolver` depends on CommonMark; when that parsing dependency is missing, ordinary requests can still start, while Skills requests need a custom resolver/loader or the dependency added. `read_skill` is enabled by default in the kernel tools module and can be disabled via `lingxi.agent.runtime.tool.read-skill.enabled`. The default reader accesses the Skills host directory independently of the request workspace and does not execute Skill scripts automatically.
 
 ## Context Compaction
 

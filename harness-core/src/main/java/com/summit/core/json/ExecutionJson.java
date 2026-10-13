@@ -16,7 +16,7 @@ public final class ExecutionJson {
 
     /**
      * Supports built-in messages, time values and BasicWorkspaceSpec. Register other workspace
-     * implementations with stable names, e.g. new NamedType(DockerWorkspaceSpec.class, "docker").
+     * implementations with stable names through the workspaceTypes parameter.
      * Runtime attributes must contain JSON-compatible values; arbitrary Java object identity is
      * not preserved. Snapshots include request model credentials and belong in trusted storage.
      * No global default typing is enabled.

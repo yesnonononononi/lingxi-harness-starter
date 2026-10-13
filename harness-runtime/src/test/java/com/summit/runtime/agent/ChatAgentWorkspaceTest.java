@@ -58,10 +58,10 @@ class ChatAgentWorkspaceTest {
     }
 
     @Test
-    void explicitDockerSpecStillSelectsItsProviderWithoutRewritingConfiguration() {
+    void explicitCustomSpecStillSelectsItsProviderWithoutRewritingConfiguration() {
         AtomicReference<WorkspaceSpec> received = new AtomicReference<>();
-        WorkspaceProvider docker = new WorkspaceProvider() {
-            public String type() { return "docker"; }
+        WorkspaceProvider custom = new WorkspaceProvider() {
+            public String type() { return "custom"; }
             public WorkspaceRecord provision(WorkspaceRef ref, WorkspaceSpec spec) {
                 received.set(spec);
                 return new WorkspaceRecord(ref, spec, Map.of(), ResourceOwnership.ATTACHED);
@@ -71,10 +71,10 @@ class ChatAgentWorkspaceTest {
             }
             public WorkspaceStatus inspect(WorkspaceRecord record) { return WorkspaceStatus.ready(); }
         };
-        WorkspaceSpec spec = new BasicWorkspaceSpec("docker", "/workspace", "tenant",
-                Map.of("image", "custom-image"));
+        WorkspaceSpec spec = new BasicWorkspaceSpec("custom", "/workspace", "tenant",
+                Map.of("profile", "custom-profile"));
 
-        agent(new LocalWorkspaceProvider(), docker).resolveWorkspace(
+        agent(new LocalWorkspaceProvider(), custom).resolveWorkspace(
                 AgentRequest.builder().workspaceSpec(spec).build());
 
         assertSame(spec, received.get());

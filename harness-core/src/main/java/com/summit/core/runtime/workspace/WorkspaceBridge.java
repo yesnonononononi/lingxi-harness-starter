@@ -13,8 +13,8 @@ import java.util.List;
  * (paths, environment, boundary enforcement); a {@code WorkspaceBridge}
  * describes <em>how</em> IO and commands physically reach that place. The
  * default bridge operates on the local machine; alternative implementations
- * can route the very same operations into an isolated sandbox such as a
- * Docker container, without tool executors or the framework knowing.</p>
+ * can route the very same operations into an isolated execution environment
+ * without tool executors or the framework knowing.</p>
  *
  * <p>All {@link Path} arguments are workspace paths already resolved by
  * {@link Workspace#resolve(String)}; each bridge interprets them within its
