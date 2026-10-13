@@ -6,7 +6,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Locale;
 
-/** Stable, persistence-friendly reference to a workspace. */
+/** Stable workspace identity independent of resource registration. */
 public record WorkspaceRef(String id) implements Serializable {
     /** Number of digest bytes rendered into a derived id (two hex characters each). */
     private static final int DIGEST_BYTES = 8;
@@ -26,8 +26,7 @@ public record WorkspaceRef(String id) implements Serializable {
      *
      * <p>The result is a pure function of its inputs, so a provider natural key
      * such as {@code "local|/home/me/project"} always yields the same ref. That
-     * is what lets a recreated process re-adopt the resource an earlier run
-     * provisioned instead of creating a second one.</p>
+     * keeps the identity stable when a request resolves the same environment again.</p>
      *
      * @param provider   provider kind, used as the id namespace
      * @param naturalKey provider-supplied natural key of the desired workspace

@@ -48,7 +48,9 @@ Execution execution = agent.execute(AgentRequest.builder()
 
 To select another directory, set `.workspaceSpec(new BasicWorkspaceSpec("local", "your project directory"))`
 with `com.summit.core.workspace.BasicWorkspaceSpec`. The built-in local provider runs on the host
-without OS sandbox isolation. Other execution environments require a custom `WorkspaceProvider`.
+without OS sandbox isolation. Other execution environments require a custom `WorkspaceProvider`
+whose `resolve(WorkspaceSpec)` returns a `Workspace`. Resource persistence, reuse and cleanup belong
+to that provider; the framework only routes requests and does not destroy its resources.
 
 No tools are enabled by default. Enable only the capabilities the application needs:
 

@@ -9,7 +9,7 @@ import com.summit.core.runtime.RuntimeFactory;
 import com.summit.core.runtime.loop.ExecutionControl;
 import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
-import com.summit.core.workspace.WorkspaceManager;
+import com.summit.core.workspace.WorkspaceResolver;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.agent.ChatAgent;
 import com.summit.runtime.agent.DefaultChatAgent;
@@ -28,7 +28,7 @@ public class AgentConfiguration {
     @ConditionalOnMissingBean(ChatAgent.class)
     public DefaultChatAgent defaultChatAgent(RuntimeFactory defaultRuntimeFactory,
                                              RequestModelInvokerFactory modelInvokerFactory,
-                                             WorkspaceManager workspaceManager,
+                                             WorkspaceResolver workspaceResolver,
                                              @Qualifier("chatModelConfig") ModelConfig modelConfig,
                                              ScopeMcpProvider scopeMcpProvider,
                                              ExecutionRepository executionRepository,
@@ -36,7 +36,7 @@ public class AgentConfiguration {
         return new DefaultChatAgent(
                 defaultRuntimeFactory,
                 modelInvokerFactory,
-                workspaceManager,
+                workspaceResolver,
                 modelConfig,
                 scopeMcpProvider,
                 executionRepository,

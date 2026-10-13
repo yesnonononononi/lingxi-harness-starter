@@ -79,9 +79,9 @@ AgentRequest request = AgentRequest.builder()
         .build();
 ```
 
-The local directory must already exist. The same provider, scope, and provider identity configuration reuses a managed workspace; finishing a request does not destroy it automatically. Call `WorkspaceManager.destroy(ref)` when cleanup is needed. The local provider uses `ATTACHED` ownership and is not responsible for deleting user directories.
+The local directory must already exist and is checked on every resolution. Its normalized directory and scope determine a stable workspace identity; the framework does not register or delete user directories.
 
-To customize an execution environment, implement `WorkspaceProvider` and return your own `Workspace` and `WorkspaceBridge`. The framework currently ships only the local provider, which runs commands on the host without OS sandbox isolation.
+To customize an execution environment, register a `WorkspaceProvider` bean with a unique `type()` and implement `resolve(WorkspaceSpec)` to return your own `Workspace` and `WorkspaceBridge`. `WorkspaceResolver` routes each request to that provider without caching resource records. Providers own container provisioning, reuse, persistence, recovery and cleanup; the framework does not close or destroy the returned workspace when a request completes. The framework currently ships only the local provider, which runs commands on the host without OS sandbox isolation.
 
 `allowOutsideWorkspace` defaults to `false` and is passed to tools with the request. Custom tools should use the workspace path resolution, `encloses` checks, and the bridge; when a tool uses host file APIs or starts processes directly, the framework does not automatically convert those operations into workspace operations.
 
@@ -420,8 +420,8 @@ All packages are prefixed with `com.summit.core`:
 | `compact.ContextCompacter` | Blocking compaction; current auto-configuration injects the concrete `DefaultManualCompacter` / `DefaultModelCompacter`, so registering only this interface bean does not replace both |
 | `compact.Tokenizer` | Token counting and truncation; replaceable by a same-type bean |
 | `adapter.TokenEstimator` | Low-level token estimation; replaceable by a same-type bean |
-| `workspace.WorkspaceManager` | Provider registration and workspace lifecycle coordination; replaceable by a same-type bean |
-| `workspace.WorkspaceStore` | Workspace record storage; replaceable by a same-type bean for the in-memory implementation |
+| `workspace.WorkspaceResolver` | Stateless provider selection; replaceable by a same-type bean |
+| `workspace.WorkspaceProvider` | Resolves a specification; resource lifecycle remains owned by the provider |
 | `runtime.workspace.Workspace` | Environment, path boundaries, and bridge; returned by the provider |
 | `runtime.workspace.WorkspaceBridge` | File and command environment adaptation layer; returned by the workspace |
 
@@ -448,7 +448,6 @@ These interfaces are parts of models/messages/events, usually passed in by a pro
 | --- | --- |
 | `com.summit.adapter.langchain4j.codec.MessageCodec<M,R>` | Converts between harness and LangChain4j messages/responses; for custom adapters, registering a standalone bean does not replace existing adapters |
 | `com.summit.adapter.langchain4j.codec.ToolCodec<T>` | Tool schema conversion; for custom adapters |
-| `com.summit.runtime.workspace.WorkspaceDestroyer` | Destroy/cleanup retry; default reaper implementation, constructed/configured by the consumer |
 | `com.summit.runtime.agent.ChatAgent` (abstract class) | Custom identity and workspace/model/MCP resolution hooks; when a bean of this type exists, the default agent stands down |
 | `com.summit.adapter.langchain4j.mcp.McpClientFactory` (class) | transport/client creation; replaceable by a same-type bean |
 

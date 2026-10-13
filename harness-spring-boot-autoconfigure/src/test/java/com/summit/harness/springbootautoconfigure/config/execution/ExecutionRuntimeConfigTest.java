@@ -17,7 +17,7 @@ import com.summit.core.runtime.loop.RuntimeBoundaryChecker;
 import com.summit.core.runtime.loop.ExecutionControl;
 import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
-import com.summit.core.workspace.WorkspaceManager;
+import com.summit.core.workspace.WorkspaceResolver;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.loop.InterceptorResult;
 import com.summit.core.runtime.loop.LoopContext;
@@ -100,8 +100,8 @@ class ExecutionRuntimeConfigTest {
                 public Selection select(String providerName) { return new Selection(null, null, false); }
                 public Selection select(ModelConfig config) { return new Selection(null, null, false); }
             });
-            context.registerBean(WorkspaceManager.class, () -> (WorkspaceManager) Proxy.newProxyInstance(
-                    WorkspaceManager.class.getClassLoader(), new Class<?>[]{WorkspaceManager.class},
+            context.registerBean(WorkspaceResolver.class, () -> (WorkspaceResolver) Proxy.newProxyInstance(
+                    WorkspaceResolver.class.getClassLoader(), new Class<?>[]{WorkspaceResolver.class},
                     (proxy, method, args) -> { throw new UnsupportedOperationException("workspace is unused"); }));
             context.registerBean(ScopeMcpProvider.class, () -> config -> McpToolScope.EMPTY);
             context.register(AgentConfiguration.class);

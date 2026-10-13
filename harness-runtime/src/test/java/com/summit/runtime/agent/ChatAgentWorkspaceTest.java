@@ -4,15 +4,10 @@ import com.summit.core.agent.AgentRequest;
 import com.summit.core.runtime.workspace.LocalWorkspaceBridge;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.workspace.BasicWorkspaceSpec;
-import com.summit.core.workspace.ResourceOwnership;
-import com.summit.core.workspace.WorkspaceManager;
+import com.summit.core.workspace.WorkspaceResolver;
 import com.summit.core.workspace.WorkspaceProvider;
-import com.summit.core.workspace.WorkspaceRecord;
-import com.summit.core.workspace.WorkspaceRef;
 import com.summit.core.workspace.WorkspaceSpec;
-import com.summit.core.workspace.WorkspaceStatus;
-import com.summit.runtime.workspace.DefaultWorkspaceManager;
-import com.summit.runtime.workspace.InMemoryWorkspaceStore;
+import com.summit.runtime.workspace.DefaultWorkspaceResolver;
 import com.summit.runtime.workspace.LocalWorkspace;
 import com.summit.runtime.workspace.LocalWorkspaceProvider;
 import org.junit.jupiter.api.Test;
@@ -62,14 +57,10 @@ class ChatAgentWorkspaceTest {
         AtomicReference<WorkspaceSpec> received = new AtomicReference<>();
         WorkspaceProvider custom = new WorkspaceProvider() {
             public String type() { return "custom"; }
-            public WorkspaceRecord provision(WorkspaceRef ref, WorkspaceSpec spec) {
+            public Workspace resolve(WorkspaceSpec spec) {
                 received.set(spec);
-                return new WorkspaceRecord(ref, spec, Map.of(), ResourceOwnership.ATTACHED);
+                return new LocalWorkspace("custom-workspace", project.toString());
             }
-            public Workspace open(WorkspaceRecord record) {
-                return new LocalWorkspace(record.ref().id(), project.toString());
-            }
-            public WorkspaceStatus inspect(WorkspaceRecord record) { return WorkspaceStatus.ready(); }
         };
         WorkspaceSpec spec = new BasicWorkspaceSpec("custom", "/workspace", "tenant",
                 Map.of("profile", "custom-profile"));
@@ -81,12 +72,12 @@ class ChatAgentWorkspaceTest {
     }
 
     private static TestAgent agent(WorkspaceProvider... providers) {
-        return new TestAgent(new DefaultWorkspaceManager(List.of(providers), new InMemoryWorkspaceStore()));
+        return new TestAgent(new DefaultWorkspaceResolver(List.of(providers)));
     }
 
     private static final class TestAgent extends ChatAgent {
-        private TestAgent(WorkspaceManager manager) {
-            super(null, null, manager, null, null, null);
+        private TestAgent(WorkspaceResolver resolver) {
+            super(null, null, resolver, null, null, null);
         }
 
         @Override

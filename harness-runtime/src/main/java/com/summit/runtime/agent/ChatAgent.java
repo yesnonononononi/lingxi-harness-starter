@@ -16,7 +16,7 @@ import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.runtime.loop.ExecutionControl;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.workspace.BasicWorkspaceSpec;
-import com.summit.core.workspace.WorkspaceManager;
+import com.summit.core.workspace.WorkspaceResolver;
 import com.summit.core.workspace.WorkspaceSpec;
 import com.summit.runtime.workspace.LocalWorkspaceProvider;
 import lombok.AllArgsConstructor;
@@ -38,7 +38,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public abstract class ChatAgent implements Agent {
     protected final RuntimeFactory defaultRuntimeFactory;
     protected final RequestModelInvokerFactory modelInvokerFactory;
-    protected final WorkspaceManager workspaceManager;
+    protected final WorkspaceResolver workspaceResolver;
     private final ModelConfig modelConfig;
     private final ScopeMcpProvider scopeMcpProvider;
     private final ExecutionRepository executionRepository;
@@ -59,14 +59,14 @@ public abstract class ChatAgent implements Agent {
 
     public ChatAgent(RuntimeFactory defaultRuntimeFactory,
                      RequestModelInvokerFactory modelInvokerFactory,
-                     WorkspaceManager workspaceManager,
+                     WorkspaceResolver workspaceResolver,
                      ModelConfig modelConfig,
                      ExecutionRepository executionRepository,
                      ExecutionControl executionControl
     ) {
         this(defaultRuntimeFactory,
                 modelInvokerFactory,
-                workspaceManager,
+                workspaceResolver,
                 modelConfig,
                 null,
                 executionRepository,
@@ -194,11 +194,8 @@ public abstract class ChatAgent implements Agent {
      * Resolves the workspace of one request without ever owning its lifetime.
      * A request without a spec uses the local process working directory ({@code user.dir}).
      *
-     * <p>The request's spec is resolved through {@link WorkspaceManager#acquire(WorkspaceSpec)}, which
-     * reuses the sandbox already provisioned for that configuration and creates
-     * one only the first time the configuration is seen. The workspace therefore
-     * survives the request, so the next turn — and the next session on the same
-     * project — starts from a warm toolchain instead of a cold container.</p>
+     * <p>The resolver routes the spec to its provider on every call. Providers own any resource
+     * reuse and cleanup; completing a request never destroys the returned workspace.</p>
      */
     protected Workspace resolveWorkspace(AgentRequest request) {
 
@@ -206,7 +203,7 @@ public abstract class ChatAgent implements Agent {
         if (spec == null) {
             spec = new BasicWorkspaceSpec(LocalWorkspaceProvider.TYPE, System.getProperty("user.dir"));
         }
-        return workspaceManager.acquire(spec);
+        return workspaceResolver.resolve(spec);
     }
 
 
