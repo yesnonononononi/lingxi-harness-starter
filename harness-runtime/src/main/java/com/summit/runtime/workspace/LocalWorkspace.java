@@ -16,6 +16,7 @@ public final class LocalWorkspace implements Workspace {
     private final String id;
     private final Path root;
     private final RuntimeEnvironment environment;
+    private final WorkspaceBridge bridge;
 
     public LocalWorkspace(String id, String workDir) {
         if (id == null || id.isBlank()) {
@@ -27,6 +28,7 @@ public final class LocalWorkspace implements Workspace {
         this.id = id;
         this.root = Paths.get(workDir).toAbsolutePath().normalize();
         this.environment = hostEnvironment();
+        this.bridge = new LocalWorkspaceBridge(environment.shellType());
     }
 
     @Override
@@ -62,7 +64,7 @@ public final class LocalWorkspace implements Workspace {
 
     @Override
     public WorkspaceBridge bridge() {
-        return LocalWorkspaceBridge.INSTANCE;
+        return bridge;
     }
 
     private static RuntimeEnvironment hostEnvironment() {

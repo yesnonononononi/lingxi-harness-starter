@@ -81,7 +81,16 @@ AgentRequest request = AgentRequest.builder()
 
 The local directory must already exist and is checked on every resolution. Its normalized directory and scope determine a stable workspace identity; the framework does not register or delete user directories.
 
-To customize an execution environment, register a `WorkspaceProvider` bean with a unique `type()` and implement `resolve(WorkspaceSpec)` to return your own `Workspace` and `WorkspaceBridge`. `WorkspaceResolver` routes each request to that provider without caching resource records. Providers own container provisioning, reuse, persistence, recovery and cleanup; the framework does not close or destroy the returned workspace when a request completes. The framework currently ships only the local provider, which runs commands on the host without OS sandbox isolation.
+To customize an execution environment, register a `WorkspaceProvider` bean with a unique `type()` and implement `resolve(WorkspaceSpec)` to return your own `Workspace` and `WorkspaceBridge`. `WorkspaceResolver` routes each request to that provider without caching resource records. Providers own container provisioning, reuse, persistence, recovery and cleanup; the framework does not close or destroy the returned workspace when a request completes. The default local provider runs commands on the host without OS sandbox isolation.
+
+For local SRT isolation, add the optional `harness-local-sandbox` module and register its
+`SandboxWorkspaceProvider` bean. It prepares policy files and helpers and verifies the
+actual bridge before returning a workspace. See [Local SRT workspaces](harness-local-sandbox/README.md)
+for the startup entry point and deployment requirements.
+
+`WorkspaceBridge` implementations provide six operations: `exists`, `createDirectories`, `deleteFile`, `readString`, `writeString`, and `execute`. Writing creates missing files; there is no separate `createFile` operation. `readLines` defaults to splitting the text returned by `readString`, so line parsing does not need a separate environment adapter.
+
+`WorkspaceBridge.execute` accepts one raw command string, not process argv. Tools pass the original command without adding a shell launcher; each bridge selects and invokes the shell advertised by its workspace's `RuntimeEnvironment`. Quotes, variables, pipelines and line breaks belong to the script and must survive transport unchanged. `ProcessRunner` is the lower-level argv executor used internally by bridges.
 
 `allowOutsideWorkspace` defaults to `false` and is passed to tools with the request. Custom tools should use the workspace path resolution, `encloses` checks, and the bridge; when a tool uses host file APIs or starts processes directly, the framework does not automatically convert those operations into workspace operations.
 

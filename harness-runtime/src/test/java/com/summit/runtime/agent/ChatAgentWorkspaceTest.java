@@ -36,7 +36,8 @@ class ChatAgentWorkspaceTest {
         assertInstanceOf(LocalWorkspace.class, workspace);
         assertEquals(Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize().toString(),
                 workspace.workDir());
-        assertSame(LocalWorkspaceBridge.INSTANCE, workspace.bridge());
+        assertInstanceOf(LocalWorkspaceBridge.class, workspace.bridge());
+        assertSame(workspace.bridge(), workspace.bridge());
         assertEquals(workspace.id(), agent.resolveWorkspace(
                 AgentRequest.builder().workspaceSpec(null).build()).id());
     }

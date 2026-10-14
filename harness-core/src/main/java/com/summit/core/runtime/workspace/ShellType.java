@@ -2,6 +2,8 @@ package com.summit.core.runtime.workspace;
 
 import lombok.Getter;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.List;
 
 @Getter
@@ -13,9 +15,9 @@ public enum ShellType {
             return List.of(
                     this.command,
                     "-NoProfile",
-                    "-NonInteractive",
-                    "-Command",
-                    command
+                    "-NonInteractive" ,
+                    "-EncodedCommand",
+                    encodePowerShell(command)
             );
         }
     },
@@ -27,8 +29,8 @@ public enum ShellType {
                     this.command,
                     "-NoProfile",
                     "-NonInteractive",
-                    "-Command",
-                    command
+                    "-EncodedCommand",
+                    encodePowerShell(command)
             );
         }
     },
@@ -38,8 +40,10 @@ public enum ShellType {
         public List<String> buildCommand(String command) {
             return List.of(
                     this.command,
+                    "/d",
+                    "/s",
                     "/c",
-                    command
+                    "\"" + command + "\""
             );
         }
     },
@@ -78,6 +82,8 @@ public enum ShellType {
         }
     };
 
+
+
     public final String command;
 
     ShellType(String command) {
@@ -85,4 +91,9 @@ public enum ShellType {
     }
 
     public abstract List<String> buildCommand(String command);
+
+    private static String encodePowerShell(String command) {
+        // Native Windows argument parsing must not consume script quotes before PowerShell sees them.
+        return Base64.getEncoder().encodeToString(command.getBytes(StandardCharsets.UTF_16LE));
+    }
 }

@@ -6,7 +6,8 @@ import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
 /**
  * The default {@link WorkspaceBridge}: file IO via {@link Files} and command
@@ -14,9 +15,11 @@ import java.util.List;
  */
 public final class LocalWorkspaceBridge implements WorkspaceBridge {
 
-    public static final LocalWorkspaceBridge INSTANCE = new LocalWorkspaceBridge();
+    private final ShellType shellType;
 
-    private LocalWorkspaceBridge() {
+    /** Binds command execution to the shell advertised by the owning workspace. */
+    public LocalWorkspaceBridge(ShellType shellType) {
+        this.shellType = Objects.requireNonNull(shellType, "workspace shellType must not be null");
     }
 
     @Override
@@ -30,13 +33,6 @@ public final class LocalWorkspaceBridge implements WorkspaceBridge {
     }
 
     @Override
-    public void createFile(Path path) throws IOException {
-        if (Files.notExists(path)) {
-            Files.createFile(path);
-        }
-    }
-
-    @Override
     public void deleteFile(Path path) throws IOException {
         Files.deleteIfExists(path);
     }
@@ -47,19 +43,15 @@ public final class LocalWorkspaceBridge implements WorkspaceBridge {
     }
 
     @Override
-    public List<String> readLines(Path path, Charset charset) throws IOException {
-        return Files.readAllLines(path, charset);
-    }
-
-    @Override
     public void writeString(Path path, String content, Charset charset) throws IOException {
         Files.writeString(path, content, charset);
     }
 
     @Override
-    public CommandResult execute(List<String> command, String workDir, Charset charset,
-                                 long timeoutSeconds, long maxOutputChars)
+    public CommandResult execute(String command, String workDir, Charset charset,
+                                 long timeoutSeconds, TimeUnit timeUnit, long maxOutputChars)
             throws IOException, InterruptedException {
-        return ProcessRunner.run(command, workDir, charset, timeoutSeconds, maxOutputChars);
+        return ProcessRunner.run(shellType.buildCommand(Objects.requireNonNull(command, "command must not be null")),
+                workDir, charset, timeoutSeconds, timeUnit, maxOutputChars);
     }
 }

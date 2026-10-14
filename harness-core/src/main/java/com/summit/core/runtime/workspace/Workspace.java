@@ -32,8 +32,8 @@ public interface Workspace {
         return path.toAbsolutePath().normalize().startsWith(root);
     }
 
-    /** Returns the IO / command-execution bridge for this workspace. */
+    /** Returns a bridge that owns shell invocation for this workspace's runtime environment. */
     default WorkspaceBridge bridge() {
-        return LocalWorkspaceBridge.INSTANCE;
+        return new LocalWorkspaceBridge(runtimeEnvironment().shellType());
     }
 }
