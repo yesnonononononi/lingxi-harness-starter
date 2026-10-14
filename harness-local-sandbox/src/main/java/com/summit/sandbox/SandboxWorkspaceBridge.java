@@ -144,7 +144,8 @@ public final class SandboxWorkspaceBridge implements WorkspaceBridge {
     public CommandResult execute(String command, String workDir, Charset charset, long timeout,
                                  TimeUnit timeUnit, long maxOutputChars) throws IOException, InterruptedException {
         Objects.requireNonNull(command, "command must not be null");
-        return runHelper(EXECUTE_COMMAND_SCRIPT, Map.of("argv", runtimeEnvironment.shellType().buildCommand(command)),
+        return runHelper(EXECUTE_COMMAND_SCRIPT, Map.of("argv", runtimeEnvironment.buildCommand(command),
+                        "env", runtimeEnvironment.envs()),
                 workDir, charset, timeout, timeUnit, maxOutputChars);
     }
 
@@ -188,7 +189,8 @@ public final class SandboxWorkspaceBridge implements WorkspaceBridge {
                 Map.of(
                         "root", root.toString(),
                         "workspaceWritable", workspaceWritable,
-                        "argv", runtimeEnvironment.shellType().buildCommand("echo sandbox-ready"),
+                        "argv", runtimeEnvironment.buildCommand("echo sandbox-ready"),
+                        "env", runtimeEnvironment.envs(),
 
                         "protectedDirectories",
                         protectedDirectories.stream().map(Path::toString).toList(),

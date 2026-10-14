@@ -39,6 +39,26 @@ class SandboxWorkspaceBridgeIntegrationTest {
     }
 
     @Test
+    @EnabledIfSystemProperty(named = "sandbox.bash.exe", matches = ".+")
+    void bundledBashExecutesRawScriptsAndFindsBundledNodeAndGit() throws Exception {
+        Path bash = Path.of(System.getProperty("sandbox.bash.exe"));
+        Path runtime = Files.createDirectories(temporary.resolve("runtime"));
+        Path node = Files.copy(Path.of(System.getProperty("sandbox.node.exe", SandboxWorkspaceBridgeTest.node().toString())),
+                runtime.resolve(System.getProperty("os.name").toLowerCase().contains("win") ? "node.exe" : "node"));
+        Path root = Files.createDirectories(temporary.resolve("project"));
+        SandboxWorkspace workspace = SandboxWorkspaceProvider.builder().applicationDirectory(temporary)
+                .nodeExe(node).srtCli(Path.of(System.getProperty("sandbox.srt.cli"))).bashExe(bash).build()
+                .resolve(SandboxWorkspaceSpec.of(root.toString(), SandboxPolicy.builder().build()));
+        assertEquals(ShellType.BASH, workspace.runtimeEnvironment().shellType());
+        CommandResult result = workspace.bridge().execute("value='A B'; printf '%s\\n' \"$value\"; node -p process.execPath; git --exec-path",
+                root.toString(), StandardCharsets.UTF_8, 30, TimeUnit.SECONDS, 4096);
+        assertTrue(result.isSuccess(), result.output());
+        assertTrue(result.output().contains("A B"), result.output());
+        assertTrue(result.output().contains(node.toString()), result.output());
+        assertTrue(result.output().replace('\\', '/').contains(bash.getParent().getParent().toString().replace('\\', '/')), result.output());
+    }
+
+    @Test
     void realSandboxAllowsWorkspaceIoAndRejectsRestrictedIo() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         Path cli = Path.of(System.getProperty("sandbox.srt.cli"));

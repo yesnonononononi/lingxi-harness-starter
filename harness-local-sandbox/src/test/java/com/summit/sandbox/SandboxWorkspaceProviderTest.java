@@ -26,6 +26,22 @@ class SandboxWorkspaceProviderTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
+    void bundledBashSelectsItsExecutableAndReceivesRuntimeReadAccessAndPath() throws Exception {
+        Path cli = fakeCli("process.stdout.write(JSON.stringify({ready: true}));");
+        Path bash = Files.writeString(Files.createDirectories(temporary.resolve("git/bin")).resolve("bash"), "fixture");
+        Path root = Files.createDirectories(temporary.resolve("project"));
+        SandboxWorkspace workspace = SandboxWorkspaceProvider.builder().applicationDirectory(temporary)
+                .nodeExe(SandboxWorkspaceBridgeTest.node()).srtCli(cli).bashExe(bash).build()
+                .resolve(SandboxWorkspaceSpec.of(root.toString(), SandboxPolicy.builder().build()));
+        assertEquals(ShellType.BASH, workspace.runtimeEnvironment().shellType());
+        assertEquals(List.of(bash.toString(), "-c", "echo ready"), workspace.runtimeEnvironment().buildCommand("echo ready"));
+        assertTrue(workspace.runtimeEnvironment().envs().get("PATH").contains(bash.getParent().toString()));
+        assertTrue(hasPath(mapper.readTree(workspace.bridge().getSettingsFile().toFile()), "allowRead", temporary.resolve("git")));
+        assertThrows(IllegalArgumentException.class, () -> SandboxWorkspaceProvider.builder().applicationDirectory(temporary)
+                .nodeExe(SandboxWorkspaceBridgeTest.node()).srtCli(cli).bashExe(temporary.resolve("missing-bash")).build());
+    }
+
+    @Test
     @EnabledOnOs(OS.WINDOWS)
     void windowsResolvesWritableAndReadOnlyPoliciesThroughTheSameStartupChain() throws Exception {
         Path cli = fakeCli("process.stdout.write(JSON.stringify({ready: true}));");

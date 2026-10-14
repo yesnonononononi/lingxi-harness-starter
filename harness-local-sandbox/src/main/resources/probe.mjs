@@ -32,7 +32,7 @@ async function checkWriteDenied(path, directory) {
 }
 
 try {
-    const { root, argv, protectedDirectories, denyRead, denyWrite, workspaceWritable } = await readRequest();
+    const { root, argv, env = {}, protectedDirectories, denyRead, denyWrite, workspaceWritable } = await readRequest();
     if (workspaceWritable) {
         const directory = join(root, `sandbox-probe-${randomUUID()}`);
         try {
@@ -53,6 +53,7 @@ try {
     const isCmd = /(^|[\\/])cmd(?:\.exe)?$/i.test(argv[0]);
     const { stdout } = await promisify(execFile)(argv[0], argv.slice(1), {
         cwd: root, shell: false, windowsVerbatimArguments: process.platform === 'win32' && isCmd,
+        env: { ...process.env, ...env },
     });
     if (stdout.trim() !== 'sandbox-ready') throw new Error(`Sandbox shell probe returned unexpected output: ${stdout}`);
 

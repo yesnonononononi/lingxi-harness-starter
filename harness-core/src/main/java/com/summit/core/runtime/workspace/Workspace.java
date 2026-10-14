@@ -34,6 +34,6 @@ public interface Workspace {
 
     /** Returns a bridge that owns shell invocation for this workspace's runtime environment. */
     default WorkspaceBridge bridge() {
-        return new LocalWorkspaceBridge(runtimeEnvironment().shellType());
+        return new LocalWorkspaceBridge(runtimeEnvironment());
     }
 }

@@ -62,6 +62,11 @@ guarantee. Runtime OS metadata must match the actual local host.
 The local provider derives OS and shell defaults from the host. `environment` and
 `timeout` builder options can explicitly select a supported local environment and
 startup/file-operation time limits. Shell wrapping always belongs to the bridge.
+Supplying `bashExe` selects Bash and its absolute executable path within the framework;
+applications still pass raw scripts. `RuntimeEnvironment.shellExecutable` can override
+other shell executable locations without changing their argument syntax. The supplied
+Bash bundle receives read access, and Node/Bash directories lead the command's PATH.
+The same environment is used for the readiness shell and subsequent command helpers.
 
 The application supplies the bundled Node executable and the JavaScript entry point
 of a complete `@anthropic-ai/sandbox-runtime` installation (`dist/cli.js`, not an

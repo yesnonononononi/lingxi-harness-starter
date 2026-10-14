@@ -2,7 +2,7 @@ import { readRequest } from './request.mjs';
 import { spawn } from 'node:child_process';
 
 try {
-    const { argv } = await readRequest();
+    const { argv, env = {} } = await readRequest();
     if (!Array.isArray(argv) || argv.length === 0 || argv.some(arg => typeof arg !== 'string')) {
         throw new TypeError('Expected a non-empty string argv array');
     }
@@ -14,6 +14,7 @@ try {
     const isCmd = /(^|[\\/])cmd(?:\.exe)?$/i.test(argv[0]);
     const child = spawn(argv[0], argv.slice(1), {
         shell: false,
+        env: { ...process.env, ...env },
         windowsVerbatimArguments: process.platform === 'win32' && isCmd,
         stdio: ['ignore', 'inherit', 'inherit'],
     });

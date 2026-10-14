@@ -13,6 +13,7 @@ import lombok.Builder;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,6 +22,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
@@ -33,6 +35,7 @@ public final class SandboxWorkspaceProvider implements WorkspaceProvider {
     private final Path srtCli;
     private final Path nodeExe;
     private final Path stateDirectory;
+    private final Path bashExe;
     private final RuntimeEnvironment environment;
     private final ObjectMapper mapper;
     private final CommandTimeoutConfig timeout;
@@ -40,22 +43,39 @@ public final class SandboxWorkspaceProvider implements WorkspaceProvider {
     @Builder
     public SandboxWorkspaceProvider(Path applicationDirectory, Path srtCli, Path nodeExe, Path stateDirectory,
                                     RuntimeEnvironment environment, ObjectMapper objectMapper,
-                                    CommandTimeoutConfig timeout) {
+                                    CommandTimeoutConfig timeout, Path bashExe) {
         this.applicationDirectory = absolute(applicationDirectory, "applicationDirectory");
         this.srtCli = absolute(srtCli, "srtCli");
         this.nodeExe = absolute(nodeExe, "nodeExe");
+        this.bashExe = bashExe == null ? null : absolute(bashExe, "bashExe");
+        if (this.bashExe != null && !Files.isRegularFile(this.bashExe)) {
+            throw new IllegalArgumentException("bashExe must be a regular file: " + this.bashExe);
+        }
 
         this.stateDirectory = stateDirectory == null
                 ? this.applicationDirectory.resolve("resources/sandbox-state") : absolute(stateDirectory, "stateDirectory");
 
         RuntimeEnvironment selected = environment == null ? localEnvironment() : environment;
+
         if (selected.osType() != localEnvironment().osType()) {
             throw new IllegalArgumentException("Sandbox runtime OS must match the local host; "
                     + "environment metadata cannot change the SRT backend");
         }
+
+        Map<String, String> envs = new HashMap<>(selected.envs());
+
+        if (this.bashExe != null) {
+            String inheritedPath = envs.getOrDefault("PATH", Objects.requireNonNullElse(System.getenv("PATH"), ""));
+            envs.put("PATH", this.nodeExe.getParent() + File.pathSeparator + this.bashExe.getParent()
+                    + File.pathSeparator + inheritedPath);
+        }
+
         this.environment = new RuntimeEnvironment(Objects.requireNonNull(selected.charset(), "environment charset"),
-                selected.envs(), selected.osType(), selected.shellType(), true);
+                envs, selected.osType(), this.bashExe == null ? selected.shellType() : ShellType.BASH, true,
+                this.bashExe == null ? selected.shellExecutable() : this.bashExe.toString());
+
         this.mapper = objectMapper == null ? new ObjectMapper() : objectMapper;
+
         this.timeout = timeout == null ? new CommandTimeoutConfig(60, TimeUnit.SECONDS) : timeout;
     }
 
@@ -91,7 +111,9 @@ public final class SandboxWorkspaceProvider implements WorkspaceProvider {
             // Separate policies never overwrite each other's settings, including concurrent resolves.
             String policyId = WorkspaceRef.derived("policy",
                             mapper.writeValueAsString(
-                                    List.of(applicationDirectory.toString(), nodeExe.toString(), requestedPolicy))
+                                    List.of(applicationDirectory.toString(), nodeExe.toString(), srtCli.toString(),
+                                            environment.shellType(), Objects.requireNonNullElse(environment.shellExecutable(), ""),
+                                            environment.envs(), requestedPolicy))
                     )
                     .id();
 
@@ -99,6 +121,7 @@ public final class SandboxWorkspaceProvider implements WorkspaceProvider {
 
             // {app}/resources/sandbox-state/{id}/{policy}/requests
             // {app}/resources/sandbox-state/{id}/{policy}/settings.json
+
             // Request files are a transport choice, not a Node requirement. The supported
             // Windows SRT backend uses stdin for its native control protocol instead of
             // forwarding business stdin to sandboxed helpers. JSON files keep command text
@@ -149,6 +172,10 @@ public final class SandboxWorkspaceProvider implements WorkspaceProvider {
         List<Path> reads = new ArrayList<>(paths(root, policy.allowRead()));
 
         reads.addAll(List.of(root, helpers, requests, nodeExe.getParent()));
+        if (bashExe != null) {
+            Path directory = bashExe.getParent();
+            reads.add("bin".equals(directory.getFileName().toString()) ? directory.getParent() : directory);
+        }
 
         List<Path> deniedWrites = new ArrayList<>(paths(root, policy.denyWrite()));
 

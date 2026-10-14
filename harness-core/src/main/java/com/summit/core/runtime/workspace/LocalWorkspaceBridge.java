@@ -1,6 +1,7 @@
 package com.summit.core.runtime.workspace;
 
 import com.summit.core.runtime.ProcessRunner;
+import com.summit.core.runtime.RuntimeEnvironment;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
@@ -15,11 +16,16 @@ import java.util.concurrent.TimeUnit;
  */
 public final class LocalWorkspaceBridge implements WorkspaceBridge {
 
-    private final ShellType shellType;
+    private final RuntimeEnvironment environment;
 
     /** Binds command execution to the shell advertised by the owning workspace. */
     public LocalWorkspaceBridge(ShellType shellType) {
-        this.shellType = Objects.requireNonNull(shellType, "workspace shellType must not be null");
+        this(RuntimeEnvironment.builder().shellType(shellType).build());
+    }
+
+    public LocalWorkspaceBridge(RuntimeEnvironment environment) {
+        this.environment = Objects.requireNonNull(environment, "workspace environment");
+        Objects.requireNonNull(environment.shellType(), "workspace shellType must not be null");
     }
 
     @Override
@@ -51,7 +57,7 @@ public final class LocalWorkspaceBridge implements WorkspaceBridge {
     public CommandResult execute(String command, String workDir, Charset charset,
                                  long timeoutSeconds, TimeUnit timeUnit, long maxOutputChars)
             throws IOException, InterruptedException {
-        return ProcessRunner.run(shellType.buildCommand(Objects.requireNonNull(command, "command must not be null")),
+        return ProcessRunner.run(environment.buildCommand(Objects.requireNonNull(command, "command must not be null")),
                 workDir, charset, timeoutSeconds, timeUnit, maxOutputChars);
     }
 }
