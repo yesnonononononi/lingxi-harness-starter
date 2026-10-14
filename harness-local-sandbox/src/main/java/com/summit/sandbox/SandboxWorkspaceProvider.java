@@ -66,7 +66,6 @@ public final class SandboxWorkspaceProvider implements WorkspaceProvider {
 
     /**
      * Returns a workspace only after its exact generated policy and execution path pass a readiness probe.
-     * @throws UnsupportedOperationException when the local backend cannot enforce the requested write boundary
      */
     @Override
     public SandboxWorkspace resolve(WorkspaceSpec spec) {
@@ -82,13 +81,6 @@ public final class SandboxWorkspaceProvider implements WorkspaceProvider {
             Path root = absolute(Path.of(spec.workDir()), "").toRealPath();
 
             if (!Files.isDirectory(root)) throw new IOException("Sandbox workspace is not a directory: " + root);
-
-            // Windows SRT adds grants; it does not revoke ambient Users/Everyone write access.
-            // Sampling a few denied paths cannot establish an allowlist for arbitrary commands.
-            if (environment.osType() == OsType.WINDOWS && requestedPolicy.restrictWrites()) {
-                throw new UnsupportedOperationException("Windows SRT cannot enforce a filesystem write allowlist; "
-                        + "restricted-write policies are unsupported. No sandbox process was started.");
-            }
 
             Path helpers = HelperLoader.extractAll(applicationDirectory);
 

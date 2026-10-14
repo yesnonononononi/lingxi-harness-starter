@@ -50,16 +50,14 @@ application's installation is read-only. The deployment owns removal of persiste
 state after workspaces are no longer needed. Per-call request files are removed
 by the bridge. The workspace retains one immutable bridge instance.
 
-`SandboxPolicy.restrictWrites` defaults to `true`. It requires the backend to
-confine writes to its allowlist (including SRT's own default scratch paths).
-Windows SRT uses additive ACL grants, which do not revoke ambient group write
-permissions. This provider therefore rejects restricted-write policies on Windows
-with `UnsupportedOperationException` before extracting helpers or launching any
-process. A readiness sample cannot establish an exhaustive filesystem boundary.
-Set `restrictWrites(false)` only when ambient writes are authorized, such as a
-full-access application mode; explicit helper/state denies still apply. This flag
-does not disable SRT filesystem rules. Runtime OS metadata must match the actual
-local host and cannot select a different backend to bypass this check.
+Filesystem rules have the semantics of the supplied SRT backend. Windows SRT uses
+additive ACL grants, which do not revoke ambient group write permissions outside
+explicit denied paths. An `allowWrite` list and a readiness sample therefore do
+not establish a portable, exhaustive write boundary. This provider accepts both
+writable and read-only project policies and verifies their explicit restrictions.
+Applications own tool exposure: a read-only application mode may disable editing
+while retaining terminal commands whose write effects are outside that mode's
+guarantee. Runtime OS metadata must match the actual local host.
 
 The local provider derives OS and shell defaults from the host. `environment` and
 `timeout` builder options can explicitly select a supported local environment and

@@ -7,13 +7,12 @@ import java.util.List;
 
 /**
  * Literal filesystem paths (relative to the workspace) and SRT network rules.
- * restrictWrites defaults to true: writes must be confined to the backend's write allowlist.
- * Set it to false only for trusted processes allowed to use ambient filesystem write permissions.
+ * SRT applies these rules using its platform backend; allowWrite is not a portable
+ * guarantee that all other paths are unwritable. Applications own tool exposure.
  */
 @Builder
 public record SandboxPolicy(List<String> allowWrite, List<String> denyWrite, List<String> denyRead,
-                            List<String> allowRead, List<String> allowedDomains, List<String> deniedDomains,
-                            Boolean restrictWrites)
+                            List<String> allowRead, List<String> allowedDomains, List<String> deniedDomains)
         implements Serializable {
     public SandboxPolicy {
         allowWrite = immutable(allowWrite);
@@ -22,7 +21,6 @@ public record SandboxPolicy(List<String> allowWrite, List<String> denyWrite, Lis
         allowRead = immutable(allowRead);
         allowedDomains = immutable(allowedDomains);
         deniedDomains = immutable(deniedDomains);
-        restrictWrites = restrictWrites == null ? Boolean.TRUE : restrictWrites;
     }
 
     private static List<String> immutable(List<String> values) {

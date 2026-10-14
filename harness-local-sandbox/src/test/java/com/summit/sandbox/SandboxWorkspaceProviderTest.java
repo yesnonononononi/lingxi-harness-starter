@@ -27,29 +27,29 @@ class SandboxWorkspaceProviderTest {
 
     @Test
     @EnabledOnOs(OS.WINDOWS)
-    void windowsRejectsRestrictedWritesBeforePreparingOrExecutingAnything() throws Exception {
-        Path cli = fakeCli("throw new Error('must not run');");
+    void windowsResolvesWritableAndReadOnlyPoliciesThroughTheSameStartupChain() throws Exception {
+        Path cli = fakeCli("process.stdout.write(JSON.stringify({ready: true}));");
         Path root = Files.createDirectories(temporary.resolve("workspace"));
         Path outside = Files.writeString(temporary.resolve("outside.txt"), "HOST-CANARY");
         SandboxWorkspaceProvider provider = SandboxWorkspaceProvider.builder().applicationDirectory(temporary)
                 .srtCli(cli).nodeExe(SandboxWorkspaceBridgeTest.node())
                 .environment(RuntimeEnvironment.builder().charset(StandardCharsets.UTF_8)
                         .osType(OsType.WINDOWS).shellType(ShellType.POWERSHELL).build()).build();
-        for (SandboxPolicy policy : List.of(SandboxPolicy.builder().build(),
-                SandboxPolicy.builder().allowWrite(List.of(root.toString())).build(),
+        for (SandboxPolicy policy : List.of(SandboxPolicy.builder().allowWrite(List.of(root.toString())).build(),
                 SandboxPolicy.builder().denyWrite(List.of(root.toString())).build())) {
-            UnsupportedOperationException failure = assertThrows(UnsupportedOperationException.class,
-                    () -> provider.resolve(SandboxWorkspaceSpec.of(root.toString(), policy)));
-            assertTrue(failure.getMessage().contains("cannot enforce a filesystem write allowlist"));
+            SandboxWorkspace workspace = provider.resolve(SandboxWorkspaceSpec.of(root.toString(), policy));
+            assertTrue(workspace.runtimeEnvironment().isolated());
+            JsonNode settings = mapper.readTree(workspace.bridge().getSettingsFile().toFile());
+            assertEquals(policy.denyWrite().isEmpty(), hasPath(settings, "allowWrite", root));
+            assertEquals(!policy.denyWrite().isEmpty(), hasPath(settings, "denyWrite", root));
         }
         assertEquals("HOST-CANARY", Files.readString(outside));
-        assertFalse(Files.exists(temporary.resolve("resources")));
-        assertFalse(Files.exists(temporary.resolve("calls.jsonl")));
+        assertEquals(6, Files.readAllLines(temporary.resolve("calls.jsonl")).size());
     }
 
     @Test
     @EnabledOnOs(OS.WINDOWS)
-    void windowsAcceptsOnlyExplicitlyUnrestrictedWritesAndStillProtectsInternalPaths() throws Exception {
+    void windowsProtectsInternalPathsWithoutRequiringAnExhaustiveWriteBoundary() throws Exception {
         Path cli = fakeCli("process.stdout.write(JSON.stringify({ready: true}));");
         Path root = Files.createDirectories(temporary.resolve("workspace"));
         SandboxWorkspaceProvider provider = SandboxWorkspaceProvider.builder().applicationDirectory(temporary)
@@ -57,7 +57,7 @@ class SandboxWorkspaceProviderTest {
                 .environment(RuntimeEnvironment.builder().charset(StandardCharsets.UTF_8)
                         .osType(OsType.WINDOWS).shellType(ShellType.POWERSHELL).build()).build();
         SandboxWorkspace workspace = provider.resolve(SandboxWorkspaceSpec.of(root.toString(),
-                SandboxPolicy.builder().restrictWrites(false).build()));
+                SandboxPolicy.builder().build()));
         JsonNode settings = mapper.readTree(workspace.bridge().getSettingsFile().toFile());
         assertTrue(hasPath(settings, "denyWrite", workspace.bridge().getSettingsFile().getParent()));
         assertTrue(hasPath(settings, "denyWrite", temporary.resolve("resources/sandbox-helpers")));
@@ -76,11 +76,11 @@ class SandboxWorkspaceProviderTest {
     }
 
     @Test
-    void missingWriteRestrictionInSnapshotsKeepsTheSafeDefault() throws Exception {
-        assertTrue(SandboxPolicy.builder().build().restrictWrites());
-        assertTrue(mapper.readValue("{}", SandboxPolicy.class).restrictWrites());
-        SandboxPolicy full = SandboxPolicy.builder().restrictWrites(false).build();
-        assertFalse(mapper.readValue(mapper.writeValueAsBytes(full), SandboxPolicy.class).restrictWrites());
+    void emptyPolicyHasImmutableEmptyFilesystemRules() throws Exception {
+        SandboxPolicy policy = mapper.readValue("{}", SandboxPolicy.class);
+        assertEquals(SandboxPolicy.builder().build(), policy);
+        assertTrue(policy.allowWrite().isEmpty());
+        assertThrows(UnsupportedOperationException.class, () -> policy.allowWrite().add("other"));
     }
 
     @Test
@@ -88,7 +88,7 @@ class SandboxWorkspaceProviderTest {
         Path cli = fakeCli("process.stdout.write(JSON.stringify({ready: true}));");
         Path root = Files.createDirectories(temporary.resolve("workspace with spaces"));
         SandboxWorkspaceProvider provider = provider(cli);
-        SandboxPolicy policy = SandboxPolicy.builder().restrictWrites(false).denyRead(List.of("secrets"))
+        SandboxPolicy policy = SandboxPolicy.builder().denyRead(List.of("secrets"))
                 .denyWrite(List.of("readonly")).allowedDomains(List.of("example.test")).build();
         SandboxWorkspace workspace = provider.resolve(SandboxWorkspaceSpec.of(root.toString(), "one", policy));
         SandboxWorkspaceBridge bridge = workspace.bridge();
@@ -103,7 +103,7 @@ class SandboxWorkspaceProviderTest {
         assertTrue(workspace.runtimeEnvironment().isolated());
         String original = Files.readString(bridge.getSettingsFile());
         SandboxWorkspace second = provider.resolve(SandboxWorkspaceSpec.of(root.toString(), "one",
-                SandboxPolicy.builder().restrictWrites(false).build()));
+                SandboxPolicy.builder().build()));
         assertEquals(workspace.id(), second.id());
         assertNotEquals(bridge.getSettingsFile(), second.bridge().getSettingsFile());
         assertEquals(original, Files.readString(bridge.getSettingsFile()));
@@ -123,7 +123,7 @@ class SandboxWorkspaceProviderTest {
         Path cli = fakeCli("process.stdout.write(JSON.stringify({ready: true}));");
         Path root = Files.createDirectories(temporary.resolve("readonly-workspace"));
         SandboxWorkspace workspace = provider(cli).resolve(SandboxWorkspaceSpec.of(root.toString(),
-                SandboxPolicy.builder().restrictWrites(false).denyWrite(List.of(root.toString())).build()));
+                SandboxPolicy.builder().denyWrite(List.of(root.toString())).build()));
         JsonNode settings = mapper.readTree(workspace.bridge().getSettingsFile().toFile());
         assertFalse(hasPath(settings, "allowWrite", root));
         assertTrue(hasPath(settings, "allowRead", root));
@@ -135,7 +135,7 @@ class SandboxWorkspaceProviderTest {
         Path root = Files.createDirectories(temporary.resolve("workspace"));
         Path cli = fakeCli("console.error('SANDBOX_NOT_READY: Sandbox policy did not deny access'); process.exitCode = 1;");
         UncheckedIOException failure = assertThrows(UncheckedIOException.class,
-                () -> provider(cli).resolve(SandboxWorkspaceSpec.of(root.toString(), SandboxPolicy.builder().restrictWrites(false).build())));
+                () -> provider(cli).resolve(SandboxWorkspaceSpec.of(root.toString(), SandboxPolicy.builder().build())));
         assertTrue(failure.getMessage().contains("initialization failed"));
         assertTrue(failure.getCause().getMessage().contains("policy did not deny access"));
         assertFalse(Files.readString(temporary.resolve("calls.jsonl")).contains("windows-install"));

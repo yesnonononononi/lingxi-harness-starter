@@ -55,7 +55,7 @@ class SandboxWorkspaceBridgeIntegrationTest {
         SandboxWorkspaceProvider provider = SandboxWorkspaceProvider.builder().applicationDirectory(temporary)
                 .srtCli(cli).nodeExe(node).objectMapper(mapper).timeout(new CommandTimeoutConfig(30, TimeUnit.SECONDS)).build();
         SandboxWorkspace resolved = provider.resolve(SandboxWorkspaceSpec.of(workspace.toString(),
-                SandboxPolicy.builder().restrictWrites(!windows).denyRead(List.of(canary.toString())).denyWrite(List.of(restricted.toString())).build()));
+                SandboxPolicy.builder().denyRead(List.of(canary.toString())).denyWrite(List.of(restricted.toString())).build()));
         SandboxWorkspaceBridge bridge = resolved.bridge();
         Path requests = bridge.getRequestDirectory();
         Path helpers = HelperLoader.resolve(temporary, "request.mjs").getParent();
@@ -100,7 +100,7 @@ class SandboxWorkspaceBridgeIntegrationTest {
         SandboxWorkspaceProvider provider = SandboxWorkspaceProvider.builder().applicationDirectory(temporary)
                 .srtCli(Path.of(System.getProperty("sandbox.srt.cli"))).nodeExe(node).build();
         com.summit.core.workspace.WorkspaceSpec spec = SandboxWorkspaceSpec.of(root.toString(),
-                SandboxPolicy.builder().restrictWrites(!System.getProperty("os.name").toLowerCase().contains("win"))
+                SandboxPolicy.builder()
                         .denyRead(List.of(restricted.toString())).build());
         try {
             SandboxWorkspace workspace = provider.resolve(spec);
