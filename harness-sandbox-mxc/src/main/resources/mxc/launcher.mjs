@@ -63,8 +63,8 @@ try {
   const canonical = values => [...new Set(values.map(v => fs.realpathSync(v)))];
   const root = fs.realpathSync(r.root);
   r.root = root;
-  const rw = canonical([root, ...r.readwritePaths]);
-  const ro = canonical(r.readonlyPaths);
+  const rw = canonical([...(r.writable ? [root] : []), ...r.readwritePaths]);
+  const ro = canonical([...r.readonlyPaths, ...(r.writable ? [] : [root])]);
   const nodeRoot = path.dirname(path.dirname(node));
   const sdkDependencies = path.basename(path.dirname(sdk)).startsWith('@') ? path.dirname(path.dirname(sdk)) : sdk;
   const inside = (parent, child) => child === parent || child.startsWith(parent + '/');

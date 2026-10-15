@@ -71,6 +71,8 @@ AgentRequest request = AgentRequest.builder()
 
 第一版要求显式 `MxcWorkspaceSpec`，不读取任意 JSON 策略或 `BasicWorkspaceSpec.configuration` 中的隐藏开关。环境默认只有 `PATH`、`HOME`、`TMPDIR`、`LC_ALL`，再叠加显式配置，并设置 `HARNESS_WORKSPACE`。宿主环境不会自动传入 helper 或沙箱。
 
+只读工作区使用六参数构造器，将最后一个 `writable` 参数设为 `false`；此时工作目录只读挂载，启动探测也验证不能创建文件。额外 `readwritePaths` 仍是独立授权，纯只读档位应将它保持为空。
+
 显式环境配置仅用于用户命令；文件 helper 和启动探测使用固定的最小环境，避免 `NODE_OPTIONS` 等预加载变量改变文件操作协议。
 
 若持久化并恢复执行快照，在应用的 JSON mapper 中注册稳定类型名：

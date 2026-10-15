@@ -121,6 +121,18 @@ class MxcWorkspaceIntegrationTest {
         assertEquals("nested-data", Files.readString(nested.resolve("file")));
     }
 
+    @Test void readonlyWorkspaceRejectsFileAndTerminalMutations() throws Exception {
+        Files.writeString(root.resolve("readonly-input"), "original");
+        Workspace bound = provider.resolve(new MxcWorkspaceSpec(workspace.workDir(), "test", List.of(), List.of(), Map.of(), false));
+        assertEquals("original", bound.bridge().readString(bound.resolve("readonly-input"), StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> bound.bridge().writeString(bound.resolve("readonly-input"), "bad", StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> bound.bridge().createDirectories(bound.resolve("new")));
+        assertThrows(IOException.class, () -> bound.bridge().deleteFile(bound.resolve("readonly-input")));
+        assertNotEquals(0, bound.bridge().execute("printf bad > readonly-input", bound.workDir(), StandardCharsets.UTF_8,
+                10, TimeUnit.SECONDS, 4096).exitCode());
+        assertEquals("original", Files.readString(root.resolve("readonly-input")));
+    }
+
     @Test void fileHelperDoesNotLoadCommandEnvironmentPreloads() throws Exception {
         Files.writeString(root.resolve("preload.cjs"), "process.stdout.write('forged'); process.exit(0);");
         Workspace preloaded = provider.resolve(new MxcWorkspaceSpec(workspace.workDir(), "test", List.of(), List.of(),

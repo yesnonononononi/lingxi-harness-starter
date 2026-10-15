@@ -37,7 +37,7 @@ public final class MxcWorkspaceBridge implements WorkspaceBridge {
         this.policy = Map.of("root", runtime.linuxPath(spec.workDir()), "sdkDirectory", runtime.sdkDirectory(),
                 "readonlyPaths", spec.readonlyPaths().stream().map(runtime::linuxPath).toList(),
                 "readwritePaths", spec.readwritePaths().stream().map(runtime::linuxPath).toList(),
-                "environment", spec.environment());
+                "environment", spec.environment(), "writable", spec.writable());
     }
 
     void verifyReady() throws IOException, InterruptedException {

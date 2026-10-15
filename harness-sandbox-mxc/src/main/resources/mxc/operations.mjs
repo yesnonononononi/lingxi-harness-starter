@@ -14,10 +14,18 @@ try {
     case 'probe': {
       if (!fs.statSync(r.root).isDirectory()) throw new Error('Workspace is not a directory');
       const canary = `${r.root}/.mxc-probe-${crypto.randomUUID()}`;
-      try {
-        fs.writeFileSync(canary, 'probe', { flag: 'wx' });
-        if (fs.readFileSync(canary, 'utf8') !== 'probe') throw new Error('Workspace readback failed');
-      } finally { fs.rmSync(canary, { force: true }); }
+      if (r.writable) {
+        try {
+          fs.writeFileSync(canary, 'probe', { flag: 'wx' });
+          if (fs.readFileSync(canary, 'utf8') !== 'probe') throw new Error('Workspace readback failed');
+        } finally { fs.rmSync(canary, { force: true }); }
+      } else {
+        fs.readdirSync(r.root);
+        let blocked = false;
+        try { fs.writeFileSync(canary, 'probe', { flag: 'wx' }); }
+        catch (e) { if (!['EROFS', 'EACCES', 'EPERM'].includes(e.code)) throw e; blocked = true; }
+        if (!blocked) { fs.rmSync(canary, { force: true }); throw new Error('Readonly workspace is writable'); }
+      }
       let readonly = false;
       try { const fd = fs.openSync(import.meta.filename, 'r+'); fs.closeSync(fd); }
       catch (e) { if (!['EROFS', 'EACCES', 'EPERM'].includes(e.code)) throw e; readonly = true; }
