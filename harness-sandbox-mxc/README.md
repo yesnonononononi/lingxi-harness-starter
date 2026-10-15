@@ -91,6 +91,8 @@ ObjectMapper mapper = ExecutionJson.newObjectMapper(
 - 符号链接由隔离挂载和 Linux 文件系统实施边界。`encloses` 仍是几何判断，不能独立证明符号链接目标获准访问。授权根路径会在 Linux 侧规范化，别名未挂载时可能不可用。
 - Bubblewrap 仍提供基础系统只读路径、私有临时目录和 `/proc` 等运行环境；不能把它理解为“只能读取工作区”。本版不开放 `deniedPaths`，避免将可写临时遮罩解释成严格拒绝写入。
 
+文件创建、修改和删除还会校验 Linux 规范化目标是否属于显式可写授权，避免把未绑定祖先目录中不落宿主的临时写入报告为成功。原始 shell 命令仍可能写入这些临时层；它们不修改对应宿主文件，不能将其当作持久化文件操作。
+
 `resolve()` 每次都会实际启动沙箱：验证工作区读写、helper 只读、控制目录隐藏，以及 mount / PID / network 命名空间隔离。失败会抛异常。文件 `exists` 仅将文件系统真实的 `ENOENT` / `ENOTDIR` 解释为不存在，传输或后端失败会抛出 `UncheckedIOException`。
 
 ## 执行、输出和取消

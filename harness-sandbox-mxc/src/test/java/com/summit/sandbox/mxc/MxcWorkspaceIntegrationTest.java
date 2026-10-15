@@ -121,6 +121,19 @@ class MxcWorkspaceIntegrationTest {
         assertEquals("nested-data", Files.readString(nested.resolve("file")));
     }
 
+    @Test void siblingFileWritesCannotReportSuccessForAnEphemeralAncestorOverlay() throws Exception {
+        Path sibling = root.getParent().resolve("ancestor-sibling");
+        Files.writeString(sibling, "host-original");
+        boolean reportedSuccess = true;
+        try { workspace.bridge().writeString(sibling, "changed", StandardCharsets.UTF_8); }
+        catch (IOException denied) { reportedSuccess = false; }
+        assertEquals("host-original", Files.readString(sibling));
+        assertFalse(reportedSuccess, "File API must reject writes outside explicit writable grants");
+        WorkspaceBridge.CommandResult shell = execute("printf ephemeral > ../ancestor-sibling", 10, 4096);
+        assertEquals(0, shell.exitCode(), shell.output());
+        assertEquals("host-original", Files.readString(sibling));
+    }
+
     @Test void readonlyWorkspaceRejectsFileAndTerminalMutations() throws Exception {
         Files.writeString(root.resolve("readonly-input"), "original");
         Workspace bound = provider.resolve(new MxcWorkspaceSpec(workspace.workDir(), "test", List.of(), List.of(), Map.of(), false));

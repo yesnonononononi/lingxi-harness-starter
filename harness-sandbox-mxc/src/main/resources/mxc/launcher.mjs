@@ -80,6 +80,27 @@ try {
     }
     if (ro.some(readonly => inside(readonly, grant))) throw new Error('Writable grant nested in readonly grant is unsupported');
   }
+  if (['write', 'mkdir', 'delete'].includes(r.operation)) {
+    // Structural ancestors can be writable tmpfs. A file API must not report a lost overlay write as success.
+    const resolveTarget = value => {
+      let current = path.resolve(value);
+      const suffix = [];
+      for (;;) {
+        try { return path.join(fs.realpathSync(current), ...suffix.reverse()); }
+        catch (e) {
+          if (e.code !== 'ENOENT' || current === '/') throw e;
+          suffix.push(path.basename(current));
+          current = path.dirname(current);
+        }
+      }
+    };
+    const target = r.operation === 'delete'
+      ? path.join(resolveTarget(path.dirname(r.path)), path.basename(r.path))
+      : resolveTarget(r.path);
+    if (!rw.some(grant => inside(grant, target)) || ro.some(grant => inside(grant, target))) {
+      throw new Error('File operation is outside explicit writable grants');
+    }
+  }
   const { spawn } = await import(pathToFileURL(path.join(sdk, 'dist/v1/index.js')).href);
   const q = value => "'" + value.replaceAll("'", "'\\''") + "'";
   const request = {
