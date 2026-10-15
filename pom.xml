@@ -39,7 +39,6 @@
         <module>harness-spring-boot-autoconfigure</module>
         <module>harness-runtime</module>
         <module>harness-kernel-tools</module>
-        <module>harness-local-sandbox</module>
     </modules>
 
 
@@ -68,11 +67,6 @@
             <dependency>
                 <groupId>io.github.yesnonononononi</groupId>
                 <artifactId>harness-kernel-tools</artifactId>
-                <version>${lingxi-harness.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.github.yesnonononononi</groupId>
-                <artifactId>harness-local-sandbox</artifactId>
                 <version>${lingxi-harness.version}</version>
             </dependency>
             <dependency>
