@@ -2,18 +2,24 @@ package com.summit.core.conf;
 
 import lombok.Builder;
 import lombok.Data;
-import lombok.NonNull;
 import lombok.extern.jackson.Jacksonized;
 
 import java.time.Duration;
 
+/**
+ * One model selection: which provider, which endpoint, which model name.
+ *
+ * <p>Endpoint fields are optional so a deployment can keep credentials out of its configuration files
+ * and let each request carry its own {@code ModelConfig}. Anything that actually builds a model has to
+ * tolerate them being absent; the provider name still has to resolve to a registered provider.</p>
+ */
 @Data
 @Builder(toBuilder = true)
 @Jacksonized
 public class ModelConfig {
-    private @NonNull String baseUrl;
-    private @NonNull String apiKey;
-    private @NonNull String modelName;
+    private String baseUrl;
+    private String apiKey;
+    private String modelName;
     private  String provider;
     private Duration timeout;
     private Integer maxTokens;
