@@ -112,7 +112,11 @@ try {
     containment: { type: 'bubblewrap' },
     filesystem: { readwritePaths: rw, readonlyPaths: canonical([...ro, nodeRoot, helper]) },
     network: { egress: { default: 'deny' }, ingress: { default: 'deny', hostLoopback: 'deny' } },
-    environment: { PATH: '/usr/bin:/bin', HOME: root, TMPDIR: '/tmp', LC_ALL: 'C.UTF-8',
+
+    environment: { PATH: '/usr/bin:/bin',
+      HOME: root,
+      TMPDIR: '/tmp',
+      LC_ALL: 'C.UTF-8',
       ...(r.operation === 'execute' ? r.environment : {}),
       HARNESS_WORKSPACE: root },
     inheritDefaultEnvironment: false,
