@@ -34,7 +34,7 @@ public class SandboxInitializer {
      * Verifies Node, CLI loading and an actual sandboxed command. Does not install or repair
      * machine-wide Windows components. Git Bash is not required for these checks.
      *
-     * @param srtCli the package's JavaScript CLI entry point, not an npm shell shim
+     * @param srtCli the package's JavaScript CLI entry point, not a npm shell shim
      * @param node the bundled Node executable
      */
     public void init(Path srtCli, Path node) throws IOException {
@@ -54,14 +54,31 @@ public class SandboxInitializer {
      * The application decides when to offer this operation after a failed check.
      */
     public void installWindows(Path srtCli, Path node) throws IOException {
+        installWindows(srtCli, node, timeout);
+    }
+
+    /**
+     * Same as {@link #installWindows(Path, Path)}, with a budget of its own.
+     *
+     * <p>Installation is a self-elevating child process waiting on a modal UAC prompt, and SRT
+     * budgets 120s for it — usually wider than a probe budget. Reusing the probe budget here lets
+     * the runner kill the process before SRT is done, and a machine that is already provisioned
+     * then still looks like a failed install. The install command <em>and</em> the probe after it
+     * use this budget: a first probe right after provisioning is slower than a warm one.</p>
+     */
+    public void installWindows(Path srtCli, Path node, CommandTimeoutConfig installTimeout) throws IOException {
+        Objects.requireNonNull(installTimeout, "Install timeout is null");
         OsType os = osType();
         if (os != OsType.WINDOWS) {
             throw new IllegalStateException("Windows sandbox installation requires Windows");
         }
         ensureComponents(srtCli, node);
-        requireSuccess(runCommand(node.toAbsolutePath().toString(),
-                srtCli.toAbsolutePath().toString(), "windows-install"), "Windows sandbox installation failed");
-        ensureSandbox(srtCli, node, os, null);
+        requireSuccess(
+                runCommand(installTimeout, node.toAbsolutePath().toString(),
+                srtCli.toAbsolutePath().toString(), "windows-install"),
+                "Windows sandbox installation failed"
+        );
+        ensureSandbox(srtCli, node, os, null, installTimeout);
     }
 
     private OsType osType() {
@@ -70,6 +87,12 @@ public class SandboxInitializer {
         return Objects.requireNonNull(environment.osType(), "OS type is null");
     }
 
+    /**
+     * ```shell
+     * node --version
+     * node srt --version
+     * ```
+     */
     private void ensureComponents(Path srtCli, Path node) throws IOException {
         requireFile(srtCli, "SRT JavaScript CLI");
         requireFile(node, "Node executable");
@@ -78,11 +101,25 @@ public class SandboxInitializer {
                 srtCli.toAbsolutePath().toString(), "--version"), "SRT CLI loading failed");
     }
 
+    /**
+     * ```shell
+     * node srt --settings <file> -c whoami
+     * ```
+     * @param srtCli the package's JavaScript CLI entry point, not an npm shell shim
+     * @param node the bundled Node executable
+     * @param os the operating system
+     * @param settingsFile the directory containing the `settings.json` file
+     */
     private void ensureSandbox(Path srtCli, Path node, OsType os, Path settingsFile) throws IOException {
+        ensureSandbox(srtCli, node, os, settingsFile, timeout);
+    }
+
+    private void ensureSandbox(Path srtCli, Path node, OsType os, Path settingsFile,
+                               CommandTimeoutConfig budget) throws IOException {
         List<String> command = new ArrayList<>(List.of(node.toAbsolutePath().toString(), srtCli.toAbsolutePath().toString()));
         if (settingsFile != null) command.addAll(List.of("--settings", settingsFile.toAbsolutePath().toString()));
         command.addAll(List.of("-c", "whoami"));
-        WorkspaceBridge.CommandResult result = runCommand(command.toArray(String[]::new));
+        WorkspaceBridge.CommandResult result = runCommand(budget, command.toArray(String[]::new));
         String message = "SRT sandbox probe failed";
         if (os == OsType.WINDOWS) {
             message += "; inspect the diagnostic output before explicitly calling installWindows if installation is needed";
@@ -91,8 +128,12 @@ public class SandboxInitializer {
     }
 
     private WorkspaceBridge.CommandResult runCommand(String... command) throws IOException {
+        return runCommand(timeout, command);
+    }
+
+    private WorkspaceBridge.CommandResult runCommand(CommandTimeoutConfig budget, String... command) throws IOException {
         // Argument boundaries preserve spaces and shell metacharacters in bundled paths.
-        return processRunner.run(command, timeout.timeout(), timeout.timeUnit());
+        return processRunner.run(command, budget.timeout(), budget.timeUnit());
     }
 
     private static void requireFile(Path path, String label) {

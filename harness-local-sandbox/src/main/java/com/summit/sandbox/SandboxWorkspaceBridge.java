@@ -130,9 +130,13 @@ public final class SandboxWorkspaceBridge implements WorkspaceBridge {
     public void writeString(Path path, String content, Charset charset) throws IOException {
         Objects.requireNonNull(content, "content must not be null");
         Objects.requireNonNull(charset, "charset must not be null");
+
         ByteBuffer encoded = charset.newEncoder().encode(CharBuffer.wrap(content));
+
         byte[] bytes = new byte[encoded.remaining()];
+
         encoded.get(bytes);
+
         Map<String, Object> request = Map.of(
                 "path", pathRequest(path).get("path"),
                 "bytesBase64", Base64.getEncoder().encodeToString(bytes)
@@ -167,6 +171,7 @@ public final class SandboxWorkspaceBridge implements WorkspaceBridge {
                     timeout, unit, maxOutputChars);
         }
     }
+
 
     void verifyReady(Path root, List<Path> protectedDirectories, List<Path> denyRead, List<Path> denyWrite,
                      boolean workspaceWritable)

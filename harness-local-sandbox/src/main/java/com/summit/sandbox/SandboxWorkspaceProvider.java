@@ -164,6 +164,11 @@ public final class SandboxWorkspaceProvider implements WorkspaceProvider {
         }
     }
 
+
+    /**
+     * Generates a sandbox settings JSON object for the given policy, it will be used to build the config file named `settings.json`; </br>
+     * `node.exe`, `bash.exe` must be present and accessible
+     */
     private ObjectNode settings(Path root, Path helpers, Path state, Path requests, SandboxPolicy policy) {
         List<Path> writes = new ArrayList<>(paths(root, policy.allowWrite()));
 
@@ -172,6 +177,7 @@ public final class SandboxWorkspaceProvider implements WorkspaceProvider {
         List<Path> reads = new ArrayList<>(paths(root, policy.allowRead()));
 
         reads.addAll(List.of(root, helpers, requests, nodeExe.getParent()));
+
         if (bashExe != null) {
             Path directory = bashExe.getParent();
             reads.add("bin".equals(directory.getFileName().toString()) ? directory.getParent() : directory);

@@ -115,6 +115,21 @@ class SandboxInitializerTest {
     }
 
     @Test
+    void installAcceptsADedicatedBudgetWiderThanTheProbeBudget() throws Exception {
+        Path[] files = resources();
+        StubRunner runner = new StubRunner(success(), success(), success(), success());
+        runner.assertDefaultTimeout = false;
+
+        initializer(OsType.WINDOWS, null, runner)
+                .installWindows(files[0], files[1], new CommandTimeoutConfig(3, TimeUnit.MINUTES));
+
+        // 前两条是组件检查（沿用探测预算 5s），后两条是安装命令与它之后的探测（用独立预算 3min）。
+        assertEquals(List.of(5L, 5L, 3L, 3L), runner.timeouts, "预算数值：" + runner.timeouts);
+        assertEquals(List.of(TimeUnit.SECONDS, TimeUnit.SECONDS, TimeUnit.MINUTES, TimeUnit.MINUTES),
+                runner.units, "预算单位：" + runner.units);
+    }
+
+    @Test
     void directoriesAndMissingFilesAreRejectedBeforeStartingAnyCommand() throws Exception {
         Path[] files = resources();
         StubRunner runner = new StubRunner();
@@ -164,14 +179,22 @@ class SandboxInitializerTest {
 
     private static class StubRunner extends ProcessRunner {
         final List<List<String>> commands = new ArrayList<>();
+        final List<Long> timeouts = new ArrayList<>();
+        final List<TimeUnit> units = new ArrayList<>();
+        /** 既有用例都按「探测预算 5s」断言；给安装单独预算的用例先把它关掉。 */
+        boolean assertDefaultTimeout = true;
         final ArrayDeque<CommandResult> results;
 
         StubRunner(CommandResult... results) { this.results = new ArrayDeque<>(Arrays.asList(results)); }
 
         @Override public CommandResult run(String[] command, long timeout, TimeUnit unit) {
             commands.add(List.of(command.clone()));
-            assertEquals(5, timeout);
-            assertEquals(TimeUnit.SECONDS, unit);
+            timeouts.add(timeout);
+            units.add(unit);
+            if (assertDefaultTimeout) {
+                assertEquals(5, timeout);
+                assertEquals(TimeUnit.SECONDS, unit);
+            }
             return results.removeFirst();
         }
     }
