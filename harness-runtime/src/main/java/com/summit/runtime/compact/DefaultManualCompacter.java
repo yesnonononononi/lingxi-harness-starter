@@ -39,8 +39,6 @@ public class DefaultManualCompacter implements ContextCompacter {
 
         String protectedAttachment = contextAttachmentProvider.attachment(execution.getId()).orElse(null);
 
-        usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_STARTED, "Manual compaction started");
-
         int maxRounds = maxRoundsOf(request);
         int processed = 0;
 
@@ -56,7 +54,13 @@ public class DefaultManualCompacter implements ContextCompacter {
             return false;
         }
 
-        usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_COMPLETED, "Manual compaction completed");
+        // Local truncation finishes in milliseconds and must not pose as a deep compaction: the
+        // SQUEEZE_STARTED/COMPLETED pair is the model compaction's signal, and the front end renders
+        // its "compressing" style from it. The old code published STARTED unconditionally and never
+        // published COMPLETED when nothing could be squeezed, so once the truncate band was hit the
+        // front end flickered on every checkpoint and could even stay stuck on that style. Report
+        // the post-truncation usage as a plain UPDATE instead.
+        usage.publish(execution, ContextUpdateEvent.Phase.UPDATE, "Manual compaction completed");
         return true;
     }
 

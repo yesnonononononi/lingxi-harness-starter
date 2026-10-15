@@ -4,7 +4,9 @@ import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.*;
 import com.summit.core.conversation.api.*;
+import com.summit.core.conversation.event.ContextUpdateEvent;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.conversation.message.*;
 import com.summit.core.runtime.loop.ContextUsageReporter;
 import com.summit.core.tool.ToolExecution;
@@ -57,5 +59,37 @@ class CompactionRegressionTest {
         assertTrue(messages.get(2).text().length() < 500);
         assertTrue(messages.get(4).text().length() < 500);
         assertFalse(compacter.compact(new ContextCompactRequest(execution, null)));
+    }
+
+    @Test
+    void localCompactionReportsUsageWithoutSqueezePhases() {
+        List<ContextUpdateEvent> events = new ArrayList<>();
+        var reporting = new ContextUsageReporter(tokenizer, 100_000, new RuntimeEventPublisher(List.of(new RuntimeListener() {
+            @Override
+            public void onContextUpdate(ContextUpdateEvent event) {
+                events.add(event);
+            }
+        })), 1);
+        var messages = new ArrayList<Message>();
+        messages.add(SystemMessageEntity.builder().text("system").build());
+        messages.add(AiMessageEntity.builder().toolCalls(List.of(new ToolCallRequest("c0", "read", 0, "{}"))).build());
+        messages.add(ToolMessageEntity.builder().id("c0").name("read").text("x".repeat(2_000)).build());
+        var execution = Execution.builder().id("e").messages(messages)
+                .agentRequest(AgentRequest.builder().messages(messages).build()).build();
+        var compacter = new DefaultManualCompacter(ContextAttachmentProvider.NONE, tokenizer, reporting);
+
+        // A successful pass reports the post-truncation usage as a plain UPDATE only: the
+        // SQUEEZE_STARTED/COMPLETED pair is the model compaction's signal and the front end renders
+        // its "compressing" style from it, so a millisecond local truncation must not emit it.
+        assertTrue(compacter.compact(new ContextCompactRequest(execution,
+                ContextSqueezeRequest.builder().shouldSqueeze(true).truncateTurn(2).build())));
+        assertEquals(1, events.size());
+        assertEquals(ContextUpdateEvent.Phase.UPDATE, events.getFirst().getPhase());
+
+        // Nothing left to squeeze: no event at all. The old code published a lone SQUEEZE_STARTED
+        // here without its COMPLETED, leaving the front end stuck on the "compressing" style.
+        events.clear();
+        assertFalse(compacter.compact(new ContextCompactRequest(execution, null)));
+        assertTrue(events.isEmpty());
     }
 }
