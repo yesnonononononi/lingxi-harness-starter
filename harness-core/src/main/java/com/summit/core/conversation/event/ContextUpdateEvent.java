@@ -11,11 +11,14 @@ import java.util.Map;
  * (manual per-round truncation / model deep compaction) during its blocking flow:
  * <ul>
  *   <li>{@link Phase#SQUEEZE_STARTED} squeeze started: {@link #usage} holds the usage before compaction;</li>
- *   <li>{@link Phase#SQUEEZE_COMPLETED} squeeze finished: {@link #usage} holds the usage after compaction.</li>
+ *   <li>{@link Phase#SQUEEZE_COMPLETED} squeeze flow finished: {@link #usage} holds the usage after
+ *       compaction (unchanged when the pass rewrote nothing).</li>
  * </ul>
  *
  * <p>Both events carry {@code tokenCount / maxTokens / ratio} so the front-end can render how the
- * "context usage" evolved (e.g. a gauge).</p>
+ * "context usage" evolved (e.g. a gauge), and the {@link Band} that produced them so consumers can
+ * decide per band what to do with the pair — the manual band finishes in milliseconds and most
+ * consumers should not render it as an in-flight compaction.</p>
  */
 @Data
 public class ContextUpdateEvent implements AgentEvent {
@@ -30,9 +33,20 @@ public class ContextUpdateEvent implements AgentEvent {
          */
         SQUEEZE_STARTED,
         /**
-         * Squeeze finished (conversation context rewritten).
+         * Squeeze flow finished (the context may or may not have been rewritten; the message tells).
          */
         SQUEEZE_COMPLETED
+    }
+
+    /**
+     * Compaction band. Every squeeze event names the band that produced it; plain usage telemetry
+     * ({@link Phase#UPDATE}) carries none.
+     */
+    public enum Band {
+        /** Local round-based truncation, no model call involved. */
+        MANUAL,
+        /** Model deep compaction: the context is rebuilt from a generated summary. */
+        SUMMARY
     }
 
     private final String executionId;
@@ -40,6 +54,10 @@ public class ContextUpdateEvent implements AgentEvent {
      * Event phase: squeeze started / rebuild finished.
      */
     private final Phase phase;
+    /**
+     * Compaction band that produced this event; {@code null} on plain usage telemetry.
+     */
+    private final Band band;
     /**
      * Context usage metric (tokenCount / maxTokens / ratio); null when no context cap is configured.
      */
@@ -54,8 +72,14 @@ public class ContextUpdateEvent implements AgentEvent {
 
 
     public ContextUpdateEvent(String executionId, Phase phase, ContextUsageMetric usage, String message, Map<String, Object> metaData) {
+        this(executionId, phase, null, usage, message, metaData);
+    }
+
+    public ContextUpdateEvent(String executionId, Phase phase, Band band, ContextUsageMetric usage,
+                              String message, Map<String, Object> metaData) {
         this.executionId = executionId;
         this.phase = phase;
+        this.band = band;
         this.usage = usage;
         this.message = message;
         this.metaData = metaData == null ? Map.of() : Map.copyOf(metaData);

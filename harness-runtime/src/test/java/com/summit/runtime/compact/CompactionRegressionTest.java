@@ -62,14 +62,9 @@ class CompactionRegressionTest {
     }
 
     @Test
-    void localCompactionReportsUsageWithoutSqueezePhases() {
+    void manualCompactionEmitsAPairedBandTaggedSqueeze() {
         List<ContextUpdateEvent> events = new ArrayList<>();
-        var reporting = new ContextUsageReporter(tokenizer, 100_000, new RuntimeEventPublisher(List.of(new RuntimeListener() {
-            @Override
-            public void onContextUpdate(ContextUpdateEvent event) {
-                events.add(event);
-            }
-        })), 1);
+        var reporting = capturingReporter(events);
         var messages = new ArrayList<Message>();
         messages.add(SystemMessageEntity.builder().text("system").build());
         messages.add(AiMessageEntity.builder().toolCalls(List.of(new ToolCallRequest("c0", "read", 0, "{}"))).build());
@@ -78,18 +73,48 @@ class CompactionRegressionTest {
                 .agentRequest(AgentRequest.builder().messages(messages).build()).build();
         var compacter = new DefaultManualCompacter(ContextAttachmentProvider.NONE, tokenizer, reporting);
 
-        // A successful pass reports the post-truncation usage as a plain UPDATE only: the
-        // SQUEEZE_STARTED/COMPLETED pair is the model compaction's signal and the front end renders
-        // its "compressing" style from it, so a millisecond local truncation must not emit it.
         assertTrue(compacter.compact(new ContextCompactRequest(execution,
                 ContextSqueezeRequest.builder().shouldSqueeze(true).truncateTurn(2).build())));
-        assertEquals(1, events.size());
-        assertEquals(ContextUpdateEvent.Phase.UPDATE, events.getFirst().getPhase());
+        assertEquals(2, events.size());
+        assertEquals(ContextUpdateEvent.Phase.SQUEEZE_STARTED, events.getFirst().getPhase());
+        assertEquals(ContextUpdateEvent.Phase.SQUEEZE_COMPLETED, events.getLast().getPhase());
+        events.forEach(event -> assertEquals(ContextUpdateEvent.Band.MANUAL, event.getBand()));
 
-        // Nothing left to squeeze: no event at all. The old code published a lone SQUEEZE_STARTED
-        // here without its COMPLETED, leaving the front end stuck on the "compressing" style.
+        // A pass that squeezes nothing still closes the pair: a lone STARTED would leave consumers
+        // stuck on the in-flight state until some unrelated event cleared it.
         events.clear();
         assertFalse(compacter.compact(new ContextCompactRequest(execution, null)));
-        assertTrue(events.isEmpty());
+        assertEquals(2, events.size());
+        events.forEach(event -> assertEquals(ContextUpdateEvent.Band.MANUAL, event.getBand()));
+    }
+
+    @Test
+    void modelCompactionClosesTheSqueezePairOnFailure() {
+        List<ContextUpdateEvent> events = new ArrayList<>();
+        var reporting = capturingReporter(events);
+        var conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        var compacter = new DefaultModelCompacter(request -> {
+            throw new IllegalStateException("model unavailable");
+        }, conversations, id -> Optional.empty(), reporting);
+        var history = new ArrayList<Message>(List.of(
+                SystemMessageEntity.builder().text("system").build(), UserMessageEntity.from("history")));
+        var execution = Execution.builder().id("e").messages(history)
+                .agentRequest(AgentRequest.builder().messages(history).build()).build();
+
+        assertFalse(compacter.compact(new ContextCompactRequest(execution, null)));
+        assertEquals(2, events.size());
+        assertEquals(ContextUpdateEvent.Phase.SQUEEZE_STARTED, events.getFirst().getPhase());
+        assertEquals(ContextUpdateEvent.Phase.SQUEEZE_COMPLETED, events.getLast().getPhase());
+        events.forEach(event -> assertEquals(ContextUpdateEvent.Band.SUMMARY, event.getBand()));
+    }
+
+    /** Reporter wired to a capturing listener: the tests assert on the emitted event sequence. */
+    private ContextUsageReporter capturingReporter(List<ContextUpdateEvent> events) {
+        return new ContextUsageReporter(tokenizer, 100_000, new RuntimeEventPublisher(List.of(new RuntimeListener() {
+            @Override
+            public void onContextUpdate(ContextUpdateEvent event) {
+                events.add(event);
+            }
+        })), 1);
     }
 }

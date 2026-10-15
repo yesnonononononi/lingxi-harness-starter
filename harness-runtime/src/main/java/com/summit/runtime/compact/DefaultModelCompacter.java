@@ -37,14 +37,24 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
         var execution = request.execution();
         var messages = conversationManager.messages(execution);
         if (messages.isEmpty()) return false;
-        usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_STARTED, "Model compaction started");
+        usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_STARTED,
+                ContextUpdateEvent.Band.SUMMARY, "Model compaction started");
         try {
             if (!summaryApplier.apply(
-                    generate(execution.getId(), renderConversation(messages)), execution, false)) return false;
-            usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_COMPLETED, "Model compaction completed");
+                    generate(execution.getId(), renderConversation(messages)), execution, false)) {
+                // STARTED is already out: every failure path closes the pair, otherwise consumers
+                // stay on the in-flight state until the next plain UPDATE happens to arrive.
+                usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_COMPLETED,
+                        ContextUpdateEvent.Band.SUMMARY, "Model compaction finished without rewriting the context");
+                return false;
+            }
+            usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_COMPLETED,
+                    ContextUpdateEvent.Band.SUMMARY, "Model compaction completed");
             return true;
         } catch (Exception e) {
             log.warn("Model compaction failed: executionId={}", execution.getId(), e);
+            usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_COMPLETED,
+                    ContextUpdateEvent.Band.SUMMARY, "Model compaction failed");
             return false;
         }
     }

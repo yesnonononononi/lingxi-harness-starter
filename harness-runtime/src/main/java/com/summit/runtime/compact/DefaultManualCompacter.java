@@ -39,6 +39,13 @@ public class DefaultManualCompacter implements ContextCompacter {
 
         String protectedAttachment = contextAttachmentProvider.attachment(execution.getId()).orElse(null);
 
+        // Every SQUEEZE_STARTED is paired with exactly one SQUEEZE_COMPLETED, including a pass that
+        // ends up squeezing nothing: consumers key the in-flight state off the pair, and a lone
+        // STARTED would leave them stuck on it. The band (MANUAL) lets them decide per band whether
+        // to render this as an ongoing compaction.
+        usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_STARTED,
+                ContextUpdateEvent.Band.MANUAL, "Manual compaction started");
+
         int maxRounds = maxRoundsOf(request);
         int processed = 0;
 
@@ -51,16 +58,13 @@ public class DefaultManualCompacter implements ContextCompacter {
         }
         if (processed <= 0) {
             log.info("【context-squeeze】no older round can be squeezed further, skip: executionId={}", execution.getId());
+            usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_COMPLETED,
+                    ContextUpdateEvent.Band.MANUAL, "Manual compaction finished without changes");
             return false;
         }
 
-        // Local truncation finishes in milliseconds and must not pose as a deep compaction: the
-        // SQUEEZE_STARTED/COMPLETED pair is the model compaction's signal, and the front end renders
-        // its "compressing" style from it. The old code published STARTED unconditionally and never
-        // published COMPLETED when nothing could be squeezed, so once the truncate band was hit the
-        // front end flickered on every checkpoint and could even stay stuck on that style. Report
-        // the post-truncation usage as a plain UPDATE instead.
-        usage.publish(execution, ContextUpdateEvent.Phase.UPDATE, "Manual compaction completed");
+        usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_COMPLETED,
+                ContextUpdateEvent.Band.MANUAL, "Manual compaction completed");
         return true;
     }
 
