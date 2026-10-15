@@ -332,6 +332,10 @@ class ProcessRunnerTest {
         List<String> command = new ArrayList<>();
         String executable = System.getProperty("os.name").toLowerCase().contains("win") ? "java.exe" : "java";
         command.add(Path.of(System.getProperty("java.home"), "bin", executable).toString());
+        // 子 JVM 的 stdout/stderr 编码随宿主默认值漂移（runner 上是 cp1252），会让非 ASCII 探针输出
+        // 与父进程按 UTF-8 的读取错位；这里固定成 UTF-8，用例才与宿主编码无关。
+        command.add("-Dstdout.encoding=UTF-8");
+        command.add("-Dstderr.encoding=UTF-8");
         command.add("-cp");
         try {
             command.add(Path.of(Probe.class.getProtectionDomain().getCodeSource().getLocation().toURI()).toString());
@@ -351,7 +355,13 @@ class ProcessRunnerTest {
                 case "fail" -> { System.err.print("failure diagnostic"); System.exit(7); }
                 case "large" -> System.out.print("x".repeat(256 * 1024));
                 case "stdin" -> System.out.print(Base64.getEncoder().encodeToString(System.in.readAllBytes()));
-                case "encoded" -> System.out.write(arguments[2].getBytes(Charset.forName(arguments[1])));
+                case "encoded" -> {
+                    // System.out 的 write(byte[]) 会走 stdout.encoding 编码器（JDK 21），不同宿主默认编码
+                    // 会把 UTF-16LE 字节转码坏；这里必须写到原始字节流，测试才与宿主编码无关。
+                    try (var rawOut = new java.io.FileOutputStream(java.io.FileDescriptor.out)) {
+                        rawOut.write(arguments[2].getBytes(Charset.forName(arguments[1])));
+                    }
+                }
                 case "cwd-stdin" -> System.out.print(System.getProperty("user.dir") + "|"
                         + Base64.getEncoder().encodeToString(System.in.readAllBytes()));
                 case "duplex" -> {
