@@ -22,12 +22,9 @@ class MxcRealBuildTest {
         assumeTrue(build != null && dependencies != null, "Stage an isolated real-build snapshot explicitly");
         String node = System.getProperty("mxc.node");
         String sdk = System.getProperty("mxc.sdk");
-        String distribution = System.getProperty("mxc.wsl.distribution");
-        String helpers = System.getProperty("mxc.test.root") + "/helpers";
-        Path helperPath = distribution == null ? Path.of(helpers)
-                : Path.of("\\\\wsl.localhost\\" + distribution + helpers.replace('/', '\\'));
-        MxcRuntime runtime = distribution == null ? MxcRuntime.linux(Path.of(node), Path.of(sdk), helperPath)
-                : MxcRuntime.wsl(distribution, node, sdk, helperPath);
+        assumeTrue(!System.getProperty("os.name").toLowerCase().contains("windows"), "Linux real build suite");
+        Path helperPath = Path.of(System.getProperty("mxc.test.root"), "helpers");
+        MxcRuntime runtime = MxcRuntime.nativeHost(Path.of(node), Path.of(sdk), helperPath);
         Workspace workspace = new MxcWorkspaceProvider(runtime).resolve(new MxcWorkspaceSpec(build + "/harness", "build",
                 List.of(dependencies + "/maven-repository", dependencies + "/tools"), List.of(build),
                 Map.of("JAVA_HOME", "/usr/lib/jvm/java-21-openjdk-amd64", "PATH", "/usr/lib/jvm/java-21-openjdk-amd64/bin:/usr/bin:/bin",

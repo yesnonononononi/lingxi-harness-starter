@@ -14,7 +14,7 @@ const canary = path.join(controls, token + '.canary');
 const statIdentity = pid => fs.readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ').at(-1).split(' ')[19];
 
 if (mode === 'cancel') {
-  // A tombstone also cancels a launcher delayed in WSL startup before it registers its PID.
+  // A tombstone also cancels a launcher delayed before it registers its PID.
   fs.writeFileSync(cancelledFile, '', { mode: 0o600 });
   let registration;
   for (let i = 0; i < 30; i++) {

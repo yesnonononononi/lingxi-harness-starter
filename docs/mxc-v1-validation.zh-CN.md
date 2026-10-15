@@ -1,5 +1,7 @@
 # MXC 第一版实现与验证
 
+> Historical snapshot. Current platform routing is Windows BaseContainer and Linux Bubblewrap. See [current validation](mxc-native-platform-validation.md); the Windows-to-Linux transport described below has been removed.
+
 ## 实现范围
 
 新增可选模块 `harness-sandbox-mxc`，通过已有 `WorkspaceProvider` / `WorkspaceBridge` 接入，不修改 core 的 SPI 或引入框架工作区资源缓存。支持 Linux Bubblewrap 和 Windows Java 调用指定 WSL 发行版；六个 bridge 操作均经过 MXC。网络固定全部拒绝，环境变量显式传递，后端不满足要求时直接失败。

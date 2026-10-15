@@ -39,11 +39,8 @@ class MxcWorkspaceIntegrationTest {
         String sdk = System.getProperty("mxc.sdk");
         base = System.getProperty("mxc.test.root");
         assumeTrue(node != null && sdk != null && base != null, "Configure mxc.node, mxc.sdk and mxc.test.root for backend tests");
-        String distribution = System.getProperty("mxc.wsl.distribution");
-        Path helperPath = distribution == null ? Path.of(base, "helpers")
-                : Path.of("\\\\wsl.localhost\\" + distribution + (base + "/helpers").replace('/', '\\'));
-        runtime = distribution == null ? MxcRuntime.linux(Path.of(node), Path.of(sdk), helperPath)
-                : MxcRuntime.wsl(distribution, node, sdk, helperPath);
+        assumeTrue(!System.getProperty("os.name").toLowerCase().contains("windows"), "Linux backend suite");
+        runtime = MxcRuntime.nativeHost(Path.of(node), Path.of(sdk), Path.of(base, "helpers"));
     }
 
     @BeforeEach void workspace() throws Exception {
@@ -57,8 +54,8 @@ class MxcWorkspaceIntegrationTest {
         Files.writeString(outside, "host-secret");
         Files.writeString(readonly.resolve("visible"), "read-only-data");
         provider = new MxcWorkspaceProvider(runtime);
-        workspace = provider.resolve(new MxcWorkspaceSpec(runtime.linuxPath(root.toString()), "test",
-                List.of(runtime.linuxPath(readonly.toString())), List.of(), Map.of("VISIBLE_VALUE", "hello '$&中文")));
+        workspace = provider.resolve(new MxcWorkspaceSpec(runtime.nativePath(root.toString()), "test",
+                List.of(runtime.nativePath(readonly.toString())), List.of(), Map.of("VISIBLE_VALUE", "hello '$&中文")));
     }
 
     @Test void fileOperationsPreserveTextAndReportRealFailures() throws Exception {
@@ -87,8 +84,8 @@ class MxcWorkspaceIntegrationTest {
         assertThrows(IOException.class, () -> workspace.bridge().writeString(readonly.resolve("visible"), "bad", StandardCharsets.UTF_8));
         assertThrows(IOException.class, () -> workspace.bridge().readString(outside, StandardCharsets.UTF_8));
         assertThrows(IOException.class, () -> workspace.bridge().writeString(outside, "bad", StandardCharsets.UTF_8));
-        WorkspaceBridge.CommandResult result = execute("cat " + q(runtime.linuxPath(outside.toString())) + "; printf bad > "
-                + q(runtime.linuxPath(readonly.resolve("visible").toString())), 10, 4096);
+        WorkspaceBridge.CommandResult result = execute("cat " + q(runtime.nativePath(outside.toString())) + "; printf bad > "
+                + q(runtime.nativePath(readonly.resolve("visible").toString())), 10, 4096);
         assertNotEquals(0, result.exitCode());
         assertFalse(result.output().contains("host-secret"));
         assertEquals("host-secret", Files.readString(outside));
@@ -98,7 +95,7 @@ class MxcWorkspaceIntegrationTest {
     }
 
     @Test void symlinkAndParentTraversalCannotExposeOutsideFiles() throws Exception {
-        assertEquals(0, execute("ln -s " + q(runtime.linuxPath(outside.getParent().toString())) + " link", 10, 4096).exitCode());
+        assertEquals(0, execute("ln -s " + q(runtime.nativePath(outside.getParent().toString())) + " link", 10, 4096).exitCode());
         assertThrows(IOException.class, () -> workspace.bridge().readString(workspace.resolve("link/secret"), StandardCharsets.UTF_8));
         assertThrows(IOException.class, () -> workspace.bridge().writeString(workspace.resolve("link/secret"), "bad", StandardCharsets.UTF_8));
         assertThrows(IOException.class, () -> workspace.bridge().readString(workspace.resolve("../outside/secret"), StandardCharsets.UTF_8));
@@ -109,7 +106,7 @@ class MxcWorkspaceIntegrationTest {
         Path nested = Files.createDirectory(root.resolve("readonly-child"));
         Files.writeString(nested.resolve("file"), "nested-data");
         Workspace bound = provider.resolve(new MxcWorkspaceSpec(workspace.workDir(), "test",
-                List.of(runtime.linuxPath(nested.toString())), List.of(), Map.of()));
+                List.of(runtime.nativePath(nested.toString())), List.of(), Map.of()));
         assertEquals("nested-data", bound.bridge().readString(nested.resolve("file"), StandardCharsets.UTF_8));
         assertThrows(IOException.class, () -> bound.bridge().deleteFile(nested.resolve("file")));
         assertThrows(IOException.class, () -> bound.bridge().writeString(nested.resolve("new"), "bad", StandardCharsets.UTF_8));
@@ -201,11 +198,11 @@ class MxcWorkspaceIntegrationTest {
                 "test", List.of(), List.of("/"), Map.of())));
         assertThrows(IllegalStateException.class, () -> provider.resolve(new MxcWorkspaceSpec(directory,
                 "test", List.of("/"), List.of(), Map.of())));
-        MxcRuntime missing = new MxcRuntime(runtime.distribution(), runtime.nodeExecutable(), directory + "/missing-sdk",
+        MxcRuntime missing = new MxcRuntime(runtime.nodeExecutable(), directory + "/missing-sdk",
                 runtime.helperDirectory(), runtime.startupTimeout(), runtime.fileTimeout());
         assertThrows(IllegalStateException.class, () -> new MxcWorkspaceProvider(missing).resolve(new MxcWorkspaceSpec(directory)));
         assertThrows(IllegalStateException.class, () -> provider.resolve(new MxcWorkspaceSpec(directory, "test",
-                List.of(), List.of(runtime.linuxPath(runtime.helperDirectory().toString())), Map.of())));
+                List.of(), List.of(runtime.nativePath(runtime.helperDirectory().toString())), Map.of())));
     }
 
     @Test void hostLoopbackConnectionIsBlockedWithAnUnconfinedPositiveControl() throws Exception {
@@ -225,7 +222,6 @@ class MxcWorkspaceIntegrationTest {
     private static String q(String value) { return "'" + value.replace("'", "'\\''") + "'"; }
     private static WorkspaceBridge.CommandResult hostNode(String script) throws Exception {
         List<String> argv = new ArrayList<>();
-        if (runtime.distribution() != null) argv.addAll(List.of("wsl.exe", "--distribution", runtime.distribution(), "--exec"));
         argv.addAll(List.of(runtime.nodeExecutable(), "-e", script));
         return ProcessRunner.run(argv, null, StandardCharsets.UTF_8, 5, TimeUnit.SECONDS, 4096);
     }

@@ -10,13 +10,15 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.HexFormat;
+import java.util.Locale;
 
 /** Extracts versioned, content-checked classpath helpers into a deployment-owned directory. */
 final class MxcHelpers {
     private MxcHelpers() { }
 
     static synchronized Path deploy(Path directory) throws IOException {
-        byte[] launcher = resource("launcher.mjs");
+        byte[] launcher = resource(System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("windows")
+                ? "windows-launcher.mjs" : "launcher.mjs");
         byte[] operations = resource("operations.mjs");
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");

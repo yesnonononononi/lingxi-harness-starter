@@ -11,13 +11,13 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 class MxcRuntimeTest {
-    @Test void mapsDrivesAndOnlyTheSelectedDistributionWithoutShellExpansion() {
-        assertEquals("/mnt/d/Code/a b/'$x&中文", MxcRuntime.windowsToLinux("D:\\Code\\a b\\'$x&中文", "Ubuntu"));
-        assertEquals("/home/me/work", MxcRuntime.windowsToLinux("\\\\wsl.localhost\\Ubuntu\\home\\me\\work", "Ubuntu"));
-        assertEquals("/home/me/work", MxcRuntime.windowsToLinux("\\\\wsl$\\ubuntu\\home\\me\\work", "Ubuntu"));
-        assertThrows(IllegalArgumentException.class, () -> MxcRuntime.windowsToLinux("\\\\server\\share\\a", "Ubuntu"));
-        assertThrows(IllegalArgumentException.class, () -> MxcRuntime.windowsToLinux("\\\\wsl$\\Debian\\a", "Ubuntu"));
-        assertThrows(IllegalArgumentException.class, () -> MxcRuntime.windowsToLinux("D:relative", "Ubuntu"));
+    @Test void rejectsNonNativeAndRelativePaths() {
+        assertThrows(IllegalArgumentException.class, () -> MxcRuntime.nativeAbsolute("relative"));
+        assertThrows(IllegalArgumentException.class, () -> MxcRuntime.nativeAbsolute("\\\\wsl.localhost\\Ubuntu\\home\\project"));
+        if (System.getProperty("os.name").toLowerCase().contains("windows")) {
+            assertEquals("D:\\Code\\file", MxcRuntime.nativeAbsolute("D:/Code/a/../file"));
+            assertThrows(IllegalArgumentException.class, () -> MxcRuntime.nativeAbsolute("/home/project"));
+        }
     }
 
     @Test void normalizesLinuxPathsAndRejectsAmbiguousInputs() {

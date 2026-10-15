@@ -22,7 +22,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-/** Every file and shell operation runs under the same Bubblewrap policy. */
+/** Every file and shell operation runs under the same host-native isolation policy. */
 public final class MxcWorkspaceBridge implements WorkspaceBridge {
     private static final int FILE_LIMIT = 16 * 1024 * 1024;
     private static final long OUTPUT_LIMIT = 4 * 1024 * 1024;
@@ -30,13 +30,14 @@ public final class MxcWorkspaceBridge implements WorkspaceBridge {
     private final MxcRuntime runtime;
     private final Path launcher;
     private final Map<String, Object> policy;
+    private Charset commandCharset = StandardCharsets.UTF_8;
 
     MxcWorkspaceBridge(MxcRuntime runtime, Path launcher, MxcWorkspaceSpec spec) {
         this.runtime = runtime;
         this.launcher = launcher;
-        this.policy = Map.of("root", runtime.linuxPath(spec.workDir()), "sdkDirectory", runtime.sdkDirectory(),
-                "readonlyPaths", spec.readonlyPaths().stream().map(runtime::linuxPath).toList(),
-                "readwritePaths", spec.readwritePaths().stream().map(runtime::linuxPath).toList(),
+        this.policy = Map.of("root", runtime.nativePath(spec.workDir()), "sdkDirectory", runtime.sdkDirectory(),
+                "readonlyPaths", spec.readonlyPaths().stream().map(runtime::nativePath).toList(),
+                "readwritePaths", spec.readwritePaths().stream().map(runtime::nativePath).toList(),
                 "environment", spec.environment(), "writable", spec.writable());
     }
 
@@ -45,7 +46,10 @@ public final class MxcWorkspaceBridge implements WorkspaceBridge {
         if (!result.path("ready").isBoolean() || !result.path("ready").booleanValue()) {
             throw new IOException("MXC readiness probe did not confirm isolation");
         }
+        commandCharset = Charset.forName(result.path("commandCharset").asText("UTF-8"));
     }
+
+    Charset commandCharset() { return commandCharset; }
 
     @Override public boolean exists(Path path) {
         try {
@@ -73,7 +77,7 @@ public final class MxcWorkspaceBridge implements WorkspaceBridge {
         if (buffer.remaining() > FILE_LIMIT) throw new IOException("File exceeds 16 MiB limit");
         byte[] bytes = new byte[buffer.remaining()];
         buffer.get(bytes);
-        fileUnchecked("write", Map.of("path", runtime.linuxPath(path.toString()), "bytesBase64", Base64.getEncoder().encodeToString(bytes)));
+        fileUnchecked("write", Map.of("path", runtime.nativePath(path.toString()), "bytesBase64", Base64.getEncoder().encodeToString(bytes)));
     }
 
     @Override public CommandResult execute(String command, String workDir, Charset charset, long timeout,
@@ -83,7 +87,7 @@ public final class MxcWorkspaceBridge implements WorkspaceBridge {
         Duration budget = Duration.ofMillis(Math.max(1, unit.toMillis(timeout)));
         Map<String, Object> operation = new LinkedHashMap<>();
         operation.put("command", Objects.requireNonNull(command));
-        if (workDir != null && !workDir.isBlank()) operation.put("workDir", runtime.linuxPath(workDir));
+        if (workDir != null && !workDir.isBlank()) operation.put("workDir", runtime.nativePath(workDir));
         JsonNode result = invoke("execute", operation, budget, maxOutputChars * 4);
         byte[] bytes = outputBytes(result);
         boolean byteTruncated = result.path("truncated").booleanValue();
@@ -96,7 +100,7 @@ public final class MxcWorkspaceBridge implements WorkspaceBridge {
         return new CommandResult(result.path("exitCode").intValue(), output, truncated, result.path("timedOut").booleanValue());
     }
 
-    private Map<String, Object> target(Path path) { return Map.of("path", runtime.linuxPath(Objects.requireNonNull(path).toString())); }
+    private Map<String, Object> target(Path path) { return Map.of("path", runtime.nativePath(Objects.requireNonNull(path).toString())); }
 
     private JsonNode fileUnchecked(String operation, Map<String, Object> arguments) throws IOException {
         try { return file(operation, arguments, runtime.fileTimeout()); }

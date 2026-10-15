@@ -10,7 +10,7 @@ import com.summit.core.workspace.WorkspaceRef;
 import com.summit.core.workspace.WorkspaceSpec;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.nio.charset.Charset;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -18,7 +18,7 @@ import java.util.Objects;
 
 /** Resolves an immutable MXC bridge after a real filesystem/namespace readiness probe. */
 public final class MxcWorkspaceProvider implements WorkspaceProvider {
-    public static final String TYPE = "mxc";
+    public static final String TYPE = "sandbox";
     private final MxcRuntime runtime;
 
     public MxcWorkspaceProvider(MxcRuntime runtime) { this.runtime = Objects.requireNonNull(runtime); }
@@ -30,39 +30,42 @@ public final class MxcWorkspaceProvider implements WorkspaceProvider {
             Path launcher = MxcHelpers.deploy(runtime.helperDirectory());
             MxcWorkspaceBridge bridge = new MxcWorkspaceBridge(runtime, launcher, mxc);
             bridge.verifyReady();
-            String root = runtime.linuxPath(mxc.workDir());
+            String root = runtime.nativePath(mxc.workDir());
             String id = WorkspaceRef.derived(TYPE, Objects.toString(mxc.scope(), "") + "|" + root).id();
-            return new ResolvedWorkspace(id, root, bridge, runtime, mxc.environment());
+            return new ResolvedWorkspace(id, root, bridge, runtime, mxc.environment(), bridge.commandCharset());
         } catch (IOException e) { throw new IllegalStateException("MXC workspace readiness failed", e); }
         catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("MXC workspace readiness interrupted", e); }
     }
 
     private record ResolvedWorkspace(String id, String workDir, WorkspaceBridge bridge,
-                                      MxcRuntime runtime, Map<String, String> environment) implements Workspace {
+                                      MxcRuntime runtime, Map<String, String> environment, Charset charset) implements Workspace {
         @Override public RuntimeEnvironment runtimeEnvironment() {
             Map<String, String> env = new LinkedHashMap<>(environment);
-            env.putIfAbsent("PATH", "/usr/bin:/bin");
+            env.putIfAbsent("PATH", runtime.windows() ? Path.of(runtime.nodeExecutable()).getParent() + ";" + System.getenv("SystemRoot") + "\\System32" : "/usr/bin:/bin");
             env.putIfAbsent("HOME", workDir);
-            env.putIfAbsent("TMPDIR", "/tmp");
-            env.putIfAbsent("LC_ALL", "C.UTF-8");
-            env.put("HARNESS_WORKSPACE", workDir);
-            // The absolute shell is Linux-side. Windows Path validation cannot represent /bin/bash.
-            return RuntimeEnvironment.builder().charset(StandardCharsets.UTF_8).osType(OsType.LINUX)
-                    .shellType(ShellType.BASH).isolated(true).envs(env).build();
+            if (runtime.windows()) {
+                env.putIfAbsent("USERPROFILE", workDir);
+                env.putIfAbsent("LOCALAPPDATA", workDir);
+                env.putIfAbsent("TEMP", workDir);
+                env.putIfAbsent("TMP", workDir);
+            } else {
+                env.putIfAbsent("TMPDIR", "/tmp");
+                env.putIfAbsent("LC_ALL", "C.UTF-8");
+            }
+            env.put("WORKDIR", workDir);
+            return RuntimeEnvironment.builder().charset(charset).osType(runtime.windows() ? OsType.WINDOWS : OsType.LINUX)
+                    .shellType(runtime.windows() ? ShellType.CMD : ShellType.BASH).isolated(true).envs(env).build();
         }
 
         @Override public Path resolve(String value) {
             if (value == null || value.isBlank()) return runtime.hostPath(workDir);
-            if (value.startsWith("/") || value.matches("^[A-Za-z]:[\\\\/].*") || value.startsWith("\\\\")) {
-                return runtime.hostPath(runtime.linuxPath(value));
-            }
-            return runtime.hostPath(MxcRuntime.linuxAbsolute(workDir + "/" + value.replace('\\', '/')));
+            Path target = Path.of(value);
+            return runtime.hostPath((target.isAbsolute() ? target : Path.of(workDir).resolve(target)).normalize().toString());
         }
 
         @Override public boolean encloses(Path path) {
             if (path == null) return false;
-            String candidate = runtime.linuxPath(path.toAbsolutePath().normalize().toString());
-            return candidate.equals(workDir) || candidate.startsWith(workDir + "/");
+            return path.toAbsolutePath().normalize().startsWith(Path.of(workDir));
         }
     }
 }

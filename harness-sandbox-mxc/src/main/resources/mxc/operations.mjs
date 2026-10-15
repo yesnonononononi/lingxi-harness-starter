@@ -34,12 +34,12 @@ try {
       try { fs.readFileSync(r.outside); }
       catch (e) { if (!['ENOENT', 'EACCES', 'EPERM'].includes(e.code)) throw e; hidden = true; }
       if (!hidden) throw new Error('Control directory is visible inside sandbox');
-      for (const ns of ['mnt', 'pid', 'net']) {
+      for (const ns of process.platform === 'linux' ? ['mnt', 'pid', 'net'] : []) {
         if (fs.readlinkSync(`/proc/self/ns/${ns}`) === r.namespaces[ns]) {
           throw new Error(`Sandbox did not isolate ${ns} namespace`);
         }
       }
-      result = { ready: true };
+      result = { ready: true, commandCharset: r.commandCharset ?? 'UTF-8' };
       break;
     }
     case 'exists':

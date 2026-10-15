@@ -14,7 +14,7 @@ class MxcHelpersTest {
 
     @Test void reusesMatchingResourcesAndRejectsTamperingWithoutOverwritingIt() throws Exception {
         Path launcher = MxcHelpers.deploy(directory);
-        assertTrue(Files.readString(launcher).contains("bubblewrap"));
+        assertTrue(Files.readString(launcher).contains(System.getProperty("os.name").toLowerCase().contains("windows") ? "base-container" : "bubblewrap"));
         assertEquals(launcher, MxcHelpers.deploy(directory));
         Files.writeString(launcher, "modified");
         assertThrows(IOException.class, () -> MxcHelpers.deploy(directory));
