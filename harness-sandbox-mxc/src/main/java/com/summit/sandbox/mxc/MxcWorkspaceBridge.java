@@ -46,10 +46,14 @@ public final class MxcWorkspaceBridge implements WorkspaceBridge {
         if (!result.path("ready").isBoolean() || !result.path("ready").booleanValue()) {
             throw new IOException("MXC readiness probe did not confirm isolation");
         }
-        commandCharset = Charset.forName(result.path("commandCharset").asText("UTF-8"));
+        commandCharset = resolveCommandCharset(result.path("commandCharset").asText("UTF-8"));
     }
 
     Charset commandCharset() { return commandCharset; }
+
+    static Charset resolveCommandCharset(String name) {
+        return Charset.forName(name.equalsIgnoreCase("cp65001") ? "UTF-8" : name);
+    }
 
     @Override public boolean exists(Path path) {
         try {

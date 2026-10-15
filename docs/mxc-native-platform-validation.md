@@ -12,6 +12,7 @@ Official OS support: https://github.com/microsoft/mxc/blob/main/docs/backends/pr
 - Windows full Maven reactor passed. MXC ran 14 tests, 13 passed and the Linux real-build case skipped. The kernel retained its existing conditional skip.
 - Linux Java regression passed. MXC ran 18 tests, 16 passed, with real-build and host-listener cases skipped because their parameters were not supplied. The Linux test host was an existing Ubuntu environment; the application adapter has no transport into it.
 - Making a compiled launcher request writable caused the intended read-only assertion to fail. Restoring it passed; production source was not mutated.
+- An additional UTF-8 Windows OEM regression reproduced Java rejecting `cp65001`; the adapter maps that identifier to `UTF-8`. The five runtime unit tests and helper integrity test passed after the fix. Other OEM code pages retain their native decoders.
 - Business directional regression: 21 tests passed, including native integration. Six desktop tests and TypeScript/Vite build passed.
 - `POST /sandbox/service/check` returned `ready=true, backend=BaseContainer` using a disposable workspace. The old validation JVM was replaced at localhost port 18088.
 

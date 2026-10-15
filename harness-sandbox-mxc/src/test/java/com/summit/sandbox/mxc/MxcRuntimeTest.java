@@ -7,10 +7,16 @@ import com.fasterxml.jackson.databind.jsontype.NamedType;
 
 import java.util.List;
 import java.util.Map;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class MxcRuntimeTest {
+    @Test void supportsTheWindowsUtf8OemCodePage() {
+        assertEquals(StandardCharsets.UTF_8, MxcWorkspaceBridge.resolveCommandCharset("cp65001"));
+        assertEquals(Charset.forName("GBK"), MxcWorkspaceBridge.resolveCommandCharset("cp936"));
+    }
     @Test void rejectsNonNativeAndRelativePaths() {
         assertThrows(IllegalArgumentException.class, () -> MxcRuntime.nativeAbsolute("relative"));
         assertThrows(IllegalArgumentException.class, () -> MxcRuntime.nativeAbsolute("\\\\wsl.localhost\\Ubuntu\\home\\project"));
