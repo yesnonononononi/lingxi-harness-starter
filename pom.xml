@@ -39,6 +39,7 @@
         <module>harness-spring-boot-autoconfigure</module>
         <module>harness-runtime</module>
         <module>harness-kernel-tools</module>
+        <module>harness-sandbox-mxc</module>
     </modules>
 
 
@@ -58,6 +59,12 @@
 
     <dependencyManagement>
         <dependencies>
+
+            <dependency>
+                <groupId>io.github.yesnonononononi</groupId>
+                <artifactId>harness-sandbox-mxc</artifactId>
+                <version>${lingxi-harness.version}</version>
+            </dependency>
 
             <dependency>
                 <groupId>io.github.yesnonononononi</groupId>

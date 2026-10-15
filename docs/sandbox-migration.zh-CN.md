@@ -2,6 +2,8 @@
 
 ## 当前状态
 
+后续进展：第一版适配器已在独立模块 `harness-sandbox-mxc` 中实现，支持 Linux Bubblewrap 与 Windows Java 到 WSL 的桥接，网络固定全部拒绝。使用方式见[模块中文文档](../harness-sandbox-mxc/README.md)，本轮运行证据见[第一版验证报告](mxc-v1-validation.zh-CN.md)。下述清理状态与评估记录描述清理检查点，不代表新模块的当前功能列表。
+
 本次清理移除基于 Anthropic sandbox-runtime 的 `harness-local-sandbox` 模块、SRT 初始化与安装入口、策略转换、Node helper 及对应测试，并移除根 POM 的模块与依赖管理声明。清理前完整检查点为 Git 提交 `09fc279`，其中包括既有模型配置修改，可按提交恢复。
 
 本次仅准备新实现的接入边界，尚未提供生产可用的 MXC provider。Maven 版本保持 `1.1.6`，未发布 Maven Central；后续发布新实现时再确定版本。

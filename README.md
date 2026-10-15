@@ -83,11 +83,12 @@ The local directory must already exist and is checked on every resolution. Its n
 
 To customize an execution environment, register a `WorkspaceProvider` bean with a unique `type()` and implement `resolve(WorkspaceSpec)` to return your own `Workspace` and `WorkspaceBridge`. `WorkspaceResolver` routes each request to that provider without caching resource records. Providers own container provisioning, reuse, persistence, recovery and cleanup; the framework does not close or destroy the returned workspace when a request completes. The default local provider runs commands on the host without OS sandbox isolation.
 
-The previous SRT adapter has been removed in preparation for an optional Microsoft MXC
-adapter. This checkout does not yet supply an MXC provider. Applications requiring isolation
-must register an isolated `WorkspaceProvider` and explicitly select its type; an unavailable
-provider fails resolution. See the [sandbox migration notes (Chinese)](docs/sandbox-migration.zh-CN.md)
-for the integration boundary, validation evidence, and remaining platform limitations.
+The optional `harness-sandbox-mxc` module supplies `MxcWorkspaceProvider` for Linux
+Bubblewrap and Windows-to-WSL execution through Microsoft MXC. Register the provider and
+explicitly select it with `MxcWorkspaceSpec`; an unavailable backend fails resolution.
+The first version denies all network access and has no native Windows backend.
+See the [MXC adapter guide (Chinese)](harness-sandbox-mxc/README.md) for deployment,
+filesystem semantics, limits, and validation. The former SRT adapter has been removed.
 
 `WorkspaceBridge` implementations provide six operations: `exists`, `createDirectories`, `deleteFile`, `readString`, `writeString`, and `execute`. Writing creates missing files; there is no separate `createFile` operation. `readLines` defaults to splitting the text returned by `readString`, so line parsing does not need a separate environment adapter.
 
