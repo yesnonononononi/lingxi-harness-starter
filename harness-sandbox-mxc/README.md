@@ -37,11 +37,13 @@ Set the sixth argument, `writable`, to false for a read-only project. Extra writ
 - Whole-drive/root grants and writable grants overlapping runtime/control resources are rejected.
 - Linux may provide private writable temporary layers at structural ancestors. Such shell writes do not change the corresponding host path; the file API rejects them.
 - Windows uses UI compatibility mode, with clipboard and input injection denied. This does not provide Win32k syscall lockdown.
-- `resolve` performs an actual bound-workspace probe. An application service status check can use its own disposable workspace; it need not probe user projects.
+- `resolve` performs an actual bound-workspace probe. For advisory service health, use `MxcPlatformProbe.check(runtime)` instead: it validates Node/SDK loading and native capability discovery without extracting helpers, creating a workspace or launching a container.
 - Operations are independent, with no resident worker, workspace cache or external environment lifecycle manager. Windows uses the packaged native executor with an exact JSON policy; Linux retains the SDK streaming path.
 - Windows timeouts terminate the executor tree; native job closure contains descendants. Java interruption also terminates its process tree. Linux cancellation retains PID/start-identity verification. Output is bounded while streams continue draining. Files are limited to 16 MiB; command output to 4 Mi characters.
 
 ## Tool compatibility
+
+The advisory probe requires BaseContainer without DACL augmentation on Windows and a discovered Bubblewrap backend on Linux. It does not test target permissions, command launch, namespaces or tool compatibility. Linux discovery warnings about optional proxy support are reported as diagnostics and do not fail a deny-all deployment. Callers must not treat this health result as an authorization decision; normal operation guards remain mandatory.
 
 CMD works with a narrow project grant. Windows PowerShell directory switching and Maven canonical path discovery may require ancestor enumeration unavailable on older supported builds. The adapter does not grant an entire drive to accommodate them. See the [platform validation and compatibility report](../docs/mxc-native-platform-validation.md).
 

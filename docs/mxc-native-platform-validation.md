@@ -2,6 +2,8 @@
 
 Windows selects native ProcessContainer and requires BaseContainer. Linux selects Bubblewrap. There is no Windows-to-Linux transport, local execution fallback or DACL mutation fallback. Node >=24 and SDK 1.0.0 are deployed for the host OS.
 
+Service health now uses `MxcPlatformProbe`: a single Node process reads SDK metadata, loads its native library and queries capabilities. No helper extraction, fixture directory, file canary, workspace or container is created. A positive result is advisory; actual launch and operation-time authorization remain unchanged. Linux optional-proxy discovery warnings do not reject a deny-all deployment. The earlier disposable-workspace health result below is historical runtime evidence.
+
 The Windows test host is 25H2, build 26200.9278. Exact request probes confirm BaseContainer, no DACL augmentation and no enumeration-only capability. The actual request also sets `fallback.allowDaclMutation=false`. The packaged native executor is used because the SDK high-level request does not expose this flag.
 
 Official OS support: https://github.com/microsoft/mxc/blob/main/docs/backends/process-container/os-version-support.md
