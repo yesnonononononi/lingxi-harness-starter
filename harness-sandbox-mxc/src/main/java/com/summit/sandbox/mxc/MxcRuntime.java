@@ -15,7 +15,7 @@ public record MxcRuntime(String nodeExecutable,
                          Duration fileTimeout
 ) {
     public MxcRuntime {
-        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        String os = hostOs();
         if (!os.contains("windows") && !os.contains("linux")) throw new IllegalStateException("MXC requires Windows or Linux");
         nodeExecutable = nativeAbsolute(nodeExecutable);
         sdkDirectory = nativeAbsolute(sdkDirectory);
@@ -29,9 +29,15 @@ public record MxcRuntime(String nodeExecutable,
     public static MxcRuntime nativeHost(Path node, Path sdk, Path helpers) {
         return new MxcRuntime(node.toString(), sdk.toString(), helpers, Duration.ofSeconds(30), Duration.ofSeconds(30));
     }
-    public boolean windows() { return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("windows"); }
+    public boolean windows() { return windowsHost(); }
     public String nativePath(String value) { return nativeAbsolute(value); }
     Path hostPath(String value) { return Path.of(nativePath(value)); }
+
+    /** Lower-cased host OS name, re-read on every call so tests can override {@code os.name}. */
+    private static String hostOs() { return System.getProperty("os.name", "").toLowerCase(Locale.ROOT); }
+
+    /** True on the native Windows backend; the single source of truth for OS detection in this adapter. */
+    static boolean windowsHost() { return hostOs().contains("windows"); }
 
     List<String> command(Path launcher, String token, boolean cancel) {
         List<String> command = new ArrayList<>();
@@ -48,7 +54,7 @@ public record MxcRuntime(String nodeExecutable,
         if (value == null || value.indexOf('\0') >= 0 || value.contains("\n") || value.contains("\r")) {
             throw new IllegalArgumentException("Expected an absolute native path");
         }
-        if (System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("windows")) {
+        if (windowsHost()) {
             if (!value.matches("^[A-Za-z]:[\\\\/].*")) throw new IllegalArgumentException("Expected an absolute Windows drive path");
             return Path.of(value).normalize().toString();
         }

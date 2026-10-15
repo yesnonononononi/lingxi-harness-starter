@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 /** Every file and shell operation runs under the same host-native isolation policy. */
 public final class MxcWorkspaceBridge implements WorkspaceBridge {
     private static final int FILE_LIMIT = 16 * 1024 * 1024;
+    private static final long FILE_RESPONSE_LIMIT = 3L * FILE_LIMIT / 2; // base64 of a limit-sized file, rounded up
     private static final long OUTPUT_LIMIT = 4 * 1024 * 1024;
     private static final ObjectMapper JSON = new ObjectMapper().enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     private final MxcRuntime runtime;
@@ -112,7 +113,7 @@ public final class MxcWorkspaceBridge implements WorkspaceBridge {
     }
 
     private JsonNode file(String operation, Map<String, Object> arguments, Duration budget) throws IOException, InterruptedException {
-        JsonNode result = invoke(operation, arguments, budget, 24L * 1024 * 1024);
+        JsonNode result = invoke(operation, arguments, budget, FILE_RESPONSE_LIMIT);
         if (result.path("timedOut").booleanValue()) throw new IOException("MXC file operation timed out");
         byte[] bytes = outputBytes(result);
         if (result.path("exitCode").intValue() != 0) throw new IOException("MXC file operation failed: " + new String(bytes, StandardCharsets.UTF_8));

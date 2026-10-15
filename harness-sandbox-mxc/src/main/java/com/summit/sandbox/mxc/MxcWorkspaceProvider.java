@@ -40,10 +40,13 @@ public final class MxcWorkspaceProvider implements WorkspaceProvider {
     private record ResolvedWorkspace(String id, String workDir, WorkspaceBridge bridge,
                                       MxcRuntime runtime, Map<String, String> environment, Charset charset) implements Workspace {
         @Override public RuntimeEnvironment runtimeEnvironment() {
+            boolean windows = runtime.windows();
             Map<String, String> env = new LinkedHashMap<>(environment);
-            env.putIfAbsent("PATH", runtime.windows() ? Path.of(runtime.nodeExecutable()).getParent() + ";" + System.getenv("SystemRoot") + "\\System32" : "/usr/bin:/bin");
+            env.putIfAbsent("PATH", windows
+                    ? Path.of(runtime.nodeExecutable()).getParent() + ";" + System.getenv("SystemRoot") + "\\System32"
+                    : "/usr/bin:/bin");
             env.putIfAbsent("HOME", workDir);
-            if (runtime.windows()) {
+            if (windows) {
                 env.putIfAbsent("USERPROFILE", workDir);
                 env.putIfAbsent("LOCALAPPDATA", workDir);
                 env.putIfAbsent("TEMP", workDir);
@@ -53,8 +56,8 @@ public final class MxcWorkspaceProvider implements WorkspaceProvider {
                 env.putIfAbsent("LC_ALL", "C.UTF-8");
             }
             env.put("WORKDIR", workDir);
-            return RuntimeEnvironment.builder().charset(charset).osType(runtime.windows() ? OsType.WINDOWS : OsType.LINUX)
-                    .shellType(runtime.windows() ? ShellType.CMD : ShellType.BASH).isolated(true).envs(env).build();
+            return RuntimeEnvironment.builder().charset(charset).osType(windows ? OsType.WINDOWS : OsType.LINUX)
+                    .shellType(windows ? ShellType.CMD : ShellType.BASH).isolated(true).envs(env).build();
         }
 
         @Override public Path resolve(String value) {
