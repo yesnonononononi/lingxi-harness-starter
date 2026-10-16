@@ -23,7 +23,7 @@ Requires Java 21. Add the starter to a Spring Boot application:
 <dependency>
     <groupId>io.github.yesnonononononi</groupId>
     <artifactId>lingxi-harness-spring-boot-starter</artifactId>
-    <version>1.1.5</version>
+    <version>1.1.7</version>
 </dependency>
 ```
 
@@ -84,10 +84,11 @@ The local directory must already exist and is checked on every resolution. Its n
 To customize an execution environment, register a `WorkspaceProvider` bean with a unique `type()` and implement `resolve(WorkspaceSpec)` to return your own `Workspace` and `WorkspaceBridge`. `WorkspaceResolver` routes each request to that provider without caching resource records. Providers own container provisioning, reuse, persistence, recovery and cleanup; the framework does not close or destroy the returned workspace when a request completes. The default local provider runs commands on the host without OS sandbox isolation.
 
 The optional `harness-sandbox-mxc` module supplies `MxcWorkspaceProvider` for Linux
-Bubblewrap and Windows-to-WSL execution through Microsoft MXC. Register the provider and
+Bubblewrap and native Windows BaseContainer execution through Microsoft MXC. Register the provider and
 explicitly select it with `MxcWorkspaceSpec`; an unavailable backend fails resolution.
-The first version denies all network access and has no native Windows backend.
-See the [MXC adapter guide (Chinese)](harness-sandbox-mxc/README.md) for deployment,
+Network access is denied by default; explicit security policy can permit outbound access
+and deny private paths. Ingress and host loopback remain denied.
+See the [MXC adapter guide](harness-sandbox-mxc/README.md) for deployment,
 filesystem semantics, limits, and validation. The former SRT adapter has been removed.
 
 `WorkspaceBridge` implementations provide six operations: `exists`, `createDirectories`, `deleteFile`, `readString`, `writeString`, and `execute`. Writing creates missing files; there is no separate `createFile` operation. `readLines` defaults to splitting the text returned by `readString`, so line parsing does not need a separate environment adapter.
