@@ -30,9 +30,9 @@ Set the sixth argument, `writable`, to false for a read-only project. Extra writ
 ## Execution contract
 
 - Paths are absolute native host paths. Windows accepts drive paths and rejects network or subsystem UNC paths. No drive mapping is performed.
-- Windows reports `OsType.WINDOWS`, `ShellType.CMD` and the Windows OEM output charset. Linux continues to report Bash and UTF-8. File content uses its explicit requested charset, independently of terminal output.
+- Windows reports `OsType.WINDOWS`, `ShellType.CMD` and UTF-8 command output. A sandbox-local bootstrap sets code page 65001 before starting CMD, so CMD built-ins and UTF-8 tools share the decoder. Linux continues to report Bash and UTF-8. File content uses its explicit requested charset, independently of terminal output.
 - Windows Node commands default to `--preserve-symlinks-main --preserve-symlinks` through `NODE_OPTIONS`. File helpers use fixed arguments/environment and ignore command preloads.
-- Network ingress, egress and host loopback are denied. Domain proxying, PTY and interactive stdin are not exposed.
+- Network ingress, egress and host loopback are denied. Domain proxying and PTY are not exposed. Persistent stdio is available only through the explicit process-launch capability.
 - Read-only subdirectories, junctions/symlinks and outside file accesses are enforced by the backend. File mutations additionally check their canonical targets against explicit grants.
 - Whole-drive/root grants and writable grants overlapping runtime/control resources are rejected.
 - Linux may provide private writable temporary layers at structural ancestors. Such shell writes do not change the corresponding host path; the file API rejects them.
@@ -59,3 +59,25 @@ mvn -B -ntp -pl harness-sandbox-mxc -am test `
 ```
 
 Linux uses the same properties with native Linux Java. A host TCP listener enables the extra Linux network control, and separately staged build sources/caches enable `MxcRealBuildTest`.
+
+## MCP stdio
+
+Request MCP sessions receive the resolved workspace. Isolated requests accept only stdio servers;
+HTTP/SSE configuration is rejected before any connection starts. An isolated bridge without
+`WorkspaceStdioLauncher` is rejected, with no local-process fallback. Existing local MCP behavior
+is unchanged.
+
+MXC wraps the existing LangChain4j stdio transport with a persistent session using the same file
+and deny-all network policy as workspace commands. Provision MCP executables and dependencies
+in explicitly readable locations in advance; this adapter does not install packages or widen grants.
+Executable lookup happens inside the sandbox. Protocol stdout remains byte-preserving and separate
+from stderr; stderr drains continuously with at most 64 KiB forwarded per session. Closing the
+request scope cancels the process tree and waits for supervisor cleanup. Suspension retains the scope.
+
+Windows `.cmd`/`.bat` entrypoints use CMD with delayed expansion disabled. Arguments containing
+quotes, percent signs or newlines are rejected because batch argument expansion cannot preserve
+them reliably; use an executable or Node script entrypoint for arbitrary argv.
+
+`MxcMcpIntegrationTest` uses the same three native test properties above, on either OS. It covers
+real MCP initialization/discovery/calls, Unicode and argv, protocol/diagnostic separation, file and
+loopback boundaries, initialization failure and confirmed child cleanup.

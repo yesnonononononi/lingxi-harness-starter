@@ -127,7 +127,7 @@ public abstract class ChatAgent implements Agent {
 
         execution.setStreaming(model.streaming());
 
-        McpToolScope mcpToolScope = openMcpScope(execution);
+        McpToolScope mcpToolScope = openMcpScope(execution, workspace);
 
         return defaultRuntimeFactory.createRuntime(
                 model.invoker(),
@@ -215,7 +215,7 @@ public abstract class ChatAgent implements Agent {
      * ends up empty is a configuration fault, and failing silently there turns a one-character
      * mistake into "the tools just vanished" with nothing in the log to point at.</p>
      */
-    protected McpToolScope openMcpScope(Execution execution) {
+    protected McpToolScope openMcpScope(Execution execution, Workspace workspace) {
         McpConfig mcpConfig = execution.getAgentRequest().getMcpConfig();
         if (mcpConfig == null || mcpConfig.getMcp() == null || mcpConfig.getMcp().isEmpty()) {
             // The request declared no servers: absence is intentional, no diagnostic needed.
@@ -224,7 +224,7 @@ public abstract class ChatAgent implements Agent {
         if (scopeMcpProvider == null) {
             return McpToolScope.EMPTY;
         }
-        return mcpScopes.computeIfAbsent(execution.getId(), ignored -> scopeMcpProvider.openScope(mcpConfig));
+        return mcpScopes.computeIfAbsent(execution.getId(), ignored -> scopeMcpProvider.openScope(mcpConfig, workspace));
     }
 
     /**

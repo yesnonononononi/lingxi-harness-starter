@@ -40,12 +40,18 @@ public record MxcRuntime(String nodeExecutable,
     static boolean windowsHost() { return hostOs().contains("windows"); }
 
     List<String> command(Path launcher, String token, boolean cancel) {
+        return command(launcher, token, cancel ? "cancel" : "run");
+    }
+
+    List<String> command(Path launcher, String token, String mode) {
+        if (!List.of("run", "cancel", "stdio").contains(mode)) throw new IllegalArgumentException("Invalid launch mode");
+        boolean cancel = mode.equals("cancel");
         List<String> command = new ArrayList<>();
         if (!windows()) {
             if (!cancel) command.addAll(List.of("/usr/bin/setsid", "--wait"));
             command.addAll(List.of("/usr/bin/env", "-i", "PATH=/usr/bin:/bin", "LC_ALL=C.UTF-8", "HOME=" + helperDirectory));
         }
-        command.addAll(List.of(nodeExecutable, launcher.toString(), cancel ? "cancel" : "run",
+        command.addAll(List.of(nodeExecutable, launcher.toString(), mode,
                 helperDirectory.resolve("requests").toString(), token));
         return List.copyOf(command);
     }

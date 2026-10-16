@@ -18,14 +18,20 @@ final class MxcHelpers {
     static synchronized Path deploy(Path directory) throws IOException {
         byte[] launcher = resource(MxcRuntime.windowsHost() ? "windows-launcher.mjs" : "launcher.mjs");
         byte[] operations = resource("operations.mjs");
+        byte[] stdioSession = resource("stdio-session.mjs");
+        byte[] stdioServer = resource("stdio-server.mjs");
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             digest.update(launcher);
             digest.update(operations);
+            digest.update(stdioSession);
+            digest.update(stdioServer);
             Path version = directory.resolve(HexFormat.of().formatHex(digest.digest()));
             Files.createDirectories(version);
             install(version.resolve("launcher.mjs"), launcher);
             install(version.resolve("operations.mjs"), operations);
+            install(version.resolve("stdio-session.mjs"), stdioSession);
+            install(version.resolve("stdio-server.mjs"), stdioServer);
             return version.resolve("launcher.mjs");
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);

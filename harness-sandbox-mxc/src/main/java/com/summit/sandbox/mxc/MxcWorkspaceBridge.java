@@ -5,6 +5,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.runtime.ProcessRunner;
 import com.summit.core.runtime.workspace.WorkspaceBridge;
+import com.summit.core.runtime.workspace.WorkspaceStdioLauncher;
+import com.summit.core.runtime.workspace.WorkspaceStdioLaunch;
+import java.util.List;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -23,7 +26,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 /** Every file and shell operation runs under the same host-native isolation policy. */
-public final class MxcWorkspaceBridge implements WorkspaceBridge {
+public final class MxcWorkspaceBridge implements WorkspaceBridge, WorkspaceStdioLauncher {
     private static final int FILE_LIMIT = 16 * 1024 * 1024;
     private static final long FILE_RESPONSE_LIMIT = 3L * FILE_LIMIT / 2; // base64 of a limit-sized file, rounded up
     private static final long OUTPUT_LIMIT = 4 * 1024 * 1024;
@@ -40,6 +43,11 @@ public final class MxcWorkspaceBridge implements WorkspaceBridge {
                 "readonlyPaths", spec.readonlyPaths().stream().map(runtime::nativePath).toList(),
                 "readwritePaths", spec.readwritePaths().stream().map(runtime::nativePath).toList(),
                 "environment", spec.environment(), "writable", spec.writable());
+    }
+
+    @Override public WorkspaceStdioLaunch prepareStdio(
+            List<String> command, Map<String, String> environment) throws IOException {
+        return MxcStdioSession.prepare(runtime, launcher, policy, command, environment);
     }
 
     void verifyReady() throws IOException, InterruptedException {

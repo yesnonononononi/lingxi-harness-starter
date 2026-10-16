@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import {spawnSync} from 'node:child_process';
 
 const LIMIT = 16 * 1024 * 1024;
 try {
@@ -11,6 +12,19 @@ try {
   const r = JSON.parse(input);
   let result = {};
   switch (r.operation) {
+    case 'execute': {
+      if (process.platform !== 'win32') throw new Error('Command bootstrap is Windows-only');
+      // Inherit the sandbox's hidden console: a detached child gets a fresh OEM code page.
+      const page = spawnSync(r.codePageExecutable, ['65001'], {stdio: 'ignore', timeout: 5000});
+      if (page.error || page.status !== 0) throw new Error('Could not initialize UTF-8 command output');
+      // CMD caches its output code page at startup. Pass the script only to this new CMD.
+      const child = spawnSync(r.shellExecutable, ['/d', '/s', '/c', `"${r.command}"`], {
+        stdio: 'inherit', windowsVerbatimArguments: true, env: r.commandEnvironment
+      });
+      if (child.error) throw child.error;
+      process.exitCode = child.status ?? 1;
+      break;
+    }
     case 'probe': {
       if (!fs.statSync(r.root).isDirectory()) throw new Error('Workspace is not a directory');
       const canary = `${r.root}/.mxc-probe-${crypto.randomUUID()}`;
@@ -73,7 +87,7 @@ try {
     }
     default: throw new Error('Unsupported file operation');
   }
-  process.stdout.write(JSON.stringify(result));
+  if (r.operation !== 'execute') process.stdout.write(JSON.stringify(result));
 } catch (error) {
   process.stderr.write(`${error.code ?? 'io_error'}: ${error.message}`);
   process.exitCode = 1;

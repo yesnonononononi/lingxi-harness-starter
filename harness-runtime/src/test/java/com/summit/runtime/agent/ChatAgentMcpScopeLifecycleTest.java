@@ -20,6 +20,7 @@ import com.summit.core.runtime.workspace.Workspace;
 import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
 import com.summit.core.tool.ToolDefinition;
 import com.summit.core.tool.ToolExecutor;
+import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -140,6 +141,27 @@ class ChatAgentMcpScopeLifecycleTest {
         assertEquals(0, closed.get());
     }
 
+    @Test
+    void resolvedWorkspaceReachesProviderAndSuspensionKeepsItsScope() {
+        java.util.concurrent.atomic.AtomicReference<Workspace> seen = new java.util.concurrent.atomic.AtomicReference<>();
+        ScopeMcpProvider provider = new ScopeMcpProvider() {
+            public McpToolScope openScope(@NonNull McpConfig config) { throw new AssertionError("missing workspace"); }
+            public McpToolScope openScope(@NonNull McpConfig config, Workspace workspace) {
+                opened.incrementAndGet(); seen.set(workspace);
+                return McpToolScope.of(List.of(session()));
+            }
+        };
+        TestAgent agent = new TestAgent(factory(ExecutionState.SUSPENDED), provider);
+        agent.workspace = new com.summit.runtime.workspace.LocalWorkspaceProvider().resolve(
+                new com.summit.core.workspace.BasicWorkspaceSpec("local", java.nio.file.Path.of(".").toAbsolutePath().toString(), Map.of()));
+        Execution execution = request("workspace-propagation");
+        agent.execute(execution);
+        assertSame(agent.workspace, seen.get());
+        agent.execute(execution);
+        assertEquals(1, opened.get());
+        assertEquals(0, closed.get());
+    }
+
     private TestAgent agent(ExecutionState terminalState) {
         ScopeMcpProvider scopeMcpProvider = config -> {
             opened.incrementAndGet();
@@ -192,6 +214,7 @@ class ChatAgentMcpScopeLifecycleTest {
 
     /** Minimal agent: no model, no workspace, only the MCP scope lifecycle under test. */
     private static final class TestAgent extends ChatAgent {
+        private Workspace workspace;
         private TestAgent(RuntimeFactory factory, ScopeMcpProvider register) {
             this(factory, register, new InMemoryActiveExecutionRegistry(), new RuntimeEventPublisher(List.of()));
         }
@@ -209,7 +232,7 @@ class ChatAgentMcpScopeLifecycleTest {
 
         @Override
         protected Workspace resolveWorkspace(AgentRequest request) {
-            return null;
+            return workspace;
         }
 
         @Override

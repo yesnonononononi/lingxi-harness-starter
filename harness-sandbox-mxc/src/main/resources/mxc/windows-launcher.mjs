@@ -1,10 +1,10 @@
+import { readRequest, stdioCommand, relayStdio } from './stdio-session.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {spawn, spawnSync} from 'node:child_process';
-import {createRequire} from 'node:module';
 
 const [mode, controls, token] = process.argv.slice(2);
-if (process.platform !== 'win32' || !['run', 'cancel'].includes(mode) || !path.isAbsolute(controls ?? '') || !/^[a-f0-9-]{36}$/.test(token)) {
+if (process.platform !== 'win32' || !['run', 'cancel', 'stdio'].includes(mode) || !path.isAbsolute(controls ?? '') || !/^[a-f0-9-]{36}$/.test(token)) {
     throw new Error('Invalid native Windows launcher arguments');
 }
 fs.mkdirSync(controls, {recursive: true});
@@ -50,19 +50,13 @@ const realTarget = value => {
 };
 
 try {
-    let input = '';
-    for await (const chunk of process.stdin) {
-        input += chunk;
-        if (input.length > 40 * 1024 * 1024) throw new Error('Request exceeds limit');
-    }
-    const r = JSON.parse(input);
+    const r = await readRequest(mode, controls, token);
     if (Number(process.versions.node.split('.')[0]) < 24) throw new Error('MXC requires Node >=24');
     const sdk = fs.realpathSync(r.sdkDirectory);
     const metadata = JSON.parse(fs.readFileSync(path.join(sdk, 'package.json'), 'utf8'));
     if (metadata.name !== '@microsoft/mxc-sdk' || metadata.version !== '1.0.0') throw new Error('Expected @microsoft/mxc-sdk 1.0.0');
     const executor = path.join(sdk, 'bin', process.arch, 'wxc-exec.exe');
-    const koffi = createRequire(path.join(sdk, 'package.json'))('koffi');
-    r.commandCharset = 'cp' + koffi.load('kernel32.dll').func('unsigned int GetOEMCP()')();
+    r.commandCharset = 'UTF-8';
     const root = fs.realpathSync(r.root);
     r.root = root;
     const helper = fs.realpathSync(import.meta.dirname);
@@ -83,8 +77,9 @@ try {
         if (!rw.some(grant => inside(grant, target)) || ro.some(grant => inside(grant, target))) throw new Error('File operation is outside explicit writable grants');
     }
     const cmd = path.join(systemRoot, 'System32/cmd.exe');
-    const command = r.operation === 'execute'
-        ? `${quote(cmd)} /d /s /c "${r.command}"`
+    r.shellExecutable = cmd;
+    r.codePageExecutable = path.join(systemRoot, 'System32/chcp.com');
+    const command = mode === 'stdio' ? stdioCommand(r, node, helper, quote)
         : `${quote(node)} --preserve-symlinks-main --preserve-symlinks ${quote(path.join(helper, 'operations.mjs'))}`;
     const environment = {
         SystemRoot: systemRoot, WINDIR: systemRoot, SystemDrive: path.parse(systemRoot).root.slice(0, 2),
@@ -92,17 +87,21 @@ try {
         PATH: `${nodeRoot};${path.join(systemRoot, 'System32')}`, USERPROFILE: root, HOME: root, LOCALAPPDATA: root,
         TEMP: root, TMP: root,
         NODE_OPTIONS: '--preserve-symlinks-main --preserve-symlinks',
-        ...(r.operation === 'execute' ? r.environment : {}),
+        ...(r.operation === 'stdio' ? r.environment : {}),
         HARNESS_WORKSPACE: root,
         WORKDIR: r.workDir ?? root
     };
+    if (r.operation === 'execute') {
+        // Command preloads belong to the workload, not the encoding bootstrap.
+        r.commandEnvironment = {...environment, ...r.environment, HARNESS_WORKSPACE: root, WORKDIR: r.workDir ?? root};
+    }
 
     const config = {
         version: '1.0.0',
         containment: 'processcontainer',
         containerId: 'harness-' + token,
         process: {
-            commandLine: command, cwd: r.workDir ?? root, timeout: r.timeoutMs + 10000,
+            commandLine: command, cwd: r.workDir ?? root, ...(mode === 'stdio' ? {} : {timeout: r.timeoutMs + 10000}),
             env: Object.entries(environment).map(([key, value]) => `${key}=${value}`),
             inheritDefaultEnv: false
         },
@@ -133,54 +132,63 @@ try {
     }
     if (fs.existsSync(cancelFile)) throw new Error('Request cancelled before spawn');
     active = spawn(executor, [policyFile], {windowsHide: true, env: cleanHostEnv, stdio: ['pipe', 'pipe', 'pipe']});
-    let size = 0, truncated = false, timedOut = false;
-    const chunks = [];
-    for (const stream of [active.stdout, active.stderr]) stream.on('data', bytes => {
-        const keep = Math.max(0, Math.min(bytes.length, r.maxBytes - size));
-        if (keep) {
-            chunks.push(Buffer.from(bytes.subarray(0, keep)));
-            size += keep;
-        }
-        if (keep < bytes.length) truncated = true;
-    });
-    active.stdin.on('error', error => {
-        if (error.code !== 'EPIPE') kill();
-    });
-
-    active.stdin.end(r.operation === 'execute' ? '' : JSON.stringify(r));
-
-    const timer = setTimeout(() => {
-        timedOut = true;
-        kill();
-    }, r.timeoutMs);
-
-    monitor = setInterval(() => {
-        if (fs.existsSync(cancelFile)) {
-            kill();
-        }
-    }, 50);
-
-    let exitCode;
-    try {
-        exitCode = await new Promise((resolve, reject) => {
+    if (mode === 'stdio') {
+        monitor = setInterval(() => { if (fs.existsSync(cancelFile)) kill(); }, 50);
+        const completion = () => new Promise((resolve, reject) => {
             active.once('error', reject);
             active.once('close', code => resolve(code ?? 1));
         });
-    } finally {
-        clearTimeout(timer);
-        clearInterval(monitor);
+        process.exitCode = await relayStdio(active.stdin, active.stdout, active.stderr, completion, kill);
+    } else {
+        let size = 0, truncated = false, timedOut = false;
+        const chunks = [];
+        for (const stream of [active.stdout, active.stderr]) stream.on('data', bytes => {
+            const keep = Math.max(0, Math.min(bytes.length, r.maxBytes - size));
+            if (keep) {
+                chunks.push(Buffer.from(bytes.subarray(0, keep)));
+                size += keep;
+            }
+            if (keep < bytes.length) truncated = true;
+        });
+        active.stdin.on('error', error => {
+            if (error.code !== 'EPIPE') kill();
+        });
+
+        active.stdin.end(JSON.stringify(r));
+
+        const timer = setTimeout(() => {
+            timedOut = true;
+            kill();
+        }, r.timeoutMs);
+
+        monitor = setInterval(() => {
+            if (fs.existsSync(cancelFile)) {
+                kill();
+            }
+        }, 50);
+
+        let exitCode;
+        try {
+            exitCode = await new Promise((resolve, reject) => {
+                active.once('error', reject);
+                active.once('close', code => resolve(code ?? 1));
+            });
+        } finally {
+            clearTimeout(timer);
+            clearInterval(monitor);
+        }
+        process.stdout.write(JSON.stringify({
+            exitCode,
+            timedOut,
+            outputBase64: Buffer.concat(chunks).toString('base64'),
+            truncated
+        }));
     }
-    process.stdout.write(JSON.stringify({
-        exitCode,
-        timedOut,
-        outputBase64: Buffer.concat(chunks).toString('base64'),
-        truncated
-    }));
 } catch (error) {
     kill();
-    process.stdout.write(JSON.stringify({error: `${error.code ?? 'mxc_error'}: ${error.message}`}));
+    (mode === 'stdio' ? process.stderr : process.stdout).write(JSON.stringify({error: `${error.code ?? 'mxc_error'}: ${error.message}`}));
     process.exitCode = 1;
 } finally {
     clearInterval(monitor);
-    for (const file of [policyFile, cancelFile, canary]) fs.rmSync(file, {force: true});
+    for (const file of [policyFile, cancelFile, canary, ...(mode === 'stdio' ? [path.join(controls, token + '.started'), path.join(controls, token + '.request.json')] : [])]) fs.rmSync(file, {force: true});
 }

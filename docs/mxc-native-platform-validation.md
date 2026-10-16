@@ -10,7 +10,9 @@ Official OS support: https://github.com/microsoft/mxc/blob/main/docs/backends/pr
 
 ## Validation
 
-- Eight native Windows Java integration tests passed: CMD/OEM Unicode output and exit codes, file CRUD, terminal/file boundaries, read-only mode, junction/parent traversal, command preload isolation, rejected whole-drive grants, output limits, timeout of a confirmed-started child, interruption, and loopback denial between positive controls.
+- The UTF-8 command correction reproduced `MalformedInputException` and GBK environment metadata with the original launcher. Four new native Windows regressions now cover Node Chinese/emoji output, CMD code page 65001, stdout/stderr, mixed CMD/Node output, quoted arguments, pipes, redirection and partial UTF-8 truncation. Existing exit-code, boundary, timeout and interruption tests also passed. Command preloads are excluded from the bootstrap and retained for the workload; that fixture passed separately after correcting its Node preload path/options. Evidence: `target/mxc-validation/command-encoding-before.log`, `command-encoding-windows-final.log` and `command-encoding-preload-final.log`.
+- The accompanying regression passed 69 core tests, 51 adapter tests and seven native MCP tests. MCP cleanup checks require a fresh fixture root: reusing a directory containing earlier interruption-control files fails their global empty-directory assertion. The Linux-only real-build test was skipped on Windows.
+- Initial validation passed eight native Windows Java integration tests: CMD/OEM Unicode output and exit codes, file CRUD, terminal/file boundaries, read-only mode, junction/parent traversal, command preload isolation, rejected whole-drive grants, output limits, timeout of a confirmed-started child, interruption, and loopback denial between positive controls.
 - Windows full Maven reactor passed. MXC ran 14 tests, 13 passed and the Linux real-build case skipped. The kernel retained its existing conditional skip.
 - Linux Java regression passed. MXC ran 18 tests, 16 passed, with real-build and host-listener cases skipped because their parameters were not supplied. The Linux test host was an existing Ubuntu environment; the application adapter has no transport into it.
 - Making a compiled launcher request writable caused the intended read-only assertion to fail. Restoring it passed; production source was not mutated.
@@ -18,7 +20,7 @@ Official OS support: https://github.com/microsoft/mxc/blob/main/docs/backends/pr
 - Business directional regression: 21 tests passed, including native integration. Six desktop tests and TypeScript/Vite build passed.
 - `POST /sandbox/service/check` returned `ready=true, backend=BaseContainer` using a disposable workspace. The old validation JVM was replaced at localhost port 18088.
 
-CMD uses the system OEM code page: `chcp` did not reliably change encoding without a console. File helpers exchange UTF-8 JSON and Base64 independently. External tools emitting another encoding need a matching explicit output charset. UI compatibility is enabled for Node; clipboard/input injection remain denied, but Win32k syscall lockdown is not claimed.
+Windows commands now initialize code page 65001 inside the sandbox before starting CMD and report UTF-8 to Java. Changing the code page inside an already-running CMD leaves its cached output encoding unchanged; starting the command shell after the change is required. The bootstrap inherits the sandbox's hidden console and passes the original script through JSON, avoiding another shell expansion. File helpers exchange UTF-8 JSON and Base64 independently. External tools that explicitly emit a legacy encoding still need a matching explicit output charset. UI compatibility is enabled for Node; clipboard/input injection remain denied, but Win32k syscall lockdown is not claimed.
 
 ## Tool compatibility
 

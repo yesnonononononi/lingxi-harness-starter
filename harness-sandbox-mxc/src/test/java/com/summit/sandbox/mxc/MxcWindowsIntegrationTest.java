@@ -54,6 +54,41 @@ class MxcWindowsIntegrationTest {
         assertTrue(result.output().contains("中文 literal"), result.output());
         assertEquals(19, execute("cmd /d /c exit /b 19", 10, 4096).exitCode());
     }
+    @Test void nodeUtf8ChineseAndEmojiDoNotUseTheOemDecoder() throws Exception {
+        for (String text : List.of("命令行中文测试", "emoji test 😀 恭喜")) {
+            WorkspaceBridge.CommandResult result = execute("node -e \"console.log('" + text + "')\"", 10, 4096);
+            assertEquals(0, result.exitCode(), result.output());
+            assertEquals(text + "\n", result.output());
+        }
+    }
+    @Test void cmdAndNodeShareUtf8OnStdoutAndStderr() throws Exception {
+        assertEquals(StandardCharsets.UTF_8, workspace.runtimeEnvironment().charset());
+        WorkspaceBridge.CommandResult page = execute("chcp", 10, 4096);
+        assertEquals(0, page.exitCode(), page.output());
+        assertTrue(page.output().contains("65001"), page.output());
+        assertEquals("中文😀\r\n", execute("echo 中文😀", 10, 4096).output());
+        assertEquals("错误中文😀\r\n", execute("1>&2 echo 错误中文😀", 10, 4096).output());
+        assertEquals("错误中文😀\n", execute("node -e \"process.stderr.write('错误中文😀\\n')\"", 10, 4096).output());
+        WorkspaceBridge.CommandResult mixed = execute("echo 中文😀&node -e \"console.log('混合输出😀')\"", 10, 4096);
+        assertEquals(0, mixed.exitCode(), mixed.output());
+        assertEquals("中文😀\r\n混合输出😀\n", mixed.output());
+    }
+    @Test void utf8StartupDoesNotReparseTheUserScript() throws Exception {
+        Files.writeString(root.resolve("quoted 中文.cjs"), "console.log(JSON.stringify(process.argv.slice(2)))");
+        WorkspaceBridge.CommandResult quoted = execute("node \"quoted 中文.cjs\" \"中文 😀 & | % !\"", 10, 4096);
+        assertEquals(0, quoted.exitCode(), quoted.output());
+        assertEquals("[\"中文 😀 & | % !\"]\n", quoted.output());
+        assertEquals("管道中文😀\n", execute("echo ignored|node -e \"process.stdin.resume();process.stdin.on('end',()=>console.log('管道中文😀'))\"", 10, 4096).output());
+        WorkspaceBridge.CommandResult redirected = execute("echo 重定向中文😀>\"out 中文.txt\"", 10, 4096);
+        assertEquals(0, redirected.exitCode(), redirected.output());
+        assertEquals("重定向中文😀\r\n", Files.readString(root.resolve("out 中文.txt")));
+    }
+    @Test void utf8OutputTruncationDoesNotDecodeAnIncompleteByteSequence() throws Exception {
+        WorkspaceBridge.CommandResult result = execute("node -e \"process.stdout.write('中'.repeat(10000))\"", 10, 2);
+        assertEquals(0, result.exitCode(), result.output());
+        assertEquals("中中", result.output());
+        assertTrue(result.truncated());
+    }
     @Test void fileOperationsAndOutsideBoundariesShareTheNativePolicy() throws Exception {
         Path folder = workspace.resolve("nested 中文");
         Path file = folder.resolve("text");
@@ -89,9 +124,14 @@ class MxcWindowsIntegrationTest {
     @Test void helperIgnoresCommandPreloadsAndWholeDriveGrantsFailClosed() throws Exception {
         Files.writeString(root.resolve("preload.cjs"), "process.stdout.write('forged'); process.exit(0)");
         Workspace preload = provider.resolve(new MxcWorkspaceSpec(root.toString(), "test", List.of(), List.of(),
-                Map.of("NODE_OPTIONS", "--require \"" + root.resolve("preload.cjs") + "\"")));
+                Map.of("NODE_OPTIONS", "--preserve-symlinks --preserve-symlinks-main --require \""
+                        + root.resolve("preload.cjs").toString().replace('\\', '/') + "\"")));
         preload.bridge().writeString(preload.resolve("plain"), "real", StandardCharsets.UTF_8);
         assertEquals("real", preload.bridge().readString(preload.resolve("plain"), StandardCharsets.UTF_8));
+        assertEquals("shell中文😀\r\n", preload.bridge().execute("echo shell中文😀", preload.workDir(),
+                preload.runtimeEnvironment().charset(), 10, TimeUnit.SECONDS, 4096).output());
+        assertEquals("forged", preload.bridge().execute("node -e \"console.log('unreachable')\"", preload.workDir(),
+                preload.runtimeEnvironment().charset(), 10, TimeUnit.SECONDS, 4096).output());
         assertThrows(IllegalStateException.class, () -> provider.resolve(new MxcWorkspaceSpec(root.toString(), "test",
                 List.of(root.getRoot().toString()), List.of(), Map.of())));
     }

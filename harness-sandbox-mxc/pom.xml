@@ -11,6 +11,11 @@
     <dependencies>
         <dependency>
             <groupId>io.github.yesnonononononi</groupId>
+            <artifactId>harness-adapter-langchain4j</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.github.yesnonononononi</groupId>
             <artifactId>harness-core</artifactId>
         </dependency>
         <dependency>

@@ -1,10 +1,11 @@
+import { readRequest, stdioCommand, relayStdio } from './stdio-session.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const [mode, controls, token] = process.argv.slice(2);
-if (!['run', 'cancel'].includes(mode) || !controls?.startsWith('/') || !/^[a-f0-9-]{36}$/.test(token)) {
+if (!['run', 'cancel', 'stdio'].includes(mode) || !controls?.startsWith('/') || !/^[a-f0-9-]{36}$/.test(token)) {
   throw new Error('Invalid launcher arguments');
 }
 fs.mkdirSync(controls, { recursive: true, mode: 0o700 });
@@ -44,12 +45,7 @@ process.on('SIGINT', stop);
 fs.writeFileSync(pidFile, JSON.stringify({ pid: process.pid, start: statIdentity(process.pid) }), { flag: 'wx', mode: 0o600 });
 try {
   if (fs.existsSync(cancelledFile)) throw new Error('Request cancelled before startup');
-  let text = '';
-  for await (const chunk of process.stdin) {
-    text += chunk;
-    if (text.length > 40 * 1024 * 1024) throw new Error('Request exceeds limit');
-  }
-  const r = JSON.parse(text);
+  const r = await readRequest(mode, controls, token);
   if (process.platform !== 'linux' || Number(process.versions.node.split('.')[0]) < 24) {
     throw new Error('MXC adapter requires Linux Node >=24');
   }
@@ -104,11 +100,11 @@ try {
   const { spawn } = await import(pathToFileURL(path.join(sdk, 'dist/v1/index.js')).href);
   const q = value => "'" + value.replaceAll("'", "'\\''") + "'";
   const request = {
-    command: r.operation === 'execute'
+    command: mode === 'stdio' ? stdioCommand(r, node, helper, q) : r.operation === 'execute'
       ? `/bin/bash --noprofile --norc -c ${q(r.command)}`
       : `${q(node)} ${q(path.join(helper, 'operations.mjs'))}`,
     workingDirectory: r.workDir ?? root,
-    timeoutMs: r.timeoutMs,
+    ...(mode === 'stdio' ? {} : { timeoutMs: r.timeoutMs }),
     containment: { type: 'bubblewrap' },
     filesystem: { readwritePaths: rw, readonlyPaths: canonical([...ro, nodeRoot, helper]) },
     network: { egress: { default: 'deny' }, ingress: { default: 'deny', hostLoopback: 'deny' } },
@@ -117,7 +113,7 @@ try {
       HOME: root,
       TMPDIR: '/tmp',
       LC_ALL: 'C.UTF-8',
-      ...(r.operation === 'execute' ? r.environment : {}),
+      ...(['execute', 'stdio'].includes(r.operation) ? r.environment : {}),
       HARNESS_WORKSPACE: root },
     inheritDefaultEnvironment: false,
   };
@@ -129,28 +125,35 @@ try {
   if (cancelling || fs.existsSync(cancelledFile)) throw new Error('Request cancelled before spawn');
   active = await spawn(request, { telemetry: { enabled: false } });
   if (cancelling || fs.existsSync(cancelledFile)) active.kill();
-  let size = 0, truncated = false;
-  const buffers = [];
-  const consume = stream => {
-    if (!stream) throw new Error('Backend did not expose output streams');
-    stream.on('data', bytes => {
-      const keep = Math.max(0, Math.min(bytes.length, r.maxBytes - size));
-      if (keep) { buffers.push(Buffer.from(bytes.subarray(0, keep))); size += keep; }
-      if (keep < bytes.length) truncated = true;
-    });
-  };
-  consume(active.standardOutput);
-  consume(active.standardError);
-  const stdin = active.standardInput;
-  if (!stdin) throw new Error('Backend did not expose stdin');
-  stdin.end(r.operation === 'execute' ? '' : JSON.stringify(r));
-  const result = await active.wait();
-  if (active.warnings.length) throw new Error('Backend warnings: ' + active.warnings.join('; '));
-  process.stdout.write(JSON.stringify({ ...result, outputBase64: Buffer.concat(buffers).toString('base64'), truncated }));
+  if (mode === 'stdio') {
+    const result = await relayStdio(active.standardInput, active.standardOutput, active.standardError,
+      () => active.wait(), stop);
+    if (active.warnings.length) throw new Error('Backend warnings: ' + active.warnings.join('; '));
+    process.exitCode = result.exitCode ?? 0;
+  } else {
+    let size = 0, truncated = false;
+    const buffers = [];
+    const consume = stream => {
+      if (!stream) throw new Error('Backend did not expose output streams');
+      stream.on('data', bytes => {
+        const keep = Math.max(0, Math.min(bytes.length, r.maxBytes - size));
+        if (keep) { buffers.push(Buffer.from(bytes.subarray(0, keep))); size += keep; }
+        if (keep < bytes.length) truncated = true;
+      });
+    };
+    consume(active.standardOutput);
+    consume(active.standardError);
+    const stdin = active.standardInput;
+    if (!stdin) throw new Error('Backend did not expose stdin');
+    stdin.end(r.operation === 'execute' ? '' : JSON.stringify(r));
+    const result = await active.wait();
+    if (active.warnings.length) throw new Error('Backend warnings: ' + active.warnings.join('; '));
+    process.stdout.write(JSON.stringify({ ...result, outputBase64: Buffer.concat(buffers).toString('base64'), truncated }));
+  }
 } catch (error) {
   active?.kill();
-  process.stdout.write(JSON.stringify({ error: `${error.code ?? 'mxc_error'}: ${error.message}` }));
+  (mode === 'stdio' ? process.stderr : process.stdout).write(JSON.stringify({ error: `${error.code ?? 'mxc_error'}: ${error.message}` }));
   process.exitCode = 1;
 } finally {
-  for (const file of [pidFile, cancelledFile, canary]) fs.rmSync(file, { force: true });
+  for (const file of [pidFile, cancelledFile, canary, ...(mode === 'stdio' ? [path.join(controls, token + '.started'), path.join(controls, token + '.request.json')] : [])]) fs.rmSync(file, { force: true });
 }
