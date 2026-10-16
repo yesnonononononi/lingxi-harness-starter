@@ -9,6 +9,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import java.io.IOException;
+import java.io.File;
+import java.util.Arrays;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
@@ -170,6 +172,57 @@ class MxcWindowsIntegrationTest {
         assertInstanceOf(InterruptedException.class, failure.get());
         Thread.sleep(5500);
         assertFalse(Files.exists(root.resolve("interrupt-leak")));
+    }
+    @Test void ambientVolumesAllowOtherProjectsButDenyPrivateTreesAndRuntimeWrites() throws Exception {
+        Path privateDirectory = Files.createDirectory(outside.getParent().resolve("private"));
+        Path secret = Files.writeString(privateDirectory.resolve("secret.txt"), "PRIVATE-CANARY");
+        Path otherProject = Files.createDirectory(outside.getParent().resolve("other-project"));
+        Path ordinary = Files.writeString(otherProject.resolve("ordinary.txt"), "PUBLIC-CANARY");
+        MxcSecurityPolicy policy = new MxcSecurityPolicy(List.of(privateDirectory.toString()),
+                Arrays.stream(File.listRoots()).map(File::getAbsolutePath).toList(), true);
+        workspace = provider.resolve(new MxcWorkspaceSpec(root.toString(), "privacy", List.of(), List.of(), Map.of(), true, policy));
+        assertEquals("PUBLIC-CANARY", workspace.bridge().readString(ordinary, StandardCharsets.UTF_8));
+        workspace.bridge().writeString(otherProject.resolve("created.txt"), "cross-project", StandardCharsets.UTF_8);
+        assertEquals("cross-project", Files.readString(otherProject.resolve("created.txt")));
+        assertThrows(IOException.class, () -> workspace.bridge().readString(secret, StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> workspace.bridge().writeString(secret, "overwrite", StandardCharsets.UTF_8));
+        Files.writeString(root.resolve("privacy-child.cjs"), "const fs=require('fs');try{fs.readFileSync(process.argv[2]);process.exit(81)}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e;console.log('native-denied')}");
+        WorkspaceBridge.CommandResult child = execute("node privacy-child.cjs \"" + secret + "\"", 10, 4096);
+        assertEquals(0, child.exitCode(), child.output());
+        assertTrue(child.output().contains("native-denied"), child.output());
+        assertEquals("PRIVATE-CANARY", Files.readString(secret));
+        assertEquals(0, execute("dir /b \"" + otherProject + "\"", 10, 4096).exitCode());
+        Path forbiddenRuntimeWrite = runtime.helperDirectory().resolve("runtime-overwrite-canary");
+        assertThrows(IOException.class, () -> workspace.bridge().writeString(forbiddenRuntimeWrite, "bad", StandardCharsets.UTF_8));
+        assertFalse(Files.exists(forbiddenRuntimeWrite));
+        Files.writeString(root.resolve("runtime-write.cjs"), "try{require('fs').writeFileSync(process.argv[2],'bad');process.exit(81)}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e;console.log('native-readonly')}");
+        WorkspaceBridge.CommandResult runtimeWrite = execute("node runtime-write.cjs \"" + forbiddenRuntimeWrite + "\"", 10, 4096);
+        assertEquals(0, runtimeWrite.exitCode(), runtimeWrite.output());
+        assertTrue(runtimeWrite.output().contains("native-readonly"));
+        assertFalse(Files.exists(forbiddenRuntimeWrite));
+        Path alias = root.resolve("private-alias");
+        WorkspaceBridge.CommandResult junction = ProcessRunner.run(List.of("cmd.exe", "/d", "/c", "mklink", "/J", alias.toString(), privateDirectory.toString()), null,
+                StandardCharsets.UTF_8, 10, TimeUnit.SECONDS, 4096);
+        assertEquals(0, junction.exitCode(), junction.output());
+        assertThrows(IOException.class, () -> workspace.bridge().readString(alias.resolve("secret.txt"), StandardCharsets.UTF_8));
+    }
+    @Test void configuredNativeDenialsAlsoApplyToFuturePaths() throws Exception {
+        Path privateDirectory = outside.getParent().resolve("future-private");
+        workspace = provider.resolve(new MxcWorkspaceSpec(root.toString(), "privacy", List.of(),
+                List.of(outside.getParent().toString()), Map.of(), true,
+                new MxcSecurityPolicy(List.of(privateDirectory.toString()), List.of(), false)));
+        Files.createDirectory(privateDirectory);
+        Path secret = Files.writeString(privateDirectory.resolve("secret.txt"), "FUTURE-PRIVATE");
+        assertThrows(IOException.class, () -> workspace.bridge().readString(secret, StandardCharsets.UTF_8));
+    }
+    @Test void explicitOutboundAllowanceConnectsToAPublicEndpoint() throws Exception {
+        String script = "const s=require('net').connect(443,'1.1.1.1');s.on('connect',()=>{s.destroy();process.exit(81)});s.on('error',()=>process.exit(82));setTimeout(()=>process.exit(83),5000)";
+        int host = ProcessRunner.run(List.of(runtime.nodeExecutable(), "-e", script), null,
+                StandardCharsets.UTF_8, 8, TimeUnit.SECONDS, 4096).exitCode();
+        assumeTrue(host == 81, "Host public TCP control unavailable");
+        workspace = provider.resolve(new MxcWorkspaceSpec(root.toString(), "network", List.of(), List.of(), Map.of(), true,
+                new MxcSecurityPolicy(List.of(), List.of(), true)));
+        assertEquals(81, execute("node -e \"" + script + "\"", 8, 4096).exitCode());
     }
     private WorkspaceBridge.CommandResult execute(String command, long timeout, long limit) throws Exception {
         return workspace.bridge().execute(command, workspace.workDir(), workspace.runtimeEnvironment().charset(), timeout, TimeUnit.SECONDS, limit);

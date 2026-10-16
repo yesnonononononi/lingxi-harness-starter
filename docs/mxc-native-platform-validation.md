@@ -50,3 +50,9 @@ The preferred durable solution is enumeration-only access to necessary ancestors
 Framework `target/mxc-validation` contains `native-platform-install.log`, `native-platform-linux-tests.log`, `native-readonly-mutation.log`, `native-readonly-restored.log`, and `native-maven-compat/results.json` with source and exact policies. Business evidence is in `.run/mxc-native-adaptation`.
 
 No full native Windows project build, production Maven wrapper, full model conversation or packaged Electron installer was validated. Earlier Windows-to-Linux reports are historical.
+
+## Native privacy and explicit ambient directory access
+
+The 1.1.7 API adds native denied paths, explicit Windows ambient volume roots and outbound networking opt-in. The default constructors retain workspace-only filesystem access and deny-all networking. Ambient compilation preserves readonly runtime trees, denies control paths, and leaves flat files at volume roots and protected structural ancestors readonly. This avoids Windows sharing violations from individual registry-hive or live temporary-file grants.
+
+Harmless fixtures verified cross-project read/write, CMD directory listing, file-tool and child-process private-read denial, unchanged private content after attempted overwrite, future-path denial, runtime write protection, and outbound TCP to a public endpoint with a host positive control. The tested OS rejects `network.ingress.hostLoopback: allow`; ordinary outbound allowance must not be described as fully unrestricted networking. Application-owned remote/host MCP connections do not inherit native file denials.

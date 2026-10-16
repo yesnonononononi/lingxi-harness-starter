@@ -1,3 +1,4 @@
+import { compileWindowsFilesystem, assertWritable } from './filesystem-policy.mjs';
 import { readRequest, stdioCommand, relayStdio } from './stdio-session.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -30,11 +31,6 @@ const kill = () => {
     }
 };
 const quote = value => '"' + String(value).replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, '$1$1') + '"';
-const inside = (parent, child) => {
-    const rel = path.relative(parent, child);
-    return rel === '' || rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
-};
-const canonical = values => [...new Set(values.map(value => fs.realpathSync(value)))];
 const realTarget = value => {
     let current = path.resolve(value);
     const suffix = [];
@@ -63,18 +59,10 @@ try {
     const node = fs.realpathSync(process.execPath);
     const nodeRoot = path.dirname(node);
     const sdkDependencies = path.basename(path.dirname(sdk)).startsWith('@') ? path.dirname(path.dirname(sdk)) : sdk;
-    const rw = canonical([...(r.writable ? [root] : []), ...r.readwritePaths]);
-    const ro = canonical([...r.readonlyPaths, ...(r.writable ? [] : [root])]);
-    for (const grant of [...rw, ...ro]) if (path.parse(grant).root.toLowerCase() === grant.toLowerCase()) throw new Error('Whole drive grants are unsupported');
-    for (const grant of rw) {
-        for (const protectedPath of [nodeRoot, sdkDependencies, helper, fs.realpathSync(controls), systemRoot]) {
-            if (inside(grant, protectedPath) || inside(protectedPath, grant)) throw new Error('Writable grant overlaps runtime/control files');
-        }
-        if (ro.some(readonly => inside(readonly, grant))) throw new Error('Writable grant nested in readonly grant is unsupported');
-    }
+    const filesystem = compileWindowsFilesystem(r, [nodeRoot, sdkDependencies, path.dirname(helper), systemRoot], controls);
     if (['write', 'mkdir', 'delete'].includes(r.operation)) {
         const target = r.operation === 'delete' ? path.join(realTarget(path.dirname(r.path)), path.basename(r.path)) : realTarget(r.path);
-        if (!rw.some(grant => inside(grant, target)) || ro.some(grant => inside(grant, target))) throw new Error('File operation is outside explicit writable grants');
+        assertWritable(filesystem, target);
     }
     const cmd = path.join(systemRoot, 'System32/cmd.exe');
     r.shellExecutable = cmd;
@@ -107,8 +95,8 @@ try {
         },
         fallback: {allowDaclMutation: false},
         ui: {disable: false, clipboard: 'none', injection: false},
-        filesystem: {readwritePaths: rw, readonlyPaths: canonical([...ro, nodeRoot, helper, systemRoot])},
-        network: {egress: {default: 'deny'}, ingress: {default: 'deny', hostLoopback: 'deny'}},
+        filesystem,
+        network: {egress: {default: r.allowOutboundNetwork ? 'allow' : 'deny'}, ingress: {default: 'deny', hostLoopback: 'deny'}},
     };
 
     fs.writeFileSync(policyFile, JSON.stringify(config), {flag: 'wx'});
@@ -126,6 +114,7 @@ try {
     if (capability.error || capability.tier !== 'base-container' || capability.needsDaclAugmentation !== false || capability.warnings?.length) {
         throw new Error('Native BaseContainer without DACL augmentation is required: ' + probe.stdout);
     }
+    if (filesystem.deniedPaths.length && capability.probes?.baseContainerSupportsDenyPaths !== true) throw new Error('Native denied paths are unsupported on this host');
     if (r.operation === 'probe') {
         fs.writeFileSync(canary, 'outside-control', {flag: 'wx'});
         r.outside = canary;

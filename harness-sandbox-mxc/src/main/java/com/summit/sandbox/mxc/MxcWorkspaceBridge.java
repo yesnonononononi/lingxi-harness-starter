@@ -42,7 +42,10 @@ public final class MxcWorkspaceBridge implements WorkspaceBridge, WorkspaceStdio
         this.policy = Map.of("root", runtime.nativePath(spec.workDir()), "sdkDirectory", runtime.sdkDirectory(),
                 "readonlyPaths", spec.readonlyPaths().stream().map(runtime::nativePath).toList(),
                 "readwritePaths", spec.readwritePaths().stream().map(runtime::nativePath).toList(),
-                "environment", spec.environment(), "writable", spec.writable());
+                "environment", spec.environment(), "writable", spec.writable(),
+                "deniedPaths", spec.securityPolicy().deniedPaths().stream().map(runtime::nativePath).toList(),
+                "ambientRoots", spec.securityPolicy().ambientRoots().stream().map(runtime::nativePath).toList(),
+                "allowOutboundNetwork", spec.securityPolicy().allowOutboundNetwork());
     }
 
     @Override public WorkspaceStdioLaunch prepareStdio(

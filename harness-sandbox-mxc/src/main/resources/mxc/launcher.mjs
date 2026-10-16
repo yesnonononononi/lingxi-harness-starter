@@ -57,6 +57,8 @@ try {
   const node = fs.realpathSync(process.execPath);
   const helper = fs.realpathSync(import.meta.dirname);
   const canonical = values => [...new Set(values.map(v => fs.realpathSync(v)))];
+  if (r.ambientRoots?.length) throw new Error("Ambient host-volume access is currently supported only by the native Windows adapter");
+  const denied = (r.deniedPaths ?? []).map(value => path.resolve(value));
   const root = fs.realpathSync(r.root);
   r.root = root;
   const rw = canonical([...(r.writable ? [root] : []), ...r.readwritePaths]);
@@ -106,8 +108,8 @@ try {
     workingDirectory: r.workDir ?? root,
     ...(mode === 'stdio' ? {} : { timeoutMs: r.timeoutMs }),
     containment: { type: 'bubblewrap' },
-    filesystem: { readwritePaths: rw, readonlyPaths: canonical([...ro, nodeRoot, helper]) },
-    network: { egress: { default: 'deny' }, ingress: { default: 'deny', hostLoopback: 'deny' } },
+    filesystem: { readwritePaths: rw, readonlyPaths: canonical([...ro, nodeRoot, helper]), deniedPaths: denied },
+    network: { egress: { default: r.allowOutboundNetwork ? 'allow' : 'deny' }, ingress: { default: 'deny', hostLoopback: 'deny' } },
 
     environment: { PATH: '/usr/bin:/bin',
       HOME: root,

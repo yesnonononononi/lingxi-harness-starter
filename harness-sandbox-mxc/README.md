@@ -32,9 +32,9 @@ Set the sixth argument, `writable`, to false for a read-only project. Extra writ
 - Paths are absolute native host paths. Windows accepts drive paths and rejects network or subsystem UNC paths. No drive mapping is performed.
 - Windows reports `OsType.WINDOWS`, `ShellType.CMD` and UTF-8 command output. A sandbox-local bootstrap sets code page 65001 before starting CMD, so CMD built-ins and UTF-8 tools share the decoder. Linux continues to report Bash and UTF-8. File content uses its explicit requested charset, independently of terminal output.
 - Windows Node commands default to `--preserve-symlinks-main --preserve-symlinks` through `NODE_OPTIONS`. File helpers use fixed arguments/environment and ignore command preloads.
-- Network ingress, egress and host loopback are denied. Domain proxying and PTY are not exposed. Persistent stdio is available only through the explicit process-launch capability.
+- Network ingress and host loopback remain denied. Egress is denied by default; `MxcSecurityPolicy.allowOutboundNetwork` explicitly permits ordinary outbound access. This is not an unrestricted-network claim. Domain proxying and PTY are not exposed. Persistent stdio is available only through the explicit process-launch capability.
 - Read-only subdirectories, junctions/symlinks and outside file accesses are enforced by the backend. File mutations additionally check their canonical targets against explicit grants.
-- Whole-drive/root grants and writable grants overlapping runtime/control resources are rejected.
+- Explicit whole-drive grants and writable grants overlapping runtime/control resources are rejected. The separate Windows-only `ambientRoots` policy compiles volume readonly grants and writable ordinary directory subtrees while excluding runtime/readonly trees. Flat files at volume roots and structural ancestors remain readonly, avoiding locked profile/temp-file grants. Reparse-point entries are not separately granted writable access.
 - Linux may provide private writable temporary layers at structural ancestors. Such shell writes do not change the corresponding host path; the file API rejects them.
 - Windows uses UI compatibility mode, with clipboard and input injection denied. This does not provide Win32k syscall lockdown.
 - `resolve` performs an actual bound-workspace probe. For advisory service health, use `MxcPlatformProbe.check(runtime)` instead: it validates Node/SDK loading and native capability discovery without extracting helpers, creating a workspace or launching a container.
@@ -45,7 +45,7 @@ Set the sixth argument, `writable`, to false for a read-only project. Extra writ
 
 The advisory probe requires BaseContainer without DACL augmentation on Windows and a discovered Bubblewrap backend on Linux. It does not test target permissions, command launch, namespaces or tool compatibility. Linux discovery warnings about optional proxy support are reported as diagnostics and do not fail a deny-all deployment. Callers must not treat this health result as an authorization decision; normal operation guards remain mandatory.
 
-CMD works with a narrow project grant. Windows PowerShell directory switching and Maven canonical path discovery may require ancestor enumeration unavailable on older supported builds. The adapter does not grant an entire drive to accommodate them. See the [platform validation and compatibility report](../docs/mxc-native-platform-validation.md).
+CMD works with a narrow project grant. Windows PowerShell directory switching and Maven canonical path discovery may require ancestor enumeration unavailable on older supported builds. The default workspace-only policy does not grant an entire drive to accommodate them. Explicit `ambientRoots` mode permits volume metadata and ordinary directories, and is independently tested with CMD `dir`. See the [platform validation and compatibility report](../docs/mxc-native-platform-validation.md).
 
 ## Tests
 
@@ -68,7 +68,7 @@ HTTP/SSE configuration is rejected before any connection starts. An isolated bri
 is unchanged.
 
 MXC wraps the existing LangChain4j stdio transport with a persistent session using the same file
-and deny-all network policy as workspace commands. Provision MCP executables and dependencies
+and network policy as workspace commands. Provision MCP executables and dependencies
 in explicitly readable locations in advance; this adapter does not install packages or widen grants.
 Executable lookup happens inside the sandbox. Protocol stdout remains byte-preserving and separate
 from stderr; stderr drains continuously with at most 64 KiB forwarded per session. Closing the
@@ -81,3 +81,12 @@ them reliably; use an executable or Node script entrypoint for arbitrary argv.
 `MxcMcpIntegrationTest` uses the same three native test properties above, on either OS. It covers
 real MCP initialization/discovery/calls, Unicode and argv, protocol/diagnostic separation, file and
 loopback boundaries, initialization failure and confirmed child cleanup.
+
+## Native privacy policy
+
+Use the seventh `MxcWorkspaceSpec` argument for `new MxcSecurityPolicy(deniedPaths, ambientRoots, allowOutboundNetwork)`.
+The application owns privacy presets and must supply absolute denied paths. Native `deniedPaths` deny all access, not independently selected read/write/delete operations. Missing paths are retained so later-created private files remain denied. Windows requires the exact request probe to report native denied-path support; there is no tool-only or ACL-mutation fallback.
+
+`ambientRoots` accepts explicit Windows volume roots. It allows ordinary directory subtrees beyond the current project while keeping deployment-owned runtime/control resources protected. It is unsupported on Linux and fails closed there; existing workspace-only Linux policies remain available. Writable ambient roots still intersect normal host ACLs. Volume-root and runtime-ancestor flat files stay readonly. This is a native policy compiled for each operation, not a claim that every host file is writable.
+
+File/network policy is immutable for a resolved workspace. Application changes require a new resolution. `allowOutboundNetwork` leaves ingress and host loopback denied: the tested Windows host rejects `hostLoopback: allow` before creating a container. Applications must expose this limitation. A host-pooled MCP connection is outside this filesystem boundary; only a workspace-owned stdio session receives the native policy.

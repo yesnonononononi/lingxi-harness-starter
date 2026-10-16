@@ -6,22 +6,29 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-/** Explicit filesystem grants. Network access is always denied by this adapter. */
+/** Explicit native grants and denials. Existing constructors retain deny-by-default networking. */
 public record MxcWorkspaceSpec(String workDir,
                                String scope,
                                List<String> readonlyPaths,
                                List<String> readwritePaths,
                                Map<String, String> environment,
-                               boolean writable
+                               boolean writable,
+                               MxcSecurityPolicy securityPolicy
 ) implements WorkspaceSpec {
     public MxcWorkspaceSpec {
         if (workDir == null || workDir.isBlank()) throw new IllegalArgumentException("workDir is required");
+        securityPolicy = Objects.requireNonNull(securityPolicy, "securityPolicy");
         readonlyPaths = List.copyOf(Objects.requireNonNull(readonlyPaths, "readonlyPaths"));
         readwritePaths = List.copyOf(Objects.requireNonNull(readwritePaths, "readwritePaths"));
         environment = Map.copyOf(Objects.requireNonNull(environment, "environment"));
         for (String key : environment.keySet()) {
             if (!key.matches("[A-Za-z_][A-Za-z0-9_]*")) throw new IllegalArgumentException("Invalid environment key: " + key);
         }
+    }
+
+    public MxcWorkspaceSpec(String workDir, String scope, List<String> readonlyPaths,
+                            List<String> readwritePaths, Map<String, String> environment, boolean writable) {
+        this(workDir, scope, readonlyPaths, readwritePaths, environment, writable, MxcSecurityPolicy.WORKSPACE_ONLY);
     }
 
     public MxcWorkspaceSpec(String workDir) {
