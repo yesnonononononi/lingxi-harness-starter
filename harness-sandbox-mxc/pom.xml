@@ -8,6 +8,7 @@
         <version>1.1.7</version>
     </parent>
     <artifactId>harness-sandbox-mxc</artifactId>
+    <name>LingXi Harness MXC Sandbox</name>
     <dependencies>
         <dependency>
             <groupId>io.github.yesnonononononi</groupId>
