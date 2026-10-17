@@ -14,8 +14,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class MxcRuntimeTest {
     @Test void supportsTheWindowsUtf8OemCodePage() {
-        assertEquals(StandardCharsets.UTF_8, MxcWorkspaceBridge.resolveCommandCharset("cp65001"));
-        assertEquals(Charset.forName("GBK"), MxcWorkspaceBridge.resolveCommandCharset("cp936"));
+        assertEquals(StandardCharsets.UTF_8, MxcWorkspaceFiles.resolveCommandCharset("cp65001"));
+        assertEquals(Charset.forName("GBK"), MxcWorkspaceFiles.resolveCommandCharset("cp936"));
     }
     @Test void rejectsNonNativeAndRelativePaths() {
         assertThrows(IllegalArgumentException.class, () -> MxcRuntime.nativeAbsolute("relative"));

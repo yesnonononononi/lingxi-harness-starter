@@ -1,12 +1,14 @@
 package com.summit.core.runtime;
 
-import com.summit.core.runtime.workspace.WorkspaceBridge.CommandResult;
+import com.summit.core.runtime.workspace.WorkspaceCommands.CommandResult;
 import com.summit.core.runtime.workspace.LocalWorkspaceBridge;
 import com.summit.core.runtime.workspace.ShellType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.FileDescriptor;
+import java.io.FileOutputStream;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -136,7 +138,7 @@ class ProcessRunnerTest {
 
     @Test
     void localBridgeBoundsALongLineAndStillDrainsTheWholePipe() throws Exception {
-        CommandResult result = localBridge().execute(shellCommand(command("large")), temporary.toString(),
+        CommandResult result = localBridge().commands().execute(shellCommand(command("large")), temporary.toString(),
                 StandardCharsets.UTF_8, 10, TimeUnit.SECONDS, 17);
         assertTrue(result.isSuccess(), result.output());
         assertEquals("x".repeat(17), result.output());
@@ -156,7 +158,7 @@ class ProcessRunnerTest {
     void localBridgeHonorsMillisecondsInsteadOfTreatingThemAsSeconds() throws Exception {
         Path pidFile = temporary.resolve("milliseconds.pid");
         CommandResult result = assertTimeoutPreemptively(Duration.ofSeconds(7),
-                () -> localBridge().execute(shellCommand(command("sleep", pidFile.toString())),
+                () -> localBridge().commands().execute(shellCommand(command("sleep", pidFile.toString())),
                         temporary.toString(), StandardCharsets.UTF_8, 1000, TimeUnit.MILLISECONDS, 4096));
         assertTrue(result.timedOut());
         assertEquals(-1, result.exitCode());
@@ -356,9 +358,8 @@ class ProcessRunnerTest {
                 case "large" -> System.out.print("x".repeat(256 * 1024));
                 case "stdin" -> System.out.print(Base64.getEncoder().encodeToString(System.in.readAllBytes()));
                 case "encoded" -> {
-                    // System.out 的 write(byte[]) 会走 stdout.encoding 编码器（JDK 21），不同宿主默认编码
-                    // 会把 UTF-16LE 字节转码坏；这里必须写到原始字节流，测试才与宿主编码无关。
-                    try (var rawOut = new java.io.FileOutputStream(java.io.FileDescriptor.out)) {
+                    // Bypass the host stdout encoder so the probe preserves the requested raw bytes.
+                    try (FileOutputStream rawOut = new FileOutputStream(FileDescriptor.out)) {
                         rawOut.write(arguments[2].getBytes(Charset.forName(arguments[1])));
                     }
                 }

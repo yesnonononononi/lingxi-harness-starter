@@ -32,7 +32,7 @@ public interface Workspace {
         return path.toAbsolutePath().normalize().startsWith(root);
     }
 
-    /** Returns a bridge that owns shell invocation for this workspace's runtime environment. */
+    /** Returns the file and command capabilities for this workspace's runtime environment. */
     default WorkspaceBridge bridge() {
         return new LocalWorkspaceBridge(runtimeEnvironment());
     }

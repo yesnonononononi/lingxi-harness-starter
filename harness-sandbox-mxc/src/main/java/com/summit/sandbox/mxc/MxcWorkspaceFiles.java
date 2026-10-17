@@ -3,9 +3,7 @@ package com.summit.sandbox.mxc;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.core.runtime.workspace.WorkspaceBridge;
-import com.summit.core.runtime.workspace.WorkspaceStdioLaunch;
-import com.summit.core.runtime.workspace.WorkspaceStdioLauncher;
+import com.summit.core.runtime.workspace.WorkspaceFiles;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -16,44 +14,27 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Base64;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-
-public abstract class AbstractFileWorkspaceBridge implements WorkspaceBridge, WorkspaceStdioLauncher {
+final class MxcWorkspaceFiles implements WorkspaceFiles {
     private static final int FILE_LIMIT = 16 * 1024 * 1024;
-    private static final long FILE_RESPONSE_LIMIT = 3L * FILE_LIMIT / 2; // base64 of a limit-sized file, rounded up
+    private static final long FILE_RESPONSE_LIMIT = 3L * FILE_LIMIT / 2;
     private static final ObjectMapper JSON = new ObjectMapper().enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     private final MxcRuntime runtime;
-    private final Path launcher;
-    private final Map<String, Object> policy;
-    private Charset commandCharset = StandardCharsets.UTF_8;
-    protected final CommandManager commandManager;
+    private final MxcTransport transport;
 
-    protected AbstractFileWorkspaceBridge(MxcRuntime runtime, Path launcher, Map<String, Object> policy) {
+    MxcWorkspaceFiles(MxcRuntime runtime, MxcTransport transport) {
         this.runtime = runtime;
-        this.launcher = launcher;
-        this.policy = Objects.requireNonNull(policy);
-        this.commandManager = new CommandManager(runtime, policy, launcher);
+        this.transport = transport;
     }
 
-    @Override
-    public WorkspaceStdioLaunch prepareStdio(
-            List<String> command, Map<String, String> environment) throws IOException {
-        return MxcStdioSession.prepare(runtime, launcher, policy, command, environment);
-    }
-
-    void verifyReady() throws IOException, InterruptedException {
+    Charset probe() throws IOException, InterruptedException {
         JsonNode result = file("probe", Map.of(), runtime.startupTimeout());
         if (!result.path("ready").isBoolean() || !result.path("ready").booleanValue()) {
             throw new IOException("MXC readiness probe did not confirm isolation");
         }
-        commandCharset = resolveCommandCharset(result.path("commandCharset").asText("UTF-8"));
-    }
-
-    Charset commandCharset() {
-        return commandCharset;
+        return resolveCommandCharset(result.path("commandCharset").asText("UTF-8"));
     }
 
     static Charset resolveCommandCharset(String name) {
@@ -108,7 +89,7 @@ public abstract class AbstractFileWorkspaceBridge implements WorkspaceBridge, Wo
 
 
     private JsonNode file(String operation, Map<String, Object> arguments, Duration budget) throws IOException, InterruptedException {
-        JsonNode result = commandManager.invoke(operation, arguments, budget, FILE_RESPONSE_LIMIT);
+        JsonNode result = transport.invoke(operation, arguments, budget, FILE_RESPONSE_LIMIT);
         if (result.path("timedOut").booleanValue()) throw new IOException("MXC file operation timed out");
         byte[] bytes = outputBytes(result);
         if (result.path("exitCode").intValue() != 0)

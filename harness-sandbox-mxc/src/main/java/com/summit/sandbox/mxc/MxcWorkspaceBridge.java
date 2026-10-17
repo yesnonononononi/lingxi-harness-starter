@@ -1,18 +1,51 @@
 package com.summit.sandbox.mxc;
 
+import com.summit.core.runtime.workspace.WorkspaceBridge;
+import com.summit.core.runtime.workspace.WorkspaceCommands;
+import com.summit.core.runtime.workspace.WorkspaceFiles;
+import com.summit.core.runtime.workspace.WorkspaceStdioLaunch;
+import com.summit.core.runtime.workspace.WorkspaceStdioLauncher;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
-/**
- * Every file and shell operation runs under the same host-native isolation policy.
- */
-public final class MxcWorkspaceBridge extends AbstractFileWorkspaceBridge {
+public final class MxcWorkspaceBridge implements WorkspaceBridge, WorkspaceStdioLauncher {
+    private final MxcTransport transport;
+    private final MxcWorkspaceFiles files;
+    private final WorkspaceCommands commands;
+    private Charset commandCharset = StandardCharsets.UTF_8;
+
     MxcWorkspaceBridge(MxcRuntime runtime, Path launcher, MxcWorkspaceSpec spec) {
-        super(runtime, launcher, buildPolicy(runtime, spec));
+        this.transport = new MxcTransport(runtime, launcher, buildPolicy(runtime, spec));
+        this.files = new MxcWorkspaceFiles(runtime, transport);
+        this.commands = new MxcCommandManager(runtime, transport);
+    }
+
+    @Override
+    public WorkspaceFiles files() {
+        return files;
+    }
+
+    @Override
+    public WorkspaceCommands commands() {
+        return commands;
+    }
+
+    @Override
+    public WorkspaceStdioLaunch prepareStdio(List<String> command, Map<String, String> environment) throws IOException {
+        return transport.prepareStdio(command, environment);
+    }
+
+    void verifyReady() throws IOException, InterruptedException {
+        commandCharset = files.probe();
+    }
+
+    Charset commandCharset() {
+        return commandCharset;
     }
 
     private static Map<String, Object> buildPolicy(MxcRuntime runtime, MxcWorkspaceSpec spec) {
@@ -24,12 +57,4 @@ public final class MxcWorkspaceBridge extends AbstractFileWorkspaceBridge {
                 "ambientRoots", spec.securityPolicy().ambientRoots().stream().map(runtime::nativePath).toList(),
                 "allowOutboundNetwork", spec.securityPolicy().allowOutboundNetwork());
     }
-
-
-    @Override
-    public CommandResult execute(String command, String workDir, Charset charset, long timeout,
-                                 TimeUnit unit, long maxOutputChars) throws IOException, InterruptedException {
-        return commandManager.execute(command, workDir, charset, timeout, unit, maxOutputChars);
-    }
-
 }

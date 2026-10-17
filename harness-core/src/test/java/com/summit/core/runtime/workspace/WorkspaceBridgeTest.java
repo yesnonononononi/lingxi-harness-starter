@@ -19,12 +19,21 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WorkspaceBridgeTest {
     private final LocalWorkspaceBridge localBridge = new LocalWorkspaceBridge(ShellType.CMD);
     @TempDir
     Path temporary;
+
+    @Test
+    void capabilitiesRemainStableAndUnsupportedBackgroundExecutionIsExplicit() {
+        assertSame(localBridge.files(), localBridge.files());
+        assertSame(localBridge.commands(), localBridge.commands());
+        assertThrows(UnsupportedOperationException.class, () -> localBridge.commands().startCommand(
+                "echo unused", temporary.toString(), StandardCharsets.UTF_8, 1, TimeUnit.SECONDS, 4096));
+    }
 
     @ParameterizedTest
     @MethodSource("shells")
@@ -42,7 +51,7 @@ class WorkspaceBridgeTest {
             case CMD -> "for %i in (\"A B\") do @echo %~i";
             default -> "value='A B'; printf '%s' \"$value|C D\"";
         };
-        WorkspaceBridge.CommandResult result = workspace.bridge().execute(script, workspace.workDir(),
+        WorkspaceCommands.CommandResult result = workspace.bridge().commands().execute(script, workspace.workDir(),
                 StandardCharsets.UTF_8, 10, TimeUnit.SECONDS, 4096);
         assertTrue(result.isSuccess(), result.output());
         assertEquals(shell == ShellType.CMD ? "A B" : "A B|C D", result.output().strip());
@@ -55,8 +64,8 @@ class WorkspaceBridgeTest {
         Files.writeString(file, content, StandardCharsets.UTF_8);
 
         assertEquals(Files.readAllLines(file, StandardCharsets.UTF_8),
-                localBridge.readLines(file, StandardCharsets.UTF_8));
-        assertEquals(content, localBridge.readString(file, StandardCharsets.UTF_8));
+                localBridge.files().readLines(file, StandardCharsets.UTF_8));
+        assertEquals(content, localBridge.files().readString(file, StandardCharsets.UTF_8));
     }
 
     @Test
@@ -64,15 +73,11 @@ class WorkspaceBridgeTest {
         Path remoteFile = temporary.resolve("remote-only.txt");
         AtomicReference<Path> receivedPath = new AtomicReference<>();
         AtomicReference<Charset> receivedCharset = new AtomicReference<>();
-        WorkspaceBridge remote = new WorkspaceBridge() {
+        WorkspaceFiles remote = new WorkspaceFiles() {
             public boolean exists(Path path) { throw new UnsupportedOperationException(); }
             public void createDirectories(Path path) { throw new UnsupportedOperationException(); }
             public void deleteFile(Path path) { throw new UnsupportedOperationException(); }
             public void writeString(Path path, String content, Charset charset) { throw new UnsupportedOperationException(); }
-            public CommandResult execute(String command, String workDir, Charset charset,
-                                         long timeoutSeconds, TimeUnit timeUnit, long maxOutputChars) {
-                throw new UnsupportedOperationException();
-            }
             public String readString(Path path, Charset charset) {
                 receivedPath.set(path);
                 receivedCharset.set(charset);

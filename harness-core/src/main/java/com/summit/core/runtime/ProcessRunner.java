@@ -1,6 +1,6 @@
 package com.summit.core.runtime;
 
-import com.summit.core.runtime.workspace.WorkspaceBridge;
+import com.summit.core.runtime.workspace.WorkspaceCommands;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -28,21 +28,21 @@ public class ProcessRunner {
     private volatile Process process;
 
     /** Runs an independent command with a timeout expressed in seconds. */
-    public static WorkspaceBridge.CommandResult run(List<String> command, String workDir, Charset charset,
+    public static WorkspaceCommands.CommandResult run(List<String> command, String workDir, Charset charset,
                                                      long timeoutSeconds, long maxOutputChars)
             throws IOException, InterruptedException {
         return run(command, workDir, charset, timeoutSeconds, TimeUnit.SECONDS, maxOutputChars);
     }
 
     /** Runs an independent command using the caller's timeout unit. */
-    public static WorkspaceBridge.CommandResult run(List<String> command, String workDir, Charset charset,
+    public static WorkspaceCommands.CommandResult run(List<String> command, String workDir, Charset charset,
                                                      long timeout, TimeUnit unit, long maxOutputChars)
             throws IOException, InterruptedException {
         return run(command, workDir, charset, new byte[0], timeout, unit, maxOutputChars);
     }
 
     /** Runs an independent command with stdin, a working directory and output decoding settings. */
-    public static WorkspaceBridge.CommandResult run(List<String> command, String workDir, Charset charset,
+    public static WorkspaceCommands.CommandResult run(List<String> command, String workDir, Charset charset,
                                                      byte[] stdin, long timeout, TimeUnit unit, long maxOutputChars)
             throws IOException, InterruptedException {
         validate(stdin, charset, timeout, unit, maxOutputChars);
@@ -51,15 +51,15 @@ public class ProcessRunner {
     }
 
     /** Runs a cancellable command without an execution timeout, closing empty stdin. */
-    public WorkspaceBridge.CommandResult run(String[] command) throws IOException {
+    public WorkspaceCommands.CommandResult run(String[] command) throws IOException {
         return runCommand(command, new byte[0], 0, null, Long.MAX_VALUE);
     }
 
-    public WorkspaceBridge.CommandResult run(String[] command, long timeout, TimeUnit unit) throws IOException {
+    public WorkspaceCommands.CommandResult run(String[] command, long timeout, TimeUnit unit) throws IOException {
         return run(command, new byte[0], timeout, unit, Long.MAX_VALUE);
     }
 
-    public WorkspaceBridge.CommandResult run(String[] command, byte[] stdin, long timeout, TimeUnit unit)
+    public WorkspaceCommands.CommandResult run(String[] command, byte[] stdin, long timeout, TimeUnit unit)
             throws IOException {
         return run(command, stdin, timeout, unit, Long.MAX_VALUE);
     }
@@ -68,13 +68,13 @@ public class ProcessRunner {
      * Runs a cancellable command with UTF-8 output and an optional character budget.
      * Input delivery is covered by the execution timeout; closing stdin signals EOF.
      */
-    public WorkspaceBridge.CommandResult run(String[] command, byte[] stdin, long timeout, TimeUnit unit,
+    public WorkspaceCommands.CommandResult run(String[] command, byte[] stdin, long timeout, TimeUnit unit,
                                              long maxOutputChars) throws IOException {
         validate(stdin, StandardCharsets.UTF_8, timeout, unit, maxOutputChars);
         return runCommand(command, stdin, timeout, unit, maxOutputChars);
     }
 
-    private WorkspaceBridge.CommandResult runCommand(String[] command, byte[] stdin, long timeout, TimeUnit unit,
+    private WorkspaceCommands.CommandResult runCommand(String[] command, byte[] stdin, long timeout, TimeUnit unit,
                                                       long maxOutputChars) throws IOException {
         try {
             return runInternal(command, null, StandardCharsets.UTF_8, stdin, timeout, unit, maxOutputChars);
@@ -94,7 +94,7 @@ public class ProcessRunner {
         }
     }
 
-    private WorkspaceBridge.CommandResult runInternal(String[] command, String workDir, Charset charset,
+    private WorkspaceCommands.CommandResult runInternal(String[] command, String workDir, Charset charset,
                                                        byte[] stdin, long timeout, TimeUnit unit,
                                                        long maxOutputChars) throws IOException, InterruptedException {
         Process child = start(command, workDir);
@@ -162,7 +162,7 @@ public class ProcessRunner {
             if (completed && child.exitValue() == 0 && writeFailure.get() != null) {
                 throw new IOException("Failed to write command stdin", writeFailure.get());
             }
-            return new WorkspaceBridge.CommandResult(completed ? child.exitValue() : -1,
+            return new WorkspaceCommands.CommandResult(completed ? child.exitValue() : -1,
                     output.toString(), truncated.get(), !completed);
         } catch (InterruptedException e) {
             requestTermination(child);

@@ -49,7 +49,7 @@ class ChatAgentWorkspaceTest {
                 .workspaceSpec(new BasicWorkspaceSpec("local", project.toString())).build());
 
         assertEquals(project.toAbsolutePath().normalize().toString(), workspace.workDir());
-        assertEquals("local workspace", workspace.bridge().readString(
+        assertEquals("local workspace", workspace.bridge().files().readString(
                 workspace.resolve("example.txt"), StandardCharsets.UTF_8));
     }
 

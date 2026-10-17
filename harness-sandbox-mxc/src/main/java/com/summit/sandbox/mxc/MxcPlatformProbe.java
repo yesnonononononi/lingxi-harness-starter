@@ -3,7 +3,7 @@ package com.summit.sandbox.mxc;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.runtime.ProcessRunner;
-import com.summit.core.runtime.workspace.WorkspaceBridge;
+import com.summit.core.runtime.workspace.WorkspaceCommands;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -26,7 +26,7 @@ public final class MxcPlatformProbe {
         List<String> command = new ArrayList<>();
         if (!runtime.windows()) command.addAll(List.of("/usr/bin/env", "-i", "PATH=/usr/bin:/bin"));
         command.addAll(List.of(runtime.nodeExecutable(), "--input-type=module", "-", runtime.sdkDirectory()));
-        WorkspaceBridge.CommandResult output = ProcessRunner.run(command, null, StandardCharsets.UTF_8, script,
+        WorkspaceCommands.CommandResult output = ProcessRunner.run(command, null, StandardCharsets.UTF_8, script,
                 runtime.startupTimeout().toMillis(), TimeUnit.MILLISECONDS, 16384);
         if (output.timedOut() || output.truncated() || output.exitCode() != 0) {
             throw new IOException("MXC platform probe failed: " + output.output());

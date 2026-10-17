@@ -2,7 +2,7 @@ package com.summit.sandbox.mxc;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.runtime.ProcessRunner;
-import com.summit.core.runtime.workspace.WorkspaceBridge.CommandResult;
+import com.summit.core.runtime.workspace.WorkspaceCommands.CommandResult;
 import com.summit.core.runtime.workspace.WorkspaceStdioLaunch;
 
 import java.io.Closeable;

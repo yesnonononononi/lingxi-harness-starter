@@ -2,6 +2,7 @@ package com.summit.sandbox.mxc;
 
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.runtime.ProcessRunner;
+import com.summit.core.runtime.workspace.WorkspaceCommands;
 import com.summit.core.runtime.workspace.WorkspaceBridge;
 import com.summit.core.workspace.BasicWorkspaceSpec;
 import org.junit.jupiter.api.BeforeAll;
@@ -62,29 +63,29 @@ class MxcWorkspaceIntegrationTest {
         WorkspaceBridge bridge = workspace.bridge();
         Path folder = workspace.resolve("nested '$& 中文");
         Path file = folder.resolve("text");
-        assertFalse(bridge.exists(file));
-        bridge.createDirectories(folder);
+        assertFalse(bridge.files().exists(file));
+        bridge.files().createDirectories(folder);
         String text = "hello 中文\r\n'$&\n\nend";
-        bridge.writeString(file, text, StandardCharsets.UTF_16LE);
-        assertEquals(text, bridge.readString(file, StandardCharsets.UTF_16LE));
-        assertEquals(List.of("hello 中文", "'$&", "", "end"), bridge.readLines(file, StandardCharsets.UTF_16LE));
-        assertTrue(bridge.exists(file));
-        bridge.deleteFile(file);
-        bridge.deleteFile(file);
-        assertFalse(bridge.exists(file));
-        assertThrows(IOException.class, () -> bridge.readString(file, StandardCharsets.UTF_8));
-        assertThrows(IOException.class, () -> bridge.deleteFile(folder));
-        assertThrows(IOException.class, () -> bridge.writeString(file, "\uD800", StandardCharsets.UTF_8));
+        bridge.files().writeString(file, text, StandardCharsets.UTF_16LE);
+        assertEquals(text, bridge.files().readString(file, StandardCharsets.UTF_16LE));
+        assertEquals(List.of("hello 中文", "'$&", "", "end"), bridge.files().readLines(file, StandardCharsets.UTF_16LE));
+        assertTrue(bridge.files().exists(file));
+        bridge.files().deleteFile(file);
+        bridge.files().deleteFile(file);
+        assertFalse(bridge.files().exists(file));
+        assertThrows(IOException.class, () -> bridge.files().readString(file, StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> bridge.files().deleteFile(folder));
+        assertThrows(IOException.class, () -> bridge.files().writeString(file, "\uD800", StandardCharsets.UTF_8));
         Files.write(file, new byte[] { (byte) 0xC3, 0x28 });
-        assertThrows(IOException.class, () -> bridge.readString(file, StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> bridge.files().readString(file, StandardCharsets.UTF_8));
     }
 
     @Test void shellAndFileOperationsShareReadonlyAndOutsideBoundaries() throws Exception {
-        assertEquals("read-only-data", workspace.bridge().readString(readonly.resolve("visible"), StandardCharsets.UTF_8));
-        assertThrows(IOException.class, () -> workspace.bridge().writeString(readonly.resolve("visible"), "bad", StandardCharsets.UTF_8));
-        assertThrows(IOException.class, () -> workspace.bridge().readString(outside, StandardCharsets.UTF_8));
-        assertThrows(IOException.class, () -> workspace.bridge().writeString(outside, "bad", StandardCharsets.UTF_8));
-        WorkspaceBridge.CommandResult result = execute("cat " + q(runtime.nativePath(outside.toString())) + "; printf bad > "
+        assertEquals("read-only-data", workspace.bridge().files().readString(readonly.resolve("visible"), StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> workspace.bridge().files().writeString(readonly.resolve("visible"), "bad", StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> workspace.bridge().files().readString(outside, StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> workspace.bridge().files().writeString(outside, "bad", StandardCharsets.UTF_8));
+        WorkspaceCommands.CommandResult result = execute("cat " + q(runtime.nativePath(outside.toString())) + "; printf bad > "
                 + q(runtime.nativePath(readonly.resolve("visible").toString())), 10, 4096);
         assertNotEquals(0, result.exitCode());
         assertFalse(result.output().contains("host-secret"));
@@ -96,9 +97,9 @@ class MxcWorkspaceIntegrationTest {
 
     @Test void symlinkAndParentTraversalCannotExposeOutsideFiles() throws Exception {
         assertEquals(0, execute("ln -s " + q(runtime.nativePath(outside.getParent().toString())) + " link", 10, 4096).exitCode());
-        assertThrows(IOException.class, () -> workspace.bridge().readString(workspace.resolve("link/secret"), StandardCharsets.UTF_8));
-        assertThrows(IOException.class, () -> workspace.bridge().writeString(workspace.resolve("link/secret"), "bad", StandardCharsets.UTF_8));
-        assertThrows(IOException.class, () -> workspace.bridge().readString(workspace.resolve("../outside/secret"), StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> workspace.bridge().files().readString(workspace.resolve("link/secret"), StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> workspace.bridge().files().writeString(workspace.resolve("link/secret"), "bad", StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> workspace.bridge().files().readString(workspace.resolve("../outside/secret"), StandardCharsets.UTF_8));
         assertEquals("host-secret", Files.readString(outside));
     }
 
@@ -107,14 +108,14 @@ class MxcWorkspaceIntegrationTest {
         Files.writeString(nested.resolve("file"), "nested-data");
         Workspace bound = provider.resolve(new MxcWorkspaceSpec(workspace.workDir(), "test",
                 List.of(runtime.nativePath(nested.toString())), List.of(), Map.of()));
-        assertEquals("nested-data", bound.bridge().readString(nested.resolve("file"), StandardCharsets.UTF_8));
-        assertThrows(IOException.class, () -> bound.bridge().deleteFile(nested.resolve("file")));
-        assertThrows(IOException.class, () -> bound.bridge().writeString(nested.resolve("new"), "bad", StandardCharsets.UTF_8));
-        assertTrue(bound.bridge().execute("printf bad > readonly-child/file", bound.workDir(), StandardCharsets.UTF_8,
+        assertEquals("nested-data", bound.bridge().files().readString(nested.resolve("file"), StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> bound.bridge().files().deleteFile(nested.resolve("file")));
+        assertThrows(IOException.class, () -> bound.bridge().files().writeString(nested.resolve("new"), "bad", StandardCharsets.UTF_8));
+        assertTrue(bound.bridge().commands().execute("printf bad > readonly-child/file", bound.workDir(), StandardCharsets.UTF_8,
                 10, TimeUnit.SECONDS, 4096).exitCode() != 0);
         Path large = root.resolve("large");
         try (java.io.RandomAccessFile file = new java.io.RandomAccessFile(large.toFile(), "rw")) { file.setLength(16L * 1024 * 1024 + 1); }
-        assertThrows(IOException.class, () -> workspace.bridge().readString(large, StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> workspace.bridge().files().readString(large, StandardCharsets.UTF_8));
         assertEquals("nested-data", Files.readString(nested.resolve("file")));
     }
 
@@ -122,11 +123,11 @@ class MxcWorkspaceIntegrationTest {
         Path sibling = root.getParent().resolve("ancestor-sibling");
         Files.writeString(sibling, "host-original");
         boolean reportedSuccess = true;
-        try { workspace.bridge().writeString(sibling, "changed", StandardCharsets.UTF_8); }
+        try { workspace.bridge().files().writeString(sibling, "changed", StandardCharsets.UTF_8); }
         catch (IOException denied) { reportedSuccess = false; }
         assertEquals("host-original", Files.readString(sibling));
         assertFalse(reportedSuccess, "File API must reject writes outside explicit writable grants");
-        WorkspaceBridge.CommandResult shell = execute("printf ephemeral > ../ancestor-sibling", 10, 4096);
+        WorkspaceCommands.CommandResult shell = execute("printf ephemeral > ../ancestor-sibling", 10, 4096);
         assertEquals(0, shell.exitCode(), shell.output());
         assertEquals("host-original", Files.readString(sibling));
     }
@@ -134,11 +135,11 @@ class MxcWorkspaceIntegrationTest {
     @Test void readonlyWorkspaceRejectsFileAndTerminalMutations() throws Exception {
         Files.writeString(root.resolve("readonly-input"), "original");
         Workspace bound = provider.resolve(new MxcWorkspaceSpec(workspace.workDir(), "test", List.of(), List.of(), Map.of(), false));
-        assertEquals("original", bound.bridge().readString(bound.resolve("readonly-input"), StandardCharsets.UTF_8));
-        assertThrows(IOException.class, () -> bound.bridge().writeString(bound.resolve("readonly-input"), "bad", StandardCharsets.UTF_8));
-        assertThrows(IOException.class, () -> bound.bridge().createDirectories(bound.resolve("new")));
-        assertThrows(IOException.class, () -> bound.bridge().deleteFile(bound.resolve("readonly-input")));
-        assertNotEquals(0, bound.bridge().execute("printf bad > readonly-input", bound.workDir(), StandardCharsets.UTF_8,
+        assertEquals("original", bound.bridge().files().readString(bound.resolve("readonly-input"), StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> bound.bridge().files().writeString(bound.resolve("readonly-input"), "bad", StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> bound.bridge().files().createDirectories(bound.resolve("new")));
+        assertThrows(IOException.class, () -> bound.bridge().files().deleteFile(bound.resolve("readonly-input")));
+        assertNotEquals(0, bound.bridge().commands().execute("printf bad > readonly-input", bound.workDir(), StandardCharsets.UTF_8,
                 10, TimeUnit.SECONDS, 4096).exitCode());
         assertEquals("original", Files.readString(root.resolve("readonly-input")));
     }
@@ -148,12 +149,12 @@ class MxcWorkspaceIntegrationTest {
         Workspace preloaded = provider.resolve(new MxcWorkspaceSpec(workspace.workDir(), "test", List.of(), List.of(),
                 Map.of("NODE_OPTIONS", "--require \"" + workspace.workDir() + "/preload.cjs\"")));
         Path text = root.resolve("plain");
-        preloaded.bridge().writeString(text, "real", StandardCharsets.UTF_8);
-        assertEquals("real", preloaded.bridge().readString(text, StandardCharsets.UTF_8));
+        preloaded.bridge().files().writeString(text, "real", StandardCharsets.UTF_8);
+        assertEquals("real", preloaded.bridge().files().readString(text, StandardCharsets.UTF_8));
     }
 
     @Test void shellPreservesScriptsAndOnlyExplicitEnvironmentValues() throws Exception {
-        WorkspaceBridge.CommandResult result = execute("printf '%s\\n' \"$VISIBLE_VALUE\"\nprintf '%s' 'a | b' | cat\nprintf '\\n'; pwd", 10, 4096);
+        WorkspaceCommands.CommandResult result = execute("printf '%s\\n' \"$VISIBLE_VALUE\"\nprintf '%s' 'a | b' | cat\nprintf '\\n'; pwd", 10, 4096);
         assertEquals(0, result.exitCode(), result.output());
         assertTrue(result.output().contains("hello '$&中文\na | b\n"), result.output());
         assertTrue(result.output().contains(workspace.workDir()), result.output());
@@ -162,14 +163,14 @@ class MxcWorkspaceIntegrationTest {
                 .filter(key -> System.getenv(key) != null).findFirst().orElseThrow();
         assertEquals("unset", execute("printf '%s' \"${" + inheritedKey + "-unset}\"", 10, 4096).output());
         assertEquals(23, execute("exit 23", 10, 4096).exitCode());
-        WorkspaceBridge.CommandResult bounded = execute("head -c 100000 /dev/zero | tr '\\0' x", 10, 101);
+        WorkspaceCommands.CommandResult bounded = execute("head -c 100000 /dev/zero | tr '\\0' x", 10, 101);
         assertEquals(101, bounded.output().length());
         assertTrue(bounded.truncated());
         assertEquals(0, bounded.exitCode());
     }
 
     @Test void executionTimeoutTerminatesDescendants() throws Exception {
-        WorkspaceBridge.CommandResult result = execute("(sleep 4; printf leaked > timeout-leak) & wait", 1, 4096);
+        WorkspaceCommands.CommandResult result = execute("(sleep 4; printf leaked > timeout-leak) & wait", 1, 4096);
         assertTrue(result.timedOut(), result.output());
         Thread.sleep(4500);
         assertFalse(Files.exists(root.resolve("timeout-leak")));
@@ -216,11 +217,11 @@ class MxcWorkspaceIntegrationTest {
         assertEquals(81, hostNode(script).exitCode(), "Listener must still accept connections after sandbox attempt");
     }
 
-    private WorkspaceBridge.CommandResult execute(String script, long timeout, long maxOutput) throws Exception {
-        return workspace.bridge().execute(script, workspace.workDir(), StandardCharsets.UTF_8, timeout, TimeUnit.SECONDS, maxOutput);
+    private WorkspaceCommands.CommandResult execute(String script, long timeout, long maxOutput) throws Exception {
+        return workspace.bridge().commands().execute(script, workspace.workDir(), StandardCharsets.UTF_8, timeout, TimeUnit.SECONDS, maxOutput);
     }
     private static String q(String value) { return "'" + value.replace("'", "'\\''") + "'"; }
-    private static WorkspaceBridge.CommandResult hostNode(String script) throws Exception {
+    private static WorkspaceCommands.CommandResult hostNode(String script) throws Exception {
         List<String> argv = new ArrayList<>();
         argv.addAll(List.of(runtime.nodeExecutable(), "-e", script));
         return ProcessRunner.run(argv, null, StandardCharsets.UTF_8, 5, TimeUnit.SECONDS, 4096);

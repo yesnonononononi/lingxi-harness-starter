@@ -24,7 +24,7 @@ class MxcWorkspaceBridgeTest {
         MxcWorkspaceBridge bridge = new MxcWorkspaceBridge(runtime, directory.resolve("launcher.mjs"),
                 new MxcWorkspaceSpec(directory.toString()));
 
-        assertThrows(UncheckedIOException.class, () -> bridge.exists(directory.resolve("file.txt")));
+        assertThrows(UncheckedIOException.class, () -> bridge.files().exists(directory.resolve("file.txt")));
     }
 
     @Test void preparesStdioWithTheConstructedWorkspacePolicy() throws Exception {

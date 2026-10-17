@@ -4,7 +4,7 @@ import com.summit.core.runtime.workspace.OsType;
 import com.summit.core.runtime.ProcessRunner;
 import com.summit.core.runtime.workspace.ShellType;
 import com.summit.core.runtime.workspace.Workspace;
-import com.summit.core.runtime.workspace.WorkspaceBridge;
+import com.summit.core.runtime.workspace.WorkspaceCommands;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,42 +51,42 @@ class MxcWindowsIntegrationTest {
     @Test void exposesWindowsCmdAndPreservesExitCodesAndUnicode() throws Exception {
         assertEquals(OsType.WINDOWS, workspace.runtimeEnvironment().osType());
         assertEquals(ShellType.CMD, workspace.runtimeEnvironment().shellType());
-        WorkspaceBridge.CommandResult result = execute("echo 中文 literal&exit /b 17", 10, 4096);
+        WorkspaceCommands.CommandResult result = execute("echo 中文 literal&exit /b 17", 10, 4096);
         assertEquals(17, result.exitCode(), result.output());
         assertTrue(result.output().contains("中文 literal"), result.output());
         assertEquals(19, execute("cmd /d /c exit /b 19", 10, 4096).exitCode());
     }
     @Test void nodeUtf8ChineseAndEmojiDoNotUseTheOemDecoder() throws Exception {
         for (String text : List.of("命令行中文测试", "emoji test 😀 恭喜")) {
-            WorkspaceBridge.CommandResult result = execute("node -e \"console.log('" + text + "')\"", 10, 4096);
+            WorkspaceCommands.CommandResult result = execute("node -e \"console.log('" + text + "')\"", 10, 4096);
             assertEquals(0, result.exitCode(), result.output());
             assertEquals(text + "\n", result.output());
         }
     }
     @Test void cmdAndNodeShareUtf8OnStdoutAndStderr() throws Exception {
         assertEquals(StandardCharsets.UTF_8, workspace.runtimeEnvironment().charset());
-        WorkspaceBridge.CommandResult page = execute("chcp", 10, 4096);
+        WorkspaceCommands.CommandResult page = execute("chcp", 10, 4096);
         assertEquals(0, page.exitCode(), page.output());
         assertTrue(page.output().contains("65001"), page.output());
         assertEquals("中文😀\r\n", execute("echo 中文😀", 10, 4096).output());
         assertEquals("错误中文😀\r\n", execute("1>&2 echo 错误中文😀", 10, 4096).output());
         assertEquals("错误中文😀\n", execute("node -e \"process.stderr.write('错误中文😀\\n')\"", 10, 4096).output());
-        WorkspaceBridge.CommandResult mixed = execute("echo 中文😀&node -e \"console.log('混合输出😀')\"", 10, 4096);
+        WorkspaceCommands.CommandResult mixed = execute("echo 中文😀&node -e \"console.log('混合输出😀')\"", 10, 4096);
         assertEquals(0, mixed.exitCode(), mixed.output());
         assertEquals("中文😀\r\n混合输出😀\n", mixed.output());
     }
     @Test void utf8StartupDoesNotReparseTheUserScript() throws Exception {
         Files.writeString(root.resolve("quoted 中文.cjs"), "console.log(JSON.stringify(process.argv.slice(2)))");
-        WorkspaceBridge.CommandResult quoted = execute("node \"quoted 中文.cjs\" \"中文 😀 & | % !\"", 10, 4096);
+        WorkspaceCommands.CommandResult quoted = execute("node \"quoted 中文.cjs\" \"中文 😀 & | % !\"", 10, 4096);
         assertEquals(0, quoted.exitCode(), quoted.output());
         assertEquals("[\"中文 😀 & | % !\"]\n", quoted.output());
         assertEquals("管道中文😀\n", execute("echo ignored|node -e \"process.stdin.resume();process.stdin.on('end',()=>console.log('管道中文😀'))\"", 10, 4096).output());
-        WorkspaceBridge.CommandResult redirected = execute("echo 重定向中文😀>\"out 中文.txt\"", 10, 4096);
+        WorkspaceCommands.CommandResult redirected = execute("echo 重定向中文😀>\"out 中文.txt\"", 10, 4096);
         assertEquals(0, redirected.exitCode(), redirected.output());
         assertEquals("重定向中文😀\r\n", Files.readString(root.resolve("out 中文.txt")));
     }
     @Test void utf8OutputTruncationDoesNotDecodeAnIncompleteByteSequence() throws Exception {
-        WorkspaceBridge.CommandResult result = execute("node -e \"process.stdout.write('中'.repeat(10000))\"", 10, 2);
+        WorkspaceCommands.CommandResult result = execute("node -e \"process.stdout.write('中'.repeat(10000))\"", 10, 2);
         assertEquals(0, result.exitCode(), result.output());
         assertEquals("中中", result.output());
         assertTrue(result.truncated());
@@ -94,23 +94,23 @@ class MxcWindowsIntegrationTest {
     @Test void fileOperationsAndOutsideBoundariesShareTheNativePolicy() throws Exception {
         Path folder = workspace.resolve("nested 中文");
         Path file = folder.resolve("text");
-        workspace.bridge().createDirectories(folder);
-        workspace.bridge().writeString(file, "中文\0\r\nend", StandardCharsets.UTF_16LE);
-        assertEquals("中文\0\r\nend", workspace.bridge().readString(file, StandardCharsets.UTF_16LE));
-        assertTrue(workspace.bridge().exists(file));
-        workspace.bridge().deleteFile(file);
-        assertFalse(workspace.bridge().exists(file));
-        assertThrows(IOException.class, () -> workspace.bridge().readString(outside, StandardCharsets.UTF_8));
-        assertThrows(IOException.class, () -> workspace.bridge().writeString(outside, "changed", StandardCharsets.UTF_8));
+        workspace.bridge().files().createDirectories(folder);
+        workspace.bridge().files().writeString(file, "中文\0\r\nend", StandardCharsets.UTF_16LE);
+        assertEquals("中文\0\r\nend", workspace.bridge().files().readString(file, StandardCharsets.UTF_16LE));
+        assertTrue(workspace.bridge().files().exists(file));
+        workspace.bridge().files().deleteFile(file);
+        assertFalse(workspace.bridge().files().exists(file));
+        assertThrows(IOException.class, () -> workspace.bridge().files().readString(outside, StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> workspace.bridge().files().writeString(outside, "changed", StandardCharsets.UTF_8));
         assertNotEquals(0, execute("type \"" + outside + "\"", 10, 4096).exitCode());
         assertEquals("host-secret", Files.readString(outside));
     }
     @Test void readonlyModeRejectsTerminalAndFileMutations() throws Exception {
         Files.writeString(root.resolve("input"), "original");
         Workspace readonly = provider.resolve(new MxcWorkspaceSpec(root.toString(), "test", List.of(), List.of(), Map.of(), false));
-        assertEquals("original", readonly.bridge().readString(readonly.resolve("input"), StandardCharsets.UTF_8));
-        assertThrows(IOException.class, () -> readonly.bridge().writeString(readonly.resolve("input"), "bad", StandardCharsets.UTF_8));
-        assertNotEquals(0, readonly.bridge().execute("echo bad > input", readonly.workDir(), readonly.runtimeEnvironment().charset(), 10, TimeUnit.SECONDS, 4096).exitCode());
+        assertEquals("original", readonly.bridge().files().readString(readonly.resolve("input"), StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> readonly.bridge().files().writeString(readonly.resolve("input"), "bad", StandardCharsets.UTF_8));
+        assertNotEquals(0, readonly.bridge().commands().execute("echo bad > input", readonly.workDir(), readonly.runtimeEnvironment().charset(), 10, TimeUnit.SECONDS, 4096).exitCode());
         assertEquals("original", Files.readString(root.resolve("input")));
     }
     @Test void junctionAndParentTraversalCannotExposeOutsideFiles() throws Exception {
@@ -118,9 +118,9 @@ class MxcWindowsIntegrationTest {
                 "require('fs').symlinkSync(process.argv[1],process.argv[2],'junction')",
                 outside.getParent().toString(), root.resolve("escape").toString()), null,
                 StandardCharsets.UTF_8, 5, TimeUnit.SECONDS, 4096).exitCode());
-        assertThrows(IOException.class, () -> workspace.bridge().readString(root.resolve("escape/outside"), StandardCharsets.UTF_8));
-        assertThrows(IOException.class, () -> workspace.bridge().writeString(root.resolve("escape/outside"), "bad", StandardCharsets.UTF_8));
-        assertThrows(IOException.class, () -> workspace.bridge().readString(workspace.resolve("../outside"), StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> workspace.bridge().files().readString(root.resolve("escape/outside"), StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> workspace.bridge().files().writeString(root.resolve("escape/outside"), "bad", StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> workspace.bridge().files().readString(workspace.resolve("../outside"), StandardCharsets.UTF_8));
         assertEquals("host-secret", Files.readString(outside));
     }
     @Test void helperIgnoresCommandPreloadsAndWholeDriveGrantsFailClosed() throws Exception {
@@ -128,21 +128,21 @@ class MxcWindowsIntegrationTest {
         Workspace preload = provider.resolve(new MxcWorkspaceSpec(root.toString(), "test", List.of(), List.of(),
                 Map.of("NODE_OPTIONS", "--preserve-symlinks --preserve-symlinks-main --require \""
                         + root.resolve("preload.cjs").toString().replace('\\', '/') + "\"")));
-        preload.bridge().writeString(preload.resolve("plain"), "real", StandardCharsets.UTF_8);
-        assertEquals("real", preload.bridge().readString(preload.resolve("plain"), StandardCharsets.UTF_8));
-        assertEquals("shell中文😀\r\n", preload.bridge().execute("echo shell中文😀", preload.workDir(),
+        preload.bridge().files().writeString(preload.resolve("plain"), "real", StandardCharsets.UTF_8);
+        assertEquals("real", preload.bridge().files().readString(preload.resolve("plain"), StandardCharsets.UTF_8));
+        assertEquals("shell中文😀\r\n", preload.bridge().commands().execute("echo shell中文😀", preload.workDir(),
                 preload.runtimeEnvironment().charset(), 10, TimeUnit.SECONDS, 4096).output());
-        assertEquals("forged", preload.bridge().execute("node -e \"console.log('unreachable')\"", preload.workDir(),
+        assertEquals("forged", preload.bridge().commands().execute("node -e \"console.log('unreachable')\"", preload.workDir(),
                 preload.runtimeEnvironment().charset(), 10, TimeUnit.SECONDS, 4096).output());
         assertThrows(IllegalStateException.class, () -> provider.resolve(new MxcWorkspaceSpec(root.toString(), "test",
                 List.of(root.getRoot().toString()), List.of(), Map.of())));
     }
     @Test void outputLimitsAndTimeoutsRemainEffective() throws Exception {
-        WorkspaceBridge.CommandResult output = execute("node -e \"process.stdout.write('x'.repeat(10000))\"", 10, 101);
+        WorkspaceCommands.CommandResult output = execute("node -e \"process.stdout.write('x'.repeat(10000))\"", 10, 101);
         assertEquals(101, output.output().length());
         assertTrue(output.truncated());
         Files.writeString(root.resolve("timeout-child.cjs"), "require('fs').writeFileSync('child-started','yes');setTimeout(()=>require('fs').writeFileSync('timeout-leak','bad'),5000)");
-        WorkspaceBridge.CommandResult timeout = execute("node -e \"require('child_process').spawn(process.execPath,['--preserve-symlinks-main','timeout-child.cjs'],{stdio:'ignore'});setInterval(()=>{},100)\"", 2, 4096);
+        WorkspaceCommands.CommandResult timeout = execute("node -e \"require('child_process').spawn(process.execPath,['--preserve-symlinks-main','timeout-child.cjs'],{stdio:'ignore'});setInterval(()=>{},100)\"", 2, 4096);
         assertTrue(timeout.timedOut(), timeout.output());
         assertTrue(Files.exists(root.resolve("child-started")), "Child must start before testing process-tree termination");
         Thread.sleep(5500);
@@ -181,30 +181,30 @@ class MxcWindowsIntegrationTest {
         MxcSecurityPolicy policy = new MxcSecurityPolicy(List.of(privateDirectory.toString()),
                 Arrays.stream(File.listRoots()).map(File::getAbsolutePath).toList(), true);
         workspace = provider.resolve(new MxcWorkspaceSpec(root.toString(), "privacy", List.of(), List.of(), Map.of(), true, policy));
-        assertEquals("PUBLIC-CANARY", workspace.bridge().readString(ordinary, StandardCharsets.UTF_8));
-        workspace.bridge().writeString(otherProject.resolve("created.txt"), "cross-project", StandardCharsets.UTF_8);
+        assertEquals("PUBLIC-CANARY", workspace.bridge().files().readString(ordinary, StandardCharsets.UTF_8));
+        workspace.bridge().files().writeString(otherProject.resolve("created.txt"), "cross-project", StandardCharsets.UTF_8);
         assertEquals("cross-project", Files.readString(otherProject.resolve("created.txt")));
-        assertThrows(IOException.class, () -> workspace.bridge().readString(secret, StandardCharsets.UTF_8));
-        assertThrows(IOException.class, () -> workspace.bridge().writeString(secret, "overwrite", StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> workspace.bridge().files().readString(secret, StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> workspace.bridge().files().writeString(secret, "overwrite", StandardCharsets.UTF_8));
         Files.writeString(root.resolve("privacy-child.cjs"), "const fs=require('fs');try{fs.readFileSync(process.argv[2]);process.exit(81)}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e;console.log('native-denied')}");
-        WorkspaceBridge.CommandResult child = execute("node privacy-child.cjs \"" + secret + "\"", 10, 4096);
+        WorkspaceCommands.CommandResult child = execute("node privacy-child.cjs \"" + secret + "\"", 10, 4096);
         assertEquals(0, child.exitCode(), child.output());
         assertTrue(child.output().contains("native-denied"), child.output());
         assertEquals("PRIVATE-CANARY", Files.readString(secret));
         assertEquals(0, execute("dir /b \"" + otherProject + "\"", 10, 4096).exitCode());
         Path forbiddenRuntimeWrite = runtime.helperDirectory().resolve("runtime-overwrite-canary");
-        assertThrows(IOException.class, () -> workspace.bridge().writeString(forbiddenRuntimeWrite, "bad", StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> workspace.bridge().files().writeString(forbiddenRuntimeWrite, "bad", StandardCharsets.UTF_8));
         assertFalse(Files.exists(forbiddenRuntimeWrite));
         Files.writeString(root.resolve("runtime-write.cjs"), "try{require('fs').writeFileSync(process.argv[2],'bad');process.exit(81)}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e;console.log('native-readonly')}");
-        WorkspaceBridge.CommandResult runtimeWrite = execute("node runtime-write.cjs \"" + forbiddenRuntimeWrite + "\"", 10, 4096);
+        WorkspaceCommands.CommandResult runtimeWrite = execute("node runtime-write.cjs \"" + forbiddenRuntimeWrite + "\"", 10, 4096);
         assertEquals(0, runtimeWrite.exitCode(), runtimeWrite.output());
         assertTrue(runtimeWrite.output().contains("native-readonly"));
         assertFalse(Files.exists(forbiddenRuntimeWrite));
         Path alias = root.resolve("private-alias");
-        WorkspaceBridge.CommandResult junction = ProcessRunner.run(List.of("cmd.exe", "/d", "/c", "mklink", "/J", alias.toString(), privateDirectory.toString()), null,
+        WorkspaceCommands.CommandResult junction = ProcessRunner.run(List.of("cmd.exe", "/d", "/c", "mklink", "/J", alias.toString(), privateDirectory.toString()), null,
                 StandardCharsets.UTF_8, 10, TimeUnit.SECONDS, 4096);
         assertEquals(0, junction.exitCode(), junction.output());
-        assertThrows(IOException.class, () -> workspace.bridge().readString(alias.resolve("secret.txt"), StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> workspace.bridge().files().readString(alias.resolve("secret.txt"), StandardCharsets.UTF_8));
     }
     @Test void configuredNativeDenialsAlsoApplyToFuturePaths() throws Exception {
         Path privateDirectory = outside.getParent().resolve("future-private");
@@ -213,7 +213,7 @@ class MxcWindowsIntegrationTest {
                 new MxcSecurityPolicy(List.of(privateDirectory.toString()), List.of(), false)));
         Files.createDirectory(privateDirectory);
         Path secret = Files.writeString(privateDirectory.resolve("secret.txt"), "FUTURE-PRIVATE");
-        assertThrows(IOException.class, () -> workspace.bridge().readString(secret, StandardCharsets.UTF_8));
+        assertThrows(IOException.class, () -> workspace.bridge().files().readString(secret, StandardCharsets.UTF_8));
     }
     @Test void explicitOutboundAllowanceConnectsToAPublicEndpoint() throws Exception {
         String script = "const s=require('net').connect(443,'1.1.1.1');s.on('connect',()=>{s.destroy();process.exit(81)});s.on('error',()=>process.exit(82));setTimeout(()=>process.exit(83),5000)";
@@ -224,7 +224,7 @@ class MxcWindowsIntegrationTest {
                 new MxcSecurityPolicy(List.of(), List.of(), true)));
         assertEquals(81, execute("node -e \"" + script + "\"", 8, 4096).exitCode());
     }
-    private WorkspaceBridge.CommandResult execute(String command, long timeout, long limit) throws Exception {
-        return workspace.bridge().execute(command, workspace.workDir(), workspace.runtimeEnvironment().charset(), timeout, TimeUnit.SECONDS, limit);
+    private WorkspaceCommands.CommandResult execute(String command, long timeout, long limit) throws Exception {
+        return workspace.bridge().commands().execute(command, workspace.workDir(), workspace.runtimeEnvironment().charset(), timeout, TimeUnit.SECONDS, limit);
     }
 }

@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class McpWorkspaceAdapterTest {
     @Test void rejectsEntireMixedConfigurationBeforeOpeningAnyClient() {
         AtomicInteger created = new AtomicInteger();
-        var factory = new McpClientFactory() {
+        McpClientFactory factory = new McpClientFactory() {
             @Override public dev.langchain4j.mcp.client.McpClient create(String key, McpConfig.MCP server, Workspace workspace) {
                 created.incrementAndGet(); throw new AssertionError("must not start");
             }
@@ -36,7 +36,7 @@ class McpWorkspaceAdapterTest {
     }
     @Test void localWorkspacePreservesExistingFactoryOverride() {
         AtomicInteger calls = new AtomicInteger();
-        var factory = new McpClientFactory() {
+        McpClientFactory factory = new McpClientFactory() {
             @Override public dev.langchain4j.mcp.client.McpClient create(String key, McpConfig.MCP server) {
                 calls.incrementAndGet(); return null;
             }
@@ -53,8 +53,8 @@ class McpWorkspaceAdapterTest {
                 return new WorkspaceStdioLaunch(List.of("sandbox-wrapper"), Map.of(), closed::incrementAndGet);
             }
         }
-        var launch = McpWorkspaceAdapter.prepare((McpConfig.Stdio) stdio().conf(), workspace(true, new Bridge()));
-        var transport = new OwnedStdioMcpTransport(launch);
+        WorkspaceStdioLaunch launch = McpWorkspaceAdapter.prepare((McpConfig.Stdio) stdio().conf(), workspace(true, new Bridge()));
+        OwnedStdioMcpTransport transport = new OwnedStdioMcpTransport(launch);
         transport.close(); transport.close();
         assertEquals(1, closed.get());
         assertThrows(IllegalStateException.class, () -> transport.start(null));
@@ -76,13 +76,7 @@ class McpWorkspaceAdapterTest {
         };
     }
     private abstract static class LocalWorkspaceBridgePlaceholder implements WorkspaceBridge {
-        public boolean exists(Path p) { throw new UnsupportedOperationException(); }
-        public void createDirectories(Path p) { throw new UnsupportedOperationException(); }
-        public void deleteFile(Path p) { throw new UnsupportedOperationException(); }
-        public String readString(Path p, java.nio.charset.Charset c) { throw new UnsupportedOperationException(); }
-        public void writeString(Path p, String s, java.nio.charset.Charset c) { throw new UnsupportedOperationException(); }
-        public CommandResult execute(String s, String w, java.nio.charset.Charset c, long t, java.util.concurrent.TimeUnit u, long m) {
-            throw new UnsupportedOperationException();
-        }
+        public WorkspaceFiles files() { throw new UnsupportedOperationException(); }
+        public WorkspaceCommands commands() { throw new UnsupportedOperationException(); }
     }
 }

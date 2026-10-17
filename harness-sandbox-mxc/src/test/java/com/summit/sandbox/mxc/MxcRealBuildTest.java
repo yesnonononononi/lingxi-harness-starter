@@ -1,7 +1,7 @@
 package com.summit.sandbox.mxc;
 
 import com.summit.core.runtime.workspace.Workspace;
-import com.summit.core.runtime.workspace.WorkspaceBridge;
+import com.summit.core.runtime.workspace.WorkspaceCommands;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -34,7 +34,7 @@ class MxcRealBuildTest {
                         "-Dmaven.repo.local=" + dependencies + "/maven-repository", "-Duser.home=" + build + "/home",
                         "-Djava.io.tmpdir=" + build + "/tmp", "-Dgpg.skip=true", "-Dmaven.javadoc.skip=true", "clean", "verify")
                 .stream().map(value -> "'" + value.replace("'", "'\\''") + "'").collect(java.util.stream.Collectors.joining(" "));
-        WorkspaceBridge.CommandResult result = workspace.bridge().execute(command, workspace.workDir(),
+        WorkspaceCommands.CommandResult result = workspace.bridge().commands().execute(command, workspace.workDir(),
                 StandardCharsets.UTF_8, 10, TimeUnit.MINUTES, 1024 * 1024);
         Files.writeString(runtime.hostPath(build + "/java-bridge-build.log"), result.output());
         assertFalse(result.timedOut(), result.output());
