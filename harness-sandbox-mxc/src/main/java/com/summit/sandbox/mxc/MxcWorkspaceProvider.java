@@ -41,7 +41,7 @@ public final class MxcWorkspaceProvider implements WorkspaceProvider {
                                       MxcRuntime runtime, Map<String, String> environment, Charset charset) implements Workspace {
         @Override public RuntimeEnvironment runtimeEnvironment() {
             boolean windows = runtime.windows();
-            Map<String, String> env = new LinkedHashMap<>(environment);
+            Map<String, String> env = new LinkedHashMap<>(MxcHostEnvironment.resolve(environment, runtime));
             env.putIfAbsent("PATH", windows
                     ? Path.of(runtime.nodeExecutable()).getParent() + ";" + System.getenv("SystemRoot") + "\\System32"
                     : "/usr/bin:/bin");

@@ -75,8 +75,8 @@ try {
     const environment = {
         SystemRoot: systemRoot, WINDIR: systemRoot, SystemDrive: path.parse(systemRoot).root.slice(0, 2),
         PATHEXT: '.COM;.EXE;.BAT;.CMD', ComSpec: path.join(systemRoot, 'System32/cmd.exe'),
-        PATH: `${nodeRoot};${path.join(systemRoot, 'System32')}`, USERPROFILE: root, HOME: root, LOCALAPPDATA: root,
-        TEMP: root, TMP: root,
+        PATH: `${nodeRoot};${path.join(systemRoot, 'System32')}`,
+        ...(r.operation === 'execute' ? {} : {USERPROFILE: root, HOME: root, LOCALAPPDATA: root, TEMP: root, TMP: root}),
         NODE_OPTIONS: '--preserve-symlinks-main --preserve-symlinks',
         ...(r.operation === 'stdio' ? r.environment : {}),
         HARNESS_WORKSPACE: root,
@@ -94,7 +94,7 @@ try {
         process: {
             commandLine: command, cwd: r.workDir ?? root, ...(mode === 'stdio' ? {} : {timeout: r.timeoutMs + 10000}),
             env: Object.entries(environment).map(([key, value]) => `${key}=${value}`),
-            inheritDefaultEnv: false
+            inheritDefaultEnv: r.operation === 'execute'
         },
         fallback: {allowDaclMutation: false},
         ui: {disable: false, clipboard: 'none', injection: false},

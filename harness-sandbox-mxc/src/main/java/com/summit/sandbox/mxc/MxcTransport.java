@@ -118,6 +118,10 @@ final class MxcTransport {
     Map<String, Object> buildRequest(String operation, Map<String, Object> arguments, Duration budget, long maxBytes) {
         Map<String, Object> request = new LinkedHashMap<>(policy);
         request.putAll(arguments);
+        if ("execute".equals(operation)) {
+            @SuppressWarnings("unchecked") Map<String, String> configured = (Map<String, String>) request.getOrDefault("environment", Map.of());
+            request.put("environment", MxcHostEnvironment.resolve(configured, runtime));
+        }
         request.put("operation", operation);
         request.put("timeoutMs", budget.toMillis());
         request.put("maxBytes", maxBytes);
