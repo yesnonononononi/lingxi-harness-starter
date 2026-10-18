@@ -95,6 +95,8 @@ filesystem semantics, limits, and validation. The former SRT adapter has been re
 
 `WorkspaceBridge.execute` accepts one raw command string, not process argv. Tools pass the original command without adding a shell launcher; each bridge selects and invokes the shell advertised by its workspace's `RuntimeEnvironment`. Quotes, variables, pipelines and line breaks belong to the script and must survive transport unchanged. `ProcessRunner` is the lower-level argv executor used internally by bridges.
 
+`ProcessRunner.run(...)` is a stateless convenience API: each call creates an independent `CancellableProcessRunner`. Callers that need cancellation retain their own `CancellableProcessRunner` and call its instance `run(...)` and `cancel()` methods. Each instance allows one active command and can be reused after that call returns. Both APIs share the same stdin, output, timeout, and process-tree cleanup implementation.
+
 `allowOutsideWorkspace` defaults to `false` and is passed to tools with the request. Custom tools should use the workspace path resolution, `encloses` checks, and the bridge; when a tool uses host file APIs or starts processes directly, the framework does not automatically convert those operations into workspace operations.
 
 ## Tool Registration and Permissions

@@ -9,6 +9,10 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -33,9 +37,105 @@ class ProcessRunnerTest {
     @TempDir Path temporary;
 
     @Test
+    void facadeAndCallerOwnedRunnerExposeSeparateLifecycleContracts() {
+        assertTrue(Modifier.isFinal(ProcessRunner.class.getModifiers()));
+        for (Constructor<?> constructor : ProcessRunner.class.getDeclaredConstructors()) {
+            assertTrue(Modifier.isPrivate(constructor.getModifiers()));
+        }
+        for (Field field : ProcessRunner.class.getDeclaredFields()) {
+            assertTrue(Modifier.isStatic(field.getModifiers()), field.getName());
+        }
+        for (Method method : ProcessRunner.class.getDeclaredMethods()) {
+            if (Modifier.isPublic(method.getModifiers())) {
+                assertTrue(Modifier.isStatic(method.getModifiers()), method.getName());
+            }
+        }
+        for (Method method : CancellableProcessRunner.class.getDeclaredMethods()) {
+            if (Modifier.isPublic(method.getModifiers())) {
+                assertFalse(Modifier.isStatic(method.getModifiers()), method.getName());
+            }
+        }
+    }
+
+    @Test
+    void cancellingOneRunnerDoesNotTerminateAnotherRunnersCommand() throws Exception {
+        CancellableProcessRunner first = new CancellableProcessRunner();
+        CancellableProcessRunner second = new CancellableProcessRunner();
+        Path firstPid = temporary.resolve("first-runner.pid");
+        Path secondPid = temporary.resolve("second-runner.pid");
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<CommandResult> firstResult = executor.submit(() -> first.run(command("sleep", firstPid.toString())));
+            Future<CommandResult> secondResult = executor.submit(() -> second.run(command("sleep", secondPid.toString())));
+            try {
+                awaitFile(firstPid);
+                awaitFile(secondPid);
+                assertTrue(first.cancel());
+                assertFalse(firstResult.get(5, TimeUnit.SECONDS).isSuccess());
+                assertProcessGone(firstPid);
+                long secondProcessId = Long.parseLong(Files.readString(secondPid));
+                assertTrue(ProcessHandle.of(secondProcessId).map(ProcessHandle::isAlive).orElse(false));
+                assertFalse(secondResult.isDone());
+                assertTrue(second.cancel());
+                assertFalse(secondResult.get(5, TimeUnit.SECONDS).isSuccess());
+                assertProcessGone(secondPid);
+            } finally {
+                first.cancel();
+                second.cancel();
+            }
+        }
+    }
+
+    @Test
+    void concurrentFacadeCallsOwnIndependentRunners() throws Exception {
+        Path firstPid = temporary.resolve("first-facade.pid");
+        Path secondPid = temporary.resolve("second-facade.pid");
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<CommandResult> first = executor.submit(() -> ProcessRunner.run(List.of(command("sleep", firstPid.toString())),
+                    null, StandardCharsets.UTF_8, 10, 4096));
+            Future<CommandResult> second = executor.submit(() -> ProcessRunner.run(List.of(command("sleep", secondPid.toString())),
+                    null, StandardCharsets.UTF_8, 10, 4096));
+            try {
+                awaitFile(firstPid);
+                awaitFile(secondPid);
+                ProcessHandle firstProcess = ProcessHandle.of(Long.parseLong(Files.readString(firstPid))).orElseThrow();
+                ProcessHandle secondProcess = ProcessHandle.of(Long.parseLong(Files.readString(secondPid))).orElseThrow();
+                assertTrue(first.cancel(true));
+                firstProcess.onExit().get(5, TimeUnit.SECONDS);
+                assertTrue(secondProcess.isAlive());
+                assertFalse(second.isDone());
+                assertTrue(second.cancel(true));
+                secondProcess.onExit().get(5, TimeUnit.SECONDS);
+            } finally {
+                first.cancel(true);
+                second.cancel(true);
+            }
+        }
+    }
+
+    @Test
+    void oneRunnerRejectsOverlappingCommandsBeforeLaunchingAndCanBeReused() throws Exception {
+        CancellableProcessRunner runner = new CancellableProcessRunner();
+        Path activePid = temporary.resolve("active-runner.pid");
+        Path rejectedPid = temporary.resolve("overlap-must-not-start.pid");
+        try (ExecutorService executor = Executors.newSingleThreadExecutor()) {
+            Future<CommandResult> active = executor.submit(() -> runner.run(command("sleep", activePid.toString())));
+            try {
+                awaitFile(activePid);
+                assertThrows(IllegalStateException.class, () -> runner.run(command("sleep", rejectedPid.toString())));
+                assertFalse(Files.exists(rejectedPid));
+                assertTrue(runner.cancel());
+                assertFalse(active.get(5, TimeUnit.SECONDS).isSuccess());
+                assertEquals("reused", runner.run(command("echo", "reused")).output());
+            } finally {
+                runner.cancel();
+            }
+        }
+    }
+
+    @Test
     void successfulCommandKeepsExitZeroAndLiteralArguments() throws Exception {
         String literal = "spaces & symbols ; $(literal)";
-        CommandResult result = new ProcessRunner().run(command("echo", literal), 5, TimeUnit.SECONDS);
+        CommandResult result = new CancellableProcessRunner().run(command("echo", literal), 5, TimeUnit.SECONDS);
         assertEquals(0, result.exitCode());
         assertTrue(result.isSuccess());
         assertEquals(literal, result.output());
@@ -43,7 +143,7 @@ class ProcessRunnerTest {
 
     @Test
     void nonzeroExitAndStderrArePreserved() throws Exception {
-        CommandResult result = new ProcessRunner().run(command("fail"), 5, TimeUnit.SECONDS);
+        CommandResult result = new CancellableProcessRunner().run(command("fail"), 5, TimeUnit.SECONDS);
         assertEquals(7, result.exitCode());
         assertFalse(result.isSuccess());
         assertEquals("failure diagnostic", result.output());
@@ -51,7 +151,7 @@ class ProcessRunnerTest {
 
     @Test
     void outputLargerThanAPipeBufferDoesNotDeadlock() throws Exception {
-        CommandResult result = new ProcessRunner().run(command("large"), 5, TimeUnit.SECONDS);
+        CommandResult result = new CancellableProcessRunner().run(command("large"), 5, TimeUnit.SECONDS);
         assertTrue(result.isSuccess());
         assertEquals("x".repeat(256 * 1024), result.output());
     }
@@ -59,14 +159,14 @@ class ProcessRunnerTest {
     @Test
     void stdinBytesAreDeliveredUnchangedAndClosedWithEof() throws Exception {
         byte[] input = "中文\r\nlast line\u0000".getBytes(StandardCharsets.UTF_8);
-        CommandResult result = new ProcessRunner().run(command("stdin"), input, 10, TimeUnit.SECONDS);
+        CommandResult result = new CancellableProcessRunner().run(command("stdin"), input, 10, TimeUnit.SECONDS);
         assertTrue(result.isSuccess(), result.output());
         assertEquals(Base64.getEncoder().encodeToString(input), result.output());
     }
 
     @Test
     void omittedStdinStillClosesTheInputPipe() throws Exception {
-        CommandResult result = new ProcessRunner().run(command("stdin"), 10, TimeUnit.SECONDS);
+        CommandResult result = new CancellableProcessRunner().run(command("stdin"), 10, TimeUnit.SECONDS);
         assertTrue(result.isSuccess(), result.output());
         assertEquals("", result.output());
     }
@@ -76,7 +176,7 @@ class ProcessRunnerTest {
         byte[] input = new byte[2 * 1024 * 1024];
         Arrays.fill(input, (byte) 'z');
         CommandResult result = assertTimeoutPreemptively(Duration.ofSeconds(12),
-                () -> new ProcessRunner().run(command("duplex"), input, 10, TimeUnit.SECONDS));
+                () -> new CancellableProcessRunner().run(command("duplex"), input, 10, TimeUnit.SECONDS));
         assertTrue(result.isSuccess(), result.output());
         assertEquals("x".repeat(256 * 1024) + ":" + input.length, result.output());
     }
@@ -84,7 +184,7 @@ class ProcessRunnerTest {
     @Test
     void aChildThatNeverReadsLargeStdinStillTimesOutAndRunnerCanBeReused() throws Exception {
         Path pidFile = temporary.resolve("blocked-input.pid");
-        ProcessRunner runner = new ProcessRunner();
+        CancellableProcessRunner runner = new CancellableProcessRunner();
         CommandResult result = assertTimeoutPreemptively(Duration.ofSeconds(9),
                 () -> runner.run(command("sleep", pidFile.toString()), new byte[8 * 1024 * 1024],
                         3, TimeUnit.SECONDS));
@@ -97,7 +197,7 @@ class ProcessRunnerTest {
     @Test
     void rejectedInputStopsTheProcessAndDoesNotLeakRunnerState() throws Exception {
         Path pidFile = temporary.resolve("rejected-input.pid");
-        ProcessRunner runner = new ProcessRunner();
+        CancellableProcessRunner runner = new CancellableProcessRunner();
         CommandResult result = assertTimeoutPreemptively(Duration.ofSeconds(8),
                 () -> runner.run(command("reject-input", pidFile.toString()), new byte[8 * 1024 * 1024],
                         10, TimeUnit.SECONDS));
@@ -110,7 +210,7 @@ class ProcessRunnerTest {
 
     @Test
     void returnedOutputRespectsTheExistingCharacterLimit() throws Exception {
-        CommandResult result = new ProcessRunner().run(command("echo", "abcdef"),
+        CommandResult result = new CancellableProcessRunner().run(command("echo", "abcdef"),
                 new byte[0], 10, TimeUnit.SECONDS, 3);
         assertTrue(result.isSuccess());
         assertEquals("abc", result.output());
@@ -202,7 +302,7 @@ class ProcessRunnerTest {
     @Test
     void stdinOverloadsValidateArgumentsBeforeLaunching() throws Exception {
         Path marker = temporary.resolve("invalid-stdin.pid");
-        ProcessRunner runner = new ProcessRunner();
+        CancellableProcessRunner runner = new CancellableProcessRunner();
         assertThrows(NullPointerException.class,
                 () -> runner.run(command("sleep", marker.toString()), null, 5, TimeUnit.SECONDS));
         assertThrows(IllegalArgumentException.class,
@@ -219,7 +319,7 @@ class ProcessRunnerTest {
     void silentCommandTimesOutAndItsProcessIsGone() throws Exception {
         Path pidFile = temporary.resolve("silent.pid");
         CommandResult result = assertTimeoutPreemptively(Duration.ofSeconds(8),
-                () -> new ProcessRunner().run(command("sleep", pidFile.toString()), 2, TimeUnit.SECONDS));
+                () -> new CancellableProcessRunner().run(command("sleep", pidFile.toString()), 2, TimeUnit.SECONDS));
         assertEquals(-1, result.exitCode());
         assertEquals("", result.output());
         assertProcessGone(pidFile);
@@ -230,7 +330,7 @@ class ProcessRunnerTest {
         Path parentFile = temporary.resolve("parent.pid");
         Path childFile = temporary.resolve("child.pid");
         CommandResult result = assertTimeoutPreemptively(Duration.ofSeconds(9),
-                () -> new ProcessRunner().run(command("tree", parentFile.toString(), childFile.toString()),
+                () -> new CancellableProcessRunner().run(command("tree", parentFile.toString(), childFile.toString()),
                         3, TimeUnit.SECONDS));
         assertEquals(-1, result.exitCode());
         assertProcessGone(parentFile);
@@ -240,7 +340,7 @@ class ProcessRunnerTest {
     @Test
     void invalidTimeoutDoesNotLaunchTheCommand() throws Exception {
         Path marker = temporary.resolve("should-not-exist");
-        ProcessRunner runner = new ProcessRunner();
+        CancellableProcessRunner runner = new CancellableProcessRunner();
         assertThrows(IllegalArgumentException.class,
                 () -> runner.run(command("sleep", marker.toString()), 0, TimeUnit.SECONDS));
         assertThrows(IllegalArgumentException.class,
@@ -253,7 +353,7 @@ class ProcessRunnerTest {
     @Test
     void cancelStopsAnActiveCommandAndAllowsReuse() throws Exception {
         Path pidFile = temporary.resolve("cancel.pid");
-        ProcessRunner runner = new ProcessRunner();
+        CancellableProcessRunner runner = new CancellableProcessRunner();
         try (ExecutorService executor = Executors.newSingleThreadExecutor()) {
             // This test exercises cancellation, without a competing execution timeout.
             Future<CommandResult> result = executor.submit(() -> runner.run(command("sleep", pidFile.toString())));
@@ -273,7 +373,7 @@ class ProcessRunnerTest {
     @Test
     void interruptionStopsTheProcessAndPreservesTheInterruptFlag() throws Exception {
         Path pidFile = temporary.resolve("interrupted.pid");
-        ProcessRunner runner = new ProcessRunner();
+        CancellableProcessRunner runner = new CancellableProcessRunner();
         AtomicReference<IOException> failure = new AtomicReference<>();
         AtomicBoolean interrupted = new AtomicBoolean();
         CountDownLatch finished = new CountDownLatch(1);
