@@ -5,15 +5,19 @@ import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;
+import com.summit.core.conversation.message.ToolMessageEntity;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.ChatResponseMetadata;
 import dev.langchain4j.model.openai.OpenAiTokenUsage;
 import dev.langchain4j.model.output.TokenUsage;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
 
@@ -21,6 +25,23 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 class MessageCodecAdapterTest {
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void convertsTextOnlyToolOutputAndPreservesErrorStatus(boolean error) {
+        ToolMessageEntity source = ToolMessageEntity.builder().id("call-1").name("lookup")
+                .toolOutput("tool result").isError(error).build();
+
+        ToolExecutionResultMessage converted = assertInstanceOf(ToolExecutionResultMessage.class,
+                new MessageCodecAdapter().toFramework(source));
+
+        assertEquals("call-1", converted.id());
+        assertEquals("lookup", converted.toolName());
+        assertEquals("tool result", converted.text());
+        assertEquals(1, converted.contents().size());
+        assertEquals(error, converted.isError());
+    }
+
 
     @Test
     void preservesOpenAiUsageDetailsWithoutAddingSubcountsToTotals() {

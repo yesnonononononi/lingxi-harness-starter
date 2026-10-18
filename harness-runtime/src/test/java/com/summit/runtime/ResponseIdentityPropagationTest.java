@@ -249,10 +249,17 @@ class ResponseIdentityPropagationTest {
     }
 
     private static ToolExecuteCommand command(String executionId, String responseId) {
-        return new ToolExecuteCommand(List.of(new ToolCallRequest(executionId + "-ok", "test", 0, "{}"),
+        return ToolExecuteCommand.builder()
+                .requests(List.of(new ToolCallRequest(executionId + "-ok", "test", 0, "{}"),
                 new ToolCallRequest(executionId + "-fail", "test", 1, "fail"),
-                new ToolCallRequest(executionId + "-missing", "missing", 2, "{}")),
-                executionId, workspace(), Map.of(), METADATA, List.of("test"), responseId, false, null);
+                new ToolCallRequest(executionId + "-missing", "missing", 2, "{}")))
+                .executionId(executionId)
+                .workspace(workspace())
+                .attributes(Map.of())
+                .eventMetaData(METADATA)
+                .allowedTools(List.of("test"))
+                .responseId(responseId)
+                .build();
     }
 
     private static Workspace workspace() {

@@ -194,11 +194,18 @@ class EventMetadataPropagationTest {
     }
 
     private ToolExecuteCommand command(String id, Map<String, Object> metadata) {
-        return new ToolExecuteCommand(List.of(
+        return ToolExecuteCommand.builder()
+                .requests(List.of(
                 new ToolCallRequest(id + "-success", "test", 0, "{}"),
                 new ToolCallRequest(id + "-failure", "test", 1, "fail"),
-                new ToolCallRequest(id + "-unknown", "missing", 2, "{}")),
-                id, workspace(), Map.of("private", "internal"), metadata, List.of("test"), "1234567890123456789", false, null);
+                new ToolCallRequest(id + "-unknown", "missing", 2, "{}")))
+                .executionId(id)
+                .workspace(workspace())
+                .attributes(Map.of("private", "internal"))
+                .eventMetaData(metadata)
+                .allowedTools(List.of("test"))
+                .responseId("1234567890123456789")
+                .build();
     }
 
     private Workspace workspace() {

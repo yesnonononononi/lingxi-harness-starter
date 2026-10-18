@@ -49,7 +49,7 @@ class ProviderWireContractTest {
             assertEquals(60, first.getTokenUsage().getInputTokens().getCacheHitTokens());
             assertEquals("call-1", first.getAiMessageEntity().getToolCalls().getFirst().id());
             call(config, streaming, List.of(UserMessageEntity.from("question"), first.getAiMessageEntity(),
-                    ToolMessageEntity.builder().id("call-1").name("lookup").text("result").build()), true);
+                    ToolMessageEntity.builder().id("call-1").name("lookup").toolOutput("result").build()), true);
             JsonNode next = endpoint.requests.poll(10, TimeUnit.SECONDS);
             assertNotNull(next);
             JsonNode content = next.path("messages").get(1).path("content");
@@ -59,6 +59,7 @@ class ProviderWireContractTest {
             assertEquals("opaque", content.get(1).path("data").asText());
             assertEquals("tool_use", content.get(2).path("type").asText());
             assertEquals("call-1", next.path("messages").get(2).path("content").get(0).path("tool_use_id").asText());
+            assertEquals("result", next.path("messages").get(2).path("content").get(0).path("content").asText());
         }
     }
 

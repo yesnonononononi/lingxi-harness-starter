@@ -116,8 +116,15 @@ class ReadSkillToolTest {
     }
 
     private ToolExecuteCommand command(Path root, List<String> allowed) {
-        return new ToolExecuteCommand(List.of(new ToolCallRequest("call", ReadSkillTool.NAME, 0,
-                "{\"path\":\"SKILL.md\"}")), "test", null, Map.of(), Map.of(), allowed,
-                "1234567890123456789", false, null, new SkillConfig(root));
+        return ToolExecuteCommand.builder()
+                .requests(List.of(new ToolCallRequest("call", ReadSkillTool.NAME, 0,
+                "{\"path\":\"SKILL.md\"}")))
+                .executionId("test")
+                .attributes(Map.of())
+                .eventMetaData(Map.of())
+                .allowedTools(allowed)
+                .responseId("1234567890123456789")
+                .skillConfig(new SkillConfig(root))
+                .build();
     }
 }

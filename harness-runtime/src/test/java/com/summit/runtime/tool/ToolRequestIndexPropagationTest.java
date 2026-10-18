@@ -181,7 +181,13 @@ class ToolRequestIndexPropagationTest {
     }
 
     private static ToolExecuteCommand command(List<ToolCallRequest> requests, List<String> allowedTools) {
-        return new ToolExecuteCommand(requests, "execution-1", null, Map.of(), allowedTools, RESPONSE_ID);
+        return ToolExecuteCommand.builder()
+                .requests(requests)
+                .executionId("execution-1")
+                .attributes(Map.of())
+                .allowedTools(allowedTools)
+                .responseId(RESPONSE_ID)
+                .build();
     }
 
     private static class RecordingListener implements RuntimeListener {

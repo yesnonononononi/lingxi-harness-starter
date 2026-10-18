@@ -34,8 +34,13 @@ class DefaultToolExecutionManagerPromiseTest {
                 .runtimeEventPublisher(new RuntimeEventPublisher(List.of())).build();
         // The whitelist is an allow-list with no implicit default, so the tool under test is named
         // explicitly — this case is about policy bypass, not about admission.
-        ToolExecuteCommand command = new ToolExecuteCommand(List.of(new ToolCallRequest("c", "write", 0, "{}")),
-                "e", workspace(), null, List.of("write"), "1234567890123456789");
+        ToolExecuteCommand command = ToolExecuteCommand.builder()
+                .requests(List.of(new ToolCallRequest("c", "write", 0, "{}")))
+                .executionId("e")
+                .workspace(workspace())
+                .allowedTools(List.of("write"))
+                .responseId("1234567890123456789")
+                .build();
         for (boolean bypass : List.of(true, false)) {
             List<com.summit.core.tool.ToolExecutionPolicy> policies = bypass
                     ? List.of(execution -> ToolExecuteResult.success("cached")) : List.of();
@@ -74,12 +79,13 @@ class DefaultToolExecutionManagerPromiseTest {
                 context,
                 invocation -> invocation.getMethod().invoke(invocation.getTarget(), invocation.getContext()),
                 List.of(execution -> ToolExecuteResult.promise("waiting")))) {
-            List<ToolExecuteResult> results = manager.execute(new ToolExecuteCommand(
-                    List.of(new ToolCallRequest("call-1", "choice", 0, "{}")),
-                    "execution-1",
-                    workspace(),
-                    null,
-                    List.of("choice"), "1234567890123456789"));
+            List<ToolExecuteResult> results = manager.execute(ToolExecuteCommand.builder()
+                    .requests(List.of(new ToolCallRequest("call-1", "choice", 0, "{}")))
+                    .executionId("execution-1")
+                    .workspace(workspace())
+                    .allowedTools(List.of("choice"))
+                    .responseId("1234567890123456789")
+                    .build());
 
             assertEquals(1, results.size());
             assertTrue(results.getFirst().isPromise());

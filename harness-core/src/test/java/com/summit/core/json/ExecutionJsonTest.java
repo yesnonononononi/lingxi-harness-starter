@@ -60,7 +60,7 @@ class ExecutionJsonTest {
                 UserMessageEntity.builder().content(List.of(TextContent.from("question"),
                         ImageContent.from(Image.from("aGVsbG8=")), new AudioContent(),
                         new VideoContent(), new PdfFileContent())).build(),
-                ai, ToolMessageEntity.builder().id("call-1").name("search").text("result").build());
+                ai, ToolMessageEntity.builder().id("call-1").name("search").toolOutput("result").isError(true).build());
         Instant timestamp = Instant.parse("2026-09-27T01:02:03.123456789Z");
         Execution original = Execution.builder().id("exec-1").agentId("agent-1")
                 .executionState(ExecutionState.SUSPENDED).createAt(timestamp).startAt(timestamp)
@@ -89,7 +89,12 @@ class ExecutionJsonTest {
         assertInstanceOf(SystemMessageEntity.class, restored.getMessages().get(0));
         UserMessageEntity user = assertInstanceOf(UserMessageEntity.class, restored.getMessages().get(1));
         assertInstanceOf(AiMessageEntity.class, restored.getMessages().get(2));
-        assertInstanceOf(ToolMessageEntity.class, restored.getMessages().get(3));
+        ToolMessageEntity tool = assertInstanceOf(ToolMessageEntity.class, restored.getMessages().get(3));
+        assertEquals("call-1", tool.getId());
+        assertEquals("search", tool.getName());
+        assertEquals("result", tool.getToolOutput());
+        assertEquals("result", tool.text());
+        assertTrue(tool.isError());
         assertInstanceOf(TextContent.class, user.getContent().get(0));
         assertEquals("aGVsbG8=", assertInstanceOf(ImageContent.class, user.getContent().get(1)).getImage().getBase64Data());
         assertInstanceOf(AudioContent.class, user.getContent().get(2));
