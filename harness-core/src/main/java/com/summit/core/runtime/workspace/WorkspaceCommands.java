@@ -46,6 +46,7 @@ public interface WorkspaceCommands {
     )
             throws IOException, InterruptedException;
 
+    /** Starts a bounded background command; startup and interruption failures remain observable. */
     default CommandHandler startCommand(
             String command,
             String workDir,
@@ -53,7 +54,7 @@ public interface WorkspaceCommands {
             long timeoutSeconds,
             TimeUnit timeUnit,
             long maxOutputChars
-    ) {
+    ) throws IOException, InterruptedException {
         throw new UnsupportedOperationException("Background command execution is not supported by this runtime");
     }
 
