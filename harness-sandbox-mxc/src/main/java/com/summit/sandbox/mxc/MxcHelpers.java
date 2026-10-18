@@ -20,6 +20,7 @@ final class MxcHelpers {
         byte[] filesystemPolicy = resource("filesystem-policy.mjs");
         byte[] operations = resource("operations.mjs");
         byte[] stdioSession = resource("stdio-session.mjs");
+        byte[] outputFrames = resource("output-frames.mjs");
         byte[] stdioServer = resource("stdio-server.mjs");
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -27,6 +28,7 @@ final class MxcHelpers {
             digest.update(operations);
             digest.update(filesystemPolicy);
             digest.update(stdioSession);
+            digest.update(outputFrames);
             digest.update(stdioServer);
             Path version = directory.resolve(HexFormat.of().formatHex(digest.digest()));
             Files.createDirectories(version);
@@ -34,6 +36,7 @@ final class MxcHelpers {
             install(version.resolve("operations.mjs"), operations);
             install(version.resolve("filesystem-policy.mjs"), filesystemPolicy);
             install(version.resolve("stdio-session.mjs"), stdioSession);
+            install(version.resolve("output-frames.mjs"), outputFrames);
             install(version.resolve("stdio-server.mjs"), stdioServer);
             return version.resolve("launcher.mjs");
         } catch (NoSuchAlgorithmException e) {

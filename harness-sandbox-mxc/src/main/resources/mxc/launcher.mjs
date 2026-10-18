@@ -1,3 +1,4 @@
+import { createOutputCollector } from './output-frames.mjs';
 import { readRequest, stdioCommand, relayStdio } from './stdio-session.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -38,6 +39,7 @@ if (mode === 'cancel') {
 }
 
 let active;
+let streaming = false;
 let cancelling = false;
 const stop = () => { cancelling = true; active?.kill(); };
 process.on('SIGTERM', stop);
@@ -46,6 +48,7 @@ fs.writeFileSync(pidFile, JSON.stringify({ pid: process.pid, start: statIdentity
 try {
   if (fs.existsSync(cancelledFile)) throw new Error('Request cancelled before startup');
   const r = await readRequest(mode, controls, token);
+  streaming = r.streamOutput === true;
   if (process.platform !== 'linux' || Number(process.versions.node.split('.')[0]) < 24) {
     throw new Error('MXC adapter requires Linux Node >=24');
   }
@@ -133,15 +136,10 @@ try {
     if (active.warnings.length) throw new Error('Backend warnings: ' + active.warnings.join('; '));
     process.exitCode = result.exitCode ?? 0;
   } else {
-    let size = 0, truncated = false;
-    const buffers = [];
+    const collector = createOutputCollector(r);
     const consume = stream => {
       if (!stream) throw new Error('Backend did not expose output streams');
-      stream.on('data', bytes => {
-        const keep = Math.max(0, Math.min(bytes.length, r.maxBytes - size));
-        if (keep) { buffers.push(Buffer.from(bytes.subarray(0, keep))); size += keep; }
-        if (keep < bytes.length) truncated = true;
-      });
+      stream.on('data', bytes => collector.consume(bytes));
     };
     consume(active.standardOutput);
     consume(active.standardError);
@@ -150,11 +148,11 @@ try {
     stdin.end(r.operation === 'execute' ? '' : JSON.stringify(r));
     const result = await active.wait();
     if (active.warnings.length) throw new Error('Backend warnings: ' + active.warnings.join('; '));
-    process.stdout.write(JSON.stringify({ ...result, outputBase64: Buffer.concat(buffers).toString('base64'), truncated }));
+    collector.finish(result);
   }
 } catch (error) {
   active?.kill();
-  (mode === 'stdio' ? process.stderr : process.stdout).write(JSON.stringify({ error: `${error.code ?? 'mxc_error'}: ${error.message}` }));
+  (mode === 'stdio' ? process.stderr : process.stdout).write(JSON.stringify({type: streaming ? 'error' : undefined, error: `${error.code ?? 'mxc_error'}: ${error.message}` }) + (streaming ? '\n' : ''));
   process.exitCode = 1;
 } finally {
   for (const file of [pidFile, cancelledFile, canary, ...(mode === 'stdio' ? [path.join(controls, token + '.started'), path.join(controls, token + '.request.json')] : [])]) fs.rmSync(file, { force: true });

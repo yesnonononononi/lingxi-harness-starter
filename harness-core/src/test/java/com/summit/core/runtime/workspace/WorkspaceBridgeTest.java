@@ -28,11 +28,11 @@ class WorkspaceBridgeTest {
     Path temporary;
 
     @Test
-    void capabilitiesRemainStableAndUnsupportedBackgroundExecutionIsExplicit() {
+    void capabilitiesRemainStableAndLocalBackgroundExecutionIsAvailable() throws Exception {
         assertSame(localBridge.files(), localBridge.files());
         assertSame(localBridge.commands(), localBridge.commands());
-        assertThrows(UnsupportedOperationException.class, () -> localBridge.commands().startCommand(
-                "echo unused", temporary.toString(), StandardCharsets.UTF_8, 1, TimeUnit.SECONDS, 4096));
+        assertEquals(0, localBridge.commands().startCommand(
+                "echo background", temporary.toString(), StandardCharsets.UTF_8, 5, TimeUnit.SECONDS, 4096).await().exitCode());
     }
 
     @ParameterizedTest

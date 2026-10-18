@@ -97,6 +97,8 @@ filesystem semantics, limits, and validation. The former SRT adapter has been re
 
 `ProcessRunner.run(...)` is a stateless convenience API: each call creates an independent `CancellableProcessRunner`. Callers that need cancellation retain their own `CancellableProcessRunner` and call its instance `run(...)` and `cancel()` methods. Each instance allows one active command and can be reused after that call returns. Both APIs share the same stdin, output, timeout, and process-tree cleanup implementation.
 
+For background execution, `WorkspaceCommands.startCommand(...)` returns a `CommandHandler` on Local and MXC workspaces. Its bounded `outputSnapshot()` contains command text, `isDone()` observes completion, and repeated `await()` calls return the same collected result. Timeout and cleanup run independently of waiting callers. `stop()` returns a `StopResult` only after settlement and propagates cleanup failures. MXC uses framed output and token-based cancellation under the same workspace policy as synchronous commands.
+
 `allowOutsideWorkspace` defaults to `false` and is passed to tools with the request. Custom tools should use the workspace path resolution, `encloses` checks, and the bridge; when a tool uses host file APIs or starts processes directly, the framework does not automatically convert those operations into workspace operations.
 
 ## Tool Registration and Permissions

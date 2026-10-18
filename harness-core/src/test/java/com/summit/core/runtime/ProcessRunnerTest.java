@@ -37,6 +37,59 @@ class ProcessRunnerTest {
     @TempDir Path temporary;
 
     @Test
+    void backgroundFailureKeepsItsResultAfterExitAndAcrossRepeatedWaits() throws Exception {
+        CommandHandler handle = ProcessRunner.start(List.of(command("fail")), null, StandardCharsets.UTF_8,
+                new byte[0], 5, TimeUnit.SECONDS, 4096);
+        CommandResult result = handle.await();
+        assertEquals(7, result.exitCode());
+        assertEquals("failure diagnostic", handle.outputSnapshot());
+        assertSame(result, handle.await());
+        assertTrue(handle.isDone());
+        assertFalse(handle.stop().stopped());
+    }
+
+    @Test
+    void backgroundTimeoutSettlesWithoutAWaitingCaller() throws Exception {
+        Path pid = temporary.resolve("autonomous-timeout.pid");
+        CommandHandler handle = ProcessRunner.start(List.of(command("sleep", pid.toString())), null,
+                StandardCharsets.UTF_8, new byte[0], 2, TimeUnit.SECONDS, 64);
+        try {
+            awaitFile(pid);
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(6);
+            while (!handle.isDone() && System.nanoTime() < deadline) Thread.sleep(10);
+            assertTrue(handle.isDone());
+            assertTrue(handle.await().timedOut());
+            assertProcessGone(pid);
+        } finally { handle.stop(); }
+    }
+
+    @Test
+    void backgroundSnapshotsArriveBeforeCompletionAndStopConfirmsTheProcessTree() throws Exception {
+        Path parent = temporary.resolve("background-parent.pid");
+        Path child = temporary.resolve("background-child.pid");
+        CommandHandler handle = ProcessRunner.start(List.of(command("tree", parent.toString(), child.toString())), null,
+                StandardCharsets.UTF_8, new byte[0], 10, TimeUnit.SECONDS, 64);
+        try {
+            awaitFile(parent);
+            awaitFile(child);
+            CommandHandler.StopResult stopped = handle.stop();
+            assertTrue(stopped.stopped());
+            assertSame(stopped.result(), handle.await());
+            assertProcessGone(parent);
+            assertProcessGone(child);
+        } finally { handle.stop(); }
+    }
+
+    @Test
+    void failedStartPreservesIOExceptionAndDoesNotPoisonTheRunner() throws Exception {
+        CancellableProcessRunner runner = new CancellableProcessRunner();
+        assertThrows(IOException.class, () -> runner.run(new String[]{temporary.resolve("missing-executable").toString()}, 2, TimeUnit.SECONDS));
+        assertEquals("reused", runner.run(command("echo", "reused")).output());
+        assertThrows(NullPointerException.class, () -> runner.start(List.of(command("echo", "invalid")), null,
+                null, new byte[0], 2, TimeUnit.SECONDS, 10));
+    }
+
+    @Test
     void facadeAndCallerOwnedRunnerExposeSeparateLifecycleContracts() {
         assertTrue(Modifier.isFinal(ProcessRunner.class.getModifiers()));
         for (Constructor<?> constructor : ProcessRunner.class.getDeclaredConstructors()) {

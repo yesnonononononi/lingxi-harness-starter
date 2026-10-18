@@ -1,3 +1,4 @@
+import { createOutputCollector } from './output-frames.mjs';
 import { compileWindowsFilesystem, assertWritable } from './filesystem-policy.mjs';
 import { readRequest, stdioCommand, relayStdio } from './stdio-session.mjs';
 import fs from 'node:fs';
@@ -18,6 +19,7 @@ if (mode === 'cancel') {
 }
 
 let active, monitor;
+let streaming = false;
 const systemRoot = fs.realpathSync(process.env.SystemRoot ?? 'C:\\Windows');
 const cleanHostEnv = {
     SystemRoot: systemRoot, WINDIR: systemRoot, PATH: path.join(systemRoot, 'System32'),
@@ -47,6 +49,7 @@ const realTarget = value => {
 
 try {
     const r = await readRequest(mode, controls, token);
+    streaming = r.streamOutput === true;
     if (Number(process.versions.node.split('.')[0]) < 24) throw new Error('MXC requires Node >=24');
     const sdk = fs.realpathSync(r.sdkDirectory);
     const metadata = JSON.parse(fs.readFileSync(path.join(sdk, 'package.json'), 'utf8'));
@@ -129,16 +132,9 @@ try {
         });
         process.exitCode = await relayStdio(active.stdin, active.stdout, active.stderr, completion, kill);
     } else {
-        let size = 0, truncated = false, timedOut = false;
-        const chunks = [];
-        for (const stream of [active.stdout, active.stderr]) stream.on('data', bytes => {
-            const keep = Math.max(0, Math.min(bytes.length, r.maxBytes - size));
-            if (keep) {
-                chunks.push(Buffer.from(bytes.subarray(0, keep)));
-                size += keep;
-            }
-            if (keep < bytes.length) truncated = true;
-        });
+        let timedOut = false;
+        const collector = createOutputCollector(r);
+        for (const stream of [active.stdout, active.stderr]) stream.on('data', bytes => collector.consume(bytes));
         active.stdin.on('error', error => {
             if (error.code !== 'EPIPE') kill();
         });
@@ -166,16 +162,11 @@ try {
             clearTimeout(timer);
             clearInterval(monitor);
         }
-        process.stdout.write(JSON.stringify({
-            exitCode,
-            timedOut,
-            outputBase64: Buffer.concat(chunks).toString('base64'),
-            truncated
-        }));
+        collector.finish({exitCode, timedOut});
     }
 } catch (error) {
     kill();
-    (mode === 'stdio' ? process.stderr : process.stdout).write(JSON.stringify({error: `${error.code ?? 'mxc_error'}: ${error.message}`}));
+    (mode === 'stdio' ? process.stderr : process.stdout).write(JSON.stringify({type: streaming ? 'error' : undefined, error: `${error.code ?? 'mxc_error'}: ${error.message}`}) + (streaming ? '\n' : ''));
     process.exitCode = 1;
 } finally {
     clearInterval(monitor);

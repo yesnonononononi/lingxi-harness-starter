@@ -2,6 +2,7 @@ package com.summit.sandbox.mxc;
 
 import com.summit.core.runtime.workspace.OsType;
 import com.summit.core.runtime.ProcessRunner;
+import com.summit.core.runtime.CommandHandler;
 import com.summit.core.runtime.workspace.ShellType;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.runtime.workspace.WorkspaceCommands;
@@ -32,6 +33,46 @@ class MxcWindowsIntegrationTest {
     private Workspace workspace;
     private Path root;
     private Path outside;
+
+    @Test void backgroundCommandsStreamRetainFailuresAndConfirmCancellation() throws Exception {
+        CommandHandler failed = workspace.bridge().commands().startCommand("node -e \"process.stdout.write('live');setTimeout(()=>process.exit(7),1200)\"",
+                root.toString(), StandardCharsets.UTF_8, 10, TimeUnit.SECONDS, 128);
+        try {
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (!failed.outputSnapshot().contains("live") && !failed.isDone() && System.nanoTime() < deadline) Thread.sleep(20);
+            assertEquals("live", failed.outputSnapshot());
+            assertFalse(failed.isDone(), "Output must be visible while the sandbox command is still running");
+            WorkspaceCommands.CommandResult result = failed.await();
+            assertEquals(7, result.exitCode());
+            assertSame(result, failed.await());
+        } finally { failed.stop(); }
+        CommandHandler running = workspace.bridge().commands().startCommand("node -e \"process.stdout.write('ready');setInterval(()=>{},1000)\"",
+                root.toString(), StandardCharsets.UTF_8, 10, TimeUnit.SECONDS, 128);
+        try {
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (!running.outputSnapshot().contains("ready") && !running.isDone() && System.nanoTime() < deadline) Thread.sleep(20);
+            assertEquals("ready", running.outputSnapshot());
+            CommandHandler.StopResult stopped = running.stop();
+            assertTrue(stopped.stopped());
+            assertTrue(running.isDone());
+            assertSame(stopped.result(), running.await());
+        } finally { running.stop(); }
+    }
+
+    @Test void backgroundCommandsPreserveChineseBudgetAndTimeoutWithoutAwait() throws Exception {
+        CommandHandler chinese = workspace.bridge().commands().startCommand("node -e \"process.stdout.write('中文多余')\"",
+                root.toString(), StandardCharsets.UTF_8, 10, TimeUnit.SECONDS, 2);
+        assertEquals("中文", chinese.await().output());
+        assertTrue(chinese.await().truncated());
+        CommandHandler timeout = workspace.bridge().commands().startCommand("node -e \"setInterval(()=>{},1000)\"",
+                root.toString(), StandardCharsets.UTF_8, 1, TimeUnit.SECONDS, 32);
+        try {
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+            while (!timeout.isDone() && System.nanoTime() < deadline) Thread.sleep(20);
+            assertTrue(timeout.isDone());
+            assertTrue(timeout.await().timedOut());
+        } finally { timeout.stop(); }
+    }
 
     @BeforeAll static void runtime() {
         assumeTrue(System.getProperty("os.name").toLowerCase().contains("windows"));
