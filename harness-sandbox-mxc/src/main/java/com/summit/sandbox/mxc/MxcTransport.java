@@ -17,7 +17,10 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-/** A single policy must govern file requests, shell requests and persistent stdio sessions. */
+/**
+ * Sends JSON requests through the MXC launcher and validates its response envelope.
+ * File operations, shell commands and persistent stdio sessions share the same workspace policy.
+ */
 final class MxcTransport {
     private static final ObjectMapper JSON = new ObjectMapper().enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     private final MxcRuntime runtime;
@@ -30,10 +33,15 @@ final class MxcTransport {
         this.policy = Map.copyOf(policy);
     }
 
+    /** Prepares policy-bound launch metadata; the caller owns starting and closing the session. */
     WorkspaceStdioLaunch prepareStdio(List<String> command, Map<String, String> environment) throws IOException {
         return MxcStdioSession.prepare(runtime, launcher, policy, command, environment);
     }
 
+    /**
+     * Waits for one launcher response; a command's nonzero exit code remains result data.
+     * The budget and byte limit apply inside MXC, with separate allowances for launcher overhead.
+     */
     JsonNode invoke(String operation, Map<String, Object> arguments, Duration budget, long maxBytes)
             throws IOException, InterruptedException {
         Map<String, Object> request = new LinkedHashMap<>(policy);
@@ -41,6 +49,7 @@ final class MxcTransport {
         request.put("operation", operation);
         request.put("timeoutMs", budget.toMillis());
         request.put("maxBytes", maxBytes);
+        // Cleanup uses this token rather than relying on the outer launcher's process handle.
         String token = UUID.randomUUID().toString();
         boolean settled = false;
         try {
@@ -51,6 +60,7 @@ final class MxcTransport {
             if (transport.timedOut() || transport.truncated())
                 throw new IOException("MXC transport timed out or exceeded response limit");
             JsonNode result = JSON.readTree(transport.output());
+            // A reported launcher error has already passed through the launcher's own cleanup.
             if (result != null && result.has("error")) settled = true;
             if (result == null || transport.exitCode() != 0 || result.has("error")) {
                 throw new IOException("MXC launch failed: " + transport.output());
@@ -66,7 +76,9 @@ final class MxcTransport {
         }
     }
 
+    /** Requests sandbox cleanup while preserving the original failure as the primary exception. */
     private void cancel(String token, Exception failure) {
+        // An interrupted caller must still let cleanup run; restore its interrupt flag afterwards.
         boolean interrupted = Thread.interrupted();
         try {
             CommandResult cleanup = ProcessRunner.run(runtime.command(launcher, token, true), null,
