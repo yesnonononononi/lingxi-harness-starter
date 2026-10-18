@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
@@ -19,7 +20,8 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.*;
 
 class WorkspaceBridgeTest {
-    private final LocalWorkspaceBridge localBridge = new LocalWorkspaceBridge(ShellType.CMD);
+    private final LocalWorkspaceBridge localBridge = new LocalWorkspaceBridge(
+            System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("windows") ? ShellType.CMD : ShellType.SH);
     @TempDir
     Path temporary;
 
