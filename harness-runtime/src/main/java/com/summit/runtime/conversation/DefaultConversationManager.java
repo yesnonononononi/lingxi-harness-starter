@@ -172,7 +172,7 @@ public class DefaultConversationManager implements ConversationManager {
                 .filter(value -> !value.isBlank())
                 .ifPresent(value -> rebuilt.add(SystemMessageEntity.builder().text(String.format("""
                         The protected application state produced earlier is reproduced below. Keep following it:
-                        
+
                         %s
                         """, value)).build()));
         rebuilt.add(SystemMessageEntity.builder().text(summary).build());
