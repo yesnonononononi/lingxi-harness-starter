@@ -1,8 +1,8 @@
 package com.summit.runtime.compact;
 
-import com.summit.core.compact.ContextCompacter;
-import com.summit.core.compact.ContextCompactRequest;
 import com.summit.core.compact.ContextAttachmentProvider;
+import com.summit.core.compact.ContextCompactRequest;
+import com.summit.core.compact.ContextCompacter;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.event.ContextUpdateEvent;
 import com.summit.core.conversation.message.AiMessageEntity;
@@ -120,7 +120,7 @@ public class DefaultManualCompacter implements ContextCompacter {
                 ToolMessageEntity tool = (ToolMessageEntity) messages.get(j);
                 String truncated = tool.text() == null ? null : tokenizer.truncate(tool.text(), TOOL_RESULT_STUB_TOKENS);
                 if (!java.util.Objects.equals(tool.text(), truncated)) {
-                    tool.setText(truncated);
+                    tool.setToolOutput(truncated);
                     modified = true;
                 }
             }

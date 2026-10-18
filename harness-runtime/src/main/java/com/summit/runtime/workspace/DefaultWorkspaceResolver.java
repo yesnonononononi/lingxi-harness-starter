@@ -5,11 +5,7 @@ import com.summit.core.workspace.WorkspaceProvider;
 import com.summit.core.workspace.WorkspaceResolver;
 import com.summit.core.workspace.WorkspaceSpec;
 
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 
 /** Stateless provider routing; providers retain control over resource reuse and cleanup. */
 public final class DefaultWorkspaceResolver implements WorkspaceResolver {

@@ -1,9 +1,10 @@
 package com.summit.adapter.langchain4j.mcp;
 
 import com.summit.core.runtime.workspace.WorkspaceStdioLaunch;
-import dev.langchain4j.mcp.client.transport.stdio.StdioMcpTransport;
-import java.io.IOException;
 import dev.langchain4j.mcp.client.transport.McpOperationHandler;
+import dev.langchain4j.mcp.client.transport.stdio.StdioMcpTransport;
+
+import java.io.IOException;
 
 /** Keeps protocol handling in LangChain4j and closes the sandbox before its supervising pipe. */
 final class OwnedStdioMcpTransport extends StdioMcpTransport {

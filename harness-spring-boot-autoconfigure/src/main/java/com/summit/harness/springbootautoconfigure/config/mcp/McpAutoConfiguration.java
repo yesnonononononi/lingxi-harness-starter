@@ -1,7 +1,7 @@
 package com.summit.harness.springbootautoconfigure.config.mcp;
 
-import com.summit.adapter.langchain4j.mcp.McpClientFactory;
 import com.summit.adapter.langchain4j.mcp.AgentScopeMcpProvider;
+import com.summit.adapter.langchain4j.mcp.McpClientFactory;
 import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.harness.springbootautoconfigure.config.tool.CommonToolAutoConfiguration;
 import dev.langchain4j.mcp.client.McpClient;

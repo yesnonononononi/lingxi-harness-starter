@@ -2,16 +2,25 @@ package com.summit.runtime.compact;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.core.compact.*;
+import com.summit.core.compact.ContextAttachmentProvider;
+import com.summit.core.compact.ContextCompactRequest;
+import com.summit.core.compact.ContextCompacter;
 import com.summit.core.conversation.ConversationManager;
-import com.summit.core.conversation.api.*;
-import com.summit.core.conversation.message.*;
+import com.summit.core.conversation.api.ChatRequestEntity;
+import com.summit.core.conversation.api.ChatResponseEntity;
+import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.event.ContextUpdateEvent;
+import com.summit.core.conversation.message.*;
 import com.summit.core.model.chat.ChatModel;
 import com.summit.core.runtime.loop.ContextUsageReporter;
-import com.summit.core.tool.*;
+import com.summit.core.tool.ToolExecuteResult;
+import com.summit.core.tool.ToolExecution;
+import com.summit.core.tool.ToolExecutor;
+import com.summit.core.tool.ToolResultType;
 import lombok.extern.slf4j.Slf4j;
-import java.util.*;
+
+import java.util.List;
+import java.util.Optional;
 
 /** Both automatic and tool-requested model compaction use the same generation pipeline. */
 @Slf4j
@@ -102,7 +111,7 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
                 }
             } else if (message instanceof ToolMessageEntity toolMessage) {
                 String toolName = toolMessage.getName() == null ? "" : toolMessage.getName();
-                appendLine(history, "[工具结果 " + toolName + "]", toolMessage.getText());
+                appendLine(history, "[工具结果 " + toolName + "]", toolMessage.getToolOutput());
             }
         }
         return history.toString();

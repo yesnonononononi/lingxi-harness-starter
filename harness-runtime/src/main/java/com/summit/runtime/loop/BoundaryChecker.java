@@ -1,13 +1,12 @@
 package com.summit.runtime.loop;
 
 import com.summit.core.agent.Execution;
-import com.summit.core.compact.ContextCompacter;
 import com.summit.core.compact.ContextCompactRequest;
+import com.summit.core.compact.ContextCompacter;
 import com.summit.core.compact.ContextSqueezeRequest;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.exception.MaxStepsExceededException;
-import com.summit.core.exception.TokenBudgetExceededException;
 import com.summit.core.runtime.loop.CheckPointResult;
 import com.summit.core.runtime.loop.RuntimeBoundaryChecker;
 import com.summit.runtime.agent.AgentConfig;

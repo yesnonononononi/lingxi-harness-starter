@@ -2,14 +2,16 @@ package com.summit.harness.springbootautoconfigure.config.mcp;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.adapter.langchain4j.mcp.McpClientFactory;
 import com.summit.adapter.langchain4j.mcp.AgentScopeMcpProvider;
+import com.summit.adapter.langchain4j.mcp.McpClientFactory;
 import com.summit.core.conf.McpConfig;
 import com.summit.core.conf.McpTransport;
-import com.summit.core.mcp.ScopeMcpProvider;
- 
 import com.summit.core.mcp.McpToolScope;
-import com.summit.core.tool.*;
+import com.summit.core.mcp.ScopeMcpProvider;
+import com.summit.core.tool.ToolDefinition;
+import com.summit.core.tool.ToolExecuteResult;
+import com.summit.core.tool.ToolExecution;
+import com.summit.core.tool.ToolRegistry;
 import com.sun.net.httpserver.HttpServer;
 import dev.langchain4j.mcp.client.McpClient;
 import org.junit.jupiter.api.Test;

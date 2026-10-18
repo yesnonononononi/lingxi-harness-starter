@@ -1,9 +1,9 @@
 package com.summit.core.tool;
 
-import com.summit.core.mcp.McpToolScope;
 import com.summit.core.conf.SkillConfig;
+import com.summit.core.mcp.McpToolScope;
+import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.workspace.Workspace;
-
 import lombok.Builder;
 import lombok.Data;
 
@@ -16,6 +16,8 @@ public class ToolExecution {
     private ToolDefinition<? extends ToolExecutor> toolDefinition;
     private String args;
     private final String executionId;
+    private final int requestIndex;
+    private final ExecutionControlSignal signal;
     /** Identity of the model invocation that requested this tool, retained across approval. */
     private String responseId;
     /** Id of the agent request (turn) this tool call belongs to. */

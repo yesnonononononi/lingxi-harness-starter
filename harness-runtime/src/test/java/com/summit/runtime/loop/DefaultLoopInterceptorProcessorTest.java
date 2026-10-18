@@ -6,12 +6,7 @@ import com.summit.core.agent.ExecutionState;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
-import com.summit.core.runtime.loop.ExecutionControlSignal;
-import com.summit.core.runtime.loop.InterceptorResult;
-import com.summit.core.runtime.loop.LoopContext;
-import com.summit.core.runtime.loop.LoopInterceptor;
-import com.summit.core.runtime.loop.LoopMessages;
-import com.summit.core.runtime.loop.LoopResult;
+import com.summit.core.runtime.loop.*;
 import com.summit.core.tool.ToolExecuteResult;
 import org.junit.jupiter.api.Test;
 
@@ -20,11 +15,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * The processor owns the dispatch contract of the interceptor registry:

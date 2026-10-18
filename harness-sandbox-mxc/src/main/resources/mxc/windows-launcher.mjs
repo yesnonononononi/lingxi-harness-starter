@@ -1,6 +1,6 @@
-import { createOutputCollector } from './output-frames.mjs';
-import { compileWindowsFilesystem, assertWritable } from './filesystem-policy.mjs';
-import { readRequest, stdioCommand, relayStdio } from './stdio-session.mjs';
+import {createOutputCollector} from './output-frames.mjs';
+import {assertWritable, compileWindowsFilesystem} from './filesystem-policy.mjs';
+import {readRequest, relayStdio, stdioCommand} from './stdio-session.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {spawn, spawnSync} from 'node:child_process';

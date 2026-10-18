@@ -5,6 +5,7 @@ import com.summit.core.conversation.event.ToolCallEndEvent;
 import com.summit.core.conversation.event.ToolCallStartEvent;
 import com.summit.core.interceptor.InterceptorProcessor;
 import com.summit.core.interceptor.InvocationContext;
+import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.*;
 import lombok.Getter;
@@ -12,14 +13,7 @@ import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.*;
 
 @Slf4j
 @Getter
@@ -35,6 +29,9 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
      * network I/O cheap without imposing a permanent platform-thread pool.
      */
     private final ExecutorService toolExecutor = Executors.newVirtualThreadPerTaskExecutor();
+
+    /** Slice of the tool wait that bounds how late a stop request can be honoured. */
+    private static final long CANCEL_POLL_NANOS = TimeUnit.MILLISECONDS.toNanos(200);
 
 
     public DefaultToolExecutionManager(ToolExecutionContext toolExecutionContext,
@@ -104,6 +101,7 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
 
         CompletableFuture.allOf(tasks.toArray(new CompletableFuture[0])).join();
 
+
         return tasks.stream().map(CompletableFuture::join).toList();
     }
 
@@ -125,6 +123,19 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
 
         ToolDefinition<?> toolDef = toolExecuteCommand.resolve(
                 this.toolExecutionContext.toolRegistry(), request.name());
+
+        // A stop request must not start new work: the remaining calls of a serial batch, and tools
+        // without a timeout, which run inline and have no future to cancel — for those this check
+        // is their only cancellation point. The result still needs an end event and a call
+        // identity: skipping them leaves the card stuck in "calling" and the conversation unable
+        // to answer the tool call it already announced.
+        ExecutionControlSignal signal = toolExecuteCommand.signal();
+        if (signal != null && signal.isCancelRequired()) {
+            return publishEndEvent(toolExecuteCommand, request, toolDef,
+                    identified(ToolExecuteResult.err("tool execution cancelled"),
+                            request.id(), toolDef, request.requestIndex()),
+                    ToolCallStatus.CANCELLED);
+        }
         try {
             if (toolDef == null) {
                 return publishEndEvent(toolExecuteCommand, request, null,
@@ -153,7 +164,7 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
                 return publishEndEvent(toolExecuteCommand, request, toolDef, result, status);
             }
 
-            ToolExecutionOutcome outcome = this.executeTool(toolDef, toolExecution, toolExecuteCommand,request);
+            ToolExecutionOutcome outcome = this.executeTool(toolDef, toolExecution, toolExecuteCommand, request);
 
             result = identified(outcome.result(), request.id(), toolDef, request.requestIndex());
 
@@ -235,6 +246,8 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
                 .workspace(workspace)
                 .skillConfig(command.skillConfig())
                 .args(request.arguments())
+                .requestIndex(request.requestIndex())
+                .signal(command.signal())
                 .attributes(command.attributes())
                 .eventMetaData(command.eventMetaData())
                 .allowOutsideWorkspace(command.allowOutsideWorkspace())
@@ -257,28 +270,20 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
 
         long timeoutSeconds = toolDefinition.timeout();
         if (timeoutSeconds <= 0) {
-            ToolExecuteResult result = invokeTool(toolDefinition, toolExecution, command, execute,request);
+            ToolExecuteResult result = invokeTool(toolDefinition, toolExecution, command, execute, request);
             return completedOutcome(result);
         }
         Future<ToolExecuteResult> future = toolExecutor.submit(() -> {
             try {
-                return invokeTool(toolDefinition, toolExecution, command, execute,request);
+                return invokeTool(toolDefinition, toolExecution, command, execute, request);
             } catch (Throwable e) {
                 throw new CompletionException(e);
             }
         });
 
         try {
-            return completedOutcome(future.get(timeoutSeconds, TimeUnit.SECONDS));
-
-        } catch (TimeoutException e) {
-            future.cancel(true);
-            log.warn("tool [{}] execution timed out after {}s, returning error to model",
-                    toolDefinition.name(), timeoutSeconds);
-            return new ToolExecutionOutcome(ToolExecuteResult.err(
-                    "tool execution timeout after " + timeoutSeconds + "s"), ToolCallStatus.TIMED_OUT);
-
-        } catch (InterruptedException e) {
+            return waitForOutcome(future, timeoutSeconds, command.signal());
+        }  catch (InterruptedException e) {
             future.cancel(true);
             Thread.currentThread().interrupt();
             return new ToolExecutionOutcome(
@@ -299,7 +304,7 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
                                          ToolExecuteCommand command,
                                          InvocationContext<ToolExecution> invocation,
                                          ToolCallRequest request
-                                         ) throws Throwable {
+    ) throws Throwable {
 
         toolExecutionContext.runtimeEventPublisher().onToolCall(new ToolCallStartEvent(
                 toolExecution.getId(),
@@ -317,6 +322,44 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
     private static ToolExecutionOutcome completedOutcome(ToolExecuteResult result) {
         return new ToolExecutionOutcome(result, resultStatus(result, ToolCallStatus.FAILED));
     }
+
+    /**
+     * Waits for the tool in short slices so a cooperative stop request is noticed while it runs.
+     *
+     * <p>A single {@code get(timeout)} cannot observe the control signal: the flag is flipped by
+     * another thread and does not complete the future. Re-checking between slices and cancelling
+     * the future is the only way to take the wait back — cancelling interrupts the worker, which is
+     * what lets a blocking command release its process (see
+     * {@link com.summit.core.runtime.ProcessCoordinator#waitFor}).
+     * Suspension is deliberately not treated this way: it stays a boundary decision, because
+     * killing a command for a pause would destroy work that cannot be resumed.</p>
+     */
+    private ToolExecutionOutcome waitForOutcome(Future<ToolExecuteResult> future,
+                                                long timeoutSeconds,
+                                                ExecutionControlSignal signal
+    ) throws ExecutionException, InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds);
+        while (true) {
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0) {
+                future.cancel(true);
+                log.warn("tool execution timed out after {}s", timeoutSeconds);
+                return new ToolExecutionOutcome(ToolExecuteResult.err(
+                        "tool execution timeout after " + timeoutSeconds + "s"), ToolCallStatus.TIMED_OUT);
+            }
+            try {
+                return completedOutcome(future.get(
+                        Math.min(remaining, CANCEL_POLL_NANOS), TimeUnit.NANOSECONDS));
+            } catch (TimeoutException slice) {
+                if (signal != null && signal.isCancelRequired()) {
+                    future.cancel(true);
+                    return new ToolExecutionOutcome(ToolExecuteResult.err("tool execution cancelled"),
+                            ToolCallStatus.CANCELLED);
+                }
+            }
+        }
+    }
+
 
     private static ToolCallStatus resultStatus(ToolExecuteResult result, ToolCallStatus failureStatus) {
         if (result != null && result.isPromise()) return ToolCallStatus.PROMISED;

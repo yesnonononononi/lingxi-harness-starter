@@ -2,18 +2,9 @@ package com.summit.adapter.langchain4j.codec;
 
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.api.ToolCallRequest;
-import com.summit.core.conversation.message.AiMessageEntity;
-import com.summit.core.conversation.message.Message;
-import com.summit.core.conversation.message.SystemMessageEntity;
-import com.summit.core.conversation.message.TokenUsageEntity;
-import com.summit.core.conversation.message.ToolMessageEntity;
-import com.summit.core.conversation.message.UserMessageEntity;
+import com.summit.core.conversation.message.*;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
-import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.ToolExecutionResultMessage;
-import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.ChatResponseMetadata;
 import dev.langchain4j.model.output.TokenUsage;
@@ -51,11 +42,12 @@ public class MessageCodecAdapter implements MessageCodec<ChatMessage, ChatRespon
             return builder.build();
         }
         if (message instanceof ToolMessageEntity toolMessage) {
-            return ToolExecutionResultMessage.from(
-                    String.valueOf(toolMessage.getId()),
-                    toolMessage.getName(),
-                    toolMessage.getText()
-            );
+            return ToolExecutionResultMessage.builder()
+                    .id(String.valueOf(toolMessage.getId()))
+                    .toolName(toolMessage.getName())
+                    .isError(toolMessage.isError())
+                    .text(toolMessage.text())
+                    .build();
         }
         throw new IllegalArgumentException("unsupported message type: " + message.getClass().getName());
     }
@@ -125,7 +117,9 @@ public class MessageCodecAdapter implements MessageCodec<ChatMessage, ChatRespon
         return requests;
     }
 
-    /** Provider codecs override this conversion to preserve their usage details. */
+    /**
+     * Provider codecs override this conversion to preserve their usage details.
+     */
     protected TokenUsageEntity toTokenUsageEntity(TokenUsage usage) {
         if (usage == null) {
             return TokenUsageEntity.empty();

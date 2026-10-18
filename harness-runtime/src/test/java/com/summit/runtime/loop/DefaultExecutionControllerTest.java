@@ -10,8 +10,8 @@ import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.conversation.event.TokenInfo;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.runtime.RuntimeListener;
-import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.loop.ApprovalOutcome;
+import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
 import org.junit.jupiter.api.Test;
@@ -21,13 +21,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class DefaultExecutionControllerTest {
 

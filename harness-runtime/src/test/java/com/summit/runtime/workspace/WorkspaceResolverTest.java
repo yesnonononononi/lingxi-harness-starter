@@ -1,7 +1,7 @@
 package com.summit.runtime.workspace;
 
-import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.runtime.RuntimeEnvironment;
+import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.workspace.BasicWorkspaceSpec;
 import com.summit.core.workspace.WorkspaceProvider;
 import com.summit.core.workspace.WorkspaceSpec;

@@ -1,27 +1,34 @@
 package com.summit.runtime.loop;
 
-import com.summit.core.agent.*;
+import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.Execution;
+import com.summit.core.agent.ExecutionState;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.conf.SkillConfig;
-import com.summit.core.exception.MaxStepsExceededException;
-import com.summit.core.conversation.api.*;
-import com.summit.runtime.context.RuntimeContext;
+import com.summit.core.conversation.api.ChatResponseEntity;
+import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.event.*;
 import com.summit.core.conversation.message.*;
+import com.summit.core.exception.MaxStepsExceededException;
 import com.summit.core.model.ModelInvoker;
 import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.runtime.loop.*;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.tool.*;
 import com.summit.runtime.agent.AgentConfig;
-import com.summit.runtime.conversation.*;
+import com.summit.runtime.context.RuntimeContext;
+import com.summit.runtime.conversation.DefaultConversationManager;
+import com.summit.runtime.conversation.DefaultTokenizer;
 import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-import java.util.*;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 

@@ -2,18 +2,25 @@ package com.summit.runtime.compact;
 
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
-import com.summit.core.compact.*;
-import com.summit.core.conversation.api.*;
+import com.summit.core.compact.ContextAttachmentProvider;
+import com.summit.core.compact.ContextCompactRequest;
+import com.summit.core.compact.ContextSqueezeRequest;
+import com.summit.core.conversation.api.ChatRequestEntity;
+import com.summit.core.conversation.api.ChatResponseEntity;
+import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.event.ContextUpdateEvent;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
-import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.conversation.message.*;
+import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.runtime.loop.ContextUsageReporter;
 import com.summit.core.tool.ToolExecution;
-import com.summit.runtime.conversation.*;
+import com.summit.runtime.conversation.DefaultConversationManager;
+import com.summit.runtime.conversation.DefaultTokenizer;
 import org.junit.jupiter.api.Test;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 

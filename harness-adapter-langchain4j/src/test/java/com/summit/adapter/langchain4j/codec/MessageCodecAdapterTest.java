@@ -3,9 +3,9 @@ package com.summit.adapter.langchain4j.codec;
 import com.summit.core.agent.Image;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.api.ToolCallRequest;
-import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.conversation.message.ToolMessageEntity;
+import com.summit.core.conversation.message.UserMessageEntity;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -41,7 +41,6 @@ class MessageCodecAdapterTest {
         assertEquals(1, converted.contents().size());
         assertEquals(error, converted.isError());
     }
-
 
     @Test
     void preservesOpenAiUsageDetailsWithoutAddingSubcountsToTotals() {

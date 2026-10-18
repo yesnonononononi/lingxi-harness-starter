@@ -1,16 +1,17 @@
 package com.summit.sandbox.mxc;
 
-import org.junit.jupiter.api.Test;
+import com.fasterxml.jackson.databind.jsontype.NamedType;
 import com.summit.core.json.ExecutionJson;
 import com.summit.core.workspace.WorkspaceSpec;
-import com.fasterxml.jackson.databind.jsontype.NamedType;
+import org.junit.jupiter.api.Test;
 
-import java.util.List;
-import java.util.Map;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class MxcRuntimeTest {
     @Test void supportsTheWindowsUtf8OemCodePage() {

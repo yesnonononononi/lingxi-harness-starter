@@ -1,14 +1,12 @@
 package com.summit.core.conversation;
 
 import com.summit.core.agent.Execution;
-import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.runtime.loop.LoopMessages;
 import com.summit.core.runtime.workspace.Workspace;
-import com.summit.core.tool.ToolExecuteResult;
 
 import java.util.List;
 

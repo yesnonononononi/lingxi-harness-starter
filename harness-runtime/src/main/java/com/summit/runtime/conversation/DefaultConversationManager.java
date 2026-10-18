@@ -14,8 +14,8 @@ import com.summit.core.runtime.loop.LoopMessages;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.skill.SkillLoader;
 import com.summit.core.skill.SkillResume;
-import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolDefinition;
+import com.summit.core.tool.ToolExecuteResult;
 import com.summit.runtime.prompt.SystemPromptAssembler;
 import lombok.extern.slf4j.Slf4j;
 
@@ -97,7 +97,8 @@ public class DefaultConversationManager implements ConversationManager {
                 toolMessages.add(ToolMessageEntity.builder()
                         .id(result.getId())
                         .name(definition == null ? "unknown tool" : definition.name())
-                        .text(result.getToolOutput())
+                        .toolOutput(result.getToolOutput())
+                        .isError(!result.isSuccess())
                         .build());
             }
         }
@@ -171,7 +172,7 @@ public class DefaultConversationManager implements ConversationManager {
                 .filter(value -> !value.isBlank())
                 .ifPresent(value -> rebuilt.add(SystemMessageEntity.builder().text(String.format("""
                         The protected application state produced earlier is reproduced below. Keep following it:
-
+                        
                         %s
                         """, value)).build()));
         rebuilt.add(SystemMessageEntity.builder().text(summary).build());
@@ -193,7 +194,7 @@ public class DefaultConversationManager implements ConversationManager {
      * at a time through {@code search_tool}. See {@link McpToolScope}.</p>
      */
     private SystemMessageEntity buildSystemMessage(AgentRequest request, Workspace workspace,
-                                                  McpToolScope mcpToolScope) {
+                                                   McpToolScope mcpToolScope) {
         Objects.requireNonNull(request);
 
         McpToolScope scope = mcpToolScope == null ? McpToolScope.EMPTY : mcpToolScope;
@@ -231,7 +232,6 @@ public class DefaultConversationManager implements ConversationManager {
     }
 
 
-
     private void setLeadingSystemMessage(Execution execution, SystemMessageEntity systemMessage) {
         List<Message> messages = execution.getMessages();
         if (!messages.isEmpty() && messages.getFirst() instanceof SystemMessageEntity) messages.set(0, systemMessage);
@@ -262,11 +262,11 @@ public class DefaultConversationManager implements ConversationManager {
         return ai.getThinking() != null && !ai.getThinking().isBlank();
     }
 
-    private List<SkillResume> loadSkill(SkillConfig skillConfig){
+    private List<SkillResume> loadSkill(SkillConfig skillConfig) {
         try {
             if (skillConfig == null) return List.of();
             return skillLoader.load(skillConfig);
-        }catch (Exception e){
+        } catch (Exception e) {
             log.error("Failed to load skill", e);
             throw e;
         }

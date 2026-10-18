@@ -4,8 +4,8 @@ import com.summit.core.conf.ModelConfig;
 import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.core.model.RequestModelInvokerFactory;
 import com.summit.core.runtime.RuntimeFactory;
-import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.runtime.loop.ExecutionControl;
+import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.workspace.WorkspaceResolver;
 
 /** Default ready-to-use chat agent supplied by LingXi. */

@@ -50,6 +50,19 @@ class ExecutionJsonTest {
 
 
     @Test
+    void restoresToolMessageStoredBeforeOutputRename() throws Exception {
+        Execution restored = mapper.readValue(
+                "{\"id\":\"legacy\",\"agentRequest\":{},\"messages\":[{\"type\":\"TOOL\",\"id\":\"c1\","
+                        + "\"name\":\"search\",\"text\":\"legacy output\"}]}",
+                Execution.class);
+
+        ToolMessageEntity tool = assertInstanceOf(ToolMessageEntity.class, restored.getMessages().getFirst());
+        assertEquals("legacy output", tool.getToolOutput());
+        assertEquals("legacy output", tool.text());
+        assertFalse(mapper.readTree(mapper.writeValueAsString(tool)).has("text"));
+    }
+
+    @Test
     void restoresExecutionAndEveryMessageAndContentType() throws Exception {
         AiMessageEntity ai = AiMessageEntity.builder().text("answer").thinking("reason")
                 .attributes(Map.of("thinking_signature", "signed", "redacted_thinking", List.of("opaque")))

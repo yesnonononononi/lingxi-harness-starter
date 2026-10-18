@@ -1,17 +1,12 @@
 package com.summit.harness.springbootautoconfigure.config;
 
-import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
-import com.summit.harness.springbootautoconfigure.properties.CompactContextModelProperties;
+import com.summit.adapter.langchain4j.model.provider.*;
 import com.summit.core.model.ModelProvider;
 import com.summit.core.model.ModelProviderRegistry;
-import com.summit.adapter.langchain4j.model.provider.OpenAiChatModelProvider;
-import com.summit.adapter.langchain4j.model.provider.OpenAiCompactContextModelProvider;
-import com.summit.adapter.langchain4j.model.provider.OpenAiStreamingModelProvider;
-import com.summit.adapter.langchain4j.model.provider.AnthropicChatModelProvider;
-import com.summit.adapter.langchain4j.model.provider.AnthropicStreamingModelProvider;
-import com.summit.adapter.langchain4j.model.provider.AnthropicCompactContextModelProvider;
 import com.summit.core.model.chat.ChatModel;
 import com.summit.core.model.streaming.StreamingChatModel;
+import com.summit.harness.springbootautoconfigure.properties.CompactContextModelProperties;
+import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;

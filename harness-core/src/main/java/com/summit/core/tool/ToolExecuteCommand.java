@@ -1,50 +1,33 @@
 package com.summit.core.tool;
 
-import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conf.SkillConfig;
+import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.mcp.McpToolScope;
+import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.workspace.Workspace;
+import lombok.Builder;
 
 import java.util.List;
 import java.util.Map;
 
-/** A batch of tool calls for one agent turn. */
-public record ToolExecuteCommand(List<ToolCallRequest> requests, String executionId,
+/**
+ * A batch of tool calls for one agent turn.
+ */
+
+@Builder
+public record ToolExecuteCommand(List<ToolCallRequest> requests,
+                                 String executionId,
                                  Workspace workspace,
                                  Map<String, Object> attributes,
-                                 Map<String,Object> eventMetaData,
+                                 Map<String, Object> eventMetaData,
                                  List<String> allowedTools,
                                  String responseId,
                                  boolean allowOutsideWorkspace,
                                  McpToolScope mcpToolScope,
-                                 SkillConfig skillConfig
+                                 SkillConfig skillConfig,
+                                 ExecutionControlSignal signal
 ) {
 
-    public ToolExecuteCommand(List<ToolCallRequest> requests, String executionId,
-                              Workspace workspace, Map<String, Object> attributes,
-                              Map<String, Object> eventMetaData, List<String> allowedTools,
-                              String responseId,
-                              boolean allowOutsideWorkspace, McpToolScope mcpToolScope) {
-        this(requests, executionId, workspace, attributes, eventMetaData, allowedTools,responseId,
-                allowOutsideWorkspace, mcpToolScope, null);
-    }
-
-    /** Backwards-compatible form: assumes operations stay inside the workspace. */
-    public ToolExecuteCommand(List<ToolCallRequest> requests, String executionId,
-                              Workspace workspace, Map<String, Object> attributes,
-                              List<String> allowedTools,String responseId) {
-        this(requests, executionId, workspace, attributes, null, allowedTools,responseId, false, null);
-    }
-
-    /** Compatibility overload for callers without event metadata. */
-    public ToolExecuteCommand(List<ToolCallRequest> requests, String executionId,
-                              Workspace workspace, Map<String, Object> attributes,
-                              List<String> allowedTools,String responseId,
-                              boolean allowOutsideWorkspace,
-                              McpToolScope mcpToolScope) {
-        this(requests, executionId, workspace, attributes, Map.of(), allowedTools, responseId,
-                allowOutsideWorkspace, mcpToolScope);
-    }
 
     public ToolExecuteCommand {
         attributes = attributes == null ? Map.of() : Map.copyOf(attributes);
@@ -52,7 +35,9 @@ public record ToolExecuteCommand(List<ToolCallRequest> requests, String executio
         skillConfig = skillConfig == null ? null : new SkillConfig(skillConfig.getPath());
     }
 
-    /** The MCP tools of the originating request, never {@code null}. */
+    /**
+     * The MCP tools of the originating request, never {@code null}.
+     */
     public McpToolScope mcpToolScope() {
         return mcpToolScope == null ? McpToolScope.EMPTY : mcpToolScope;
     }

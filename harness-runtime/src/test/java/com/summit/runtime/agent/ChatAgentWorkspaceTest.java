@@ -4,8 +4,8 @@ import com.summit.core.agent.AgentRequest;
 import com.summit.core.runtime.workspace.LocalWorkspaceBridge;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.workspace.BasicWorkspaceSpec;
-import com.summit.core.workspace.WorkspaceResolver;
 import com.summit.core.workspace.WorkspaceProvider;
+import com.summit.core.workspace.WorkspaceResolver;
 import com.summit.core.workspace.WorkspaceSpec;
 import com.summit.runtime.workspace.DefaultWorkspaceResolver;
 import com.summit.runtime.workspace.LocalWorkspace;
@@ -20,9 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.*;
 
 class ChatAgentWorkspaceTest {
     @TempDir

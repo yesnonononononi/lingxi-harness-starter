@@ -1,8 +1,8 @@
 package com.summit.harness.springbootautoconfigure.config;
 
 import com.summit.core.adapter.TokenEstimator;
-import com.summit.core.compact.Tokenizer;
 import com.summit.core.compact.ContextAttachmentProvider;
+import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ConversationTranscriptSink;
 import com.summit.core.conversation.event.RuntimeEventPublisher;

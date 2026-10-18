@@ -2,9 +2,10 @@ package com.summit.core.runtime.loop;
 
 import com.summit.core.agent.Execution;
 import com.summit.core.conversation.message.Message;
-import lombok.AllArgsConstructor;
 import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
 import lombok.Data;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;

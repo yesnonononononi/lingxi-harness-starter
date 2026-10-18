@@ -1,7 +1,7 @@
 // Runs inside the sandbox; executable lookup uses only the sandbox environment.
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import {spawn} from 'node:child_process';
 
 const argv = JSON.parse(Buffer.from(process.argv[2], 'base64').toString('utf8'));
 const windows = process.platform === 'win32';

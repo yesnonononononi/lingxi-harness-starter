@@ -2,15 +2,18 @@ package com.summit.runtime.model;
 
 import com.summit.core.agent.Execution;
 import com.summit.core.conversation.api.ChatRequestEntity;
-import com.summit.runtime.context.RuntimeContext;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.model.ModelChatCommand;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.tool.ToolDefinition;
 import com.summit.core.tool.ToolExecutor;
+import com.summit.runtime.context.RuntimeContext;
 import lombok.RequiredArgsConstructor;
 
-import java.util.*;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /** Assembles the {@link ModelChatCommand} of one loop round: the conversation so far, the tools the model may see under the current whitelist, and — for streaming executions — the handler that turns model deltas into runtime events. */

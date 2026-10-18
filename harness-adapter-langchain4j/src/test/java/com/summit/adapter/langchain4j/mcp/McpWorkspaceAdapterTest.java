@@ -3,16 +3,18 @@ package com.summit.adapter.langchain4j.mcp;
 import com.summit.core.conf.McpConfig;
 import com.summit.core.conf.McpTransport;
 import com.summit.core.mcp.ScopeMcpProvider;
-import com.summit.core.mcp.McpToolScope;
 import com.summit.core.runtime.RuntimeEnvironment;
 import com.summit.core.runtime.workspace.*;
 import org.junit.jupiter.api.Test;
+
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-import static org.junit.jupiter.api.Assertions.*;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class McpWorkspaceAdapterTest {
     @Test void rejectsEntireMixedConfigurationBeforeOpeningAnyClient() {

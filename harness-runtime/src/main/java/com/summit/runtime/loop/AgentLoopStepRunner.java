@@ -147,7 +147,7 @@ public class AgentLoopStepRunner {
             halt = haltOf(interceptor.onBeforeToolCall(loopContext));
             if (halt != null) return RoundOutcome.finish(halt);
 
-            List<ToolExecuteResult> toolResults = executeTools(aiMessage, response.getResponseId());
+            List<ToolExecuteResult> toolResults = executeTools(aiMessage, response.getResponseId(), control);
             messages.toolResults(toolResults);
 
             halt = haltOf(interceptor.onAfterToolCall(loopContext, toolResults));
@@ -248,23 +248,24 @@ public class AgentLoopStepRunner {
         // Tools
         // -----------------------------------------------------------------------------------
 
-        private List<ToolExecuteResult> executeTools(@NonNull AiMessageEntity aiMessage, String responseId) {
+        private List<ToolExecuteResult> executeTools(@NonNull AiMessageEntity aiMessage, String responseId,ExecutionControlSignal signal) {
             AgentRequest request = execution.getAgentRequest();
             AgentRuntimeParameters params = request.runtimeParametersOrDefault();
 
             return context.getToolExecutionManager().execute(
-                    new ToolExecuteCommand(
-                            aiMessage.getToolCalls(),
-                            execution.getId(),
-                            context.getWorkspace(),
-                            params.getAttributes(),
-                            params.getEventMetaData(),
-                            configuredTools(),
-                            responseId,
-                            params.isAllowOutsideWorkspace(),
-                            context.getMcpToolScope(),
-                            request.getSkillConfig()
-                    )
+                    ToolExecuteCommand.builder()
+                            .executionId(execution.getId())
+                            .workspace(context.getWorkspace())
+                            .attributes(params.getAttributes())
+                            .eventMetaData(params.getEventMetaData())
+                            .responseId(responseId)
+                            .requests(aiMessage.getToolCalls())
+                            .allowedTools(configuredTools())
+                            .allowOutsideWorkspace(params.isAllowOutsideWorkspace())
+                            .mcpToolScope(context.getMcpToolScope())
+                            .skillConfig(request.getSkillConfig())
+                            .signal(signal)
+                            .build()
             );
         }
 

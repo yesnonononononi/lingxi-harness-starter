@@ -3,11 +3,7 @@ package com.summit.runtime.loop.lifeStyle;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
-import com.summit.core.conversation.event.AgentEvent;
-import com.summit.core.conversation.event.ExecutionResumedEvent;
-import com.summit.core.conversation.event.ExecutionSuspendedEvent;
-import com.summit.core.conversation.event.RuntimeEventPublisher;
-import com.summit.core.conversation.event.RuntimeEventType;
+import com.summit.core.conversation.event.*;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.runtime.RuntimeListener;
 import com.summit.runtime.loop.DefaultRuntimeLifeStyleManager;
@@ -16,9 +12,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Suspension and resume each publish their own event, symmetric with the other lifecycle

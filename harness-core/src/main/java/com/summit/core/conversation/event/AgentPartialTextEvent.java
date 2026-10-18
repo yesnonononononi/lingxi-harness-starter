@@ -2,7 +2,6 @@ package com.summit.core.conversation.event;
 
 import lombok.Builder;
 
-import java.io.Serializable;
 import java.time.Instant;
 import java.util.Map;
 

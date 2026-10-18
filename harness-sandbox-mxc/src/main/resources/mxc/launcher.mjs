@@ -1,9 +1,9 @@
-import { createOutputCollector } from './output-frames.mjs';
-import { readRequest, stdioCommand, relayStdio } from './stdio-session.mjs';
+import {createOutputCollector} from './output-frames.mjs';
+import {readRequest, relayStdio, stdioCommand} from './stdio-session.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { setTimeout as delay } from 'node:timers/promises';
+import {pathToFileURL} from 'node:url';
+import {setTimeout as delay} from 'node:timers/promises';
 
 const [mode, controls, token] = process.argv.slice(2);
 if (!['run', 'cancel', 'stdio'].includes(mode) || !controls?.startsWith('/') || !/^[a-f0-9-]{36}$/.test(token)) {

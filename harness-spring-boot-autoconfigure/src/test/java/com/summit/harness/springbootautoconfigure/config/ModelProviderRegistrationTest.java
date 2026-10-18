@@ -3,7 +3,9 @@ package com.summit.harness.springbootautoconfigure.config;
 import com.summit.core.model.ModelProviderRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
-import static org.junit.jupiter.api.Assertions.*;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ModelProviderRegistrationTest {
     @Test

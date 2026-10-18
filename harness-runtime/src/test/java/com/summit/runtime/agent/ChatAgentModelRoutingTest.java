@@ -3,7 +3,9 @@ package com.summit.runtime.agent;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.conf.ModelConfig;
 import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.*;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 class ChatAgentModelRoutingTest {
     private final ChatAgent agent = new ChatAgent(null, null, null, null, null, null) {

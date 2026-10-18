@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import {pathToFileURL} from 'node:url';
 
 try {
   if (Number(process.versions.node.split('.')[0]) < 24) throw new Error('MXC requires Node >=24');

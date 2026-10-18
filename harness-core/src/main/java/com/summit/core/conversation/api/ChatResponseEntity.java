@@ -5,8 +5,6 @@ import com.summit.core.conversation.message.TokenUsageEntity;
 import lombok.Builder;
 import lombok.Data;
 
-import java.util.Map;
-
 @Builder
 @Data
 public class ChatResponseEntity {

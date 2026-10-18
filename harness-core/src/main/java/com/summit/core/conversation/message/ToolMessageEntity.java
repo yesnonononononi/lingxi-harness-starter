@@ -1,11 +1,13 @@
 package com.summit.core.conversation.message;
 
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.summit.core.tool.ToolDefinition;
 import lombok.*;
 
 import java.io.Serializable;
+
 @ToString
 @Builder
 @NoArgsConstructor
@@ -16,11 +18,18 @@ import java.io.Serializable;
 public class ToolMessageEntity implements Message{
     private Serializable id;
     private String name;
-    private String text;
+    @Builder.Default
+    private boolean isError = false;
+    /**
+     * Persisted snapshots wrote this as {@code text} before the rename. The alias keeps stored
+     * executions and session messages restorable instead of failing on an unknown property.
+     */
+    @JsonAlias("text")
+    private String toolOutput;
     private final MessageType type = MessageType.TOOL;
     @Override
     public String text() {
-        return this.text;
+        return this.toolOutput;
     }
 
     @Override
@@ -32,7 +41,7 @@ public class ToolMessageEntity implements Message{
         return ToolMessageEntity.builder()
                 .id(id)
                 .name(name)
-                .text(text)
+                .toolOutput(text)
                 .build();
     }
     public ToolMessageEntity from(ToolDefinition<?> toolDefinition,String text){

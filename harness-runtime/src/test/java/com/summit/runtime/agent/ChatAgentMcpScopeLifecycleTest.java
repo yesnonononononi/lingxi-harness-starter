@@ -8,18 +8,18 @@ import com.summit.core.conf.McpTransport;
 import com.summit.core.conversation.event.ExecutionErrorEvent;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.conversation.message.UserMessageEntity;
-import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.core.mcp.McpSession;
 import com.summit.core.mcp.McpToolScope;
+import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.core.model.RequestModelInvokerFactory;
 import com.summit.core.runtime.RuntimeFactory;
 import com.summit.core.runtime.RuntimeListener;
-import com.summit.runtime.loop.DefaultExecutionController;
-import com.summit.runtime.loop.DefaultRuntimeLifeStyleManager;
 import com.summit.core.runtime.workspace.Workspace;
-import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
 import com.summit.core.tool.ToolDefinition;
 import com.summit.core.tool.ToolExecutor;
+import com.summit.runtime.loop.DefaultExecutionController;
+import com.summit.runtime.loop.DefaultRuntimeLifeStyleManager;
+import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
 import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.Test;
 
@@ -29,10 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * The MCP scope belongs to the execution, not to one attempt: a resume reuses the scope its

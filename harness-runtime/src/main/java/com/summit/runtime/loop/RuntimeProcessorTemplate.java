@@ -2,18 +2,17 @@ package com.summit.runtime.loop;
 
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
-import com.summit.core.compact.ContextUsageMetric;
-import com.summit.runtime.context.RuntimeContext;
 import com.summit.core.runtime.ExecutionRuntime;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.loop.ExecutionFailureObserver;
 import com.summit.core.runtime.loop.LoopResult;
+import com.summit.runtime.context.RuntimeContext;
 import com.summit.runtime.util.RuntimeUtil;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.List;
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * End-to-end orchestration of a single execution: publishes lifecycle events, delegates the agent loop to {@link AgentLoopStepRunner}, persists messages and token usage, and finalises per final state.
