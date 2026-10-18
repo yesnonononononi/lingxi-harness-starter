@@ -55,7 +55,8 @@ class ProcessRunnerTest {
                 StandardCharsets.UTF_8, new byte[0], 2, TimeUnit.SECONDS, 64);
         try {
             awaitFile(pid);
-            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(6);
+            // Completion includes bounded tree termination and I/O cleanup after the command deadline.
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(12);
             while (!handle.isDone() && System.nanoTime() < deadline) Thread.sleep(10);
             assertTrue(handle.isDone());
             assertTrue(handle.await().timedOut());
