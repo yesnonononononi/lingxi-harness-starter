@@ -67,11 +67,18 @@ final class MxcWorkspaceFiles implements WorkspaceFiles {
 
     @Override
     public String readString(Path path, Charset charset) throws IOException {
+        return Objects.requireNonNull(charset).newDecoder().decode(ByteBuffer.wrap(readBytes(path))).toString();
+    }
+
+    /**
+     * The helper already transports bytes as base64; decoding them is the only step skipped here.
+     */
+    @Override
+    public byte[] readBytes(Path path) throws IOException {
         JsonNode result = fileUnchecked("read", target(path));
         if (!result.path("bytesBase64").isTextual()) throw new IOException("Missing MXC file bytes");
         try {
-            byte[] bytes = Base64.getDecoder().decode(result.path("bytesBase64").textValue());
-            return Objects.requireNonNull(charset).newDecoder().decode(ByteBuffer.wrap(bytes)).toString();
+            return Base64.getDecoder().decode(result.path("bytesBase64").textValue());
         } catch (IllegalArgumentException e) {
             throw new IOException("Invalid MXC file payload", e);
         }

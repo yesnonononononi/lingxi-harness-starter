@@ -27,6 +27,11 @@ public final class LocalWorkspaceFiles implements WorkspaceFiles {
     }
 
     @Override
+    public byte[] readBytes(Path path) throws IOException {
+        return Files.readAllBytes(path);
+    }
+
+    @Override
     public void writeString(Path path, String content, Charset charset) throws IOException {
         Files.writeString(path, content, charset);
     }

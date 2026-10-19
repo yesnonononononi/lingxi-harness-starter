@@ -76,6 +76,7 @@ class WorkspaceBridgeTest {
             public void createDirectories(Path path) { throw new UnsupportedOperationException(); }
             public void deleteFile(Path path) { throw new UnsupportedOperationException(); }
             public void writeString(Path path, String content, Charset charset) { throw new UnsupportedOperationException(); }
+            public byte[] readBytes(Path path) { throw new UnsupportedOperationException(); }
             public String readString(Path path, Charset charset) {
                 receivedPath.set(path);
                 receivedCharset.set(charset);

@@ -31,6 +31,15 @@ public interface WorkspaceFiles {
     String readString(Path path, Charset charset) throws IOException;
 
     /**
+     * Reads the whole file content as raw bytes.
+     *
+     * <p>{@link #readString} decodes with a charset, so it rejects or corrupts payloads that are not
+     * text in that charset. Binary callers (images, archives, media) must use this method: the bytes
+     * returned are exactly the stored bytes, with no decoding step in between.</p>
+     */
+    byte[] readBytes(Path path) throws IOException;
+
+    /**
      * Splits bridge-provided text, preserving blank lines and stripping CR, LF or CRLF terminators.
      */
     default List<String> readLines(Path path, Charset charset) throws IOException {
