@@ -1,4 +1,4 @@
-package com.summit.adapter.langchain4j.codec;
+package com.summit.adapter.langchain4j.codec.media;
 
 import dev.langchain4j.data.image.Image;
 

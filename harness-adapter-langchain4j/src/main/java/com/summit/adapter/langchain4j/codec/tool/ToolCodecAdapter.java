@@ -1,4 +1,4 @@
-package com.summit.adapter.langchain4j.codec;
+package com.summit.adapter.langchain4j.codec.tool;
 
 import com.summit.core.tool.ToolDefinition;
 import dev.langchain4j.agent.tool.ToolSpecification;

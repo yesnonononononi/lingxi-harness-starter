@@ -1,4 +1,4 @@
-package com.summit.adapter.langchain4j.codec;
+package com.summit.adapter.langchain4j.codec.tool;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

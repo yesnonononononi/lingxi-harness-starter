@@ -1,4 +1,4 @@
-package com.summit.adapter.langchain4j.codec;
+package com.summit.adapter.langchain4j.codec.message;
 
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.api.ToolCallRequest;

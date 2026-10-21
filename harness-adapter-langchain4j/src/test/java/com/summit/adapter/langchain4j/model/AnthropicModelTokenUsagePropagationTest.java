@@ -1,6 +1,6 @@
 package com.summit.adapter.langchain4j.model;
 
-import com.summit.adapter.langchain4j.codec.AnthropicMessageCodecAdapter;
+import com.summit.adapter.langchain4j.codec.message.AnthropicMessageCodecAdapter;
 import com.summit.core.conversation.api.ChatRequestEntity;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.event.TokenInfo;

@@ -1,5 +1,6 @@
-package com.summit.adapter.langchain4j.codec;
+package com.summit.adapter.langchain4j.codec.token;
 
+import com.summit.adapter.langchain4j.codec.message.MessageCodecAdapter;
 import com.summit.core.adapter.TokenEstimator;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.UserMessageEntity;

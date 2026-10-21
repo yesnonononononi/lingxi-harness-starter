@@ -1,6 +1,6 @@
 package com.summit.harness.springbootautoconfigure.config;
 
-import com.summit.adapter.langchain4j.codec.TokenEstimatorAdapter;
+import com.summit.adapter.langchain4j.codec.token.TokenEstimatorAdapter;
 import com.summit.core.adapter.TokenEstimator;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.model.ModelProviderRegistry;

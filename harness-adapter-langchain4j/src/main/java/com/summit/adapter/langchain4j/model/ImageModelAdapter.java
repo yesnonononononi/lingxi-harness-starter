@@ -1,6 +1,6 @@
 package com.summit.adapter.langchain4j.model;
 
-import com.summit.adapter.langchain4j.codec.ImageInfoAdapter;
+import com.summit.adapter.langchain4j.codec.media.ImageInfoAdapter;
 import com.summit.core.agent.Image;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;

@@ -1,6 +1,6 @@
 package com.summit.adapter.langchain4j.mcp;
 
-import com.summit.adapter.langchain4j.codec.JsonSchemaSerializer;
+import com.summit.adapter.langchain4j.codec.tool.JsonSchemaSerializer;
 import com.summit.core.tool.ConcurrentPolicy;
 import com.summit.core.tool.ToolDefinition;
 import dev.langchain4j.agent.tool.ToolSpecification;

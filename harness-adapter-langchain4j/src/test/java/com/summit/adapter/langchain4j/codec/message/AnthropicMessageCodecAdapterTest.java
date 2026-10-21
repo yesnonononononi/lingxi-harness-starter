@@ -1,4 +1,4 @@
-package com.summit.adapter.langchain4j.codec;
+package com.summit.adapter.langchain4j.codec.message;
 
 import com.summit.core.conversation.message.TokenUsageEntity;
 import dev.langchain4j.data.message.AiMessage;
