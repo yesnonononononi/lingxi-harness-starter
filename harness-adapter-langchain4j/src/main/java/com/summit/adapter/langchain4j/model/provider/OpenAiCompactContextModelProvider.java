@@ -23,6 +23,7 @@ public class OpenAiCompactContextModelProvider implements CompactContextModelPro
                 .reasoningEffort(config.getReasoningEffort())
                 .modelName(config.getModelName())
                 .timeout(config.getTimeout())
+                .maxRetries(config.getMaxRetries())
                 .build());
     }
 }

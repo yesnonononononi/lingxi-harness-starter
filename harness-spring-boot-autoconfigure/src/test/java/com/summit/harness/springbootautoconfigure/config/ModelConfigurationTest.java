@@ -27,6 +27,9 @@ class ModelConfigurationTest {
         chat.setThinkingBudgetTokens(1024);
         chat.setSendThinking(false);
         chat.setReturnThinking(false);
+        chat.setPromptCache(true);
+        chat.setPromptCacheTtl("1h");
+        chat.setPromptCacheConversation(true);
 
         ModelConfig compact = configuration.compactContextModelConfig(
                 new CompactContextModelProperties(), chat);
@@ -38,10 +41,12 @@ class ModelConfigurationTest {
         assertEquals(chat.getTimeout(), compact.getTimeout());
         assertEquals(chat.getMaxTokens(), compact.getMaxTokens());
         assertEquals(chat.getReasoningEffort(), compact.getReasoningEffort());
-        assertEquals(chat.getThinkingType(), compact.getThinkingType());
-        assertEquals(chat.getThinkingBudgetTokens(), compact.getThinkingBudgetTokens());
+        assertEquals(chat.getThinkingType(), compact.getAnthropicOptions().thinkingType());
+        assertEquals(chat.getThinkingBudgetTokens(), compact.getAnthropicOptions().thinkingBudgetTokens());
         assertEquals(chat.isSendThinking(), compact.isSendThinking());
         assertEquals(chat.isReturnThinking(), compact.isReturnThinking());
+        assertEquals(configuration.chatModelConfig(chat).getAnthropicOptions(), compact.getAnthropicOptions());
+        assertEquals(new ModelConfig.AnthropicOptions("enabled", 1024, true, "1h", true), compact.getAnthropicOptions());
     }
 
     @Test
@@ -70,6 +75,11 @@ class ModelConfigurationTest {
         properties.setBaseUrl("https://compact.example/v1");
         properties.setApiKey("compact-secret");
         properties.setModelName("compact-model");
+        properties.setThinkingType("enabled");
+        properties.setThinkingBudgetTokens(1024);
+        properties.setPromptCache(false);
+        properties.setPromptCacheTtl("5m");
+        properties.setPromptCacheConversation(true);
 
         ModelConfig compact = configuration.compactContextModelConfig(properties, chat);
 
@@ -77,5 +87,6 @@ class ModelConfigurationTest {
         assertEquals("https://compact.example/v1", compact.getBaseUrl());
         assertEquals("compact-secret", compact.getApiKey());
         assertEquals("compact-model", compact.getModelName());
+        assertEquals(new ModelConfig.AnthropicOptions("enabled", 1024, false, "5m", true), compact.getAnthropicOptions());
     }
 }

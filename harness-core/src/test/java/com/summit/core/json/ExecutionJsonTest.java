@@ -88,7 +88,8 @@ class ExecutionJsonTest {
                                 .attributes(Map.of("attempt", 2, "labels", List.of("a", "b"))).build())
                         .modelConfig(ModelConfig.builder().baseUrl("https://example.invalid")
                                 .apiKey("test-key").modelName("test-model").timeout(Duration.ofMillis(1250))
-                                .thinkingType("enabled").thinkingBudgetTokens(2048).build())
+                                .anthropicOptions(ModelConfig.AnthropicOptions.builder()
+                                        .thinkingType("enabled").thinkingBudgetTokens(2048).build()).build())
                         .build()).build();
 
         String json = mapper.writeValueAsString(original);
@@ -118,8 +119,8 @@ class ExecutionJsonTest {
         assertEquals(Duration.ofMillis(1250), restored.getAgentRequest().getModelConfig().getTimeout());
         assertEquals(ai.getToolCalls(), restored.getAiMessage().getToolCalls());
         assertEquals(ai.getAttributes(), restored.getAiMessage().getAttributes());
-        assertEquals("enabled", restored.getAgentRequest().getModelConfig().getThinkingType());
-        assertEquals(2048, restored.getAgentRequest().getModelConfig().getThinkingBudgetTokens());
+        assertEquals("enabled", restored.getAgentRequest().getModelConfig().getAnthropicOptions().thinkingType());
+        assertEquals(2048, restored.getAgentRequest().getModelConfig().getAnthropicOptions().thinkingBudgetTokens());
         assertEquals(12, restored.getTokenUsage().getTotalTokens());
         assertEquals(new TokenUsageEntity.InputTokens(8, 3), restored.getTokenUsage().getInputTokens());
         assertEquals(new TokenUsageEntity.OutputTokens(4, 2), restored.getTokenUsage().getOutputTokens());

@@ -32,6 +32,27 @@ public class AgentChatProperties {
      * <p>Maps to lingxi.agent.model.conf.chat.prompt-cache</p>
      */
     private boolean promptCache = true;
+    /**
+     * How long Anthropic keeps a cached prefix: {@code 5m} (default) or {@code 1h}.
+     *
+     * <p>Applies to every cache breakpoint, and a cache hit refreshes it. The one-hour cache costs
+     * more to write, so it is only worth it when requests sharing the prefix are more than five
+     * minutes apart.</p>
+     *
+     * <p>Maps to lingxi.agent.model.conf.chat.prompt-cache-ttl</p>
+     */
+    private String promptCacheTtl;
+    /**
+     * Whether Anthropic may cache the whole conversation and move the breakpoint forward as it grows.
+     *
+     * <p>An agent loop re-sends an ever longer prefix, so this turns the earlier rounds into cache
+     * reads instead of reprocessing them. It only pays off while the head of the conversation stays
+     * byte-identical: a request whose beginning changes every round pays the write price and reads
+     * nothing back, which costs more than not caching at all.</p>
+     *
+     * <p>Maps to lingxi.agent.model.conf.chat.prompt-cache-conversation</p>
+     */
+    private boolean promptCacheConversation;
     private Duration timeout = Duration.ofSeconds(60);
     /**
      * How many compaction rounds may run back to back before the loop gives up on the run.

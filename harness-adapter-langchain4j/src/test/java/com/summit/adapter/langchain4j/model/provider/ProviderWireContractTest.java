@@ -120,7 +120,7 @@ class ProviderWireContractTest {
     @ValueSource(booleans = {false, true})
     void anthropicMarksReusablePrefixOnlyWhenPromptCacheEnabled(boolean enabled) throws Exception {
         try (Endpoint endpoint = new Endpoint()) {
-            ModelConfig config = config(endpoint, "claude-sonnet-4-6").promptCache(enabled).build();
+            ModelConfig config = config(endpoint, "claude-sonnet-4-6").anthropicOptions(ModelConfig.AnthropicOptions.builder().promptCache(enabled).build()).build();
             ToolDefinition<?> lookup = ToolDefinition.builder()
                     .id("lookup").name("lookup").description("Lookup something")
                     .maxOutput(100).timeout(5L)
@@ -139,6 +139,28 @@ class ProviderWireContractTest {
             String toolCache = body.path("tools").get(0).path("cache_control").path("type").asText("");
             assertEquals(enabled, "ephemeral".equals(systemCache), "system prompt cache marker");
             assertEquals(enabled, "ephemeral".equals(toolCache), "tool definitions cache marker");
+        }
+    }
+
+    /**
+     * Automatic conversation caching is a top-level {@code cache_control} and its TTL rides inside it,
+     * so neither may reach Anthropic while the flag is off.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void anthropicSendsAutomaticCacheControlOnlyWhenConversationCachingEnabled(boolean enabled) throws Exception {
+        try (Endpoint endpoint = new Endpoint()) {
+            ModelConfig config = config(endpoint, "claude-sonnet-4-6")
+                    .anthropicOptions(ModelConfig.AnthropicOptions.builder()
+                            .promptCacheConversation(enabled).promptCacheTtl("1h").build()).build();
+            call(config, false, List.of(UserMessageEntity.from("question")), true);
+
+            JsonNode body = endpoint.requests.poll(10, TimeUnit.SECONDS);
+            assertNotNull(body);
+            JsonNode cacheControl = body.path("cache_control");
+            assertEquals(enabled, "ephemeral".equals(cacheControl.path("type").asText("")),
+                    "automatic conversation cache marker");
+            assertEquals(enabled, "1h".equals(cacheControl.path("ttl").asText("")), "cache TTL");
         }
     }
 

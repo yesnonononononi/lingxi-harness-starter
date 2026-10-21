@@ -19,14 +19,17 @@ public class AnthropicCompactContextModelProvider implements CompactContextModel
                 .apiKey(config.getApiKey())
                 .modelName(config.getModelName())
                 .timeout(config.getTimeout())
+                .maxRetries(config.getMaxRetries())
                 .maxTokens(settings.maxTokens())
                 .sendThinking(config.isSendThinking())
                 .returnThinking(config.isReturnThinking())
                 .thinkingType(settings.thinkingType())
                 .thinkingBudgetTokens(settings.budget())
                 .customParameters(settings.customParameters())
-                .cacheSystemMessages(config.isPromptCache())
-                .cacheTools(config.isPromptCache())
+                .cacheSystemMessages(settings.cachePrefix())
+                .cacheTools(settings.cachePrefix())
+                .cacheAutomatically(settings.cacheAutomatically())
+                .cacheTtl(settings.cacheTtl())
                 .build());
     }
 }

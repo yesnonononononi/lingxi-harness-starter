@@ -21,13 +21,25 @@ class ModelConfigurationCacheTest {
             }
         });
         ModelConfig config = ModelConfig.builder().baseUrl("http://localhost/v1/").apiKey("test-key")
-                .modelName("claude-test").provider("custom").thinkingType("enabled")
-                .thinkingBudgetTokens(2048).build();
+                .modelName("claude-test").provider("custom").anthropicOptions(ModelConfig.AnthropicOptions.builder()
+                        .thinkingType("enabled").thinkingBudgetTokens(2048).build()).build();
         DefaultRequestModelInvokerFactory factory = new DefaultRequestModelInvokerFactory("custom", config,
                 providers, new ModelProviderRegistry<>());
         assertSame(factory.select(config), factory.select(config.toBuilder().build()));
-        assertNotSame(factory.select(config), factory.select(config.toBuilder().thinkingBudgetTokens(4096).build()));
-        assertNotSame(factory.select(config), factory.select(config.toBuilder().thinkingType("adaptive").build()));
-        assertEquals(3, created.get());
+        assertNotSame(factory.select(config), factory.select(config.toBuilder().anthropicOptions(config.getAnthropicOptions().toBuilder().thinkingBudgetTokens(4096).build()).build()));
+        assertNotSame(factory.select(config), factory.select(config.toBuilder().anthropicOptions(config.getAnthropicOptions().toBuilder().thinkingType("adaptive").build()).build()));
+        assertNotSame(factory.select(config), factory.select(config.toBuilder().anthropicOptions(
+                config.getAnthropicOptions().toBuilder().promptCache(true).build()).build()));
+        assertNotSame(factory.select(config), factory.select(config.toBuilder().anthropicOptions(
+                config.getAnthropicOptions().toBuilder().promptCacheTtl("1h").build()).build()));
+        assertNotSame(factory.select(config), factory.select(config.toBuilder().anthropicOptions(
+                config.getAnthropicOptions().toBuilder().promptCacheConversation(true).build()).build()));
+        assertNotSame(factory.select(config), factory.select(config.toBuilder().maxRetries(0).build()));
+        assertEquals(7, created.get());
+        var original = factory.select(config);
+        config.setMaxRetries(0);
+        assertNotSame(original, factory.select(config));
+        config.setMaxRetries(3);
+        assertSame(original, factory.select(config));
     }
 }

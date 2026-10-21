@@ -14,19 +14,24 @@ public class AnthropicChatModelProvider implements ChatModelProvider {
     @Override
     public ChatModelAdapter create(ModelConfig config) {
         AnthropicModelSettings settings = AnthropicModelSettings.resolve(config);
-        return new ChatModelAdapter(AnthropicChatModel.builder()
+        return new ChatModelAdapter(
+                AnthropicChatModel.builder()
                 .baseUrl(config.getBaseUrl())
                 .apiKey(config.getApiKey())
                 .modelName(config.getModelName())
                 .timeout(config.getTimeout())
+                .maxRetries(config.getMaxRetries())
                 .maxTokens(settings.maxTokens())
                 .sendThinking(config.isSendThinking())
                 .returnThinking(config.isReturnThinking())
                 .thinkingType(settings.thinkingType())
                 .thinkingBudgetTokens(settings.budget())
                 .customParameters(settings.customParameters())
-                .cacheSystemMessages(config.isPromptCache())
-                .cacheTools(config.isPromptCache())
-                .build());
+                .cacheSystemMessages(settings.cachePrefix())
+                .cacheTools(settings.cachePrefix())
+                .cacheAutomatically(settings.cacheAutomatically())
+                .cacheTtl(settings.cacheTtl())
+                .build()
+        );
     }
 }

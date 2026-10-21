@@ -35,10 +35,10 @@ public class ModelConfiguration {
                 .sendThinking(agentChatProperties.isSendThinking())
                 .maxTokens(agentChatProperties.getMaxTokens())
                 .reasoningEffort(agentChatProperties.getReasoningEffort())
-                .thinkingType(agentChatProperties.getThinkingType())
-                .thinkingBudgetTokens(agentChatProperties.getThinkingBudgetTokens())
                 .returnThinking(agentChatProperties.isReturnThinking())
-                .promptCache(agentChatProperties.isPromptCache())
+                .anthropicOptions(new ModelConfig.AnthropicOptions(
+                        agentChatProperties.getThinkingType(), agentChatProperties.getThinkingBudgetTokens(),
+                        agentChatProperties.isPromptCache(), agentChatProperties.getPromptCacheTtl(), agentChatProperties.isPromptCacheConversation()))
                 .provider(ModelProviderRouting.chatProvider(agentChatProperties.getProvider(),
                         agentChatProperties.getModelName(), false))
                 .build();
@@ -58,10 +58,10 @@ public class ModelConfiguration {
                     .sendThinking(chat.isSendThinking())
                     .maxTokens(chat.getMaxTokens())
                     .reasoningEffort(chat.getReasoningEffort())
-                    .thinkingType(chat.getThinkingType())
-                    .thinkingBudgetTokens(chat.getThinkingBudgetTokens())
                     .returnThinking(chat.isReturnThinking())
-                    .promptCache(chat.isPromptCache())
+                    .anthropicOptions(new ModelConfig.AnthropicOptions(
+                            chat.getThinkingType(), chat.getThinkingBudgetTokens(),
+                            chat.isPromptCache(), chat.getPromptCacheTtl(), chat.isPromptCacheConversation()))
                     .provider(ModelProviderRouting.compactProvider(chat.getProvider(), chat.getModelName()))
                     .build();
         }
@@ -73,10 +73,10 @@ public class ModelConfiguration {
                 .sendThinking(compact.isSendThinking())
                 .maxTokens(compact.getMaxTokens())
                 .reasoningEffort(compact.getReasoningEffort())
-                .thinkingType(compact.getThinkingType())
-                .thinkingBudgetTokens(compact.getThinkingBudgetTokens())
                 .returnThinking(compact.isReturnThinking())
-                .promptCache(compact.isPromptCache())
+                .anthropicOptions(new ModelConfig.AnthropicOptions(
+                        compact.getThinkingType(), compact.getThinkingBudgetTokens(),
+                        compact.isPromptCache(), compact.getPromptCacheTtl(), compact.isPromptCacheConversation()))
                 .provider(ModelProviderRouting.compactProvider(compact.getProvider(), compact.getModelName()))
                 .build();
     }

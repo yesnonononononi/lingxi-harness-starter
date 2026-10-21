@@ -31,16 +31,30 @@ class AnthropicModelSettingsTest {
 
     @Test
     void explicitThinkingAndBudgetOverrideInferenceAndRejectInvalidCombinations() {
-        ModelConfig config = config("claude-opus-4-6", "high").thinkingType("enabled")
-                .thinkingBudgetTokens(2048).build();
+        ModelConfig config = config("claude-opus-4-6", "high").anthropicOptions(ModelConfig.AnthropicOptions.builder()
+                        .thinkingType("enabled").thinkingBudgetTokens(2048).build()).build();
         assertEquals(2048, AnthropicModelSettings.resolve(config).budget());
         assertThrows(IllegalArgumentException.class, () -> AnthropicModelSettings.resolve(
-                config.toBuilder().thinkingType("adaptive").build()));
+                config.toBuilder().anthropicOptions(config.getAnthropicOptions().toBuilder().thinkingType("adaptive").build()).build()));
         assertThrows(IllegalArgumentException.class, () -> AnthropicModelSettings.resolve(
-                config.toBuilder().thinkingBudgetTokens(500).build()));
+                config.toBuilder().anthropicOptions(config.getAnthropicOptions().toBuilder().thinkingBudgetTokens(500).build()).build()));
         assertThrows(IllegalArgumentException.class, () -> AnthropicModelSettings.resolve(
-                config.toBuilder().thinkingBudgetTokens(32768).build()));
+                config.toBuilder().anthropicOptions(config.getAnthropicOptions().toBuilder().thinkingBudgetTokens(32768).build()).build()));
         assertThrows(IllegalArgumentException.class, () -> resolve("claude-opus-4-6", "unknown"));
+    }
+
+    @Test
+    void promptCacheSettingsNormalizeTheTtlAndRejectUnknownValues() {
+        AnthropicModelSettings cached = AnthropicModelSettings.resolve(config("claude-sonnet-4-6", "low")
+                .anthropicOptions(ModelConfig.AnthropicOptions.builder()
+                        .promptCacheTtl(" 1H ").promptCacheConversation(true).build()).build());
+        assertEquals("1h", cached.cacheTtl());
+        assertTrue(cached.cacheAutomatically());
+        AnthropicModelSettings plain = resolve("claude-sonnet-4-6", "low");
+        assertNull(plain.cacheTtl());
+        assertFalse(plain.cacheAutomatically());
+        assertThrows(IllegalArgumentException.class, () -> AnthropicModelSettings.resolve(
+                config("claude-sonnet-4-6", "low").anthropicOptions(ModelConfig.AnthropicOptions.builder().promptCacheTtl("2h").build()).build()));
     }
 
     private AnthropicModelSettings resolve(String model, String effort) {

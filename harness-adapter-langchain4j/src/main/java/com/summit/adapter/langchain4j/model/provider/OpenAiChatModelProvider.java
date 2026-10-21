@@ -25,6 +25,7 @@ public class OpenAiChatModelProvider implements ChatModelProvider {
                 .reasoningEffort(config.getReasoningEffort())
                 .modelName(config.getModelName())
                 .timeout(config.getTimeout())
+                .maxRetries(config.getMaxRetries())
                 .build());
     }
 }

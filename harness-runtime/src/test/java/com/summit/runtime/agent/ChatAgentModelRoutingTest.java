@@ -25,7 +25,8 @@ class ChatAgentModelRoutingTest {
         assertEquals("default-streaming", resolve("claude-opus-4-6", true, "default-streaming").getProvider());
         ModelConfig config = ModelConfig.builder().baseUrl("http://localhost/v1").apiKey("key")
                 .modelName("claude-opus-4-6").returnThinking(true).reasoningEffort("high")
-                .thinkingType("enabled").thinkingBudgetTokens(2048).maxTokens(4096).build();
+                .anthropicOptions(ModelConfig.AnthropicOptions.builder()
+                        .thinkingType("enabled").thinkingBudgetTokens(2048).build()).maxTokens(4096).build();
         ModelConfig resolved = agent.resolveModelConfig(AgentRequest.builder().modelConfig(config)
                 .modelProvider("ignored").build());
         assertEquals("anthropic-streaming", resolved.getProvider());

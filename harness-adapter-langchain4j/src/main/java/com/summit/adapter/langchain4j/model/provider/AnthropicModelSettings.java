@@ -6,8 +6,10 @@ import java.util.Map;
 import java.util.Set;
 
 /** Maps harness effort to Anthropic adaptive or manual thinking without changing OpenAI settings. */
-record AnthropicModelSettings(String thinkingType, Integer budget, int maxTokens, Map<String, Object> customParameters) {
+record AnthropicModelSettings(String thinkingType, Integer budget, int maxTokens, boolean cachePrefix, String cacheTtl,
+                              boolean cacheAutomatically, Map<String, Object> customParameters) {
     static AnthropicModelSettings resolve(ModelConfig config) {
+        ModelConfig.AnthropicOptions options = config.getAnthropicOptions();
         int maxTokens = config.getMaxTokens() == null ? 32768 : config.getMaxTokens();
         if (maxTokens <= 0) throw new IllegalArgumentException("Anthropic maxTokens must be positive");
         String effort = normalize(config.getReasoningEffort());
@@ -17,8 +19,8 @@ record AnthropicModelSettings(String thinkingType, Integer budget, int maxTokens
         String model = config.getModelName().strip().toLowerCase(Locale.ROOT);
         boolean manualModel = model.startsWith("claude-3")
                 || model.matches("claude-(opus|sonnet|haiku)-4(?:-(?:0|1|5)(?:-.*)?|-\\d{8})?");
-        String type = normalize(config.getThinkingType());
-        Integer budget = config.getThinkingBudgetTokens();
+        String type = normalize(options == null ? null : options.thinkingType());
+        Integer budget = options == null ? null : options.thinkingBudgetTokens();
         if (type == null) {
             type = "none".equals(effort) ? "disabled"
                     : budget != null ? "enabled"
@@ -55,7 +57,18 @@ record AnthropicModelSettings(String thinkingType, Integer budget, int maxTokens
             };
             parameters = Map.of("output_config", Map.of("effort", mapped));
         }
-        return new AnthropicModelSettings(type, budget, maxTokens, parameters);
+        return new AnthropicModelSettings(type, budget, maxTokens, options != null && options.promptCache(),
+                cacheTtl(options), options != null && options.promptCacheConversation(), parameters);
+    }
+
+    /** Anthropic sends the TTL verbatim inside every cache breakpoint, so only its two values pass. */
+    private static String cacheTtl(ModelConfig.AnthropicOptions options) {
+        String ttl = normalize(options == null ? null : options.promptCacheTtl());
+        if (ttl == null) return null;
+        if (!Set.of("5m", "1h").contains(ttl)) {
+            throw new IllegalArgumentException("Unsupported Anthropic prompt cache TTL: " + ttl);
+        }
+        return ttl;
     }
 
     private static String normalize(String value) {

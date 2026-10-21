@@ -27,14 +27,14 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class DefaultRequestModelInvokerFactory implements RequestModelInvokerFactory {
     private static final String PROVIDER_KEY_PREFIX = "provider:";
-    private static final String CONFIG_KEY_PREFIX = "config:";
-    private static final char KEY_SEPARATOR = '|';
+    // Keep a private snapshot: callers and providers may mutate their own ModelConfig instances.
+    private record ConfigKey(ModelConfig snapshot) {}
 
     private final String defaultProvider;
     private final ModelConfig modelConfig;
     private final ModelProviderRegistry<ChatModel> chatProviders;
     private final ModelProviderRegistry<StreamingChatModel> streamingProviders;
-    private final Map<String, Selection> selections = new ConcurrentHashMap<>();
+    private final Map<Object, Selection> selections = new ConcurrentHashMap<>();
 
     public DefaultRequestModelInvokerFactory(String defaultProvider, ModelConfig modelConfig,
                                              ModelProviderRegistry<ChatModel> chatProviders,
@@ -56,9 +56,9 @@ public final class DefaultRequestModelInvokerFactory implements RequestModelInvo
     public Selection select(ModelConfig config) {
         Objects.requireNonNull(config, "model config");
         String name = name(config.getProvider());
-        return selections.computeIfAbsent(
-                CONFIG_KEY_PREFIX + fingerprint(name, config),
-                key -> getSelection(name, config.toBuilder().provider(name).build()));
+        ConfigKey key = new ConfigKey(config.toBuilder().provider(name).build());
+        return selections.computeIfAbsent(key,
+                ignored -> getSelection(name, key.snapshot().toBuilder().build()));
     }
 
     private Selection createSelection(String name) {
@@ -68,23 +68,6 @@ public final class DefaultRequestModelInvokerFactory implements RequestModelInvo
     private String name(String providerName){
        return providerName == null || providerName.isBlank()
                 ? defaultProvider : providerName.trim();
-    }
-
-    /**
-     * Builds a cache key covering every field that participates in creating a model instance.
-     */
-    private String fingerprint(String providerName, ModelConfig config) {
-        return providerName + KEY_SEPARATOR +
-                config.getBaseUrl() + KEY_SEPARATOR +
-                config.getModelName() + KEY_SEPARATOR +
-                config.getApiKey() + KEY_SEPARATOR +
-                config.getTimeout() + KEY_SEPARATOR +
-                config.getMaxTokens() + KEY_SEPARATOR +
-                config.getReasoningEffort() + KEY_SEPARATOR +
-                config.getThinkingType() + KEY_SEPARATOR +
-                config.getThinkingBudgetTokens() + KEY_SEPARATOR +
-                config.isReturnThinking() + KEY_SEPARATOR +
-                config.isSendThinking();
     }
 
     private RequestModelInvokerFactory.Selection getSelection(String name, ModelConfig modelConfig) {
