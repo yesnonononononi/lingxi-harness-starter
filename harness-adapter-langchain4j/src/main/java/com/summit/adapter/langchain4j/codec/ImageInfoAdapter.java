@@ -11,4 +11,13 @@ public class ImageInfoAdapter {
                 .url(image.getUrl())
                 .build();
     }
+
+    public static com.summit.core.agent.Image toFramework(Image image){
+        return com.summit.core.agent.Image.builder()
+                .base64Data(image.base64Data())
+                .url(image.url())
+                .mimeType(image.mimeType())
+                .revisedPrompt(image.revisedPrompt())
+                .build();
+    }
 }

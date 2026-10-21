@@ -7,6 +7,20 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class TokenUsageEntityTest {
     @Test
+    void imageCountsAccumulateWithoutChangingAggregateOrSourceCounts() {
+        TokenUsageEntity usage = TokenUsageEntity.empty();
+        TokenUsageEntity source = new TokenUsageEntity(100, new TokenUsageEntity.InputTokens(20, 3, 10),
+                new TokenUsageEntity.OutputTokens(80, 0, 75));
+        usage.add(source);
+        usage.add(source);
+        assertEquals(200, usage.getTotalTokens());
+        assertEquals(new TokenUsageEntity.InputTokens(40, 6, 20), usage.getInputTokens());
+        assertEquals(new TokenUsageEntity.OutputTokens(160, 0, 150), usage.getOutputTokens());
+        assertEquals(10, source.getInputTokens().getImageTokens());
+        assertEquals(75, source.getOutputTokens().getImageTokens());
+    }
+
+    @Test
     void accumulatesAllCountsWithoutMutatingTheSource() {
         TokenUsageEntity accumulated = TokenUsageEntity.empty();
         TokenUsageEntity source = new TokenUsageEntity(130, new TokenUsageEntity.InputTokens(100, 60),

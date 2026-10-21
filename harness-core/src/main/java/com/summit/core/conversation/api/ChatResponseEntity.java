@@ -1,9 +1,12 @@
 package com.summit.core.conversation.api;
 
+import com.summit.core.agent.Image;
 import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import lombok.Builder;
 import lombok.Data;
+
+import java.util.List;
 
 @Builder
 @Data
@@ -40,6 +43,10 @@ public class ChatResponseEntity {
         private  String id;
         private  String modelName;
         private  FinishReason finishReason;
+        /**
+         * look at {@link com.summit.core.model.image.ImageModel}
+         */
+        private List<Image> images;
     }
     /** Positive decimal runtime ID, increasing within an execution; independent of the provider ID. */
     private String responseId;

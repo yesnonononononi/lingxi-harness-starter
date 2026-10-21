@@ -4,6 +4,7 @@ import com.summit.adapter.langchain4j.model.provider.*;
 import com.summit.core.model.ModelProvider;
 import com.summit.core.model.ModelProviderRegistry;
 import com.summit.core.model.chat.ChatModel;
+import com.summit.core.model.image.ImageModel;
 import com.summit.core.model.streaming.StreamingChatModel;
 import com.summit.harness.springbootautoconfigure.properties.CompactContextModelProperties;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
@@ -58,7 +59,6 @@ public class ModelProviderConfig {
     public ModelProvider<ChatModel> anthropicChatModelProvider() {
         return new AnthropicChatModelProvider();
     }
-
     @Bean
     @ConditionalOnMissingBean(name = "anthropicStreamingModelProvider")
     public ModelProvider<StreamingChatModel> anthropicStreamingModelProvider() {
@@ -71,6 +71,19 @@ public class ModelProviderConfig {
         return new AnthropicCompactContextModelProvider();
     }
 
+    @Bean(name = "commonImageModelProvider")
+    @ConditionalOnMissingBean(name = "commonImageModelProvider")
+    public ModelProvider<ImageModel> commonImageModelProvider() {
+        return new CommonImageModelProvider();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(name = "imageModelProviderRegistry")
+    public ModelProviderRegistry<ImageModel> imageModelProviderRegistry(List<ModelProvider<ImageModel>> providers) {
+        ModelProviderRegistry<ImageModel> registry = new ModelProviderRegistry<>();
+        providers.forEach(registry::register);
+        return registry;
+    }
     @Bean
     @ConditionalOnMissingBean(name = "chatModelProviderRegistry")
     public ModelProviderRegistry<ChatModel> chatModelProviderRegistry(List<ModelProvider<ChatModel>> providers) {

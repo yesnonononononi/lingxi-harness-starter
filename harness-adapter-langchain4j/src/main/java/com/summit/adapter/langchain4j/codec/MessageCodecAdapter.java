@@ -19,12 +19,15 @@ public class MessageCodecAdapter implements MessageCodec<ChatMessage, ChatRespon
 
     @Override
     public ChatMessage toFramework(Message message) {
+
         if (message instanceof SystemMessageEntity systemMessage) {
             return SystemMessage.from(systemMessage.getText());
         }
+
         if (message instanceof UserMessageEntity userMessage) {
             return UserMessage.from(ContentCodecAdapter.toFramework(userMessage.getContent()));
         }
+
         if (message instanceof AiMessageEntity aiMessage) {
             AiMessage.Builder builder = AiMessage.builder();
             if (aiMessage.getAttributes() != null) {
@@ -41,6 +44,7 @@ public class MessageCodecAdapter implements MessageCodec<ChatMessage, ChatRespon
             }
             return builder.build();
         }
+
         if (message instanceof ToolMessageEntity toolMessage) {
             return ToolExecutionResultMessage.builder()
                     .id(String.valueOf(toolMessage.getId()))
@@ -49,6 +53,7 @@ public class MessageCodecAdapter implements MessageCodec<ChatMessage, ChatRespon
                     .text(toolMessage.text())
                     .build();
         }
+
         throw new IllegalArgumentException("unsupported message type: " + message.getClass().getName());
     }
 
