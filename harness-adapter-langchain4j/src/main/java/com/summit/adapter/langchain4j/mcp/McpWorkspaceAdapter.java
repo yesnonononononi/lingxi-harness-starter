@@ -15,8 +15,13 @@ final class McpWorkspaceAdapter {
     static void validate(McpConfig config, Workspace workspace) {
         if (!isolated(workspace) || config.getMcp() == null || config.getMcp().isEmpty()) return;
         for (McpConfig.MCP server : config.getMcp()) {
-            if (!(server.conf() instanceof McpConfig.Stdio)) {
+            if (!(server.conf() instanceof McpConfig.Stdio stdio)) {
                 throw new IllegalArgumentException("Isolated workspace permits only stdio MCP: " + server.name());
+            }
+            if (stdio.workDir() != null && !stdio.workDir().isBlank()) {
+                throw new IllegalArgumentException(
+                        "Isolated workspace fixes the MCP working directory, so work-dir is not allowed: "
+                                + server.name());
             }
         }
         if (!(workspace.bridge() instanceof WorkspaceStdioLauncher)) {

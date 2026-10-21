@@ -61,6 +61,12 @@ class McpWorkspaceAdapterTest {
         assertEquals(1, closed.get());
         assertThrows(IllegalStateException.class, () -> transport.start(null));
     }
+    @Test void isolatedWorkspaceRejectsAnExplicitWorkDir() {
+        McpConfig.MCP server = new McpConfig.MCP("stdio", null, McpTransport.STDIO, new McpConfig.Stdio(
+                List.of("npx"), Map.of(), "D:/tools", Duration.ofSeconds(1), Duration.ofSeconds(1)), 100);
+        assertThrows(IllegalArgumentException.class,
+                () -> McpWorkspaceAdapter.validate(config(server), workspace(true, null)));
+    }
     private static McpConfig config(McpConfig.MCP... servers) {
         McpConfig config = new McpConfig(); config.setMcp(List.of(servers)); return config;
     }

@@ -58,6 +58,9 @@ public class McpValidator {
                 || conf.command().stream().anyMatch(part -> part == null || part.isBlank())) {
             throw invalid(key, "command must list the executable and its arguments, e.g. [npx, shadcn@latest, mcp]");
         }
+        if (conf.workDir() != null && conf.workDir().isBlank()) {
+            throw invalid(key, "work-dir must not be blank when set");
+        }
         validateTimeouts(key, conf.initializationTimeout(), conf.executionTimeout());
     }
 

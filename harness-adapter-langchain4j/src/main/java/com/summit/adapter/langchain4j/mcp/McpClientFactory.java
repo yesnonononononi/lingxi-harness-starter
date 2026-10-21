@@ -10,6 +10,7 @@ import dev.langchain4j.mcp.client.transport.stdio.StdioMcpTransport;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
@@ -70,12 +71,20 @@ public class McpClientFactory {
             // The bundled client library ships no SSE transport; the validator rejects it first.
             case McpConfig.Sse ignored -> throw new IllegalArgumentException(
                     "MCP server '" + key + "': SSE transport is not supported; use streamable-http");
-            case McpConfig.Stdio stdio -> StdioMcpTransport.builder()
-                    .command(WindowsCommandResolver.resolve(List.copyOf(stdio.command())))
-                    .environment(orEmpty(stdio.env()))
-                    .logEvents(false)
-                    .build();
+            case McpConfig.Stdio stdio -> stdioTransport(stdio);
         };
+    }
+
+    /** A configured working directory keeps a server that resolves relative paths inside its own tree. */
+    private StdioMcpTransport stdioTransport(McpConfig.Stdio stdio) {
+        StdioMcpTransport.Builder builder = StdioMcpTransport.builder()
+                .command(WindowsCommandResolver.resolve(List.copyOf(stdio.command())))
+                .environment(orEmpty(stdio.env()))
+                .logEvents(false);
+        if (stdio.workDir() != null && !stdio.workDir().isBlank()) {
+            builder.workingDirectory(Path.of(stdio.workDir()));
+        }
+        return builder.build();
     }
 
     private static Map<String, String> orEmpty(Map<String, String> values) {
