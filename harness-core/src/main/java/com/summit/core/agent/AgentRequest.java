@@ -35,7 +35,10 @@ public class AgentRequest {
      * orchestration from it.
      */
     private List<String> task;
-    /** Optional request-level whitelist of tool names. A {@code null} list keeps all registered tools unavailable; an empty list exposes no tools. Applications retain final authority over every model-visible capability. */
+    /**
+     * Grants access to named static tools; null and empty lists grant none. Remote tools belong to
+     * this request's MCP scope and are exposed progressively after discovery.
+     */
     private List<String> toolList;
     /** Optional managed workspace specification. When absent, the runtime uses the local process working directory. */
     private final  WorkspaceSpec workspaceSpec;

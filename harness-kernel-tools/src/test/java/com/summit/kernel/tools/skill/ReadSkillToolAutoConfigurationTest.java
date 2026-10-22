@@ -12,6 +12,7 @@ import org.springframework.core.env.MapPropertySource;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -32,12 +33,13 @@ class ReadSkillToolAutoConfigurationTest {
     }
 
     @Test
-    void disablingToolRemovesItsDefinitionAndExecutor() {
-        try (AnnotationConfigApplicationContext context = context(Map.of(
-                "lingxi.agent.runtime.tool.read-skill.enabled", false))) {
+    void requestWhitelistControlsAccessToTheRegisteredTool() {
+        try (AnnotationConfigApplicationContext context = context(Map.of())) {
             context.refresh();
-            assertFalse(context.containsBean("readSkillToolDefinition"));
-            assertTrue(context.getBeansOfType(ReadSkillTool.class).isEmpty());
+            ToolDefinition<?> definition = context.getBean("readSkillToolDefinition", ToolDefinition.class);
+            assertFalse(definition.allowedFor(null));
+            assertFalse(definition.allowedFor(List.of()));
+            assertTrue(definition.allowedFor(List.of(ReadSkillTool.NAME)));
         }
     }
 

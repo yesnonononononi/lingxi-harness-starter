@@ -7,7 +7,6 @@ import com.summit.core.tool.ToolRegistry;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 
@@ -16,7 +15,7 @@ import org.springframework.context.annotation.Bean;
  *
  * <p>A framework built-in rather than an application tool: the entry is what makes remote tools
  * reachable at all, so leaving its registration to each consumer is how a request ends up with MCP
- * servers connected and no way to call them. It is on unless explicitly switched off, and
+ * servers connected and no way to call them. The request tool list grants access, and
  * {@code @ConditionalOnMissingBean} keeps it replaceable — an application that wants a different
  * lookup policy declares its own {@code searchToolDefinition} and this one backs off. That
  * implementation must keep {@link SearchToolExecutor#NAME} as its tool name, since the model's
@@ -31,12 +30,6 @@ import org.springframework.context.annotation.Bean;
 public class SearchToolAutoConfiguration {
 
     @Bean
-    @ConditionalOnProperty(
-            prefix = "lingxi.agent.runtime.tool.search-tool",
-            name = "enabled",
-            havingValue = "true",
-            matchIfMissing = true
-    )
     @ConditionalOnMissingBean(name = "searchToolDefinition")
     public ToolDefinition<SearchToolExecutor> searchToolDefinition(ObjectMapper objectMapper,
                                                                    ObjectProvider<ToolRegistry> toolRegistry,

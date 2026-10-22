@@ -31,17 +31,38 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class McpAutoConfigurationTest {
     @Test
-    void disabledByDefaultDoesNotCreateConnections() {
-        try (var context = context(Map.of("lingxi.mcp.servers.github.url", "invalid"))) {
+    void defaultProviderDoesNotCreateConnectionsWithoutRequestConfiguration() {
+        try (AnnotationConfigApplicationContext context = context(Map.of("lingxi.mcp.servers.github.url", "invalid"))) {
             context.refresh();
-            assertTrue(context.getBeansOfType(McpClientFactory.class).isEmpty());
+            assertNotNull(context.getBean(McpClientFactory.class));
+            ScopeMcpProvider provider = context.getBean(ScopeMcpProvider.class);
+            assertTrue(provider.openScope(config()).isEmpty());
             assertTrue(context.getBean(ToolRegistry.class).getTools().isEmpty());
         }
     }
 
     @Test
-    void enabledConfigurationRegistersAdapterProviderWithoutOpeningConnections() {
-        try (AnnotationConfigApplicationContext context = context(Map.of("lingxi.mcp.enabled", true))) {
+    void removedGlobalSwitchCannotBlockRequestMcpConfiguration() {
+        AtomicInteger created = new AtomicInteger();
+        try (AnnotationConfigApplicationContext context = context(Map.of("lingxi.mcp.enabled", false))) {
+            context.registerBean(McpClientFactory.class, () -> new McpClientFactory() {
+                @Override
+                public McpClient create(String key, McpConfig.MCP server) {
+                    created.incrementAndGet();
+                    throw new IllegalStateException("test connection failure");
+                }
+            });
+            context.refresh();
+            ScopeMcpProvider provider = context.getBean(ScopeMcpProvider.class);
+            assertEquals(0, created.get());
+            assertTrue(provider.openScope(config(server("request-server"))).isEmpty());
+            assertEquals(1, created.get());
+        }
+    }
+
+    @Test
+    void defaultConfigurationRegistersAdapterProviderWithoutOpeningConnections() {
+        try (AnnotationConfigApplicationContext context = context(Map.of())) {
             context.registerBean(McpClientFactory.class, () -> new McpClientFactory() {
                 @Override
                 public McpClient create(String key, McpConfig.MCP server) {
@@ -57,7 +78,7 @@ class McpAutoConfigurationTest {
 
     @Test
     void applicationProviderReplacesDefault() {
-        try (AnnotationConfigApplicationContext context = context(Map.of("lingxi.mcp.enabled", true))) {
+        try (AnnotationConfigApplicationContext context = context(Map.of())) {
             ScopeMcpProvider custom = configuration -> McpToolScope.EMPTY;
             context.registerBean("customProvider", ScopeMcpProvider.class, () -> custom);
             context.refresh();
@@ -76,7 +97,7 @@ class McpAutoConfigurationTest {
                 throw new IllegalStateException("test connection failure");
             }
         };
-        try (AnnotationConfigApplicationContext context = context(Map.of("lingxi.mcp.enabled", true))) {
+        try (AnnotationConfigApplicationContext context = context(Map.of())) {
             context.registerBean("customFactory", McpClientFactory.class, () -> custom);
             context.refresh();
             assertSame(custom, context.getBean(McpClientFactory.class));
@@ -135,7 +156,7 @@ class McpAutoConfigurationTest {
         });
         server.start();
         try {
-            try (var context = context(Map.of("lingxi.mcp.enabled", true))) {
+            try (AnnotationConfigApplicationContext context = context(Map.of())) {
                 context.refresh();
                 String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/mcp";
                 McpConfig.MCP github = new McpConfig.MCP("github", null, McpTransport.STREAMABLE_HTTP,
@@ -183,7 +204,7 @@ class McpAutoConfigurationTest {
     }
 
     private static AnnotationConfigApplicationContext context(Map<String, Object> properties) {
-        var context = new AnnotationConfigApplicationContext();
+        AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
         context.getEnvironment().getPropertySources().addFirst(new MapPropertySource("test", properties));
         context.registerBean(ToolRegistry.class, () -> new ToolRegistry(List.of()));
         context.register(McpAutoConfiguration.class);

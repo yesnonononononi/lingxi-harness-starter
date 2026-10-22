@@ -9,7 +9,6 @@ import java.time.Duration;
 @Data
 @ConfigurationProperties(prefix = "lingxi.agent.runtime.tool.read-skill")
 public class ReadSkillToolProperties {
-    private boolean enabled = true;
     private int maxOutput = 20_000;
     private Duration timeout = Duration.ofSeconds(10);
 }

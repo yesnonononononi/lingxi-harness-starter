@@ -6,18 +6,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import java.time.Duration;
 
 /**
- * Settings of the framework's tool-lookup entry.
- *
- * <p>On by default: without it a request that declares MCP servers publishes résumés of remote tools
- * it can never unlock, so the feature would look broken rather than merely off. Applications that
- * would rather not expose the entry turn it off explicitly.</p>
+ * Lookup limits; the request tool list controls access to the entry.
  */
 @Data
 @ConfigurationProperties(prefix = "lingxi.agent.runtime.tool.search-tool")
 public class SearchToolProperties {
-
-    /** Whether the {@code search_tool} lookup entry is registered at all. */
-    private boolean enabled = true;
 
     /**
      * Hits returned by one search.

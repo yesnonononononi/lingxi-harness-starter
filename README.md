@@ -339,7 +339,7 @@ Configure servers in `AgentRequest.mcpConfig`. The default `AgentScopeMcpProvide
 
 MCP tools live in the request `McpToolScope` and are not registered in the global static `ToolRegistry`. Remote tools are named `mcp_` plus the original name by default; a connection or discovery failure for a single server is logged and that server is skipped. When multiple servers expose tools with the same name, the scope keeps the first one.
 
-Discovery and model visibility are separate: the prompt provides a server summary, and only tools that `search_tool` finds and discloses enter the tool list of later model requests. Therefore, when using progressive discovery you must enable `search_tool` and authorize it in the static `toolList`. MCP tools already discovered for this request are allowed at the execution layer by scope membership and do not need to be written into the static allowlist in advance.
+Discovery and model visibility are separate: the prompt provides a server summary, and only tools that `search_tool` finds and discloses enter the tool list of later model requests. Authorize `search_tool` in `AgentRequest.toolList` to use progressive discovery. MCP tools already discovered for this request are allowed at the execution layer by scope membership and do not need to be written into the static allowlist in advance.
 
 Suspension preserves the MCP scope of that execution, and resuming the same execution reuses the scope; the terminal execution path closes request-owned connections in the scope. The cache lives in the current agent process, so connections are re-established when resuming across restarts. Long suspensions require the application to schedule cancellation or continuation; the framework sets no automatic expiry. Shared connections need a custom `ScopeMcpProvider` / `McpSession`, whose lifecycle is managed by the provider.
 
@@ -358,7 +358,9 @@ AgentRequest request = AgentRequest.builder()
         .build();
 ```
 
-The default `SkillResolver` depends on CommonMark; when that parsing dependency is missing, ordinary requests can still start, while Skills requests need a custom resolver/loader or the dependency added. `read_skill` is enabled by default in the kernel tools module and can be disabled via `lingxi.agent.runtime.tool.read-skill.enabled`. The default reader accesses the Skills host directory independently of the request workspace and does not execute Skill scripts automatically.
+The default `SkillResolver` depends on CommonMark; when that parsing dependency is missing, ordinary requests can still start, while Skills requests need a custom resolver/loader or the dependency added. The kernel module registers `read_skill`; grant access through `AgentRequest.toolList`. The default reader accesses the Skills host directory independently of the request workspace and does not execute Skill scripts automatically.
+
+Kernel tools have no configuration-level enable switches. `AgentRequest.toolList` grants static tool access, and request-scoped MCP configuration supplies remote tools. Registering a definition does not grant access to it. Timeout, output and pagination limits remain configurable. Automatic context truncation and summarization follow runtime thresholds independently of whether `compact_context` is granted.
 
 ## Context Compaction
 

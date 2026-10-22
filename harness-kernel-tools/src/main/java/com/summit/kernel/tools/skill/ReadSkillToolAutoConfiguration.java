@@ -5,15 +5,12 @@ import com.summit.core.tool.ConcurrentPolicy;
 import com.summit.core.tool.ToolDefinition;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 
 /** A replacement definition keeps the tool name and the name/path argument contract. */
 @AutoConfiguration
 @EnableConfigurationProperties(ReadSkillToolProperties.class)
-@ConditionalOnProperty(prefix = "lingxi.agent.runtime.tool.read-skill", name = "enabled",
-        havingValue = "true", matchIfMissing = true)
 public class ReadSkillToolAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(value = ReadSkillTool.class, name = "readSkillToolDefinition")

@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -25,13 +26,14 @@ class KernelToolsConfigurationMetadataTest {
             assertNotNull(stream, "Spring configuration metadata must be packaged");
             String metadata = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
 
-            assertTrue(metadata.contains("lingxi.agent.runtime.tool.search-tool.enabled"));
+            assertFalse(metadata.contains("lingxi.agent.runtime.tool.search-tool.enabled"));
             assertTrue(metadata.contains("lingxi.agent.runtime.tool.search-tool.max-matches"));
             assertTrue(metadata.contains("lingxi.agent.runtime.tool.search-tool.timeout"));
-            assertTrue(metadata.contains("lingxi.agent.runtime.tool.read-skill.enabled"));
+            assertFalse(metadata.contains("lingxi.agent.runtime.tool.read-skill.enabled"));
             assertTrue(metadata.contains("lingxi.agent.runtime.tool.read-skill.max-output"));
             assertTrue(metadata.contains("lingxi.agent.runtime.tool.read-skill.timeout"));
-            assertTrue(metadata.contains("lingxi.agent.runtime.tool.context-compact.enabled"));
+            assertFalse(metadata.contains("lingxi.agent.runtime.tool.context-compact.enabled"));
+            assertFalse(metadata.contains("lingxi.agent.runtime.tool.list-mcp-tools.enabled"));
             assertTrue(metadata.contains("lingxi.agent.runtime.tool.context-compact.truncate-threshold"));
             assertTrue(metadata.contains("lingxi.agent.runtime.tool.context-compact.model-threshold"));
             assertTrue(metadata.contains("lingxi.agent.runtime.tool.context-compact.truncate-rounds"));

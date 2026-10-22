@@ -6,7 +6,6 @@ import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.compact.DefaultModelCompacter;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 
@@ -14,14 +13,9 @@ import org.springframework.context.annotation.Bean;
  * Registers the context-compaction tool, and publishes the multi-stage thresholds that decide when
  * the runtime compacts.
  *
- * <p>A framework built-in: compaction is a property of running a loop against a finite context, not
- * a capability the application decides to hand the model. It is on unless explicitly switched off,
- * and {@code @ConditionalOnMissingBean} keeps it replaceable.</p>
- *
- * <p>The policy bean is declared unconditionally, unlike the tool. The two stages of the squeeze are
- * loop behaviour — they truncate and summarize whether or not the model was ever given a tool to
- * call — so gating the thresholds on {@code enabled} would silently turn the bands off for a
- * deployment that only wanted to hide the tool.</p>
+ * <p>The request tool list grants model access to the registered definition. Automatic truncation
+ * and summarization use the policy independently of that grant. Named bean replacement changes the
+ * implementation without adding another authorization switch.</p>
  */
 @AutoConfiguration
 @EnableConfigurationProperties(ContextCompactToolProperties.class)
@@ -36,12 +30,6 @@ public class ContextCompactToolAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnProperty(
-            prefix = "lingxi.agent.runtime.tool.context-compact",
-            name = "enabled",
-            havingValue = "true",
-            matchIfMissing = true
-    )
     @ConditionalOnMissingBean(name = "contextCompactToolDefinition")
     public ToolDefinition<DefaultModelCompacter> contextCompactToolDefinition(DefaultModelCompacter compacter) {
         String name = "compact_context";

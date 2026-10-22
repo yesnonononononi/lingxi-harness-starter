@@ -4,23 +4,11 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Settings of context compaction: the tool that asks the model to summarize, and the multi-stage
- * thresholds that decide when compaction happens at all.
- *
- * <p>Both live here because they are one subject. The tool is what the model calls when it is told
- * to; the thresholds are what tells it to — splitting them across two namespaces meant the same
- * question ("when do we compress?") had two answers in two files.</p>
- *
- * <p>The tool is on by default: the field default was already {@code true} while the
- * auto-configuration only matched an explicit {@code enabled: true}, so the two disagreed and a
- * deployment that never wrote the key had no way to compact. The condition now follows the field.</p>
+ * Automatic compaction thresholds, independent of the request's tool grants.
  */
 @Data
 @ConfigurationProperties(prefix = "lingxi.agent.runtime.tool.context-compact")
 public class ContextCompactToolProperties {
-
-    /** Whether the {@code compact_context} tool is registered at all. */
-    private boolean enabled = true;
 
     /**
      * First stage: at this context-to-budget ratio the oldest tool rounds start being truncated

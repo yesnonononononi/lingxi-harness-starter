@@ -5,7 +5,6 @@ import com.summit.core.tool.ConcurrentPolicy;
 import com.summit.core.tool.ToolDefinition;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 
@@ -20,12 +19,6 @@ import org.springframework.context.annotation.Bean;
 public class ListMcpToolsAutoConfiguration {
 
     @Bean
-    @ConditionalOnProperty(
-            prefix = "lingxi.agent.runtime.tool.list-mcp-tools",
-            name = "enabled",
-            havingValue = "true",
-            matchIfMissing = true
-    )
     @ConditionalOnMissingBean(name = "listMcpToolsDefinition")
     public ToolDefinition<ListMcpToolsExecutor> listMcpToolsDefinition(ObjectMapper objectMapper,
                                                                        ListMcpToolsProperties properties) {

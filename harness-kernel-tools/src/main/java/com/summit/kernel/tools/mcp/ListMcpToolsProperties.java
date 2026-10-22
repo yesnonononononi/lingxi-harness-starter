@@ -10,9 +10,6 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "lingxi.agent.runtime.tool.list-mcp-tools")
 public class ListMcpToolsProperties {
 
-    /** Whether the entry is registered at all. */
-    private boolean enabled = true;
-
     /**
      * Largest window one listing may read. A server holding more tools than this is listed in
      * successive windows; the cap keeps a single call from flooding the context.

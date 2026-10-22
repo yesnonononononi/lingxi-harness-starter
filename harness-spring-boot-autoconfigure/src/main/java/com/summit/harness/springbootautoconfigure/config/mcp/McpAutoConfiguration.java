@@ -8,12 +8,11 @@ import dev.langchain4j.mcp.client.McpClient;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 
+/** Connections belong to request MCP configuration, not to a process-level enable switch. */
 @AutoConfiguration(after = CommonToolAutoConfiguration.class)
 @ConditionalOnClass(McpClient.class)
-@ConditionalOnProperty(prefix = "lingxi.mcp", name = "enabled", havingValue = "true")
 public class McpAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(McpClientFactory.class)
