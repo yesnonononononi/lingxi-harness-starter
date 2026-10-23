@@ -9,6 +9,7 @@ import com.summit.core.model.streaming.StreamingHandler;
 import com.summit.core.model.streaming.StreamingModelResponseHandler;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.loop.suspension.ExecutionInterruptedException;
+import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -16,11 +17,17 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
 @Getter
 @RequiredArgsConstructor
 public class StreamingModelResponseBehaveDecider implements StreamingModelResponseHandler {
+    private final AtomicBoolean reject = new AtomicBoolean(false);
+    @Getter(AccessLevel.NONE)
+    private final AtomicReference<StreamingHandler> transport = new AtomicReference<>();
+
     private int responseOffset;
     private int thinkingOffset;
 
@@ -28,9 +35,9 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
     @Builder
     public record StreamingResponseContext(
             String executionId, String agentId,
-                                           String responseId,
-                                           CompletableFuture<ChatResponseEntity> future,
-                                           Map<String, Object> eventMetaData
+            String responseId,
+            CompletableFuture<ChatResponseEntity> future,
+            Map<String, Object> eventMetaData
     ) {
         public StreamingResponseContext {
             eventMetaData = eventMetaData == null ? Map.of() : Map.copyOf(eventMetaData);
@@ -50,11 +57,8 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
     private final ExecutionControlSignal control;
 
     @Override
-    public void onPartialResponse(String partialResponse,StreamingHandler streamingHandler) {
-        if (interruptIfRequested()) {
-            streamingHandler.cancel();
-            return;
-        }
+    public void onPartialResponse(String partialResponse, StreamingHandler streamingHandler) {
+        if (rejectDelta(streamingHandler)) return;
 
         int offset = responseOffset;
         responseOffset += partialResponse.length();
@@ -74,10 +78,7 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
 
     @Override
     public void onPartialThinking(String partialThinking, StreamingHandler streamingHandler) {
-        if (interruptIfRequested()) {
-            streamingHandler.cancel();
-            return;
-        }
+        if (rejectDelta(streamingHandler)) return;
         int offset = thinkingOffset;
         thinkingOffset += partialThinking.length();
 
@@ -102,34 +103,42 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
      */
     @Override
     public void onPartialToolCall(String partialArguments, StreamingHandler streamingHandler) {
-        if (interruptIfRequested()) {
-            streamingHandler.cancel();
-        }
+        rejectDelta(streamingHandler);
+    }
+
+    private boolean rejectDelta(StreamingHandler streamingHandler) {
+        transport.set(streamingHandler);
+        if (!interruptIfRequested()) return false;
+        cancelTransport();
+        return true;
     }
 
     /**
      * Aborts the pending stream when the execution has been asked to stop.
      *
-     * <p>Completing the future exceptionally unblocks the {@code join()} held by the streaming
-     * invoker, which is the only way to take control back from a model call in progress. The
-     * underlying transport may keep draining in the background; the loop stops consuming it, which
-     * is what matters for a cooperative suspend.</p>
+     * <p>The attempt must reject callbacks before its future wakes the invoker; otherwise a retry
+     * can start while the previous attempt still publishes events.</p>
      *
      * @return {@code true} when the stream was aborted and the current delta must be dropped
      */
     private boolean interruptIfRequested() {
+        if (reject.get()) return true;
         if (control == null) return false;
 
         ExecutionInterruptedException.Kind kind = control.isCancelRequired()
                 ? ExecutionInterruptedException.Kind.CANCEL
                 : control.isSuspendRequired() ? ExecutionInterruptedException.Kind.SUSPEND : null;
 
-        if (kind == null) return false;
+        if (kind == null) return reject.get();
 
-        if (!streamingResponseContext.future().isDone()) {
-            streamingResponseContext.future().completeExceptionally(
-                    new ExecutionInterruptedException(kind,
-                            "execution interrupted mid-stream: " + kind.name().toLowerCase()));
+        if (reject.compareAndSet(false, true)) {
+            try {
+                cancelTransport();
+            } finally {
+                streamingResponseContext.future().completeExceptionally(
+                        new ExecutionInterruptedException(kind,
+                                "execution interrupted mid-stream: " + kind.name().toLowerCase()));
+            }
         }
 
         return true;
@@ -137,31 +146,52 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
 
     @Override
     public void onFinalResponse(ChatResponseEntity completeResponse) {
-        if (interruptIfRequested())  return;
+        if (interruptIfRequested() || !reject.compareAndSet(false, true)) return;
 
-        completeResponse.setResponseId(streamingResponseContext.responseId());
-        this.runtimeEventPublisher.onCompleteText(
-                AgentCompleteTextEvent.builder()
-                        .agentId(streamingResponseContext.agentId())
-                        .responseId(streamingResponseContext.responseId())
-                        .executionId(streamingResponseContext.executionId())
-                        .metaData(streamingResponseContext.eventMetaData())
-                        .content(completeResponse.getAiMessageEntity().getText())
-                        .meta(completeResponse.getMeta())
-                        .build()
-        );
+        try {
+            completeResponse.setResponseId(streamingResponseContext.responseId());
+            this.runtimeEventPublisher.onCompleteText(
+                    AgentCompleteTextEvent.builder()
+                            .agentId(streamingResponseContext.agentId())
+                            .responseId(streamingResponseContext.responseId())
+                            .executionId(streamingResponseContext.executionId())
+                            .metaData(streamingResponseContext.eventMetaData())
+                            .content(completeResponse.getAiMessageEntity().getText())
+                            .meta(completeResponse.getMeta())
+                            .build()
+            );
 
-        if (!streamingResponseContext.future().complete(completeResponse)) {
-            log.debug("discarding final response of an interrupted execution, executionId={}",
-                    streamingResponseContext.executionId());
+            streamingResponseContext.future().complete(completeResponse);
+        } catch (RuntimeException | Error error) {
+            try {
+                cancelTransport();
+            } finally {
+                streamingResponseContext.future().completeExceptionally(error);
+            }
+            throw error;
         }
     }
 
 
     @Override
     public void onError(Throwable error) {
-        if (streamingResponseContext.future().isDone()) return;
-        log.error("streaming model request failed, executionId={}", this.streamingResponseContext.executionId(), error);
-        this.streamingResponseContext.future().completeExceptionally(error);
+        if (!reject.compareAndSet(false, true)) return;
+        try {
+            cancelTransport();
+        } finally {
+            log.error("error has happened at the process: executionId={}", streamingResponseContext.executionId(), error);
+            streamingResponseContext.future().completeExceptionally(error);
+        }
+    }
+
+    /** Transport cleanup must not replace the attempt's original failure. */
+    private void cancelTransport() {
+        StreamingHandler handle = transport.getAndSet(null);
+        if (handle == null) return;
+        try {
+            handle.cancel();
+        } catch (RuntimeException error) {
+            log.warn("failed to cancel the model response: executionId={}", streamingResponseContext.executionId(), error);
+        }
     }
 }
