@@ -46,7 +46,12 @@ public class ChatModelAdapter implements ChatModel {
     @Override
     public ChatResponseEntity chat(ChatRequestEntity request) {
         ChatRequest chatRequest = ChatRequestBuilder.buildRequest(request, messageCodec, toolCodec);
-        ChatResponse chatResponse = delegate.chat(chatRequest);
+        ChatResponse chatResponse;
+        try {
+            chatResponse = delegate.chat(chatRequest);
+        } catch (RuntimeException error) {
+            throw ModelExceptionMapper.map(error);
+        }
 
         return messageCodec.toChatResponseEntity(chatResponse);
     }

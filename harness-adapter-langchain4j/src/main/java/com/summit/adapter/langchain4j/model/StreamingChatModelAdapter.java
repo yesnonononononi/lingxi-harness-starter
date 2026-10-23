@@ -49,7 +49,11 @@ public class StreamingChatModelAdapter implements StreamingChatModel {
     @Override
     public void chat(ChatRequestEntity request, StreamingChatResponseHandler handler) {
         ChatRequest chatRequest = ChatRequestBuilder.buildRequest(request, messageCodec, toolCodec);
-        delegate.chat(chatRequest, new StreamingHandlerBridge(handler, messageCodec));
+        try {
+            delegate.chat(chatRequest, new StreamingHandlerBridge(handler, messageCodec));
+        } catch (RuntimeException error) {
+            throw ModelExceptionMapper.map(error);
+        }
 
     }
 
@@ -103,7 +107,7 @@ public class StreamingChatModelAdapter implements StreamingChatModel {
 
         @Override
         public void onError(Throwable error) {
-            target.onError(error);
+            target.onError(ModelExceptionMapper.map(error));
         }
     }
 }
