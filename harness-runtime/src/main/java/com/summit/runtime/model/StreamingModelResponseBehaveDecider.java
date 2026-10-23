@@ -5,6 +5,7 @@ import com.summit.core.conversation.event.AgentCompleteTextEvent;
 import com.summit.core.conversation.event.AgentPartialTextEvent;
 import com.summit.core.conversation.event.AgentPartialThinkingEvent;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.model.ModelInvocationUsage;
 import com.summit.core.model.streaming.StreamingHandler;
 import com.summit.core.model.streaming.StreamingModelResponseHandler;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
@@ -37,7 +38,8 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
             String executionId, String agentId,
             String responseId,
             CompletableFuture<ChatResponseEntity> future,
-            Map<String, Object> eventMetaData
+            Map<String, Object> eventMetaData,
+            ModelInvocationUsage invocationUsage
     ) {
         public StreamingResponseContext {
             eventMetaData = eventMetaData == null ? Map.of() : Map.copyOf(eventMetaData);
@@ -123,22 +125,13 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
      */
     private boolean interruptIfRequested() {
         if (reject.get()) return true;
-        if (control == null) return false;
 
-        ExecutionInterruptedException.Kind kind = control.isCancelRequired()
-                ? ExecutionInterruptedException.Kind.CANCEL
-                : control.isSuspendRequired() ? ExecutionInterruptedException.Kind.SUSPEND : null;
+        ExecutionInterruptedException.Kind kind = resolveInterruption();
 
         if (kind == null) return reject.get();
 
         if (reject.compareAndSet(false, true)) {
-            try {
-                cancelTransport();
-            } finally {
-                streamingResponseContext.future().completeExceptionally(
-                        new ExecutionInterruptedException(kind,
-                                "execution interrupted mid-stream: " + kind.name().toLowerCase()));
-            }
+            completeInterruption(kind);
         }
 
         return true;
@@ -146,9 +139,19 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
 
     @Override
     public void onFinalResponse(ChatResponseEntity completeResponse) {
-        if (interruptIfRequested() || !reject.compareAndSet(false, true)) return;
+        if (!reject.compareAndSet(false, true)) return;
 
         try {
+            // A received response incurs usage even if control or event publication prevents delivery.
+            if (streamingResponseContext.invocationUsage() != null) {
+                streamingResponseContext.invocationUsage().recordUsage(streamingResponseContext.responseId(),
+                        completeResponse.getTokenUsage());
+            }
+            ExecutionInterruptedException.Kind kind = resolveInterruption();
+            if (kind != null) {
+                completeInterruption(kind);
+                return;
+            }
             completeResponse.setResponseId(streamingResponseContext.responseId());
             this.runtimeEventPublisher.onCompleteText(
                     AgentCompleteTextEvent.builder()
@@ -169,6 +172,31 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
                 streamingResponseContext.future().completeExceptionally(error);
             }
             throw error;
+        }
+    }
+
+    public void checkInterruption() {
+        interruptIfRequested();
+    }
+
+    void interrupt(ExecutionInterruptedException.Kind kind) {
+        if (reject.compareAndSet(false, true)) completeInterruption(kind);
+    }
+
+    private ExecutionInterruptedException.Kind resolveInterruption() {
+        if (Thread.currentThread().isInterrupted()) return ExecutionInterruptedException.Kind.CANCEL;
+        if (control == null) return null;
+        return control.isCancelRequired() ? ExecutionInterruptedException.Kind.CANCEL
+                : control.isSuspendRequired() ? ExecutionInterruptedException.Kind.SUSPEND : null;
+    }
+
+    private void completeInterruption(ExecutionInterruptedException.Kind kind) {
+        try {
+            cancelTransport();
+        } finally {
+            streamingResponseContext.future().completeExceptionally(
+                    new ExecutionInterruptedException(kind,
+                            "execution interrupted mid-stream: " + kind.name().toLowerCase()));
         }
     }
 

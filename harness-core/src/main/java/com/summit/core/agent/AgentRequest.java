@@ -3,6 +3,7 @@ package com.summit.core.agent;
 
 import com.summit.core.conf.McpConfig;
 import com.summit.core.conf.ModelConfig;
+import com.summit.core.conf.ModelRetryConfig;
 import com.summit.core.conf.SkillConfig;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.memory.MemoryConfig;
@@ -53,6 +54,9 @@ public class AgentRequest {
 
     /** Request-level model configuration. Used as is for this request — no field-level fallback to the application configuration. Takes precedence over {@link #modelProvider}. */
     private ModelConfig modelConfig;
+
+    /** Absent or disabled settings leave framework retries off. */
+    private ModelRetryConfig retryConfig;
 
     public AgentRuntimeParameters runtimeParametersOrDefault() {
         return runtimeParameters != null ? runtimeParameters : AgentRuntimeParameters.builder().build();

@@ -10,7 +10,9 @@ import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.event.*;
 import com.summit.core.conversation.message.*;
 import com.summit.core.exception.MaxStepsExceededException;
+import com.summit.core.model.chat.ChatModel;
 import com.summit.core.model.ModelInvoker;
+import com.summit.runtime.model.DefaultChatModelInvoker;
 import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.runtime.loop.*;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
@@ -101,7 +103,7 @@ class LoopRegressionTest {
                 .loopInterceptorProcessor(new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor())))
                 .runtimeBoundaryChecker(boundaryChecker(3))
                 .usage(new ContextUsageReporter(tokenizer, 1_024_000, events, 1))
-                .invoker(command -> response(rounds.getAndIncrement() == 0)).build();
+                .invoker(new DefaultChatModelInvoker(request -> response(rounds.getAndIncrement() == 0))).build();
         ExecutionControlSignal control = repository.register(execution.getId());
         try {
             assertEquals(LoopResult.Status.COMPLETED, new AgentLoopStepRunner(context).run(execution, control).status());
@@ -134,16 +136,16 @@ class LoopRegressionTest {
                 .tokenUsage(TokenUsageEntity.of(3, 2, 1)).build();
     }
 
-    private RuntimeProcessorTemplate runtime(ModelInvoker invoker, List<ToolExecuteResult> results,
+    private RuntimeProcessorTemplate runtime(ChatModel model, List<ToolExecuteResult> results,
                                              LoopInterceptor interceptor, int maxSteps, RuntimeListener listener) {
-        return runtime(invoker, results, interceptor, maxSteps, listener, null);
+        return runtime(model, results, interceptor, maxSteps, listener, null);
     }
 
-    private RuntimeProcessorTemplate runtime(ModelInvoker invoker, List<ToolExecuteResult> results,
+    private RuntimeProcessorTemplate runtime(ChatModel model, List<ToolExecuteResult> results,
                                              LoopInterceptor interceptor, int maxSteps, RuntimeListener listener,
                                              RuntimeLifeStyleManager lifecycle) {
         LoopInterceptor framework = new DefaultLoopInterceptor();
-        return runtime(invoker, results,
+        return runtime(model, results,
                 new DefaultLoopInterceptorProcessor(List.of(framework, interceptor)), maxSteps, listener, lifecycle);
     }
 
@@ -152,13 +154,13 @@ class LoopRegressionTest {
                 tokenizer, conversations, null, null);
     }
 
-    private RuntimeProcessorTemplate runtime(ModelInvoker invoker, List<ToolExecuteResult> results,
+    private RuntimeProcessorTemplate runtime(ChatModel model, List<ToolExecuteResult> results,
                                              LoopInterceptorProcessor interceptorProcessor, int maxSteps,
                                              RuntimeListener listener, RuntimeLifeStyleManager lifecycle) {
-        return runtime(invoker, results, interceptorProcessor, listener, lifecycle, boundaryChecker(maxSteps));
+        return runtime(model, results, interceptorProcessor, listener, lifecycle, boundaryChecker(maxSteps));
     }
 
-    private RuntimeProcessorTemplate runtime(ModelInvoker invoker, List<ToolExecuteResult> results,
+    private RuntimeProcessorTemplate runtime(ChatModel model, List<ToolExecuteResult> results,
                                              LoopInterceptorProcessor interceptorProcessor,
                                              RuntimeListener listener, RuntimeLifeStyleManager lifecycle,
                                              RuntimeBoundaryChecker checker) {
@@ -166,7 +168,7 @@ class LoopRegressionTest {
             public List<ToolExecuteResult> execute(ToolExecuteCommand command) { return results; }
             public ToolRegistry toolRegistry() { return new ToolRegistry(List.of()); }
         };
-        return runtimeWithTools(invoker, tools, interceptorProcessor, listener, lifecycle, checker);
+        return runtimeWithTools(new DefaultChatModelInvoker(model), tools, interceptorProcessor, listener, lifecycle, checker);
     }
 
     private RuntimeProcessorTemplate runtimeWithTools(ModelInvoker invoker, ToolExecutionManager tools,
@@ -245,7 +247,7 @@ class LoopRegressionTest {
         assertEquals(3, restored.getTokenUsage().getTotalTokens());
         assertEquals(new TokenInfo(2, 1, 3, 1, 1), TokenInfo.from(restored.getTokenUsage()));
         runtime(command -> {
-            assertTrue(command.chatRequest().getMessages().stream()
+            assertTrue(command.getMessages().stream()
                     .anyMatch(message -> message instanceof AiMessageEntity ai && "answer".equals(ai.getText())));
             ChatResponseEntity next = detailedResponse();
             next.getAiMessageEntity().setText("child result accepted");
@@ -342,11 +344,11 @@ class LoopRegressionTest {
             public List<ToolExecuteResult> execute(ToolExecuteCommand command) { throw failure; }
             public ToolRegistry toolRegistry() { return new ToolRegistry(List.of()); }
         };
-        RuntimeProcessorTemplate runtime = runtimeWithTools(command -> {
+        RuntimeProcessorTemplate runtime = runtimeWithTools(new DefaultChatModelInvoker(command -> {
             ChatResponseEntity response = detailedResponse();
             response.getAiMessageEntity().setToolCalls(List.of(new ToolCallRequest("c", "test", 0, "{}")));
             return response;
-        }, tools, new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor())),
+        }), tools, new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor())),
                 new RuntimeListener() {
                     @Override public void onExecutionError(ExecutionErrorEvent event) {
                         failedUsage.set(event.getTokenInfo());
@@ -642,11 +644,11 @@ class LoopRegressionTest {
         AtomicInteger calls = new AtomicInteger();
         AtomicReference<List<Message>> served = new AtomicReference<>();
         Execution execution = execution();
-        ModelInvoker invoker = command -> {
-            served.set(command.chatRequest().getMessages());
+        ChatModel model = command -> {
+            served.set(command.getMessages());
             return response(calls.getAndIncrement() == 0);
         };
-        runtime(invoker,
+        runtime(model,
                 List.of(ToolExecuteResult.success("{\"summary\":\"finished earlier work\"}", ToolResultType.CONTEXT_COMPACT)),
                 LoopInterceptor.NOOP, 2, new RuntimeListener() {}).execute(execution);
         List<Message> compactedContext = served.get();
@@ -754,7 +756,7 @@ class LoopRegressionTest {
                 .runtimeEventPublisher(new RuntimeEventPublisher(List.of()))
                 .loopInterceptorProcessor(new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor(), observer)))
                 .runtimeBoundaryChecker(boundaryChecker(10)).maxConsecutiveCompactions(2)
-                .invoker(command -> response(true)).build());
+                .invoker(new DefaultChatModelInvoker(request -> response(true))).build());
         for (int run = 0; run < 2; run++) {
             Execution execution = execution();
             execution.setId("run-" + run);
@@ -833,7 +835,7 @@ class LoopRegressionTest {
         runtime(command -> {
             phases.add("model");
             assertEquals(1, execution.getModelAttempts());
-            assertTrue(command.chatRequest().getMessages().stream()
+            assertTrue(command.getMessages().stream()
                     .anyMatch(message -> message.text().equals("checked input")));
             return response(false);
         }, List.of(), new DefaultLoopInterceptorProcessor(List.of(last, new DefaultLoopInterceptor(), first)),
@@ -1121,9 +1123,14 @@ class LoopRegressionTest {
         Exception primary = new Exception("checked model failure");
         IllegalStateException cleanup = new IllegalStateException("round projection failed");
 
+        ToolExecutionManager tools = new ToolExecutionManager() {
+            public List<ToolExecuteResult> execute(ToolExecuteCommand command) { return List.of(); }
+            public ToolRegistry toolRegistry() { return new ToolRegistry(List.of()); }
+        };
         RuntimeException thrown = assertThrows(RuntimeException.class, () ->
-                runtime(command -> { throw primary; }, List.of(), failingRoundEnd(cleanup), 1,
-                        new RuntimeListener() { }).execute(execution));
+                runtimeWithTools(command -> { throw primary; }, tools,
+                        new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor(), failingRoundEnd(cleanup))),
+                        new RuntimeListener() { }, null, boundaryChecker(1)).execute(execution));
 
         assertSame(primary, thrown.getCause());
         assertArrayEquals(new Throwable[] { cleanup }, primary.getSuppressed());

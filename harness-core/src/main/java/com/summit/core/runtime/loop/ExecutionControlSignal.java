@@ -1,5 +1,6 @@
 package com.summit.core.runtime.loop;
 
+import com.summit.core.runtime.loop.suspension.ExecutionInterruptedException;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
@@ -22,6 +23,17 @@ public final class ExecutionControlSignal {
 
     public boolean isCancelRequired() {
         return intention == Intention.REQUIRE_CANCEL;
+    }
+
+    public void checkInterruption() {
+        if (isCancelRequired() || Thread.currentThread().isInterrupted()) {
+            throw new ExecutionInterruptedException(ExecutionInterruptedException.Kind.CANCEL,
+                    "execution cancellation requested");
+        }
+        if (isSuspendRequired()) {
+            throw new ExecutionInterruptedException(ExecutionInterruptedException.Kind.SUSPEND,
+                    "execution suspension requested");
+        }
     }
 
     public synchronized void requireSuspend() {

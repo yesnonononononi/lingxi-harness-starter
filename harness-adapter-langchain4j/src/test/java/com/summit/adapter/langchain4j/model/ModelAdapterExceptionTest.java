@@ -27,6 +27,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
 import java.io.IOException;
+import java.io.InterruptedIOException;
+import java.io.EOFException;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
+import java.net.http.HttpTimeoutException;
+import java.nio.channels.ClosedChannelException;
+import javax.net.ssl.SSLHandshakeException;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
@@ -67,8 +75,8 @@ class ModelAdapterExceptionTest {
     Stream<DynamicTest> unknownAndControlFailuresRemainUnchanged() {
         List<RuntimeException> failures = List.of(
                 new IllegalStateException("unexpected"),
-                new LangChain4jException(new IOException("closed")),
-                new CompletionException(new IOException("header parser received no bytes")),
+                new LangChain4jException(new SSLHandshakeException("certificate rejected")),
+                new CompletionException(new InterruptedIOException("interrupted")),
                 new RuntimeException(new RateLimitException("not an asynchronous wrapper")),
                 new CancellationException("cancelled"),
                 new ExecutionInterruptedException(ExecutionInterruptedException.Kind.CANCEL, "cancelled"),
@@ -79,6 +87,19 @@ class ModelAdapterExceptionTest {
         return Stream.of(Boundary.values()).flatMap(boundary -> failures.stream().map(failure ->
                 DynamicTest.dynamicTest(boundary + " preserves " + failure.getClass().getSimpleName()
                         + ": " + failure.getMessage(), () -> assertSame(failure, invoke(boundary, failure)))));
+    }
+
+    @TestFactory
+    Stream<DynamicTest> transportFailuresAreClassifiedAtEveryChatBoundary() {
+        List<IOException> failures = List.of(new IOException("HTTP/1.1 header parser received no bytes"),
+                new EOFException("closed"), new SocketException("connection reset"),
+                new SocketTimeoutException("read timed out"), new UnknownHostException("temporary DNS failure"),
+                new HttpTimeoutException("request timed out"), new ClosedChannelException());
+        return Stream.of(Boundary.values()).flatMap(boundary -> failures.stream().map(failure ->
+                DynamicTest.dynamicTest(boundary + " transport " + failure.getClass().getSimpleName(), () -> {
+                    RuntimeException wrapped = new CompletionException(new LangChain4jException(failure));
+                    assertSame(wrapped, assertInstanceOf(RetriableModelException.class, invoke(boundary, wrapped)).getCause());
+                })));
     }
 
     @Test
@@ -98,7 +119,7 @@ class ModelAdapterExceptionTest {
 
         IOException unknown = new IOException("closed");
         bridge.get().onError(unknown);
-        assertSame(unknown, target.error);
+        assertSame(unknown, assertInstanceOf(RetriableModelException.class, target.error).getCause());
         AssertionError fatal = new AssertionError("fatal");
         bridge.get().onError(fatal);
         assertSame(fatal, target.error);

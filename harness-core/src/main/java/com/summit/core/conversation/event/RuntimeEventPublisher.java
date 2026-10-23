@@ -18,13 +18,13 @@ public class RuntimeEventPublisher {
 
     public void onExecutionStart(ExecutionStartEvent event) {
 
-            listeners.forEach(listener -> {
-                try {
-                    listener.onExecutionStart(event);
-                }catch (Exception e){
-                    log.error("Error occurred while publishing execution start event, listenerId:{}",listener.id(), e);
-                }
-            });
+        listeners.forEach(listener -> {
+            try {
+                listener.onExecutionStart(event);
+            } catch (Exception e) {
+                log.error("Error occurred while publishing execution start event, listenerId:{}", listener.id(), e);
+            }
+        });
     }
 
     public void onExecutionResumed(ExecutionResumedEvent executionResumeEvent) {
@@ -107,12 +107,22 @@ public class RuntimeEventPublisher {
         });
     }
 
+    public void onInvokeRetry(InvokeRetryEvent event) {
+      listeners.forEach(listener -> {
+          try{
+              listener.onInvokeRetry(event);
+          }catch (Exception e){
+              log.error("Error occurred while publishing invoke retry event, listenerId:{}", listener.id(), e);
+          }
+      });
+    }
+
     public void onApplicationEvent(Object event) {
         listeners.forEach(listener -> {
             try {
                 listener.onApplicationEvent(event);
-            } catch (Exception e) {
-                log.error("Error occurred while publishing application event, listenerId:{}", listener.id(), e);
+            } catch (Exception error) {
+                log.error("Error occurred while publishing application event, listenerId:{}", listener.id(), error);
             }
         });
     }

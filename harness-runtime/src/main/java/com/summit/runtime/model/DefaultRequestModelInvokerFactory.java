@@ -1,6 +1,7 @@
 package com.summit.runtime.model;
 
 import com.summit.core.conf.ModelConfig;
+import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.exception.NoSuchModelProviderException;
 import com.summit.core.model.ModelInvoker;
 import com.summit.core.model.ModelProviderRegistry;
@@ -27,8 +28,10 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class DefaultRequestModelInvokerFactory implements RequestModelInvokerFactory {
     private static final String PROVIDER_KEY_PREFIX = "provider:";
+
     // Keep a private snapshot: callers and providers may mutate their own ModelConfig instances.
-    private record ConfigKey(ModelConfig snapshot) {}
+    private record ConfigKey(ModelConfig snapshot) {
+    }
 
     private final String defaultProvider;
     private final ModelConfig modelConfig;
@@ -65,8 +68,8 @@ public final class DefaultRequestModelInvokerFactory implements RequestModelInvo
         return getSelection(name, this.modelConfig.toBuilder().provider(name).build());
     }
 
-    private String name(String providerName){
-       return providerName == null || providerName.isBlank()
+    private String name(String providerName) {
+        return providerName == null || providerName.isBlank()
                 ? defaultProvider : providerName.trim();
     }
 
@@ -82,7 +85,7 @@ public final class DefaultRequestModelInvokerFactory implements RequestModelInvo
         }
         if (chat) {
             ChatModel model = chatProviders.create(modelConfig);
-            ModelInvoker invoker = command -> model.chat(command.chatRequest());
+            ModelInvoker invoker = new DefaultChatModelInvoker(model);
             return new Selection(name, invoker, false);
         }
         throw new NoSuchModelProviderException("No such model provider: " + name);

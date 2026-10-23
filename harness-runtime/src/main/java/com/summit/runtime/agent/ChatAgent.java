@@ -137,7 +137,12 @@ public abstract class ChatAgent implements Agent {
     }
 
     protected RequestModelInvokerFactory.Selection findSelection(AgentRequest agentRequest) {
-        return this.modelInvokerFactory.select(resolveModelConfig(agentRequest));
+        ModelConfig config = resolveModelConfig(agentRequest);
+        if (agentRequest.getRetryConfig() != null && agentRequest.getRetryConfig().isEnabled()) {
+            // Runtime retries own control, attempt identity and budget; SDK retries must not multiply them.
+            config = config.toBuilder().maxRetries(0).build();
+        }
+        return this.modelInvokerFactory.select(config);
     }
 
     /**

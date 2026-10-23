@@ -9,7 +9,7 @@ import com.summit.core.conversation.event.AgentMessageEvent;
 import com.summit.core.conversation.event.ContextUpdateEvent;
 import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.Message;
-import com.summit.core.model.ModelChatCommand;
+import com.summit.core.model.ModelInvocationUsage;
 import com.summit.core.runtime.loop.*;
 import com.summit.core.runtime.loop.suspension.ExecutionInterruptedException;
 import com.summit.core.tool.ToolExecuteCommand;
@@ -133,8 +133,6 @@ public class AgentLoopStepRunner {
                 return RoundOutcome.finish(toLoopResult(e));
             }
             messages.response(response);
-            // Returned usage is incurred even when this round is never committed to the conversation.
-            execution.getTokenUsage().add(response.getTokenUsage());
 
             halt = haltOf(interceptor.onAfterModelInvoke(loopContext, response));
             if (halt != null) return RoundOutcome.finish(halt);
@@ -218,12 +216,10 @@ public class AgentLoopStepRunner {
         // -----------------------------------------------------------------------------------
 
         private @NonNull ChatResponseEntity invokeModel() throws Exception {
-            String responseId = execution.nextResponseId(context.getResponseIdGenerator());
+            ModelInvocationUsage invocationUsage = new ModelInvocationUsage();
             try {
-                ModelChatCommand command = modelRequests.build(execution, configuredTools(), responseId, control);
-                ChatResponseEntity response = context.getInvoker().invoke(command);
-                response.setResponseId(responseId);
-                return response;
+                return context.getInvoker().invoke(modelRequests.buildAttempts(execution, configuredTools(), control,
+                        invocationUsage));
             } catch (Exception e) {
                 // A control request reached the streaming handler while the model was still producing
                 // output. The streaming invoker waits on a CompletableFuture, and CompletableFuture.join()
@@ -232,6 +228,9 @@ public class AgentLoopStepRunner {
                 ExecutionInterruptedException interrupted = findInterrupted(e);
                 if (interrupted != null) throw interrupted;
                 throw e;
+            } finally {
+                // Usage is incurred even if invocation fails or the round is never committed.
+                execution.getTokenUsage().add(invocationUsage.finish());
             }
         }
 

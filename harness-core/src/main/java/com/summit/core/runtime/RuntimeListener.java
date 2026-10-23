@@ -73,5 +73,7 @@ public interface RuntimeListener {
 
     default void onCompleteText(AgentCompleteTextEvent event){};
 
-    ;
+    default  void onInvokeRetry(InvokeRetryEvent event){};
+
+
 }

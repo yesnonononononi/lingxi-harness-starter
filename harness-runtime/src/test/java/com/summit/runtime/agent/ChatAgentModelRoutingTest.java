@@ -2,12 +2,36 @@ package com.summit.runtime.agent;
 
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.conf.ModelConfig;
+import com.summit.core.conf.ModelRetryConfig;
+import com.summit.core.model.RequestModelInvokerFactory;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 class ChatAgentModelRoutingTest {
+    @Test
+    void runtimeRetryOwnershipDisablesSdkRetriesWithoutChangingTheStoredConfig() {
+        AtomicReference<ModelConfig> selected = new AtomicReference<>();
+        RequestModelInvokerFactory factory = new RequestModelInvokerFactory() {
+            public Selection select(ModelConfig config) {
+                selected.set(config);
+                return new Selection("test", command -> null, false);
+            }
+            public Selection select(String provider) { return select(ModelConfig.builder().provider(provider).build()); }
+        };
+        ChatAgent selectedAgent = new ChatAgent(null, factory, null, null, null, null) {
+            public String id() { return "retry-test"; }
+        };
+        ModelConfig config = ModelConfig.builder().provider("test").maxRetries(3).build();
+        selectedAgent.findSelection(AgentRequest.builder().modelConfig(config)
+                .retryConfig(ModelRetryConfig.builder().enabled(true).build()).build());
+        assertEquals(0, selected.get().getMaxRetries());
+        assertEquals(3, config.getMaxRetries());
+        selectedAgent.findSelection(AgentRequest.builder().modelConfig(config).build());
+        assertEquals(3, selected.get().getMaxRetries());
+    }
     private final ChatAgent agent = new ChatAgent(null, null, null, null, null, null) {
         public String id() { return "routing-test"; }
     };

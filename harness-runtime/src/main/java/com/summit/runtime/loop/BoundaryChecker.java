@@ -47,11 +47,16 @@ public class  BoundaryChecker implements RuntimeBoundaryChecker {
 
     @Override
     public CheckPointResult before(Execution execution) {
+        checkModelAttempt(execution);
+        compactIfNeeded(execution);
+        return CheckPointResult.continueWith();
+    }
+
+    @Override
+    public void checkModelAttempt(Execution execution) {
         if (execution.getModelAttempts() >= effectiveMaxSteps(execution)) {
             throw new MaxStepsExceededException("loop exceeded maximum steps");
         }
-        compactIfNeeded(execution);
-        return CheckPointResult.continueWith();
     }
 
     @Override

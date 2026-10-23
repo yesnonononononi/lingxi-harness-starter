@@ -27,6 +27,7 @@ import com.summit.runtime.conversation.DefaultRuntimeFactory;
 import com.summit.runtime.conversation.DefaultTokenizer;
 import com.summit.runtime.loop.*;
 import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
+import com.summit.runtime.model.DefaultChatModelInvoker;
 import com.summit.runtime.model.ModelRequestFactory;
 import com.summit.runtime.model.StreamingModelResponseBehaveDecider;
 import com.summit.runtime.tool.DefaultToolExecutionManager;
@@ -289,13 +290,22 @@ class ResponseIdentityPropagationTest {
                     .toolRegistry(new ToolRegistry(List.of(definition))).runtimeEventPublisher(publisher).build(),
                     invocation -> invocation.getMethod().invoke(invocation.getTarget(), invocation.getContext()), chain);
             AtomicInteger calls = new AtomicInteger();
+            AtomicReference<String> completedResponseId = new AtomicReference<>();
+            DefaultChatModelInvoker invoker = new DefaultChatModelInvoker(
+                    modelRequest -> response(calls.getAndIncrement() == 0));
             context = RuntimeContext.builder().conversationManager(conversations).workspace(workspace())
                     .responseIdGenerator(generator)
                     .runtimeEventPublisher(publisher).toolExecutionManager(tools)
                     .loopInterceptorProcessor(new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor())))
                     .runtimeBoundaryChecker(new BoundaryChecker(AgentConfig.builder().maxIterations(4).build(),
                             new DefaultTokenizer(), conversations, null, null))
-                    .invoker(command -> response(calls.getAndIncrement() == 0)).build();
+                    .invoker(commands -> {
+                        assertEquals(completedResponseId.get(), execution.getLastResponseId(),
+                                "The loop must not allocate an attempt before the invoker consumes its command");
+                        ChatResponseEntity answer = invoker.invoke(commands);
+                        completedResponseId.set(answer.getResponseId());
+                        return answer;
+                    }).build();
         }
 
         private LoopResult run() throws Exception {
