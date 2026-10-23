@@ -8,6 +8,8 @@ import com.summit.core.model.image.ImageModel;
 import com.summit.core.model.streaming.StreamingChatModel;
 import com.summit.harness.springbootautoconfigure.properties.CompactContextModelProperties;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
+import dev.langchain4j.http.client.HttpClientBuilderFactory;
+import dev.langchain4j.http.client.jdk.JdkHttpClient;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -29,21 +31,27 @@ import java.util.List;
 public class ModelProviderConfig {
 
     @Bean
+    @ConditionalOnMissingBean(HttpClientBuilderFactory.class)
+    public HttpClientBuilderFactory httpClientBuilderFactory() {
+        return JdkHttpClient::builder;
+    }
+
+    @Bean
     @ConditionalOnMissingBean(name = "chatModelModelProvider")
-    public ModelProvider<ChatModel> chatModelModelProvider() {
-        return new OpenAiChatModelProvider();
+    public ModelProvider<ChatModel> chatModelModelProvider(HttpClientBuilderFactory httpClientBuilderFactory) {
+        return new OpenAiChatModelProvider(httpClientBuilderFactory);
     }
 
     @Bean
     @ConditionalOnMissingBean(name = "streamingChatModelModelProvider")
-    public ModelProvider<StreamingChatModel> streamingChatModelModelProvider() {
-        return new OpenAiStreamingModelProvider();
+    public ModelProvider<StreamingChatModel> streamingChatModelModelProvider(HttpClientBuilderFactory httpClientBuilderFactory) {
+        return new OpenAiStreamingModelProvider(httpClientBuilderFactory);
     }
 
     @Bean(name = "compactContextChatModelProvider")
     @ConditionalOnMissingBean(name = "compactContextChatModelProvider")
-    public ModelProvider<ChatModel> compactContextChatModelProvider() {
-        return new OpenAiCompactContextModelProvider();
+    public ModelProvider<ChatModel> compactContextChatModelProvider(HttpClientBuilderFactory httpClientBuilderFactory) {
+        return new OpenAiCompactContextModelProvider(httpClientBuilderFactory);
     }
 
     @Bean
@@ -56,25 +64,25 @@ public class ModelProviderConfig {
 
     @Bean
     @ConditionalOnMissingBean(name = "anthropicChatModelProvider")
-    public ModelProvider<ChatModel> anthropicChatModelProvider() {
-        return new AnthropicChatModelProvider();
+    public ModelProvider<ChatModel> anthropicChatModelProvider(HttpClientBuilderFactory httpClientBuilderFactory) {
+        return new AnthropicChatModelProvider(httpClientBuilderFactory);
     }
     @Bean
     @ConditionalOnMissingBean(name = "anthropicStreamingModelProvider")
-    public ModelProvider<StreamingChatModel> anthropicStreamingModelProvider() {
-        return new AnthropicStreamingModelProvider();
+    public ModelProvider<StreamingChatModel> anthropicStreamingModelProvider(HttpClientBuilderFactory httpClientBuilderFactory) {
+        return new AnthropicStreamingModelProvider(httpClientBuilderFactory);
     }
 
     @Bean
     @ConditionalOnMissingBean(name = "anthropicCompactContextModelProvider")
-    public ModelProvider<ChatModel> anthropicCompactContextModelProvider() {
-        return new AnthropicCompactContextModelProvider();
+    public ModelProvider<ChatModel> anthropicCompactContextModelProvider(HttpClientBuilderFactory httpClientBuilderFactory) {
+        return new AnthropicCompactContextModelProvider(httpClientBuilderFactory);
     }
 
     @Bean(name = "commonImageModelProvider")
     @ConditionalOnMissingBean(name = "commonImageModelProvider")
-    public ModelProvider<ImageModel> commonImageModelProvider() {
-        return new CommonImageModelProvider();
+    public ModelProvider<ImageModel> commonImageModelProvider(HttpClientBuilderFactory httpClientBuilderFactory) {
+        return new CommonImageModelProvider(httpClientBuilderFactory);
     }
 
     @Bean

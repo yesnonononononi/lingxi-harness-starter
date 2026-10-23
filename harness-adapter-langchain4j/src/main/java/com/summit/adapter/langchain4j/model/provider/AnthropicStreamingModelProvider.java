@@ -4,10 +4,24 @@ import com.summit.adapter.langchain4j.model.StreamingChatModelAdapter;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.model.DefaultModelProviderNames;
 import com.summit.core.model.streaming.StreamingChatModelProvider;
+import dev.langchain4j.http.client.HttpClientBuilderFactory;
+import dev.langchain4j.http.client.jdk.JdkHttpClient;
 import dev.langchain4j.model.anthropic.AnthropicStreamingChatModel;
+import java.util.Objects;
 
 /** Native Anthropic protocol provider. */
 public class AnthropicStreamingModelProvider implements StreamingChatModelProvider {
+    private final HttpClientBuilderFactory httpClientBuilderFactory;
+
+    public AnthropicStreamingModelProvider() {
+        this(JdkHttpClient::builder);
+    }
+
+    /** Each model needs a fresh mutable builder; client pools may still be shared by the factory. */
+    public AnthropicStreamingModelProvider(HttpClientBuilderFactory httpClientBuilderFactory) {
+        this.httpClientBuilderFactory = Objects.requireNonNull(httpClientBuilderFactory, "httpClientBuilderFactory");
+    }
+
     @Override
     public String name() { return DefaultModelProviderNames.ANTHROPIC_STREAMING; }
 
@@ -15,6 +29,7 @@ public class AnthropicStreamingModelProvider implements StreamingChatModelProvid
     public StreamingChatModelAdapter create(ModelConfig config) {
         AnthropicModelSettings settings = AnthropicModelSettings.resolve(config);
         return new StreamingChatModelAdapter(AnthropicStreamingChatModel.builder()
+                .httpClientBuilder(Objects.requireNonNull(httpClientBuilderFactory.create(), "HTTP client factory returned null"))
                 .baseUrl(config.getBaseUrl())
                 .apiKey(config.getApiKey())
                 .modelName(config.getModelName())

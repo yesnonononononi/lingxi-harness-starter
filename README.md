@@ -360,6 +360,28 @@ AgentRequest request = AgentRequest.builder()
 
 The default `SkillResolver` depends on CommonMark; when that parsing dependency is missing, ordinary requests can still start, while Skills requests need a custom resolver/loader or the dependency added. `read_skill` is enabled by default in the kernel tools module and can be disabled via `lingxi.agent.runtime.tool.read-skill.enabled`. The default reader accesses the Skills host directory independently of the request workspace and does not execute Skill scripts automatically.
 
+## Model HTTP Clients
+
+All built-in OpenAI and Anthropic chat, streaming, compaction, and image providers accept LangChain4j's `HttpClientBuilderFactory`. No-argument constructors and the default Spring configuration use the JDK client. Applications can replace the Spring factory bean without replacing model providers:
+
+```java
+import dev.langchain4j.http.client.HttpClientBuilderFactory;
+import dev.langchain4j.http.client.okhttp.OkHttpClientBuilder;
+import okhttp3.OkHttpClient;
+import org.springframework.context.annotation.Bean;
+
+@Bean
+HttpClientBuilderFactory modelHttpClientBuilderFactory() {
+    OkHttpClient sharedClient = new OkHttpClient.Builder().build();
+    return () -> new OkHttpClientBuilder()
+            .okHttpClientBuilder(sharedClient.newBuilder());
+}
+```
+
+Add the `langchain4j-http-client-okhttp` dependency matching the LangChain4j release (currently `1.22.0-beta32`). The factory must return a fresh mutable builder for every call: model construction applies per-model timeouts to it. Derived OkHttp builders can share the base client's connection pool and dispatcher; their lifecycle belongs to the application. Without Spring, pass the same factory to a provider constructor. Applications registering several factory beans must select one with `@Primary`.
+
+This factory configures built-in model HTTP traffic. MCP transports and application HTTP calls have separate configuration. Transport recovery does not replace the runtime's model retry budget, cancellation, or retry events.
+
 ## Context Compaction
 
 When no dedicated compact model is configured, compaction reuses the full chat model configuration. To use a separate model, configure `lingxi.agent.model.conf.compact`:
