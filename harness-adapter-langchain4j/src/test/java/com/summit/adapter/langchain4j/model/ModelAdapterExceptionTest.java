@@ -27,6 +27,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
 import java.io.IOException;
+import java.net.ProtocolException;
+import java.security.cert.CertificateException;
 import java.io.InterruptedIOException;
 import java.io.EOFException;
 import java.net.SocketException;
@@ -76,6 +78,9 @@ class ModelAdapterExceptionTest {
         List<RuntimeException> failures = List.of(
                 new IllegalStateException("unexpected"),
                 new LangChain4jException(new SSLHandshakeException("certificate rejected")),
+                new LangChain4jException(new SSLHandshakeException("Remote host terminated the handshake")
+                        .initCause(new CertificateException("certificate rejected"))),
+                new LangChain4jException(new ProtocolException("malformed HTTP status line")),
                 new CompletionException(new InterruptedIOException("interrupted")),
                 new RuntimeException(new RateLimitException("not an asynchronous wrapper")),
                 new CancellationException("cancelled"),
@@ -91,10 +96,15 @@ class ModelAdapterExceptionTest {
 
     @TestFactory
     Stream<DynamicTest> transportFailuresAreClassifiedAtEveryChatBoundary() {
+        SSLHandshakeException shutdown = new SSLHandshakeException("SSL peer shut down incorrectly");
+        shutdown.initCause(new EOFException("closed"));
         List<IOException> failures = List.of(new IOException("HTTP/1.1 header parser received no bytes"),
                 new EOFException("closed"), new SocketException("connection reset"),
                 new SocketTimeoutException("read timed out"), new UnknownHostException("temporary DNS failure"),
-                new HttpTimeoutException("request timed out"), new ClosedChannelException());
+                new HttpTimeoutException("request timed out"), new ClosedChannelException(),
+                new SSLHandshakeException("Remote host terminated the handshake"),
+                shutdown,
+                new ProtocolException("unexpected end of stream"));
         return Stream.of(Boundary.values()).flatMap(boundary -> failures.stream().map(failure ->
                 DynamicTest.dynamicTest(boundary + " transport " + failure.getClass().getSimpleName(), () -> {
                     RuntimeException wrapped = new CompletionException(new LangChain4jException(failure));
