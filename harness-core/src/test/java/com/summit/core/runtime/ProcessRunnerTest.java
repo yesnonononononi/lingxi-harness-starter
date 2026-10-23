@@ -460,12 +460,34 @@ class ProcessRunnerTest {
         assertFalse(ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false), "process " + pid + " is still alive");
     }
 
+    @Test
+    void pidProbeWaitsForContentAfterTheFileHasBeenCreated() throws Exception {
+        Path pid = temporary.resolve("delayed.pid");
+        Files.createFile(pid);
+        CountDownLatch started = new CountDownLatch(1);
+        try (ExecutorService executor = Executors.newSingleThreadExecutor()) {
+            Future<?> waiting = executor.submit(() -> {
+                started.countDown();
+                try {
+                    awaitFile(pid);
+                } catch (Exception error) {
+                    throw new CompletionException(error);
+                }
+            });
+            assertTrue(started.await(5, TimeUnit.SECONDS));
+            assertThrows(TimeoutException.class, () -> waiting.get(100, TimeUnit.MILLISECONDS));
+            Files.writeString(pid, "123");
+            waiting.get(2, TimeUnit.SECONDS);
+        }
+    }
+
     private static void awaitFile(Path file) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-        while (!Files.isRegularFile(file) && System.nanoTime() < deadline) {
+        while ((!Files.isRegularFile(file) || Files.size(file) == 0) && System.nanoTime() < deadline) {
             Thread.sleep(20);
         }
         assertTrue(Files.isRegularFile(file), "process did not start");
+        assertTrue(Files.size(file) > 0, "process PID has not been written");
     }
 
     private static LocalWorkspaceBridge localBridge() {
