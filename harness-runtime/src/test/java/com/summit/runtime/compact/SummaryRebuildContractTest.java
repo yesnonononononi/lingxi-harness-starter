@@ -13,6 +13,8 @@ import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.runtime.loop.ContextUsageReporter;
 import com.summit.runtime.conversation.DefaultConversationManager;
+import com.summit.runtime.conversation.DefaultTokenizer;
+import com.summit.runtime.prompt.SystemPromptAssembler;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -49,7 +51,7 @@ class SummaryRebuildContractTest {
                 AiMessageEntity.builder().text("answer-two").build(),
                 UserMessageEntity.from("user-three"));
 
-        conversations.rebuildContext("compressed summary", execution, false);
+        conversations.rebuildContext("compressed summary", execution);
 
         assertEquals(List.of("user-one", "user-two", "user-three"), userTexts(execution),
                 "a summary rebuild must keep every user message of the compressed context");
@@ -93,7 +95,7 @@ class SummaryRebuildContractTest {
                 SystemMessageEntity.builder().text("LEADING").build(),
                 UserMessageEntity.from("user-one"));
 
-        conversations.rebuildContext("compressed summary", execution, false);
+        conversations.rebuildContext("compressed summary", execution);
 
         List<Message> rebuilt = execution.getMessages();
         assertEquals("LEADING", rebuilt.getFirst().text(),
@@ -139,7 +141,7 @@ class SummaryRebuildContractTest {
                 AiMessageEntity.builder().text("answer-one").build(),
                 UserMessageEntity.from("user-two"));
 
-        conversations.rebuildContext("compressed summary", execution, true);
+        conversations.rebuildContext("compressed summary", execution);
 
         assertEquals(List.of("user-one", "user-two"), userTexts(execution),
                 "an answered trailing turn must not drop the earlier user messages");
@@ -154,6 +156,31 @@ class SummaryRebuildContractTest {
     // ------------------------------------------------------------------ fixtures
 
     /** A session built from the given messages, with the first system text as its business prompt. */
+    /** The trailing turn is shrunk to its last assistant message when it exceeds the tail budget. */
+    @Test
+    void oversizedTrailingTurnIsShrunkToItsLastAssistantMessage() {
+        // Small cap so the trailing turn (everything after the last user message) clearly exceeds
+        // TAIL_COMPACT_THRESHOLD (20%) of it.
+        DefaultConversationManager conversations = new DefaultConversationManager(
+                new DefaultTokenizer(), 900, null, ContextAttachmentProvider.NONE,
+                SystemPromptAssembler::new, null);
+        Execution execution = execution(
+                SystemMessageEntity.builder().text("LEADING").build(),
+                UserMessageEntity.from("do the work"),
+                AiMessageEntity.builder().text("OLDSTEP " + "x".repeat(700)).build(),
+                AiMessageEntity.builder().text("NEWSTEP " + "y".repeat(200)).build());
+
+        conversations.rebuildContext("compressed summary", execution);
+
+        List<String> texts = execution.getMessages().stream().map(Message::text).toList();
+        assertFalse(texts.stream().anyMatch(t -> t != null && t.contains("OLDSTEP")),
+                "the older assistant turn is dropped when the trailing turn is oversized: " + texts);
+        assertTrue(texts.stream().anyMatch(t -> t != null && t.contains("NEWSTEP")),
+                "the last assistant message survives: " + texts);
+        assertEquals(List.of("do the work"), userTexts(execution),
+                "user messages still survive regardless of the tail shrink");
+    }
+
     private static Execution execution(Message... messages) {
         List<Message> copy = new ArrayList<>(List.of(messages));
         String systemPrompt = copy.stream()

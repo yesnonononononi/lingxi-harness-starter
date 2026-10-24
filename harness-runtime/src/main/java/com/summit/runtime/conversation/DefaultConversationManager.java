@@ -37,6 +37,13 @@ public class DefaultConversationManager implements ConversationManager {
             Continue the work from there: do not repeat steps that are already marked as completed.
             """;
 
+    /**
+     * Fraction of the context cap the trailing turn may occupy before {@link #retainableTail} shrinks
+     * it down to its last assistant message. Kept as a named policy constant instead of a literal
+     * buried in the method; a full Spring-configurable binding is tracked separately.
+     */
+    private static final double TAIL_COMPACT_THRESHOLD = 0.20;
+
     private final Tokenizer tokenizer;
     private final int maxTokens;
     /** Fallback context cap for the convenience constructors; the Spring bean passes the real one. */
@@ -194,7 +201,7 @@ public class DefaultConversationManager implements ConversationManager {
 
 
     @Override
-    public void rebuildContext(String summary, Execution execution, boolean answeredTrailingUserTurn) {
+    public void rebuildContext(String summary, Execution execution) {
         if (summary == null || summary.isBlank()) return;
 
         List<Message> current = execution.getMessages();
@@ -300,7 +307,7 @@ public class DefaultConversationManager implements ConversationManager {
 
     private List<Message> retainableTail(List<Message> messages) {
         int lastUserMessageIndex = -1;
-        final double THRESHOLD = 0.20;
+
 
         for (int i = messages.size() - 1; i >= 0; i--) {
             if (messages.get(i) instanceof UserMessageEntity) {
@@ -324,7 +331,7 @@ public class DefaultConversationManager implements ConversationManager {
         // tokenizer needs to calc the result tokens, if it exceeds the acceptable limit, then the policy further needs to compact
         double ratio = tokenizer.calcCurrentTokenRatio(result, maxTokens);
 
-        if(ratio >= THRESHOLD){
+        if (ratio >= TAIL_COMPACT_THRESHOLD) {
             return furtherCompact(result);
         }
 

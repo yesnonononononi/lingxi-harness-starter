@@ -66,7 +66,7 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
                 ContextUpdateEvent.Band.SUMMARY, "Model compaction started");
         try {
             if (!summaryApplier.apply(
-                    generate(execution.getId(), renderConversation(messages)), execution, false)) {
+                    generate(execution.getId(), renderConversation(messages)), execution)) {
                 // STARTED is already out: every failure path closes the pair, otherwise consumers
                 // stay on the in-flight state until the next plain UPDATE happens to arrive.
                 usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_COMPLETED,

@@ -86,7 +86,7 @@ class CompactSummaryResolverTest {
         List<String> rebuilt = new ArrayList<>();
         ConversationManager manager = stubManager(rebuilt);
 
-        assertFalse(new CompactSummaryApplier(manager).apply("   ", null, false));
+        assertFalse(new CompactSummaryApplier(manager).apply("   ", null));
         assertTrue(rebuilt.isEmpty());
     }
 
@@ -96,7 +96,7 @@ class CompactSummaryResolverTest {
         ConversationManager manager = stubManager(rebuilt);
         String raw = "{\"goal\":\"g\",\"summary\":\"s\",\"completed\":[\"c\"],\"pending\":[],\"state\":\"DONE\"}";
 
-        assertTrue(new CompactSummaryApplier(manager).apply(raw, null, true));
+        assertTrue(new CompactSummaryApplier(manager).apply(raw, null));
         assertEquals(1, rebuilt.size());
         assertTrue(rebuilt.getFirst().contains("summary:\ns"), rebuilt.getFirst());
         assertTrue(rebuilt.getFirst().contains("completed task:\n[c]"), rebuilt.getFirst());

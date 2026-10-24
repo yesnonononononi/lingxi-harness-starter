@@ -24,10 +24,10 @@ public final class CompactSummaryApplier {
      *
      * @return {@code false} when the output was blank or unusable, leaving the context untouched
      */
-    public boolean apply(String rawOutput, Execution execution, boolean answeredTrailingUserTurn) {
+    public boolean apply(String rawOutput, Execution execution) {
         ContextSummary summary = CompactSummaryResolver.resolve(rawOutput);
         if (summary == null) return false;
-        conversationManager.rebuildContext(render(summary), execution, answeredTrailingUserTurn);
+        conversationManager.rebuildContext(render(summary), execution);
         return true;
     }
 

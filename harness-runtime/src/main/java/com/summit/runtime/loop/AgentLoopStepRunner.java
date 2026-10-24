@@ -292,7 +292,7 @@ public class AgentLoopStepRunner {
                 return false;
 
             boolean applied = new CompactSummaryApplier(context.getConversationManager())
-                    .apply(result.getToolOutput(), execution, true);
+                    .apply(result.getToolOutput(), execution);
             if (!applied) return false;
 
             appendCompactRoundToTranscriptOnly();

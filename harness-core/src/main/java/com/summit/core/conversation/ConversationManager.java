@@ -40,7 +40,7 @@ public interface ConversationManager {
      * the compaction strategy, so a session can be rebuilt from any source of one without this
      * contract adopting one summary layout.</p>
      */
-    void rebuildContext(String summary, Execution execution, boolean answeredTrailingUserTurn);
+    void rebuildContext(String summary, Execution execution);
 
     /**
      * Reads how far the context compaction of {@code execution} has progressed.

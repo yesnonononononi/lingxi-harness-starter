@@ -180,7 +180,7 @@ class CompactionStateMachineTest {
         checker.before(execution);
         assertTrue(execution.getCompactionState().summaryUnavailable());
 
-        conversations.rebuildContext("a summary produced by another path", execution, false);
+        conversations.rebuildContext("a summary produced by another path", execution);
 
         assertTrue(execution.getCompactionState().summaryUnavailable(),
                 "a rebuild must never clear the unavailable latch");
@@ -200,7 +200,7 @@ class CompactionStateMachineTest {
         execution.setCompactionState(
                 CompactionState.none().withSummaryGeneration(2).withPruneGeneration(1));
 
-        conversations.rebuildContext("rebuilt summary", execution, false);
+        conversations.rebuildContext("rebuilt summary", execution);
 
         CompactionState state = execution.getCompactionState();
         assertEquals(0, state.pruneGeneration(), "a new generation starts un-pruned");
@@ -214,8 +214,8 @@ class CompactionStateMachineTest {
         Execution execution = execution();
         execution.setCompactionState(new CompactionState(1, 1, true, 1));
 
-        conversations.rebuildContext("first rebuilt summary", execution, false);
-        conversations.rebuildContext("second rebuilt summary", execution, false);
+        conversations.rebuildContext("first rebuilt summary", execution);
+        conversations.rebuildContext("second rebuilt summary", execution);
 
         CompactionState state = execution.getCompactionState();
         assertEquals(1, state.summaryAttempts(), "a rebuild must never reset the attempt counter");

@@ -156,8 +156,7 @@ class ModelRequestFactoryVisibilityTest {
 
             public TokenUsageEntity tokenUsage(Execution execution) { return TokenUsageEntity.empty(); }
 
-            public void rebuildContext(String summary, Execution execution,
-                                       boolean answeredTrailingUserTurn) { }
+            public void rebuildContext(String summary, Execution execution) { }
 
             public void appendSystemMessage(Execution execution, SystemMessageEntity entity) { }
 
