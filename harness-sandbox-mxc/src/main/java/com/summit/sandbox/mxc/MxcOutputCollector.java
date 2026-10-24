@@ -88,7 +88,12 @@ final class MxcOutputCollector {
         }
         String text = characters.flip().toString();
         boolean truncated = status.isOverflow() || text.length() > maxChars;
-        return new Decoded(text.length() > maxChars ? text.substring(0, maxChars) : text, truncated);
+        String kept = text.length() > maxChars ? text.substring(0, maxChars) : text;
+        // 截断点不能留下半个代理对（emoji 占两个 char），否则模型看到的是坏字符。
+        if (!kept.isEmpty() && Character.isHighSurrogate(kept.charAt(kept.length() - 1))) {
+            kept = kept.substring(0, kept.length() - 1);
+        }
+        return new Decoded(kept, truncated);
     }
     private record Decoded(String text, boolean truncated) { }
 }

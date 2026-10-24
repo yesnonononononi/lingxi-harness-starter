@@ -36,19 +36,50 @@ public interface WorkspaceCommands {
      *                       is discarded and {@link CommandResult#truncated()}
      *                       is set
      * @return the command result, never {@code null}
+     *
+     * Executes raw command text in an explicitly chosen shell.
+     *
+     * <p>{@code shell} is the interpreter the caller resolved once for this invocation (see
+     * {@link ShellType#select}). {@code null} means "use the workspace default" and is kept only
+     * for callers that have no per-invocation choice. An explicit shell is never replaced by
+     * another interpreter: if it cannot be started, the failure is reported, not worked around.</p>
      */
     CommandResult execute(String command,
+                          ShellType shell,
                           String workDir,
                           Charset charset,
                           long timeoutSeconds,
                           TimeUnit timeUnit,
                           long maxOutputChars
-    )
-            throws IOException, InterruptedException;
+    ) throws IOException, InterruptedException;
 
-    /** Starts a bounded background command; startup and interruption failures remain observable. */
+    /** Shell-explicit counterpart of {@link #execute(String, String, Charset, long, TimeUnit, long)}. */
+    default CommandResult execute(String command,
+                                  String workDir,
+                                  Charset charset,
+                                  long timeoutSeconds,
+                                  TimeUnit timeUnit,
+                                  long maxOutputChars
+    ) throws IOException, InterruptedException {
+        return execute(command, null, workDir, charset, timeoutSeconds, timeUnit, maxOutputChars);
+    }
+
+
     default CommandHandler startCommand(
             String command,
+            String workDir,
+            Charset charset,
+            long timeoutSeconds,
+            TimeUnit timeUnit,
+            long maxOutputChars
+    ) throws IOException, InterruptedException {
+        return startCommand(command, null, workDir, charset, timeoutSeconds, timeUnit, maxOutputChars);
+    }
+
+    /** Shell-explicit start; {@code null} shell means the workspace default. */
+    default CommandHandler startCommand(
+            String command,
+            ShellType shell,
             String workDir,
             Charset charset,
             long timeoutSeconds,

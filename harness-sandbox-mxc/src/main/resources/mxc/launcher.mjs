@@ -104,9 +104,21 @@ try {
   }
   const { spawn } = await import(pathToFileURL(path.join(sdk, 'dist/v1/index.js')).href);
   const q = value => "'" + value.replaceAll("'", "'\\''") + "'";
+  // The argv comes from ShellType on the host; this only resolves argv[0] inside the sandbox.
+  const shellCommand = () => {
+    const argv = Array.isArray(r.shellArgv) ? [...r.shellArgv] : [];
+    if (!argv.length) throw new Error('execute request is missing shellArgv');
+    const base = path.basename(String(argv[0]));
+    const candidates = base === 'pwsh' || base === 'pwsh.exe'
+      ? ['/usr/bin/pwsh', '/usr/local/bin/pwsh', '/opt/microsoft/powershell/7/pwsh', '/snap/bin/pwsh']
+      : [`/bin/${base}`, `/usr/bin/${base}`];
+    const resolved = candidates.find(candidate => fs.existsSync(candidate));
+    if (!resolved) throw new Error(`shell ${r.shell ?? base} is not available inside the sandbox`);
+    return [resolved, ...argv.slice(1)].map(q).join(' ');
+  };
   const request = {
-    command: mode === 'stdio' ? stdioCommand(r, node, helper, q) : r.operation === 'execute'
-      ? `/bin/bash --noprofile --norc -c ${q(r.command)}`
+    command: mode === 'stdio' ? stdioCommand(r, node, helper, q)
+      : r.operation === 'execute' ? shellCommand()
       : `${q(node)} ${q(path.join(helper, 'operations.mjs'))}`,
     workingDirectory: r.workDir ?? root,
     ...(mode === 'stdio' ? {} : { timeoutMs: r.timeoutMs }),

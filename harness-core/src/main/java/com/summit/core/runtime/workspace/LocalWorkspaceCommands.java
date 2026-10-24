@@ -18,16 +18,16 @@ public final class LocalWorkspaceCommands implements WorkspaceCommands {
     }
 
     @Override
-    public CommandResult execute(String command, String workDir, Charset charset,
+    public CommandResult execute(String command, ShellType shell, String workDir, Charset charset,
                                  long timeoutSeconds, TimeUnit timeUnit, long maxOutputChars)
             throws IOException, InterruptedException {
-        return ProcessRunner.run(environment.buildCommand(Objects.requireNonNull(command, "command must not be null")),
+        return ProcessRunner.run(environment.buildCommand(shell, Objects.requireNonNull(command, "command must not be null")),
                 workDir, charset, timeoutSeconds, timeUnit, maxOutputChars);
     }
     @Override
-    public CommandHandler startCommand(String command, String workDir, Charset charset,
+    public CommandHandler startCommand(String command, ShellType shell, String workDir, Charset charset,
                                        long timeout, TimeUnit unit, long maxChars) throws IOException {
-        return ProcessRunner.start(environment.buildCommand(Objects.requireNonNull(command, "command must not be null")),
+        return ProcessRunner.start(environment.buildCommand(shell, Objects.requireNonNull(command, "command must not be null")),
                 workDir, charset, new byte[0], timeout, unit, maxChars);
     }
 }

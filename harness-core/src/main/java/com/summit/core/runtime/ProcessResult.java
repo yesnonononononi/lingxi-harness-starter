@@ -36,6 +36,8 @@ public final class ProcessResult implements CommandHandler {
                 while ((count = reader.read(chars)) != -1) {
                     if (listener != null) listener.onOutput(new String(chars, 0, count));
                     int keep = (int) Math.min(count, maxChars - output.length());
+                    // 截断点不能留下半个代理对（emoji 占两个 char），否则模型看到的是坏字符。
+                    if (keep > 0 && Character.isHighSurrogate(chars[keep - 1])) keep--;
                     if (keep > 0) output.append(chars, 0, keep);
                     if (keep < count) truncated.set(true);
                 }

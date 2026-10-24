@@ -33,6 +33,19 @@ const kill = () => {
     }
 };
 const quote = value => '"' + String(value).replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, '$1$1') + '"';
+// Every interpreter is resolved inside the sandbox; an absent one is an explicit error, not a fallback.
+const shellExecutables = name => {
+    const base = path.basename(String(name)).toLowerCase();
+    if (base === 'cmd.exe') return [path.join(systemRoot, 'System32/cmd.exe')];
+    if (base === 'powershell.exe') return [path.join(systemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe')];
+    if (base === 'pwsh' || base === 'pwsh.exe') {
+        const hostPath = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
+        return [...hostPath.map(directory => path.join(directory, 'pwsh.exe')),
+            path.join(systemRoot, 'System32/pwsh.exe'),
+            path.join(process.env.ProgramFiles ?? 'C:\\Program Files', 'PowerShell/7/pwsh.exe')];
+    }
+    return [];
+};
 const realTarget = value => {
     let current = path.resolve(value);
     const suffix = [];
@@ -67,9 +80,15 @@ try {
         const target = r.operation === 'delete' ? path.join(realTarget(path.dirname(r.path)), path.basename(r.path)) : realTarget(r.path);
         assertWritable(filesystem, target);
     }
-    const cmd = path.join(systemRoot, 'System32/cmd.exe');
-    r.shellExecutable = cmd;
     r.codePageExecutable = path.join(systemRoot, 'System32/chcp.com');
+    if (r.operation === 'execute') {
+        const argv = Array.isArray(r.shellArgv) ? [...r.shellArgv] : [];
+        if (!argv.length) throw new Error('execute request is missing shellArgv');
+        const resolved = shellExecutables(argv[0]).find(candidate => fs.existsSync(candidate));
+        if (!resolved) throw new Error(`shell ${r.shell ?? argv[0]} is not available inside the sandbox`);
+        argv[0] = resolved;
+        r.shellArgv = argv;
+    }
     const command = mode === 'stdio' ? stdioCommand(r, node, helper, quote)
         : `${quote(node)} --preserve-symlinks-main --preserve-symlinks ${quote(path.join(helper, 'operations.mjs'))}`;
     const environment = {

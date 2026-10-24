@@ -41,8 +41,19 @@ public record RuntimeEnvironment(Charset charset,
 
     /** Keeps shell syntax in ShellType while allowing deployment-owned executable locations. */
     public List<String> buildCommand(String command) {
-        List<String> argv = new ArrayList<>(Objects.requireNonNull(shellType, "shellType").buildCommand(command));
-        if (shellExecutable != null) argv.set(0, shellExecutable);
+        return buildCommand(null, command);
+    }
+
+    /**
+     * Builds argv for an explicitly chosen shell. {@code null} keeps this environment's shell.
+     * A deployment-owned {@code shellExecutable} path only applies to that same shell; another
+     * interpreter must resolve through its own {@link ShellType#command} instead of being pointed
+     * at a binary that belongs to a different shell.
+     */
+    public List<String> buildCommand(ShellType shell, String command) {
+        ShellType selected = shell == null ? Objects.requireNonNull(shellType, "shellType") : shell;
+        List<String> argv = new ArrayList<>(selected.buildCommand(command));
+        if (shellExecutable != null && selected == shellType) argv.set(0, shellExecutable);
         return List.copyOf(argv);
     }
 }

@@ -14,13 +14,19 @@ try {
   switch (r.operation) {
     case 'execute': {
       if (process.platform !== 'win32') throw new Error('Command bootstrap is Windows-only');
-      // Inherit the sandbox's hidden console: a detached child gets a fresh OEM code page.
-      const page = spawnSync(r.codePageExecutable, ['65001'], {stdio: 'ignore', timeout: 5000});
-      if (page.error || page.status !== 0) throw new Error('Could not initialize UTF-8 command output');
-      // CMD caches its output code page at startup. Pass the script only to this new CMD.
-      const child = spawnSync(r.shellExecutable, ['/d', '/s', '/c', `"${r.command}"`], {
-        stdio: 'inherit', windowsVerbatimArguments: true, env: r.commandEnvironment
-      });
+      // ShellType built this argv on the host; the launcher only resolved argv[0] inside the sandbox.
+      const argv = Array.isArray(r.shellArgv) ? [...r.shellArgv] : [];
+      if (!argv.length) throw new Error('Command request is missing the resolved shell argv');
+      // CMD caches its output code page at startup and takes the script as one quoted argument.
+      // PowerShell receives -EncodedCommand, so no shell quoting is involved there.
+      if (r.shell === 'cmd') {
+        // Inherit the sandbox's hidden console: a detached child gets a fresh OEM code page.
+        const page = spawnSync(r.codePageExecutable, ['65001'], {stdio: 'ignore', timeout: 5000});
+        if (page.error || page.status !== 0) throw new Error('Could not initialize UTF-8 command output');
+      }
+      const child = spawnSync(argv[0], argv.slice(1), r.shell === 'cmd'
+        ? {stdio: 'inherit', windowsVerbatimArguments: true, env: r.commandEnvironment}
+        : {stdio: 'inherit', env: r.commandEnvironment});
       if (child.error) throw child.error;
       process.exitCode = child.status ?? 1;
       break;
