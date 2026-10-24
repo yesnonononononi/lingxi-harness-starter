@@ -21,8 +21,10 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -176,9 +178,52 @@ public class DefaultConversationManager implements ConversationManager {
                         %s
                         """, value)).build()));
         rebuilt.add(SystemMessageEntity.builder().text(summary).build());
-        if (tail.isEmpty()) rebuilt.add(UserMessageEntity.from(CONTINUE_AFTER_COMPACTION_PROMPT));
-        else rebuilt.addAll(tail);
+        // Contract (§3.4 premise B): every user message of the pre-rebuild context survives, merged
+        // with the retainable tail in its original order. retainableTail() alone keeps at most the
+        // last turn, which silently dropped the user's earlier requests from the rebuilt session.
+        List<Message> retained = mergeWithAllUserMessages(current, tail);
+        if (retained.isEmpty()) rebuilt.add(UserMessageEntity.from(CONTINUE_AFTER_COMPACTION_PROMPT));
+        else rebuilt.addAll(retained);
         execution.setMessages(rebuilt);
+        // Only the counters this class owns are written (§3.3.4): a rebuild advances the summary
+        // generation and invalidates any prune, but says nothing about the attempt budget or the
+        // "summarization is closed" latch — resetting those here is the P0-1 regression.
+        execution.setCompactionState(execution.getCompactionState().afterSummaryRebuild());
+    }
+
+    /**
+     * Merges the pre-rebuild context with the retainable tail, keeping <b>every</b> user message.
+     *
+     * <p>The two sources are merged by walking the original list once, so the result keeps the
+     * original relative order instead of grouping user turns and tail turns apart: a user turn that
+     * came before a retained tool round must still come before it. System messages are not part of
+     * the result — the caller re-emits them at the front, which is the only reordering the provider
+     * requires.</p>
+     *
+     * @param current the context as it was before the rebuild
+     * @param tail    the retainable tail resolved by {@link #retainableTail}; may be empty
+     * @return the non-system messages to append after the rebuilt system prefix, in original order
+     */
+    private static List<Message> mergeWithAllUserMessages(List<Message> current, List<Message> tail) {
+        Set<Message> tailMembers = Collections.newSetFromMap(new IdentityHashMap<>());
+        tailMembers.addAll(tail);
+        List<Message> merged = new ArrayList<>();
+        Set<Message> mergedMembers = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Message message : current) {
+            if (message instanceof UserMessageEntity) {
+                merged.add(message);
+                mergedMembers.add(message);
+            } else if (tailMembers.contains(message) && mergedMembers.add(message)) {
+                merged.add(message);
+            }
+        }
+        // Defensive: a tail message the current list no longer holds would otherwise be lost.
+        for (Message message : tail) {
+            if (mergedMembers.add(message)) {
+                merged.add(message);
+            }
+        }
+        return merged;
     }
 
     /**

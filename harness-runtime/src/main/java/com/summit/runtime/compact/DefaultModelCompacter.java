@@ -2,6 +2,8 @@ package com.summit.runtime.compact;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.summit.core.agent.CompactionState;
+import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.ContextCompactRequest;
 import com.summit.core.compact.ContextCompacter;
@@ -22,7 +24,21 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.List;
 import java.util.Optional;
 
-/** Both automatic and tool-requested model compaction use the same generation pipeline. */
+/**
+ * Both automatic and tool-requested model compaction use the same generation pipeline.
+ *
+ * <p><b>Chained summarization</b> (§3.2): the first round of a trigger window summarizes the
+ * rendered history, and every following round summarizes <b>the previous summary</b> instead of the
+ * original history. Retrying the full history costs a full-size input for a result of the same
+ * shape, while compressing the model's own previous output is both cheap and the thing the model
+ * does best. The chain is stateless here: a rebuild replaces the history with the summary, so the
+ * result of the rebuild <em>is</em> the next input — this class reads the session at call time and
+ * therefore never holds per-execution state.</p>
+ *
+ * <p>How many rounds a window may run is decided by the caller
+ * ({@code BoundaryChecker}), which also owns the attempt counter and the "summarization is closed"
+ * latch on {@link Execution#getCompactionState()}.</p>
+ */
 @Slf4j
 public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -50,7 +66,7 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
                 ContextUpdateEvent.Band.SUMMARY, "Model compaction started");
         try {
             if (!summaryApplier.apply(
-                    generate(execution.getId(), renderConversation(messages)), execution, false)) {
+                    generate(execution.getId(), summaryInput(execution, messages)), execution, false)) {
                 // STARTED is already out: every failure path closes the pair, otherwise consumers
                 // stay on the in-flight state until the next plain UPDATE happens to arrive.
                 usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_COMPLETED,
@@ -75,6 +91,54 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
             return ToolExecuteResult.err("Compaction returned no usable summary");
         }
         return ToolExecuteResult.success(output, ToolResultType.CONTEXT_COMPACT);
+    }
+
+    /**
+     * The history fed to the compact model for this round (§3.2).
+     *
+     * <p>First round of a trigger window ({@code summaryGeneration == 0}): the rendered session.
+     * Every later round: <b>only the previous summary</b>, so the chain shrinks instead of paying for
+     * the full history again. When the previous summary cannot be located the rendered session is
+     * used as a safe fallback — a wrong-but-large input only costs tokens, while dropping the input
+     * would summarize nothing.</p>
+     *
+     * @param execution the execution being compacted, read for its summary generation
+     * @param messages  the session messages as they are right now
+     * @return the compact-model input for this round
+     */
+    private String summaryInput(Execution execution, List<Message> messages) {
+        if (hasPreviousSummary(execution)) {
+            String previous = previousSummaryOf(messages);
+            if (previous != null && !previous.isBlank()) {
+                return previous;
+            }
+        }
+        return renderConversation(messages);
+    }
+
+    /** True when the session was already rebuilt from a summary at least once. */
+    private boolean hasPreviousSummary(Execution execution) {
+        CompactionState state = conversationManager.compactionState(execution);
+        return state != null && state.summaryGeneration() > 0;
+    }
+
+    /**
+     * The summary system message the previous rebuild left at the head of the session.
+     *
+     * <p>A rebuilt session opens with all its system messages — leading prompt, optional protected
+     * attachment, then the summary — so the last system message of that leading block is the summary
+     * (§3.4 premise A). Returns {@code null} when the session carries no such block.</p>
+     */
+    private String previousSummaryOf(List<Message> messages) {
+        String candidate = null;
+        // Index 0 is the leading business prompt; it is never the summary of a previous generation.
+        for (int i = 1; i < messages.size(); i++) {
+            if (!(messages.get(i) instanceof SystemMessageEntity systemMessage)) {
+                break;
+            }
+            candidate = systemMessage.getText();
+        }
+        return candidate;
     }
 
     private String generate(String executionId, String history) {

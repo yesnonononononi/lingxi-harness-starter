@@ -102,6 +102,30 @@ public class Execution {
      */
     private ContextUsageMetric contextUsageMetric;
 
+    /**
+     * How far the context compaction of this execution has progressed.
+     *
+     * <p>The state belongs to the execution, not to the component that produces it:
+     * {@link com.summit.core.conversation.ConversationManager} is a singleton shared by every
+     * execution, so it must hold no per-run state, while "how many generations the context went
+     * through" is execution history and therefore belongs in the snapshot next to the messages.</p>
+     *
+     * <p>Never {@code null} in practice: snapshots written before this field existed decode as
+     * {@link CompactionState#none()}, and every writer replaces the whole value object instead of
+     * mutating it, so a reader always sees a consistent set of counters.</p>
+     */
+    @Builder.Default
+    private CompactionState compactionState = CompactionState.none();
+
+    /**
+     * The compaction state of this execution.
+     *
+     * @return the current state, or {@link CompactionState#none()} when the snapshot carried none
+     */
+    public CompactionState getCompactionState() {
+        return this.compactionState == null ? CompactionState.none() : this.compactionState;
+    }
+
     public void cancel(){
         this.executionState = ExecutionState.CANCELLED;
         this.completedAt = Instant.now();
