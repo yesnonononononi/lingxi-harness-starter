@@ -20,6 +20,7 @@ import com.summit.core.tool.ToolExecution;
 import com.summit.core.tool.ToolExecutor;
 import com.summit.core.tool.ToolResultType;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.NonNull;
 
 import java.util.List;
 import java.util.Optional;
@@ -85,7 +86,7 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
     }
 
     @Override
-    public ToolExecuteResult execute(ToolExecution execution) {
+    public @NonNull ToolExecuteResult execute(ToolExecution execution) {
         String output = generate(execution.getExecutionId(), extractContext(execution.getArgs()));
         if (CompactSummaryResolver.resolve(output) == null) {
             return ToolExecuteResult.err("Compaction returned no usable summary");

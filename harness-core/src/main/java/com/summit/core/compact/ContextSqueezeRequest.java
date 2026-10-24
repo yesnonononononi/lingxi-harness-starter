@@ -1,32 +1,62 @@
 package com.summit.core.compact;
 
-import lombok.Builder;
-
 /**
- * Decision result of the two-band context squeeze policy:
+ * Decision result of the context squeeze policy: which compaction band, if any, the checkpoint
+ * should run.
+ *
+ * <p>The local round-based truncation band is gone; what remains is the summarize band and the
+ * prune band that backs it up. Which one applies depends on the token ratio <em>and</em> on the
+ * compaction state of the execution — summarization is attempted first and, once it is closed,
+ * pruning takes over for the current generation:</p>
+ *
  * <ul>
- *   <li>when {@link #shouldSqueeze()} is {@code true} the caller runs the local round-based
- *       truncation, processing at most {@link #truncateTurn()} rounds;</li>
- *   <li>when {@link #expectAdvanceSqueeze()} is {@code true} the token ratio has reached the
- *       model-squeeze threshold, so the caller runs the model-based deep compaction
- *       (e.g. the {@code compact_context} tool).</li>
+ *   <li>{@link SqueezeBand#NONE}: nothing to do. Either the ratio is under the model threshold, or
+ *       this context generation was already pruned;</li>
+ *   <li>{@link SqueezeBand#SUMMARIZE}: the ratio reached the model threshold and summarization is
+ *       still available — the caller runs the model compaction;</li>
+ *   <li>{@link SqueezeBand#PRUNE}: summarization is closed for this execution and the context
+ *       generation has not been pruned yet — the caller prunes the local history instead.</li>
  * </ul>
  *
- * <p>The two bands are mutually exclusive: the local band covers
- * {@code [truncateThreshold, modelThreshold)} and the model band covers
- * {@code [modelThreshold, +inf)}. Which band a given ratio falls into is decided by the caller
- * (the runtime boundary checker); this record only carries the decision.</p>
+ * <p>This record only carries the decision; the checkpoint performs the band.</p>
+ *
+ * @param band the band the checkpoint should run
  */
-@Builder
-public record ContextSqueezeRequest(
+public record ContextSqueezeRequest(SqueezeBand band) {
 
-        boolean shouldSqueeze,
+    /** The compaction bands a checkpoint can pick. */
+    public enum SqueezeBand {
+        /** No compaction is needed. */
+        NONE,
+        /** Model summarization: the history is compressed into a summary and rebuilt from it. */
+        SUMMARIZE,
+        /** Local pruning: the tool history is graded and trimmed, no model call involved. */
+        PRUNE
+    }
 
-        /* Number of oldest rounds the local truncation squeezes in this pass. */
-        Integer truncateTurn,
+    public ContextSqueezeRequest {
+        if (band == null) {
+            throw new IllegalArgumentException("band must not be null");
+        }
+    }
 
-        /* Whether the model-based deep compaction band has been reached. */
-        boolean expectAdvanceSqueeze
-) {
+    /** @return a decision that asks for no compaction */
+    public static ContextSqueezeRequest none() {
+        return new ContextSqueezeRequest(SqueezeBand.NONE);
+    }
 
+    /** @return a decision that asks for model summarization */
+    public static ContextSqueezeRequest summarize() {
+        return new ContextSqueezeRequest(SqueezeBand.SUMMARIZE);
+    }
+
+    /** @return a decision that asks for local pruning */
+    public static ContextSqueezeRequest prune() {
+        return new ContextSqueezeRequest(SqueezeBand.PRUNE);
+    }
+
+    /** @return whether a band was selected */
+    public boolean shouldCompact() {
+        return band != SqueezeBand.NONE;
+    }
 }

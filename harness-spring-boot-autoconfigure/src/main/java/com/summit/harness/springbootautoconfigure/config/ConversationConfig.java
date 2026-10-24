@@ -13,7 +13,7 @@ import com.summit.core.skill.SkillLoader;
 import com.summit.core.skill.SkillResolver;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
 import com.summit.runtime.agent.AgentConfig;
-import com.summit.runtime.compact.DefaultManualCompacter;
+import com.summit.runtime.compact.DefaultContextPruner;
 import com.summit.runtime.compact.DefaultModelCompacter;
 import com.summit.runtime.conversation.DefaultConversationManager;
 import com.summit.runtime.conversation.DefaultTokenizer;
@@ -89,17 +89,16 @@ public class ConversationConfig {
     }
 
     /**
-     * The local truncation compacter of the first squeeze band.
+     * The local history pruner of the fallback squeeze band.
      *
      * <p>Gated by name, not by {@code ContextCompacter.class}: both compacters implement that
      * interface and coexist in the same context, so a type-level condition would make either one
      * cancel the other depending on registration order.</p>
      */
     @Bean
-    @ConditionalOnMissingBean(name = "manualCompacter")
-    public DefaultManualCompacter manualCompacter(ContextAttachmentProvider attachments, Tokenizer tokenizer,
-            ContextUsageReporter usage) {
-        return new DefaultManualCompacter(attachments, tokenizer, usage);
+    @ConditionalOnMissingBean(name = "contextPruner")
+    public DefaultContextPruner contextPruner(AgentConfig config, ContextUsageReporter usage) {
+        return new DefaultContextPruner(config, usage);
     }
 
     @Bean

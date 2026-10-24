@@ -26,6 +26,15 @@ public class ToolMessageEntity implements Message{
      */
     @JsonAlias("text")
     private String toolOutput;
+
+    /**
+     * The tool's own exit status when the tool reports one (a shell command's exit code, say), or
+     * {@code null} for tools that have no such notion. Kept apart from {@link #isError}: the error
+     * flag is the framework's view, the exit status is the tool's own, and a non-zero exit status
+     * frequently travels with {@code isError=false}.
+     */
+    private Integer exitCode;
+
     private final MessageType type = MessageType.TOOL;
     @Override
     public String text() {

@@ -35,6 +35,16 @@
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+            §8.4 acceptance check: the real prune product is pushed through both provider SDKs, so
+            the runtime tests need the adapter. The arrow points downwards (runtime -> adapter), which
+            is the natural layer direction; the adapter never depends on the runtime.
+        -->
+        <dependency>
+            <groupId>io.github.yesnonononononi</groupId>
+            <artifactId>harness-adapter-langchain4j</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.commonmark</groupId>
             <artifactId>commonmark-ext-yaml-front-matter</artifactId>

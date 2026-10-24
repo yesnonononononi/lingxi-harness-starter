@@ -5,10 +5,11 @@ package com.summit.core.compact;
  *
  * <p>Two implementations exist, one per squeeze band:</p>
  * <ul>
- *   <li>{@code DefaultManualCompacter}: local per-round truncation (no model), for the
- *       {@link ContextSqueezeRequest#shouldSqueeze()} band;</li>
+ *   <li>{@code DefaultContextPruner}: local grading of the tool history — {@code FULL},
+ *       {@code SKELETON} or {@code DROP} per segment, no model call — for the
+ *       {@link ContextSqueezeRequest.SqueezeBand#PRUNE} band;</li>
  *   <li>{@code DefaultModelCompacter}: summarizes the session with a compact model and rebuilds it,
- *       for the {@link ContextSqueezeRequest#expectAdvanceSqueeze()} band.</li>
+ *       for the {@link ContextSqueezeRequest.SqueezeBand#SUMMARIZE} band.</li>
  * </ul>
  *
  * <p>Both are blocking: once the runtime checkpoint decides a squeeze, the compacter for the band is

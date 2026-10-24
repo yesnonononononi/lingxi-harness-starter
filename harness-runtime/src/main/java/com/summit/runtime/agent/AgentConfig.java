@@ -15,6 +15,13 @@ import lombok.Builder;
  *                                    constant, so "how many times may I pay for a summary" stays an
  *                                    application decision. Values {@code <= 0} are rejected at
  *                                    construction time.
+ * @param pruneTargetRatio            share of {@link #maxTokens} the pruned context is sized
+ *                                    against. Only an initial value until a real-session load test
+ *                                    calibrates it; pruning never gives up because it cannot reach
+ *                                    it, it degrades as far as it can and reports.
+ * @param fullSegmentCount            how many of the newest segments may stay {@code FULL}
+ * @param fullToolOutputCap           token cap applied to a single tool result kept in a
+ *                                    {@code FULL} segment
  */
 @Builder
 public record AgentConfig(
@@ -22,10 +29,19 @@ public record AgentConfig(
         Integer maxTokens,
         Integer maxIterations,
         Integer maxConsecutiveCompactions,
-        Integer maxSummaryAttempts
+        Integer maxSummaryAttempts,
+        Double pruneTargetRatio,
+        Integer fullSegmentCount,
+        Integer fullToolOutputCap
 ) {
     /** Consecutive compaction rounds tolerated when the application configures no limit. */
     public static final int DEFAULT_MAX_CONSECUTIVE_COMPACTIONS = 3;
+    /** Initial prune target ratio; calibrated by a load test before it is treated as tuned. */
+    public static final double DEFAULT_PRUNE_TARGET_RATIO = 0.40;
+    /** Newest segments that may stay {@code FULL} when no count is configured. */
+    public static final int DEFAULT_FULL_SEGMENT_COUNT = 8;
+    /** Token cap of a single tool result inside a {@code FULL} segment when unconfigured. */
+    public static final int DEFAULT_FULL_TOOL_OUTPUT_CAP = 4_000;
 
     public AgentConfig {
         maxTokens = maxTokens == null ? 1_024_000 : maxTokens;
@@ -41,6 +57,18 @@ public record AgentConfig(
             throw new IllegalArgumentException("maxSummaryAttempts must be positive when configured: "
                     + maxSummaryAttempts);
         }
+        pruneTargetRatio = pruneTargetRatio == null ? DEFAULT_PRUNE_TARGET_RATIO : pruneTargetRatio;
+        if (!(pruneTargetRatio > 0d) || pruneTargetRatio > 1d) {
+            throw new IllegalArgumentException("pruneTargetRatio must be in (0, 1]: " + pruneTargetRatio);
+        }
+        fullSegmentCount = fullSegmentCount == null ? DEFAULT_FULL_SEGMENT_COUNT : fullSegmentCount;
+        if (fullSegmentCount < 0) {
+            throw new IllegalArgumentException("fullSegmentCount must not be negative: " + fullSegmentCount);
+        }
+        fullToolOutputCap = fullToolOutputCap == null ? DEFAULT_FULL_TOOL_OUTPUT_CAP : fullToolOutputCap;
+        if (fullToolOutputCap <= 0) {
+            throw new IllegalArgumentException("fullToolOutputCap must be positive: " + fullToolOutputCap);
+        }
     }
 
     /**
@@ -51,6 +79,15 @@ public record AgentConfig(
      */
     public int summaryAttemptBudget() {
         return maxSummaryAttempts == null ? 1 : maxSummaryAttempts;
+    }
+
+    /**
+     * The token budget a prune pass sizes the context against.
+     *
+     * @return {@code pruneTargetRatio * maxTokens}, rounded down, at least one token
+     */
+    public int pruneBudgetTokens() {
+        return Math.max(1, (int) Math.floor(pruneTargetRatio * maxTokens));
     }
 
     public record ProgressiveSqueezePolicy(

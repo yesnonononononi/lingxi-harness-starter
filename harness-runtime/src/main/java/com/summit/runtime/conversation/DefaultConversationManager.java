@@ -101,6 +101,9 @@ public class DefaultConversationManager implements ConversationManager {
                         .name(definition == null ? "unknown tool" : definition.name())
                         .toolOutput(result.getToolOutput())
                         .isError(!result.isSuccess())
+                        // The tool's own exit status travels with its message so a pruned skeleton can
+                        // still tell a failed command from a successful one.
+                        .exitCode(result.getExitCode())
                         .build());
             }
         }

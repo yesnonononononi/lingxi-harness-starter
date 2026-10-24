@@ -11,7 +11,7 @@ import com.summit.core.runtime.loop.*;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.tool.ToolExecutionManager;
 import com.summit.runtime.agent.AgentConfig;
-import com.summit.runtime.compact.DefaultManualCompacter;
+import com.summit.runtime.compact.DefaultContextPruner;
 import com.summit.runtime.compact.DefaultModelCompacter;
 import com.summit.runtime.conversation.DefaultRuntimeFactory;
 import com.summit.runtime.conversation.SnowflakeResponseIdGenerator;
@@ -45,7 +45,7 @@ public class ExecutionRuntimeConfig {
                                                 Tokenizer tokenizer,
                                                 ExecutionRepository executionRepository,
                                                 ExecutionControl executionControl,
-                                                DefaultManualCompacter manualCompacter,
+                                                DefaultContextPruner contextPruner,
                                                 DefaultModelCompacter modelCompacter, RuntimeLifeStyleManager runtimeLifeStyleManager,
                                                 LoopInterceptorProcessor loopInterceptorProcessor,
                                                 RuntimeBoundaryChecker boundaryChecker,
@@ -63,7 +63,7 @@ public class ExecutionRuntimeConfig {
                 .executionRepository(executionRepository)
                 .executionControl(executionControl)
                 .agentConfig(agentConfig)
-                .manualCompacter(manualCompacter)
+                .contextPruner(contextPruner)
                 .runtimeLifeStyleManager(runtimeLifeStyleManager)
                 .failureObservers(failureObservers)
                 .modelCompacter(modelCompacter)
@@ -84,10 +84,10 @@ public class ExecutionRuntimeConfig {
     @ConditionalOnMissingBean(RuntimeBoundaryChecker.class)
     public RuntimeBoundaryChecker boundaryChecker(AgentConfig agentConfig, Tokenizer tokenizer,
                                                   ConversationManager conversationManager,
-                                                  DefaultManualCompacter manualCompacter,
+                                                  DefaultContextPruner contextPruner,
                                                   DefaultModelCompacter modelCompacter) {
         return new BoundaryChecker(agentConfig, tokenizer, conversationManager,
-                manualCompacter, modelCompacter);
+                contextPruner, modelCompacter);
     }
 
     /** The dispatcher orders callbacks only; runtime limits are owned by the loop. */

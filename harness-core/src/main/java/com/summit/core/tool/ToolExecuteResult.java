@@ -12,7 +12,20 @@ import java.util.Objects;
 @Builder
 @Data
 public class ToolExecuteResult {
+    /** Framework-level outcome: {@code 1} = the framework ran the tool, {@code 0} = it failed. */
     private Integer code;
+
+    /**
+     * The tool's own exit status, when it has one (e.g. a shell command's {@code $?}), or
+     * {@code null} when the tool has no such notion.
+     *
+     * <p>Deliberately separate from {@link #code}: {@code code} answers "did the framework execute
+     * the tool", while a process exit status answers "what did the tool report", and the two invert
+     * — a shell exit status of {@code 0} means success while {@link #isSuccess()} is true only for
+     * {@code code == 1}. Folding them together would flip every successful command to failed.</p>
+     */
+    private Integer exitCode;
+
 
     private String id;
 

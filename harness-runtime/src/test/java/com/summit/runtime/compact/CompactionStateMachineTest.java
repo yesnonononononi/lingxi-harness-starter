@@ -226,8 +226,6 @@ class CompactionStateMachineTest {
                 new RuntimeEventPublisher(List.of()), 1);
         DefaultModelCompacter modelCompacter = new DefaultModelCompacter(model, conversations,
                 id -> Optional.empty(), usage);
-        DefaultManualCompacter manualCompacter = new DefaultManualCompacter(
-                ContextAttachmentProvider.NONE, tokenizer, usage);
         AgentConfig agentConfig = AgentConfig.builder()
                 .maxTokens(100_000)
                 .maxSummaryAttempts(maxSummaryAttempts)
@@ -235,7 +233,10 @@ class CompactionStateMachineTest {
                         new AgentConfig.OriginalSqueeze(0.7, 5),
                         new AgentConfig.ModelSqueeze(MODEL_THRESHOLD)))
                 .build();
-        return new BoundaryChecker(agentConfig, tokenizer, conversations, manualCompacter, modelCompacter);
+        // The prune band backs the summarize band up: once summarization is closed the checkpoint
+        // prunes, which these cases exercise indirectly through the execution state.
+        DefaultContextPruner contextPruner = new DefaultContextPruner(agentConfig, usage);
+        return new BoundaryChecker(agentConfig, tokenizer, conversations, contextPruner, modelCompacter);
     }
 
     /** Compact model that always answers with an acceptable summary and records every request. */
