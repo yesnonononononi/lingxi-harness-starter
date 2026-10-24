@@ -7,15 +7,15 @@ package com.summit.core.compact;
  * <p>The local round-based truncation band is gone; what remains is the summarize band and the
  * prune band that backs it up. Which one applies depends on the token ratio <em>and</em> on the
  * compaction state of the execution — summarization is attempted first and, once it is closed,
- * pruning takes over for the current generation:</p>
+ * pruning rechecks the growing context at later checkpoints:</p>
  *
  * <ul>
  *   <li>{@link SqueezeBand#NONE}: nothing to do. Either the ratio is under the model threshold, or
- *       this context generation was already pruned;</li>
+ *       no checkpoint action is needed;</li>
  *   <li>{@link SqueezeBand#SUMMARIZE}: the ratio reached the model threshold and summarization is
  *       still available — the caller runs the model compaction;</li>
  *   <li>{@link SqueezeBand#PRUNE}: summarization is closed for this execution and the context
- *       generation has not been pruned yet — the caller prunes the local history instead.</li>
+ *       is over the trigger threshold — the caller prunes the local history instead.</li>
  * </ul>
  *
  * <p>This record only carries the decision; the checkpoint performs the band.</p>
@@ -30,7 +30,7 @@ public record ContextSqueezeRequest(SqueezeBand band) {
         NONE,
         /** Model summarization: the history is compressed into a summary and rebuilt from it. */
         SUMMARIZE,
-        /** Local pruning: the tool history is graded and trimmed, no model call involved. */
+        /** Local pruning: historical skeletons, then text-only history if necessary. */
         PRUNE
     }
 

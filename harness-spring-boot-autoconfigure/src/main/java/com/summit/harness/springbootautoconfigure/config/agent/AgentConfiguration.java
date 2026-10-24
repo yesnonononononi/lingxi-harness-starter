@@ -75,9 +75,6 @@ public class AgentConfiguration {
                 .maxIterations(agentProperties.getMaxIterations())
                 .maxConsecutiveCompactions(agentProperties.getMaxConsecutiveCompactions())
                 .maxSummaryAttempts(tuning == null ? null : tuning.maxSummaryAttempts())
-                .pruneTargetRatio(tuning == null ? null : tuning.pruneTargetRatio())
-                .fullSegmentCount(tuning == null ? null : tuning.fullSegmentCount())
-                .fullToolOutputCap(tuning == null ? null : tuning.fullToolOutputCap())
                 .build();
     }
 }

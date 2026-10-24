@@ -99,8 +99,9 @@ public class ConversationConfig {
      */
     @Bean
     @ConditionalOnMissingBean(name = "contextPruner")
-    public DefaultContextPruner contextPruner(AgentConfig config, ContextUsageReporter usage) {
-        return new DefaultContextPruner(config, usage);
+    public DefaultContextPruner contextPruner(AgentConfig config, ContextUsageReporter usage,
+                                             ContextAttachmentProvider attachments) {
+        return new DefaultContextPruner(config, usage, attachments);
     }
 
     @Bean

@@ -38,19 +38,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * §8.4 acceptance check of the pruned context shapes, run through the real providers.
+ * Checks pending prefixes, skeleton history, and text-only history through both real adapters.
  *
- * <p>Three shapes have to be acceptable to both wire protocols before the prune band can be trusted
- * with them in production:</p>
- * <ol>
- *   <li>a {@code FROZEN} active group keeps its thinking — the request must be <b>unchanged</b>
- *       compared with the unpruned context;</li>
- *   <li>a historical segment with its thinking removed still pairs {@code tool_use} with
- *       {@code tool_result};</li>
- *   <li>a plain-text assistant {@code SKELETON} is an ordinary assistant turn.</li>
- * </ol>
- *
- * <p>The providers here are the real ones ({@link AnthropicChatModelProvider},
+ * <p>The providers ({@link AnthropicChatModelProvider},
  * {@link OpenAiChatModelProvider}) talking to a local endpoint, so the assertions read the exact JSON
  * both SDKs put on the wire. What this cannot prove offline is the remote server's own validation: no
  * test in this repository can call Anthropic or OpenAI. The check therefore pins the wire shape — the
@@ -77,7 +67,7 @@ class PrunedContextWireAcceptanceTest {
                 UserMessageEntity.from("question"),
                 active);
 
-        List<Message> pruned = prune(original, 0.0001d);
+        List<Message> pruned = prune(original);
         assertEquals(original.size(), pruned.size(),
                 "an active group is frozen: pruning keeps it and the rest of the session");
         AiMessageEntity kept = (AiMessageEntity) pruned.get(2);
@@ -125,7 +115,7 @@ class PrunedContextWireAcceptanceTest {
                         .toolOutput("x".repeat(3_000)).exitCode(1).build(),
                 AiMessageEntity.builder().text("answer").build());
 
-        List<Message> pruned = prune(original, 0.02d);
+        List<Message> pruned = prune(original);
         assertEquals(5, pruned.size(), "nothing is dropped at this budget: " + pruned);
         AiMessageEntity rewritten = (AiMessageEntity) pruned.get(2);
         assertNull(rewritten.getThinking(), "a historical segment loses its thinking");
@@ -165,7 +155,7 @@ class PrunedContextWireAcceptanceTest {
 
         // The plain-text segment may be dropped or kept as a skeleton; either way it must never carry
         // a tool structure a protocol would have to pair.
-        List<Message> pruned = prune(original, 0.05d);
+        List<Message> pruned = prune(original);
         assertTrue(pruned.stream().filter(AiMessageEntity.class::isInstance)
                         .allMatch(message -> ((AiMessageEntity) message).getToolCalls() == null
                                 || ((AiMessageEntity) message).getToolCalls().isEmpty()),
@@ -186,12 +176,43 @@ class PrunedContextWireAcceptanceTest {
         }
     }
 
+    @Test
+    void textOnlyHistoryAndTheLatestToolPairReachBothProviders() throws Exception {
+        List<Message> original = List.of(
+                SystemMessageEntity.builder().text("system").build(),
+                UserMessageEntity.from("question"),
+                AiMessageEntity.builder().text("earlier finding").toolCalls(List.of(
+                        new ToolCallRequest("discarded-call", "read", 0,
+                                "{\"content\":\"" + "x".repeat(40_000) + "\"}"))).build(),
+                ToolMessageEntity.builder().id("discarded-call").name("read").toolOutput("old output").build(),
+                AiMessageEntity.builder().text("latest working group").toolCalls(List.of(
+                        new ToolCallRequest("latest-call", "lookup", 0, "{}"))).build(),
+                ToolMessageEntity.builder().id("latest-call").name("lookup").toolOutput("complete latest result").build());
+
+        List<Message> pruned = prune(original);
+
+        assertEquals("earlier finding", pruned.get(2).text());
+        assertTrue(((AiMessageEntity) pruned.get(2)).getToolCalls().isEmpty());
+
+        try (Endpoint endpoint = new Endpoint()) {
+            JsonNode anthropic = wire(endpoint, pruned, true);
+            JsonNode openAi = wire(endpoint, pruned, false);
+
+            assertFalse(anthropic.toString().contains("discarded-call"));
+            assertFalse(openAi.toString().contains("discarded-call"));
+            assertEquals("latest-call", anthropicBlock(anthropic, "tool_result").path("tool_use_id").asText());
+            assertEquals("latest-call", openAiMessage(openAi, "tool").path("tool_call_id").asText());
+            assertTrue(anthropic.toString().contains("complete latest result"));
+            assertTrue(openAi.toString().contains("complete latest result"));
+        }
+    }
+
     // ------------------------------------------------------------------ fixtures
 
     /** Runs the real pruner over the messages and returns its product. */
-    private static List<Message> prune(List<Message> messages, double pruneTargetRatio) {
+    private static List<Message> prune(List<Message> messages) {
         AgentConfig config = AgentConfig.builder().maxTokens(MAX_TOKENS)
-                .pruneTargetRatio(pruneTargetRatio).build();
+                .build();
         DefaultContextPruner pruner = new DefaultContextPruner(config,
                 new ContextUsageReporter(new DefaultTokenizer(), MAX_TOKENS,
                         new RuntimeEventPublisher(List.of()), 1));

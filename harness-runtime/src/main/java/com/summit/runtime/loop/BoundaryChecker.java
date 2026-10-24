@@ -29,7 +29,8 @@ import lombok.extern.slf4j.Slf4j;
  * threshold nothing happens; at or above it summarization is attempted while it is still available;
  * once summarization is closed for the execution — it failed, no compact model is wired, its
  * attempt budget is spent while the context is still oversized — the local prune band takes over
- * for the current context generation and runs at most once per generation.</p>
+ * whenever another checkpoint reaches the threshold. New tool groups can therefore be pruned
+ * during long tasks even after an earlier fallback.</p>
  *
  * <p>This class is the <b>single writer</b> of the summarize counters on
  * {@link Execution#getCompactionState()}: the attempt counter is incremented before the compact
@@ -78,9 +79,8 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
      * Decides the compaction band for this checkpoint: none, summarize, or prune.
      *
      * <p>Summarization is attempted while it is still available and the attempt budget of the
-     * window has room; once it is closed, the current context generation gets exactly one prune. A
-     * generation that was already pruned and is still oversized reports nothing here — repeating a
-     * prune on the same content would produce the same product (§3.7).</p>
+     * window has room; once it is closed, local pruning handles each oversized checkpoint. Its
+     * persisted stage controls how history is retained, rather than preventing further passes.</p>
      *
      * @param conversationManager the manager holding the execution's context
      * @param execution            the execution being checked
@@ -98,10 +98,7 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
         if (summarizeAvailable) {
             return ContextSqueezeRequest.summarize();
         }
-        if (state.pruneGeneration() == 0) {
-            return ContextSqueezeRequest.prune();
-        }
-        return ContextSqueezeRequest.none();
+        return ContextSqueezeRequest.prune();
     }
 
     /**
@@ -119,9 +116,12 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
                 return;
             }
             case SUMMARIZE -> {
-                if (compactBySummary(execution, request)) {
-                    return;
+                while (compactBySummary(execution, request)) {
+                    if (tokenizer.count(conversationManager.messages(execution)) <= agentConfig.maxTokens()) {
+                        return;
+                    }
                 }
+
                 compactByPrune(execution, request);
             }
             case PRUNE -> compactByPrune(execution, request);
@@ -196,34 +196,23 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
     }
 
     /**
-     * Runs the prune band: one local pass per context generation.
+     * Runs local pruning and lets an irreducible input-budget error terminate the execution.
      *
-     * <p>Pruning is a millisecond-scale local operation with no model call, so it is always worth
-     * attempting — even when the non-cuttable part alone already exceeds the target, it reclaims
-     * whatever the tool history still holds (§3.7).</p>
+     * <p>The pruner validates the complete candidate before committing it. Swallowing that failure
+     * would send an oversized context to the main model.</p>
      */
     private void compactByPrune(Execution execution, ContextSqueezeRequest request) {
         CompactionState state = conversationManager.compactionState(execution);
-        if (state.pruneGeneration() > 0) {
-            log.info("【context-compact】this context generation was already pruned, no repeat prune: "
-                    + "executionId={}", execution.getId());
-            return;
+
+        if (!state.summaryUnavailable()) {
+            markSummarizationUnavailable(execution, "no compact model is configured or its attempt budget is exhausted");
         }
+
         if (contextPruner == null) {
-            log.warn("【context-compact】no context pruner is wired, the oversized context is left as it "
-                    + "is: executionId={}", execution.getId());
-            return;
+            throw new IllegalStateException("Context pruning is required but no context pruner is configured");
         }
-        boolean pruned = contextPruner.compact(new ContextCompactRequest(execution, request));
-        double ratio = tokenRatio(execution);
-        if (ratio >= modelThreshold()) {
-            log.warn("【context-compact】prune finished (pruned={}) but the context is still at ratio={} "
-                            + "(threshold={}); reporting the overflow instead of pruning again: executionId={}",
-                    pruned, ratio, modelThreshold(), execution.getId());
-            return;
-        }
-        log.info("【context-compact】prune brought the context under the threshold: ratio={}, executionId={}",
-                ratio, execution.getId());
+
+        contextPruner.compact(new ContextCompactRequest(execution, request));
     }
 
     /**

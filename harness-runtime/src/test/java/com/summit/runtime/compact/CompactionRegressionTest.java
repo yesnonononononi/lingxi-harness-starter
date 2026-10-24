@@ -14,6 +14,7 @@ import com.summit.core.model.chat.ChatModel;
 import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.runtime.loop.ContextUsageReporter;
 import com.summit.core.tool.ToolExecution;
+import com.summit.core.tool.ToolResultType;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.conversation.DefaultConversationManager;
 import com.summit.runtime.conversation.DefaultTokenizer;
@@ -44,22 +45,22 @@ class CompactionRegressionTest {
     @Test
     void automaticAndToolCompactionUseTheSamePromptAndProtectedAttachment() {
         List<ChatRequestEntity> requests = new ArrayList<>();
-        var conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
-        var compacter = new DefaultModelCompacter(request -> {
+        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        DefaultModelCompacter compacter = new DefaultModelCompacter(request -> {
             requests.add(request);
             return ChatResponseEntity.builder().aiMessageEntity(AiMessageEntity.builder()
                     .text("{\"summary\":\"summary\"}").build()).build();
         }, conversations, id -> Optional.of("protected state"), usage);
-        var history = new ArrayList<Message>(List.of(
+        ArrayList<Message> history = new ArrayList<Message>(List.of(
                 SystemMessageEntity.builder().text("system").build(), UserMessageEntity.from("history")));
-        var execution = Execution.builder().id("e").messages(history)
+        Execution execution = Execution.builder().id("e").messages(history)
                 .agentRequest(AgentRequest.builder().messages(history).build()).build();
         assertTrue(compacter.compact(new ContextCompactRequest(execution, null)));
-        assertEquals(com.summit.core.tool.ToolResultType.CONTEXT_COMPACT,
+        assertEquals(ToolResultType.CONTEXT_COMPACT,
                 compacter.execute(ToolExecution.builder().executionId("e").args("{\"context\":\"history\"}").build()).getToolResultType());
         assertEquals(2, requests.size());
         assertEquals(requests.getFirst().getMessages().getFirst().text(), requests.getLast().getMessages().getFirst().text());
-        for (var request : requests) assertTrue(request.getMessages().getLast().text().contains("protected state"));
+        for (ChatRequestEntity request : requests) assertTrue(request.getMessages().getLast().text().contains("protected state"));
 
         // Pruning runs on the rebuilt session and must never rewrite its system prefix.
         Execution rebuilt = executionWith(
@@ -67,8 +68,9 @@ class CompactionRegressionTest {
                 SystemMessageEntity.builder().text("summary").build(),
                 UserMessageEntity.from("history"),
                 AiMessageEntity.builder().toolCalls(List.of(new ToolCallRequest("c1", "read", 0, "{}"))).build(),
-                ToolMessageEntity.builder().id("c1").name("read").toolOutput("x".repeat(3_000)).build());
-        assertTrue(pruner(0.0001d).compact(new ContextCompactRequest(rebuilt, null)));
+                ToolMessageEntity.builder().id("c1").name("read").toolOutput("x".repeat(3_000)).build(),
+                AiMessageEntity.builder().text("latest work").build());
+        assertTrue(pruner(MAX_TOKENS).compact(new ContextCompactRequest(rebuilt, null)));
         assertEquals(List.of("system", "summary"), rebuilt.getMessages().stream()
                         .filter(SystemMessageEntity.class::isInstance).map(Message::text).toList(),
                 "pruning keeps every system message, in order and untouched");
@@ -81,11 +83,12 @@ class CompactionRegressionTest {
                 UserMessageEntity.from("u".repeat(300)),
                 AiMessageEntity.builder().text("old turn")
                         .toolCalls(List.of(new ToolCallRequest("c1", "read", 0, "{}"))).build(),
-                ToolMessageEntity.builder().id("c1").name("read").toolOutput("x".repeat(9_000)).build());
+                ToolMessageEntity.builder().id("c1").name("read").toolOutput("x".repeat(9_000)).build(),
+                AiMessageEntity.builder().text("latest work").build());
 
-        assertTrue(pruner(0.025d).compact(new ContextCompactRequest(execution, null)));
+        assertTrue(pruner(MAX_TOKENS).compact(new ContextCompactRequest(execution, null)));
 
-        assertEquals(4, execution.getMessages().size(), "the segment survives as a skeleton");
+        assertEquals(5, execution.getMessages().size(), "the historical segment and latest answer survive");
         AiMessageEntity ai = assertInstanceOf(AiMessageEntity.class, execution.getMessages().get(2));
         assertEquals("old turn", ai.text(), "the skeleton keeps the assistant text");
         assertEquals(1, ai.getToolCalls().size(), "the skeleton keeps the tool calls");
@@ -99,14 +102,15 @@ class CompactionRegressionTest {
     void pruneEmitsAPairedBandTaggedSqueeze() {
         List<ContextUpdateEvent> events = new ArrayList<>();
         DefaultContextPruner pruner = new DefaultContextPruner(
-                AgentConfig.builder().maxTokens(MAX_TOKENS).pruneTargetRatio(0.40d).build(),
+                AgentConfig.builder().maxTokens(MAX_TOKENS).build(),
                 capturingReporter(events));
 
         Execution trimmable = executionWith(
                 SystemMessageEntity.builder().text("system").build(),
                 UserMessageEntity.from("question"),
                 AiMessageEntity.builder().toolCalls(List.of(new ToolCallRequest("c0", "read", 0, "{}"))).build(),
-                ToolMessageEntity.builder().id("c0").name("read").toolOutput("x".repeat(100_000)).build());
+                ToolMessageEntity.builder().id("c0").name("read").toolOutput("x".repeat(100_000)).build(),
+                AiMessageEntity.builder().text("latest work").build());
 
         assertTrue(pruner.compact(new ContextCompactRequest(trimmable, null)));
         assertEquals(2, events.size());
@@ -134,7 +138,7 @@ class CompactionRegressionTest {
     void modelCompactionClosesTheSqueezePairOnFailureAndHandsOverToPrune() {
         List<ContextUpdateEvent> events = new ArrayList<>();
         List<Integer> modelCalls = new ArrayList<>();
-        var conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
         DefaultModelCompacter compacter = new DefaultModelCompacter(request -> {
             modelCalls.add(1);
             throw new IllegalStateException("model unavailable");
@@ -144,7 +148,8 @@ class CompactionRegressionTest {
                 SystemMessageEntity.builder().text("system").build(),
                 UserMessageEntity.from("history"),
                 AiMessageEntity.builder().toolCalls(List.of(new ToolCallRequest("c0", "read", 0, "{}"))).build(),
-                ToolMessageEntity.builder().id("c0").name("read").toolOutput("x".repeat(30_000)).build());
+                ToolMessageEntity.builder().id("c0").name("read").toolOutput("x".repeat(30_000)).build(),
+                AiMessageEntity.builder().text("latest work").build());
 
         assertFalse(compacter.compact(new ContextCompactRequest(execution, null)));
         assertEquals(2, events.size());
@@ -174,7 +179,7 @@ class CompactionRegressionTest {
         assertEquals(callsAfterFirstCheckpoint, modelCalls.size(),
                 "a failing summarize is never retried within the execution");
         assertTrue(execution.getCompactionState().summaryUnavailable());
-        assertEquals(1, execution.getCompactionState().pruneGeneration(), "the prune band ran exactly once");
+        assertEquals(1, execution.getCompactionState().pruneGeneration(), "skeleton history still fits the budget");
         assertTrue(events.stream().anyMatch(event -> event.getBand() == ContextUpdateEvent.Band.PRUNE),
                 "the closed summarize band hands the checkpoint over to pruning");
     }
@@ -189,10 +194,9 @@ class CompactionRegressionTest {
         })), 1);
     }
 
-    private DefaultContextPruner pruner(double pruneTargetRatio) {
+    private DefaultContextPruner pruner(int budget) {
         return new DefaultContextPruner(AgentConfig.builder()
-                .maxTokens(MAX_TOKENS).pruneTargetRatio(pruneTargetRatio)
-                .fullToolOutputCap(100).build(), usage);
+                .maxTokens(budget).build(), usage);
     }
 
     private static Execution executionWith(Message... messages) {

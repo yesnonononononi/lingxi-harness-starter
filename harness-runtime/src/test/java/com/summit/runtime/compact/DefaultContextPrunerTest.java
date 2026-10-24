@@ -1,14 +1,11 @@
 package com.summit.runtime.compact;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.read.ListAppender;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
+import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.ContextCompactRequest;
-import com.summit.core.compact.ContextUsageMetric;
-import com.summit.core.compact.Tokenizer;
+import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.event.ContextUpdateEvent;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
@@ -17,458 +14,503 @@ import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.ToolMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
+import com.summit.core.exception.TokenBudgetExceededException;
+import com.summit.core.json.ExecutionJson;
 import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.runtime.loop.ContextUsageReporter;
+import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.runtime.agent.AgentConfig;
+import com.summit.runtime.context.RuntimeContext;
+import com.summit.runtime.conversation.DefaultConversationManager;
 import com.summit.runtime.conversation.DefaultTokenizer;
+import com.summit.runtime.loop.BoundaryChecker;
+import com.summit.runtime.loop.AgentLoopStepRunner;
+import com.summit.runtime.loop.DefaultLoopInterceptorProcessor;
+import com.summit.runtime.model.DefaultChatModelInvoker;
 import org.junit.jupiter.api.Test;
-import org.slf4j.LoggerFactory;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * The prune band's segment model, levels and exit conditions — cases 13 to 26 and 31 of §8.2.
- *
- * <p>Token arithmetic uses {@link DefaultTokenizer} (about three characters per token), so the
- * payload sizes below are chosen to land a segment on a specific level instead of guessing.</p>
- */
+/** The fallback keeps the working group and assistant findings before discarding tool history. */
 class DefaultContextPrunerTest {
-    private static final int MAX_TOKENS = 10_000;
-    /** Budget too small for anything: every gradable segment is dropped. */
-    private static final double TINY_RATIO = 0.0001d;
-    /** Budget large enough that nothing is trimmed. */
-    private static final double GENEROUS_RATIO = 1.0d;
 
     private final DefaultTokenizer tokenizer = new DefaultTokenizer();
     private final List<ContextUpdateEvent> events = new ArrayList<>();
 
-    /** Case 13: pruning keeps every user message, in order. */
     @Test
-    void pruneKeepsAllUserMessages() {
-        Execution execution = execution(
-                SystemMessageEntity.builder().text("system prompt").build(),
-                UserMessageEntity.from("first user turn"),
-                ai(null, "c1"),
-                tool("c1", "x".repeat(3_000), null),
-                UserMessageEntity.from("second user turn"),
-                UserMessageEntity.from("third user turn"));
+    void keepsEveryAssistantTextAndSkeletonizesOnlyHistoricalToolResults() {
+        Execution execution = history("{}", "old payload".repeat(2_000), "latest payload".repeat(50));
+        List<Message> original = new ArrayList<>(execution.getMessages());
 
-        assertTrue(pruner(TINY_RATIO).compact(new ContextCompactRequest(execution, null)));
+        assertTrue(pruner(2_000).compact(new ContextCompactRequest(execution)));
 
-        assertEquals(List.of("system prompt", "first user turn", "second user turn", "third user turn"),
-                textsOf(execution), "user messages are never trimmed");
+        assertEquals(List.of("earlier finding", "latest reasoning"), assistantTexts(execution));
+        assertEquals(1, execution.getCompactionState().pruneGeneration());
+        assertEquals("{\"path\":\"file\"}", lastAi(execution).getToolCalls().getFirst().arguments());
+        assertSame(original.getLast(), execution.getMessages().getLast());
+        ToolMessageEntity skeleton = findTool(execution, "old");
+        assertNotEquals(original.get(3).text(), skeleton.text());
+        assertTrue(skeleton.text().contains("exit=7"));
+        assertTrue(skeleton.isError());
+        assertEquals(7, skeleton.getExitCode());
+        assertEquals("read", skeleton.getName());
     }
 
-    /** Case 14: every system message survives, in order, ahead of the rest. */
     @Test
-    void pruneKeepsAllSystemMessagesIncludingSummary() {
-        Execution execution = execution(
-                SystemMessageEntity.builder().text("leading system").build(),
-                SystemMessageEntity.builder().text("generated summary").build(),
-                UserMessageEntity.from("question"),
-                ai(null, "c1"),
-                tool("c1", "x".repeat(3_000), null));
+    void dropsAllHistoricalCallsAndResultsButKeepsEveryAssistantTextAtSecondStage() {
+        Execution execution = history("x".repeat(10_000), "old output", "latest output");
 
-        assertTrue(pruner(TINY_RATIO).compact(new ContextCompactRequest(execution, null)));
+        assertTrue(pruner(1_000).compact(new ContextCompactRequest(execution)));
 
-        assertEquals(List.of("leading system", "generated summary"), execution.getMessages().stream()
-                        .filter(SystemMessageEntity.class::isInstance).map(Message::text).toList(),
-                "both system messages survive and stay first");
-    }
-
-    /** Case 15: ownership is resolved by tool-call id, not by adjacency. */
-    @Test
-    void segmentOwnershipResolvesByToolCallIdNotAdjacency() {
-        // The two results of one assistant message arrive in separate batches, with a user turn in
-        // between. Adjacency would orphan the second result and drop it.
-        List<Message> originals = new ArrayList<>(List.of(
-                SystemMessageEntity.builder().text("system").build(),
-                AiMessageEntity.builder().toolCalls(List.of(
-                        new ToolCallRequest("c1", "read", 0, "{}"),
-                        new ToolCallRequest("c2", "read", 1, "{}"))).build(),
-                tool("c1", "a".repeat(300), null),
-                UserMessageEntity.from("continue please"),
-                tool("c2", "b".repeat(300), null)));
-        Execution execution = execution(originals.toArray(new Message[0]));
-
-        pruner(GENEROUS_RATIO).compact(new ContextCompactRequest(execution, null));
-
-        assertEquals(5, execution.getMessages().size(),
-                "both results belong to the same assistant message and none is an orphan");
-        for (int i = 0; i < originals.size(); i++) {
-            assertSame(originals.get(i), execution.getMessages().get(i),
-                    "an ungradeable (interleaved) group is kept verbatim and in place");
-        }
-    }
-
-    /** Case 16: an orphan tool result is dropped with a warning. */
-    @Test
-    void orphanToolMessageIsDroppedWithWarn() {
-        Logger logger = (Logger) LoggerFactory.getLogger(DefaultContextPruner.class);
-        ListAppender<ILoggingEvent> appender = new ListAppender<>();
-        appender.start();
-        logger.addAppender(appender);
-        try {
-            Execution execution = execution(
-                    SystemMessageEntity.builder().text("system").build(),
-                    ai(null, "c1"),
-                    tool("c1", "x".repeat(30), null),
-                    tool("ghost", "y".repeat(30), null));
-
-            assertTrue(pruner(GENEROUS_RATIO).compact(new ContextCompactRequest(execution, null)));
-
-            assertEquals(3, execution.getMessages().size(), "the orphan is not part of the product");
-            assertFalse(textsOf(execution).contains("y".repeat(30)), "the orphan payload is gone");
-            assertTrue(appender.list.stream()
-                            .anyMatch(event -> event.getLevel() == Level.WARN
-                                    && event.getFormattedMessage().contains("orphan")),
-                    "dropping an orphan must be reported");
-        } finally {
-            logger.detachAppender(appender);
-        }
-    }
-
-    /** Case 17: a plain-text assistant message takes part in grading like any other segment. */
-    @Test
-    void pruneHandlesPlainAssistantMessages() {
-        Execution dropped = execution(
-                SystemMessageEntity.builder().text("system").build(),
-                UserMessageEntity.from("question"),
-                AiMessageEntity.builder().text("a plain answer").build());
-        assertTrue(pruner(TINY_RATIO).compact(new ContextCompactRequest(dropped, null)));
-        assertFalse(textsOf(dropped).contains("a plain answer"), "DROP omits the plain-text segment");
-
-        Execution kept = execution(
-                SystemMessageEntity.builder().text("system").build(),
-                UserMessageEntity.from("question"),
-                AiMessageEntity.builder().text("a plain answer").build());
-        pruner(GENEROUS_RATIO).compact(new ContextCompactRequest(kept, null));
-        assertTrue(textsOf(kept).contains("a plain answer"), "SKELETON keeps the plain-text segment");
-    }
-
-    /** Case 18: an incomplete tool group is frozen and kept verbatim, thinking included. */
-    @Test
-    void prunePreservesIncompleteToolCallGroups() {
-        AiMessageEntity working = AiMessageEntity.builder().text("calling the tool")
-                .thinking("reason")
-                .attributes(Map.of("thinking_signature", "signed"))
-                .toolCalls(List.of(new ToolCallRequest("c1", "read", 0, "{}"))).build();
-        Execution execution = execution(
-                SystemMessageEntity.builder().text("system").build(),
-                UserMessageEntity.from("go"),
-                working,
-                UserMessageEntity.from("next"));
-
-        pruner(TINY_RATIO).compact(new ContextCompactRequest(execution, null));
-
-        assertEquals(4, execution.getMessages().size(), "a frozen group is never trimmed");
-        AiMessageEntity kept = assertInstanceOf(AiMessageEntity.class, execution.getMessages().get(2));
-        assertSame(working, kept);
-        assertEquals("reason", kept.getThinking(), "an active group keeps its thinking");
-        assertEquals("signed", kept.getAttributes().get("thinking_signature"));
-    }
-
-    /** Case 20: the placeholder carries the payload size and the tool's exit status. */
-    @Test
-    void prunePlaceholderCarriesSizeAndExitCode() {
-        Execution execution = execution(
-                SystemMessageEntity.builder().text("system").build(),
-                ai(null, "c1"),
-                tool("c1", "one\ntwo\nthree\n" + "x".repeat(3_000), 1),
-                ai(null, "c2"),
-                tool("c2", "y".repeat(3_000), 0),
-                ai(null, "c3"),
-                tool("c3", "z".repeat(3_000), null));
-
-        assertTrue(pruner(0.02d).compact(new ContextCompactRequest(execution, null)));
-
-        List<String> placeholders = execution.getMessages().stream()
+        assertEquals(2, execution.getCompactionState().pruneGeneration());
+        assertEquals(List.of("earlier finding", "latest reasoning"), assistantTexts(execution));
+        AiMessageEntity earlier = (AiMessageEntity) execution.getMessages().get(2);
+        assertTrue(earlier.getToolCalls() == null || earlier.getToolCalls().isEmpty());
+        assertEquals(List.of("latest"), execution.getMessages().stream()
                 .filter(ToolMessageEntity.class::isInstance)
-                .map(Message::text)
-                .toList();
-        assertEquals(3, placeholders.size());
-        assertTrue(placeholders.get(0).contains("exit=1"), placeholders.get(0));
-        assertTrue(placeholders.get(1).contains("exit=0"), placeholders.get(1));
-        assertTrue(placeholders.get(2).contains("ERROR"),
-                "a tool without an exit status reports the failure it cannot express: " + placeholders.get(2));
-        for (String placeholder : placeholders) {
-            assertTrue(placeholder.startsWith("[output omitted ·"), placeholder);
-            assertTrue(placeholder.contains("KB"), "the payload size is reported: " + placeholder);
-            assertFalse(placeholder.contains("OUTPUT_TRUNCATED"),
-                    "the placeholder must not look like the acquisition-time truncation marker");
+                .map(ToolMessageEntity.class::cast).map(tool -> String.valueOf(tool.getId())).toList());
+        assertEquals("latest output", findTool(execution, "latest").text());
+    }
+
+    @Test
+    void removesHistoricalAssistantWithoutTextWhenItsCallsAreDropped() {
+        Execution execution = history("x".repeat(10_000), "old output", "latest output");
+        ((AiMessageEntity) execution.getMessages().get(2)).setText(null);
+
+        pruner(1_000).compact(new ContextCompactRequest(execution));
+
+        assertEquals(List.of("latest reasoning"), assistantTexts(execution));
+        assertEquals(4, execution.getMessages().size());
+    }
+
+    @Test
+    void preservesEveryResultOfTheLatestParallelCallWithoutAnOutputCap() {
+        ToolMessageEntity first = tool("a", "a".repeat(15_000), false, 0);
+        ToolMessageEntity second = tool("b", "b".repeat(15_000), false, 0);
+        Execution execution = execution(system("system"), user("question"),
+                AiMessageEntity.builder().text("parallel work").toolCalls(List.of(
+                        call("a", "{}"), call("b", "{}"))).build(), first, second);
+
+        assertFalse(pruner(20_000).compact(new ContextCompactRequest(execution)));
+
+        assertSame(first, findTool(execution, "a"));
+        assertSame(second, findTool(execution, "b"));
+        assertEquals(2, lastAi(execution).getToolCalls().size());
+    }
+
+    @Test
+    void cannotDiscardTheLatestLargeOutputToMakeTheContextFit() {
+        Execution execution = history("{}", "old output", "latest output".repeat(2_000));
+        List<Message> original = execution.getMessages();
+
+        TokenBudgetExceededException error = assertThrows(TokenBudgetExceededException.class,
+                () -> pruner(1_000).compact(new ContextCompactRequest(execution)));
+
+        assertTrue(error.getMessage().contains("提高上下文"));
+        assertTrue(error.getMessage().contains("保留消息"));
+        assertSame(original, execution.getMessages());
+        assertEquals(0, execution.getCompactionState().pruneGeneration());
+        assertPairedEvents();
+    }
+
+    @Test
+    void protectedMessagesAndAssistantTextOverflowFailsAtomically() {
+        Execution execution = execution(system("s".repeat(4_000)), user("u".repeat(4_000)),
+                AiMessageEntity.builder().text("older discovery".repeat(500)).build(),
+                AiMessageEntity.builder().text("latest answer").build());
+        List<Message> original = execution.getMessages();
+
+        assertThrows(TokenBudgetExceededException.class,
+                () -> pruner(1_000).compact(new ContextCompactRequest(execution)));
+
+        assertSame(original, execution.getMessages());
+        assertEquals(0, execution.getCompactionState().pruneGeneration());
+        assertPairedEvents();
+    }
+
+    @Test
+    void keepsSystemAndUserObjectsAndNonSystemChronologyIncludingInterleavedResults() {
+        SystemMessageEntity leading = system("leading");
+        SystemMessageEntity attachment = system("business state");
+        UserMessageEntity first = user("first");
+        UserMessageEntity interleaved = user("injected input");
+        Execution execution = execution(leading, first,
+                AiMessageEntity.builder().text("earlier finding")
+                        .toolCalls(List.of(call("a", "{}"), call("b", "{}"))).build(),
+                tool("a", "a".repeat(9_000), false, 0), interleaved,
+                tool("b", "b".repeat(9_000), false, 0), attachment,
+                AiMessageEntity.builder().text("latest answer").build());
+
+        pruner(2_000).compact(new ContextCompactRequest(execution));
+
+        List<Message> messages = execution.getMessages();
+        assertSame(leading, messages.get(0));
+        assertSame(attachment, messages.get(1));
+        assertSame(first, messages.get(2));
+        assertSame(interleaved, messages.get(5));
+        assertEquals("a", ((ToolMessageEntity) messages.get(4)).getId());
+        assertEquals("b", ((ToolMessageEntity) messages.get(6)).getId());
+        assertEquals(1, execution.getCompactionState().pruneGeneration());
+    }
+
+    @Test
+    void isIdempotentAtBothStagesWithoutParsingPlaceholderText() {
+        for (String arguments : List.of("{}", "x".repeat(10_000))) {
+            events.clear();
+            Execution execution = history(arguments, "old output".repeat(1_000), "latest output");
+            DefaultContextPruner pruner = pruner(1_000);
+            assertTrue(pruner.compact(new ContextCompactRequest(execution)));
+            List<Message> first = new ArrayList<>(execution.getMessages());
+            int stage = execution.getCompactionState().pruneGeneration();
+
+            assertFalse(pruner.compact(new ContextCompactRequest(execution)));
+
+            assertEquals(first, execution.getMessages());
+            assertEquals(stage, execution.getCompactionState().pruneGeneration());
         }
-        assertTrue(placeholders.get(0).contains("4 lines"), "the line count is reported: " + placeholders.get(0));
     }
 
-    /** Case 21: an assistant message and its tool results are kept or dropped together. */
-    @Test
-    void pruneNeverSplitsAnAiAndItsToolMessages() {
-        Execution complete = execution(
-                SystemMessageEntity.builder().text("system").build(),
-                UserMessageEntity.from("question"),
-                AiMessageEntity.builder().toolCalls(List.of(
-                        new ToolCallRequest("c1", "read", 0, "{}"),
-                        new ToolCallRequest("c2", "read", 1, "{}"))).build(),
-                tool("c1", "a".repeat(3_000), null),
-                tool("c2", "b".repeat(3_000), null));
-        assertTrue(pruner(0.02d).compact(new ContextCompactRequest(complete, null)));
-        List<String> ids = complete.getMessages().stream()
-                .filter(ToolMessageEntity.class::isInstance)
-                .map(message -> String.valueOf(((ToolMessageEntity) message).getId()))
-                .toList();
-        assertEquals(List.of("c1", "c2"), ids, "a skeleton keeps every result of the assistant message");
+    @ParameterizedTest
+    @ValueSource(strings = {"[output omitted · example]\n", "[output omitted · ", "[output omitted · 1B / exit=0]"})
+    void arbitraryPlaceholderLookingOutputIsAlwaysSkeletonized(String prefix) {
+        String payload = prefix + "9".repeat(30_000) + "]";
+        Execution execution = history("{}", payload, "latest output");
 
-        Execution dropped = execution(
-                SystemMessageEntity.builder().text("system").build(),
-                UserMessageEntity.from("question"),
-                AiMessageEntity.builder().toolCalls(List.of(
-                        new ToolCallRequest("c1", "read", 0, "{}"),
-                        new ToolCallRequest("c2", "read", 1, "{}"))).build(),
-                tool("c1", "a".repeat(3_000), null),
-                tool("c2", "b".repeat(3_000), null));
-        pruner(TINY_RATIO).compact(new ContextCompactRequest(dropped, null));
-        assertEquals(2, dropped.getMessages().size(), "a dropped segment takes all of its results with it");
+        pruner(1_000).compact(new ContextCompactRequest(execution));
+
+        String skeleton = findTool(execution, "old").text();
+        assertTrue(skeleton.length() < 100);
+        assertFalse(skeleton.contains("\n"));
+        assertNotEquals(payload, skeleton);
     }
 
-    /** Case 22: the product keeps the original chronology — old skeletons before new fulls. */
     @Test
-    void pruneProductKeepsOriginalChronologicalOrder() {
-        Execution execution = execution(
-                SystemMessageEntity.builder().text("system").build(),
-                UserMessageEntity.from("question"),
-                AiMessageEntity.builder().text("older turn")
-                        .toolCalls(List.of(new ToolCallRequest("c1", "read", 0, "{}"))).build(),
-                tool("c1", "x".repeat(3_000), null),
-                AiMessageEntity.builder().text("newer turn")
-                        .toolCalls(List.of(new ToolCallRequest("c2", "read", 0, "{}"))).build(),
-                tool("c2", "y".repeat(300), null));
+    void removesStaleThinkingWithoutChangingSourceSnapshotOrToolArguments() {
+        Execution execution = history("{\"key\":42}", "old output", "latest output");
+        AiMessageEntity original = lastAi(execution);
+        original.setThinking("signed reasoning");
+        original.setAttributes(Map.of("thinking_signature", "signature", "redacted_thinking", "encrypted"));
 
-        assertTrue(pruner(0.025d).compact(new ContextCompactRequest(execution, null)));
+        pruner(2_000).compact(new ContextCompactRequest(execution));
 
-        List<String> texts = textsOf(execution);
-        int older = texts.indexOf("older turn");
-        int newer = texts.indexOf("newer turn");
-        assertTrue(older >= 0 && newer >= 0, "both segments survive: " + texts);
-        assertTrue(older < newer, "the older skeleton must stay ahead of the newer full segment: " + texts);
-        assertTrue(texts.get(older + 1).startsWith("[output omitted ·"),
-                "the skeleton's placeholder stays with its assistant message: " + texts);
-        assertTrue(texts.get(newer + 1).equals("y".repeat(300)),
-                "the newest segment keeps its payload, and keeps it after its own message: " + texts);
+        AiMessageEntity rewritten = lastAi(execution);
+        assertNull(rewritten.getThinking());
+        assertTrue(rewritten.getAttributes().isEmpty());
+        assertEquals(original.getText(), rewritten.getText());
+        assertEquals(original.getToolCalls(), rewritten.getToolCalls());
+        assertEquals("signed reasoning", original.getThinking());
+        assertEquals("signature", original.getAttributes().get("thinking_signature"));
     }
 
-    /** Case 23: a second pass over an already pruned context changes nothing. */
     @Test
-    void pruneIsIdempotent() {
-        Execution execution = execution(
-                SystemMessageEntity.builder().text("system").build(),
-                UserMessageEntity.from("question"),
-                AiMessageEntity.builder().text("older turn")
-                        .toolCalls(List.of(new ToolCallRequest("c1", "read", 0, "{}"))).build(),
-                tool("c1", "x".repeat(3_000), null),
-                AiMessageEntity.builder().text("newer turn")
-                        .toolCalls(List.of(new ToolCallRequest("c2", "read", 0, "{}"))).build(),
-                tool("c2", "y".repeat(300), null));
-        DefaultContextPruner pruner = pruner(0.025d);
+    void incompleteGroupDefersTheWholeRewriteWithoutInvalidatingItsSignedPrefix() {
+        Execution execution = history("{}", "old output".repeat(2_000), "latest output");
+        execution.getMessages().removeLast();
+        lastAi(execution).setThinking("pending reasoning");
+        lastAi(execution).setAttributes(Map.of("thinking_signature", "signed"));
+        List<Message> original = execution.getMessages();
 
-        assertTrue(pruner.compact(new ContextCompactRequest(execution, null)));
-        List<String> firstProduct = textsOf(execution);
-        List<Message> firstInstances = new ArrayList<>(execution.getMessages());
+        assertFalse(pruner(20_000).compact(new ContextCompactRequest(execution)));
 
-        assertFalse(pruner.compact(new ContextCompactRequest(execution, null)),
-                "a second pass over the same generation must report no change");
-        assertEquals(firstProduct, textsOf(execution), "the product is a fixed point");
-        // Content equality alone would let a pass that rewrites equal messages pass as "no change";
-        // a fixed point must not churn the instances either, otherwise every checkpoint would
-        // replace the whole session with freshly built objects.
-        for (int index = 0; index < firstInstances.size(); index++) {
-            assertSame(firstInstances.get(index), execution.getMessages().get(index),
-                    "message " + index + " must be the very same instance after an idempotent pass");
-        }
+        assertSame(original, execution.getMessages());
+        assertEquals("pending reasoning", lastAi(execution).getThinking());
+        assertEquals(0, execution.getCompactionState().pruneGeneration());
+        assertPairedEvents();
     }
 
-    /** Case 24: historical segments lose thinking, frozen ones keep it. */
     @Test
-    void pruneRejectsThinkingBlocks() {
-        AiMessageEntity historical = AiMessageEntity.builder().text("older turn")
-                .thinking("secret")
-                .attributes(Map.of("thinking_signature", "signed"))
-                .toolCalls(List.of(new ToolCallRequest("c1", "read", 0, "{}"))).build();
-        AiMessageEntity active = AiMessageEntity.builder().text("in flight")
-                .thinking("still thinking")
-                .toolCalls(List.of(new ToolCallRequest("c2", "read", 0, "{}"))).build();
-        Execution execution = execution(
-                SystemMessageEntity.builder().text("system").build(),
-                UserMessageEntity.from("question"),
-                historical,
-                tool("c1", "x".repeat(3_000), null),
-                active,
-                UserMessageEntity.from("next"));
+    void oversizedIncompleteGroupFailsWithoutChangingItsPendingCall() {
+        Execution execution = execution(system("system"), user("question"),
+                AiMessageEntity.builder().text("x".repeat(6_000))
+                        .toolCalls(List.of(call("pending", "{}"))).build());
+        List<Message> original = execution.getMessages();
 
-        assertTrue(pruner(0.025d).compact(new ContextCompactRequest(execution, null)));
+        assertThrows(TokenBudgetExceededException.class,
+                () -> pruner(1_000).compact(new ContextCompactRequest(execution)));
 
-        AiMessageEntity rewritten = assertInstanceOf(AiMessageEntity.class, execution.getMessages().get(2));
-        assertNull(rewritten.getThinking(), "a rewritten historical message carries no thinking");
-        assertTrue(rewritten.getAttributes().isEmpty(), "and no orphaned thinking signature");
-        AiMessageEntity frozen = assertInstanceOf(AiMessageEntity.class, execution.getMessages().get(4));
-        assertSame(active, frozen);
-        assertEquals("still thinking", frozen.getThinking(),
-                "an active group is kept verbatim, thinking included");
+        assertSame(original, execution.getMessages());
+        assertPairedEvents();
     }
 
-    /** Case 26: a failing prune is reported and leaves the context usable. */
     @Test
-    void pruneFailureDoesNotAbortTheLoop() {
-        Tokenizer failing = new Tokenizer() {
-            /** Only the token counting breaks; telemetry must keep working so the pair can be seen. */
-            @Override
-            public int count(List<Message> messages) {
-                throw new IllegalStateException("tokenizer exploded");
-            }
+    void checkpointPrunesAgainAsNewWorkingGroupsAccumulate() {
+        AgentConfig config = AgentConfig.builder().maxTokens(2_000).build();
+        DefaultContextPruner pruner = new DefaultContextPruner(config, reporter(2_000));
+        BoundaryChecker checker = new BoundaryChecker(config, tokenizer,
+                new DefaultConversationManager(id -> Optional.empty()), pruner, null);
+        Execution execution = history("{}", "old output".repeat(2_000), "tiny latest result");
 
-            @Override
-            public String truncate(String output, int maxOutput) {
-                return output;
-            }
+        checker.before(execution);
+        assertEquals(1, execution.getCompactionState().pruneGeneration());
+        findTool(execution, "latest").setToolOutput("large former latest result".repeat(1_000));
+        execution.getMessages().add(AiMessageEntity.builder().text("next finding")
+                .toolCalls(List.of(call("next", "{}"))).build());
+        execution.getMessages().add(tool("next", "new latest", false, 0));
 
-            @Override
-            public double calcCurrentTokenRatio(List<Message> messages, int maxTokens) {
-                return 0.95d;
-            }
+        checker.before(execution);
 
-            @Override
-            public ContextUsageMetric usage(List<Message> messages, Integer maxTokens) {
-                return ContextUsageMetric.of(0, maxTokens == null ? 0 : maxTokens);
-            }
-        };
+        assertTrue(tokenizer.count(execution.getMessages()) <= 2_000);
+        assertTrue(findTool(execution, "latest").text().length() < 100);
+        assertEquals("new latest", findTool(execution, "next").text());
+        assertTrue(execution.getCompactionState().summaryUnavailable());
+    }
+
+    @Test
+    void terminalOverflowEscapesTheSummaryFailureFallback() {
+        AtomicInteger modelCalls = new AtomicInteger();
+        AgentConfig config = AgentConfig.builder().maxTokens(1_000).build();
+        DefaultConversationManager conversations = new DefaultConversationManager(id -> Optional.empty());
+        ContextUsageReporter usage = reporter(1_000);
+        DefaultModelCompacter compacter = new DefaultModelCompacter(request -> {
+            modelCalls.incrementAndGet();
+            throw new IllegalStateException("offline model failure");
+        }, conversations, id -> Optional.empty(), usage);
+        BoundaryChecker checker = new BoundaryChecker(config, tokenizer, conversations,
+                new DefaultContextPruner(config, usage), compacter);
+        Execution execution = history("{}", "old output", "latest output".repeat(1_000));
+
+        assertThrows(TokenBudgetExceededException.class, () -> checker.before(execution));
+
+        assertEquals(1, modelCalls.get());
+        assertTrue(execution.getCompactionState().summaryUnavailable());
+        assertEquals(0, execution.getCompactionState().pruneGeneration());
+    }
+
+    @Test
+    void businessAttachmentIsProtectedAndDoesNotDuplicateOnAnotherPass() {
+        Execution execution = history("x".repeat(10_000), "old output", "latest output");
+        ContextAttachmentProvider attachments = id -> Optional.of("authoritative business plan");
         DefaultContextPruner pruner = new DefaultContextPruner(
-                AgentConfig.builder().maxTokens(MAX_TOKENS).pruneTargetRatio(0.40d).build(),
-                reporter(failing));
-        Execution execution = execution(
-                SystemMessageEntity.builder().text("system").build(),
-                UserMessageEntity.from("question"),
-                ai(null, "c1"),
-                tool("c1", "x".repeat(3_000), null));
-        List<Message> before = new ArrayList<>(execution.getMessages());
+                AgentConfig.builder().maxTokens(1_000).build(), reporter(1_000), attachments);
 
-        assertFalse(pruner.compact(new ContextCompactRequest(execution, null)),
-                "a failing prune reports that it changed nothing");
+        assertTrue(pruner.compact(new ContextCompactRequest(execution)));
+        assertFalse(pruner.compact(new ContextCompactRequest(execution)));
 
-        assertEquals(before, execution.getMessages(), "the context is left exactly as it was");
-        assertEquals(0, execution.getCompactionState().pruneGeneration(),
-                "a failed pass must not consume the generation's single prune");
-        assertEquals(2, events.size(), "the squeeze pair is still closed");
+        assertEquals(2, execution.getCompactionState().pruneGeneration());
+        assertEquals(1, execution.getMessages().stream()
+                .filter(SystemMessageEntity.class::isInstance)
+                .filter(message -> message.text().contains("authoritative business plan")).count());
+    }
+
+    @Test
+    void businessAttachmentIsIncludedInTheTerminalBudgetCheck() {
+        Execution execution = history("{}", "old output", "latest output");
+        List<Message> original = execution.getMessages();
+        DefaultContextPruner pruner = new DefaultContextPruner(
+                AgentConfig.builder().maxTokens(1_000).build(), reporter(1_000),
+                id -> Optional.of("business plan".repeat(1_000)));
+
+        assertThrows(TokenBudgetExceededException.class, () -> pruner.compact(new ContextCompactRequest(execution)));
+
+        assertSame(original, execution.getMessages());
+        assertEquals(0, execution.getCompactionState().pruneGeneration());
+    }
+
+    @Test
+    void textOnlyStageStaysActiveWhenTheLatestGroupMovesForward() {
+        Execution execution = history("x".repeat(10_000), "old output", "latest output");
+        DefaultContextPruner pruner = pruner(1_000);
+        pruner.compact(new ContextCompactRequest(execution));
+
+        execution.getMessages().add(AiMessageEntity.builder().text("new finding")
+                .toolCalls(List.of(call("next", "{}"))).build());
+        execution.getMessages().add(tool("next", "new output", false, 0));
+
+        assertTrue(pruner.compact(new ContextCompactRequest(execution)));
+
+        assertEquals(2, execution.getCompactionState().pruneGeneration());
+        assertEquals(List.of("earlier finding", "latest reasoning", "new finding"), assistantTexts(execution));
+        assertEquals(1, execution.getMessages().stream().filter(ToolMessageEntity.class::isInstance).count());
+        assertEquals("new output", findTool(execution, "next").text());
+    }
+
+    @Test
+    void orphanResultsAreRemovedWithoutDroppingAssistantFindings() {
+        Execution execution = execution(system("system"), user("question"),
+                tool("orphan", "unpaired", false, null), AiMessageEntity.builder().text("finding").build());
+
+        assertTrue(pruner(1_000).compact(new ContextCompactRequest(execution)));
+
+        assertEquals(List.of("finding"), assistantTexts(execution));
+        assertEquals(3, execution.getMessages().size());
+    }
+
+    @Test
+    void invalidToolPairFailsInsteadOfPublishingAPartialRewrite() {
+        Execution execution = execution(system("system"), tool("late", "result", false, null),
+                AiMessageEntity.builder().toolCalls(List.of(call("late", "{}"))).build());
+        List<Message> original = execution.getMessages();
+
+        assertThrows(IllegalStateException.class, () -> pruner(1_000).compact(new ContextCompactRequest(execution)));
+
+        assertSame(original, execution.getMessages());
+        assertPairedEvents();
+    }
+
+    @Test
+    void emptyContextStillClosesTheEventPair() {
+        Execution execution = execution();
+
+        assertFalse(pruner(1_000).compact(new ContextCompactRequest(execution)));
+
+        assertPairedEvents();
+    }
+
+    @Test
+    void irreducibleOverflowStopsTheActualLoopBeforeInvokingTheMainModel() {
+        AtomicInteger mainCalls = new AtomicInteger();
+        AgentConfig config = AgentConfig.builder().maxTokens(1_000).build();
+        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        BoundaryChecker checker = new BoundaryChecker(config, tokenizer, conversations,
+                new DefaultContextPruner(config, reporter(1_000)), null);
+
+        RuntimeContext context = RuntimeContext.builder()
+                .conversationManager(conversations)
+                .runtimeBoundaryChecker(checker)
+                .loopInterceptorProcessor(new DefaultLoopInterceptorProcessor(List.of()))
+                .invoker(new DefaultChatModelInvoker(request -> {
+                    mainCalls.incrementAndGet();
+                    throw new AssertionError("An oversized request reached the main model");
+                }))
+                .build();
+
+        Execution execution = history("{}", "old output", "latest output".repeat(1_000));
+
+        assertThrows(TokenBudgetExceededException.class, () -> new AgentLoopStepRunner(context)
+                .run(execution, new ExecutionControlSignal(execution.getId())));
+
+        assertEquals(0, mainCalls.get());
+        assertEquals(0, execution.getModelAttempts());
+    }
+
+    @Test
+    void snapshotRestorationRetainsTheTextOnlyStageForTheNextWorkingGroup() throws Exception {
+        Execution execution = history("x".repeat(10_000), "old output", "latest output");
+        DefaultContextPruner pruner = pruner(1_000);
+        pruner.compact(new ContextCompactRequest(execution));
+
+        ObjectMapper mapper = ExecutionJson.newObjectMapper();
+        Execution restored = mapper.readValue(mapper.writeValueAsBytes(execution), Execution.class);
+        restored.getMessages().add(AiMessageEntity.builder().text("after restart")
+                .toolCalls(List.of(call("resumed", "{}"))).build());
+        restored.getMessages().add(tool("resumed", "restored output", false, 0));
+
+        pruner.compact(new ContextCompactRequest(restored));
+
+        assertEquals(2, restored.getCompactionState().pruneGeneration());
+        assertEquals(List.of("earlier finding", "latest reasoning", "after restart"), assistantTexts(restored));
+        assertEquals(1, restored.getMessages().stream().filter(ToolMessageEntity.class::isInstance).count());
+        assertEquals("restored output", findTool(restored, "resumed").text());
+    }
+
+    @Test
+    void skeletonsAreRetainedWhenTheyFitTheHardBudgetDespiteExceedingFortyPercent() {
+        Execution execution = history("x".repeat(1_300), "old output".repeat(1_000), "latest output");
+
+        pruner(1_000).compact(new ContextCompactRequest(execution));
+
+        int tokens = tokenizer.count(execution.getMessages());
+        assertTrue(tokens > 400 && tokens <= 1_000, "fixture must exceed the old soft target");
+        assertEquals(1, execution.getCompactionState().pruneGeneration());
+        assertFalse(((AiMessageEntity) execution.getMessages().get(2)).getToolCalls().isEmpty());
+        assertTrue(findTool(execution, "old").text().contains("output omitted"));
+    }
+
+    @Test
+    void successfulSummariesStillOverTheHardBudgetCannotEscapeToTheMainModel() {
+        AtomicInteger summaryCalls = new AtomicInteger();
+        AgentConfig config = AgentConfig.builder().maxTokens(1_000).maxSummaryAttempts(2).build();
+        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        ContextUsageReporter usage = reporter(1_000);
+        DefaultModelCompacter summaries = new DefaultModelCompacter(request -> {
+            summaryCalls.incrementAndGet();
+            return ChatResponseEntity.builder().aiMessageEntity(AiMessageEntity.builder()
+                    .text("{\"summary\":\"usable summary\"}").build()).build();
+        }, conversations, ContextAttachmentProvider.NONE, usage);
+
+        BoundaryChecker checker = new BoundaryChecker(config, tokenizer, conversations,
+                new DefaultContextPruner(config, usage), summaries);
+        Execution execution = execution(system("system"), user("protected input".repeat(1_000)),
+                AiMessageEntity.builder().text("latest finding").build());
+
+        assertThrows(TokenBudgetExceededException.class, () -> checker.before(execution));
+
+        assertEquals(2, summaryCalls.get());
+        assertEquals(2, execution.getCompactionState().summaryAttempts());
+        assertEquals(2, execution.getCompactionState().summaryGeneration());
+        assertTrue(execution.getCompactionState().summaryUnavailable());
+    }
+
+    private DefaultContextPruner pruner(int budget) {
+        return new DefaultContextPruner(AgentConfig.builder().maxTokens(budget).build(), reporter(budget));
+    }
+
+    private ContextUsageReporter reporter(int budget) {
+        return new ContextUsageReporter(tokenizer, budget, new RuntimeEventPublisher(List.of(new RuntimeListener() {
+            @Override
+            public void onContextUpdate(ContextUpdateEvent event) {
+                events.add(event);
+            }
+        })), 1);
+    }
+
+    private void assertPairedEvents() {
+        assertEquals(2, events.size());
+        assertEquals(ContextUpdateEvent.Phase.SQUEEZE_STARTED, events.getFirst().getPhase());
         assertEquals(ContextUpdateEvent.Phase.SQUEEZE_COMPLETED, events.getLast().getPhase());
-        assertEquals("Context prune failed", events.getLast().getMessage());
+        events.forEach(event -> assertEquals(ContextUpdateEvent.Band.PRUNE, event.getBand()));
     }
 
-    /** Case 31: a FULL segment caps every single tool result. */
-    @Test
-    void pruneRespectsToolOutputCapInFullSegments() {
-        String payload = "x".repeat(90_000);
-        Execution execution = execution(
-                SystemMessageEntity.builder().text("system").build(),
-                UserMessageEntity.from("question"),
-                ai(null, "c1"),
-                tool("c1", payload, null));
-        AgentConfig config = AgentConfig.builder().maxTokens(MAX_TOKENS)
-                .pruneTargetRatio(GENEROUS_RATIO).fullToolOutputCap(100).build();
-
-        pruner(config).compact(new ContextCompactRequest(execution, null));
-
-        ToolMessageEntity kept = assertInstanceOf(ToolMessageEntity.class, execution.getMessages().get(3));
-        assertTrue(kept.text().length() < payload.length(), "the payload was capped");
-        assertTrue(payload.startsWith(kept.text()), "the cap keeps the head of the output");
-        assertTrue(tokenizer.count(kept) <= 100,
-                "a FULL segment keeps at most the configured token cap, was " + tokenizer.count(kept));
+    static Execution history(String arguments, String oldOutput, String latestOutput) {
+        return execution(system("system"), user("question"),
+                AiMessageEntity.builder().text("earlier finding").toolCalls(List.of(call("old", arguments))).build(),
+                tool("old", oldOutput, true, 7),
+                AiMessageEntity.builder().text("latest reasoning")
+                        .toolCalls(List.of(call("latest", "{\"path\":\"file\"}"))).build(),
+                tool("latest", latestOutput, false, 0));
     }
 
-    /**
-     * Regression for defect 1: when a tool result is not adjacent to the assistant message that owns
-     * it (a user turn sits between them), the pass must still succeed — the product keeps the exact
-     * input order and the generation advances. The old renderer flushed a segment's tools together
-     * with its head, producing an out-of-order sourceIndex, failing assertion 7 and silently
-     * returning {@code false}; case 15 alone could not see that because it never asserted success.
-     */
-    @Test
-    void nonAdjacentToolResultsKeepOrderAndThePassSucceeds() {
-        Execution execution = execution(
-                SystemMessageEntity.builder().text("system").build(),
-                AiMessageEntity.builder().toolCalls(List.of(
-                        new ToolCallRequest("c1", "read", 0, "{}"),
-                        new ToolCallRequest("c2", "read", 1, "{}"))).build(),
-                tool("c1", "a".repeat(30_000), null),
-                UserMessageEntity.from("continue please"),
-                tool("c2", "b".repeat(30_000), null));
-        // Budget between FULL and SKELETON so the single segment is skeletonized (a real trim).
-        AgentConfig config = AgentConfig.builder().maxTokens(1_000).pruneTargetRatio(0.5d).build();
-
-        boolean changed = pruner(config).compact(new ContextCompactRequest(execution, null));
-
-        assertTrue(changed,
-                "trimming must actually succeed even though the two tool results are not adjacent");
-        assertEquals(1, execution.getCompactionState().pruneGeneration(),
-                "a successful pass advances the prune generation");
-        List<String> texts = textsOf(execution);
-        assertEquals(5, texts.size(), "system, ai, placeholder(c1), user, placeholder(c2): " + texts);
-        assertEquals("system", texts.get(0));
-        assertEquals("continue please", texts.get(3),
-                "the interleaved user turn keeps its own original slot: " + texts);
-        assertTrue(texts.get(2).startsWith("[output omitted ·"),
-                "c1's placeholder stays at its own original index: " + texts);
-        assertTrue(texts.get(4).startsWith("[output omitted ·"),
-                "c2's placeholder stays at its own original index, after the user turn: " + texts);
+    static Execution execution(Message... messages) {
+        List<Message> copy = new ArrayList<>(List.of(messages));
+        return Execution.builder().id("two-stage")
+                .agentRequest(AgentRequest.builder().messages(copy).build()).messages(copy).build();
     }
 
-    // ------------------------------------------------------------------ fixtures
-
-    private DefaultContextPruner pruner(double pruneTargetRatio) {
-        return pruner(AgentConfig.builder().maxTokens(MAX_TOKENS)
-                .pruneTargetRatio(pruneTargetRatio).build());
+    private static ToolCallRequest call(String id, String arguments) {
+        return new ToolCallRequest(id, "read", 0, arguments);
     }
 
-    private DefaultContextPruner pruner(AgentConfig config) {
-        return new DefaultContextPruner(config, reporter(tokenizer));
+    private static ToolMessageEntity tool(String id, String output, boolean error, Integer exitCode) {
+        return ToolMessageEntity.builder().id(id).name("read").isError(error).exitCode(exitCode).toolOutput(output).build();
     }
 
-    private ContextUsageReporter reporter(Tokenizer usageTokenizer) {
-        return new ContextUsageReporter(usageTokenizer, MAX_TOKENS,
-                new RuntimeEventPublisher(List.of(new RuntimeListener() {
-                    @Override
-                    public void onContextUpdate(ContextUpdateEvent event) {
-                        events.add(event);
-                    }
-                })), 1);
+    private static SystemMessageEntity system(String text) {
+        return SystemMessageEntity.builder().text(text).build();
     }
 
-    private static AiMessageEntity ai(String text, String... callIds) {
-        List<ToolCallRequest> calls = new ArrayList<>();
-        for (int index = 0; index < callIds.length; index++) {
-            calls.add(new ToolCallRequest(callIds[index], "read", index, "{}"));
-        }
-        return AiMessageEntity.builder().text(text).toolCalls(calls).build();
+    private static UserMessageEntity user(String text) {
+        return UserMessageEntity.from(text);
     }
 
-    private static ToolMessageEntity tool(String id, String output, Integer exitCode) {
-        return ToolMessageEntity.builder().id(id).name("read").toolOutput(output).exitCode(exitCode).build();
+    private static ToolMessageEntity findTool(Execution execution, String id) {
+        return execution.getMessages().stream().filter(ToolMessageEntity.class::isInstance)
+                .map(ToolMessageEntity.class::cast).filter(tool -> id.equals(tool.getId())).findFirst().orElseThrow();
     }
 
-    private static Execution execution(Message... messages) {
-        List<Message> list = new ArrayList<>(List.of(messages));
-        return Execution.builder().id("execution-1")
-                .agentRequest(AgentRequest.builder().messages(list).build())
-                .messages(list).build();
+    private static AiMessageEntity lastAi(Execution execution) {
+        return execution.getMessages().stream().filter(AiMessageEntity.class::isInstance)
+                .map(AiMessageEntity.class::cast).reduce((first, second) -> second).orElseThrow();
     }
 
-    private static List<String> textsOf(Execution execution) {
-        return execution.getMessages().stream().map(Message::text).toList();
+    private static List<String> assistantTexts(Execution execution) {
+        return execution.getMessages().stream().filter(AiMessageEntity.class::isInstance).map(Message::text).toList();
     }
 }

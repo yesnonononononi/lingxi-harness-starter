@@ -46,7 +46,7 @@ public class ContextCompactToolAutoConfiguration {
     }
 
     /**
-     * The prune budget and summarize-attempt settings, handed to {@link AgentConfig}.
+     * The summarize-attempt setting handed to {@link AgentConfig}.
      *
      * @param properties the compaction settings
      * @return the tuning values; {@code null} fields mean "use the runtime default"
@@ -54,11 +54,7 @@ public class ContextCompactToolAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public AgentConfig.CompactionTuning compactionTuning(ContextCompactToolProperties properties) {
-        return new AgentConfig.CompactionTuning(
-                properties.getMaxSummaryAttempts(),
-                properties.getPruneTargetRatio(),
-                properties.getFullSegmentCount(),
-                properties.getFullToolOutputCap());
+        return new AgentConfig.CompactionTuning(properties.getMaxSummaryAttempts());
     }
 
     @Bean

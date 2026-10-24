@@ -17,17 +17,17 @@ package com.summit.core.agent;
  * </ul>
  *
  * <p><b>One writer per field</b> (design §3.3.4): the runtime boundary checker owns
- * {@code summaryAttempts} and {@code summaryUnavailable}; the conversation manager owns
- * {@code summaryGeneration} and {@code pruneGeneration} and writes them only when it really
- * rebuilt the context. A rebuild must never reset the attempt counter or clear the unavailable
+ * {@code summaryAttempts} and {@code summaryUnavailable}; the conversation manager advances
+ * {@code summaryGeneration} and resets {@code pruneGeneration}, while the pruner advances that
+ * fallback stage. A rebuild must never reset the attempt counter or clear the unavailable
  * latch — doing so silently lifts the attempt ceiling of every execution.</p>
  *
  * @param summaryGeneration  number of successful summary generations; {@code 0} = original history,
  *                           {@code N} = the context was rebuilt from the N-th summary
  * @param summaryAttempts    summarize attempts spent in the current trigger window
  * @param summaryUnavailable whether summarization is closed for this execution
- * @param pruneGeneration    number of prunes performed inside the current context generation
- *                           (the policy cap is one)
+ * @param pruneGeneration    fallback stage of this summary generation: 0 = untouched,
+ *                           1 = historical tool skeletons, 2 = historical assistant text only
  */
 public record CompactionState(
         int summaryGeneration,
@@ -46,8 +46,8 @@ public record CompactionState(
         if (summaryAttempts < 0) {
             throw new IllegalArgumentException("summaryAttempts must not be negative: " + summaryAttempts);
         }
-        if (pruneGeneration < 0) {
-            throw new IllegalArgumentException("pruneGeneration must not be negative: " + pruneGeneration);
+        if (pruneGeneration < 0 || pruneGeneration > 2) {
+            throw new IllegalArgumentException("pruneGeneration must be a stage in [0, 2]: " + pruneGeneration);
         }
     }
 
@@ -93,10 +93,10 @@ public record CompactionState(
     }
 
     /**
-     * Replaces the prune generation.
+     * Replaces the fallback stage inside the current summary generation.
      *
-     * @param value the new prune generation, zero or positive
-     * @return a new state carrying that generation
+     * @param value 0 for untouched, 1 for skeleton history, or 2 for text-only history
+     * @return a new state carrying that stage
      */
     public CompactionState withPruneGeneration(int value) {
         return new CompactionState(summaryGeneration, summaryAttempts, summaryUnavailable, value);
@@ -148,11 +148,11 @@ public record CompactionState(
     }
 
     /**
-     * Records one prune pass inside the current context generation.
+     * Advances the fallback stage inside the current context generation.
      *
-     * @return a new state with the prune generation incremented by one
+     * @return a new state at the next stage, capped at text-only history
      */
     public CompactionState afterPrune() {
-        return withPruneGeneration(pruneGeneration + 1);
+        return withPruneGeneration(Math.min(2, pruneGeneration + 1));
     }
 }
