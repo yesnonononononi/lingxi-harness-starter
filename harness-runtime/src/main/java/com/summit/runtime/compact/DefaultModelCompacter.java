@@ -2,7 +2,6 @@ package com.summit.runtime.compact;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.core.agent.CompactionState;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.ContextCompactRequest;
@@ -67,7 +66,7 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
                 ContextUpdateEvent.Band.SUMMARY, "Model compaction started");
         try {
             if (!summaryApplier.apply(
-                    generate(execution.getId(), summaryInput(execution, messages)), execution, false)) {
+                    generate(execution.getId(), summaryInput(messages)), execution, false)) {
                 // STARTED is already out: every failure path closes the pair, otherwise consumers
                 // stay on the in-flight state until the next plain UPDATE happens to arrive.
                 usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_COMPLETED,
@@ -107,40 +106,16 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
      * @param messages  the session messages as they are right now
      * @return the compact-model input for this round
      */
-    private String summaryInput(Execution execution, List<Message> messages) {
-        if (hasPreviousSummary(execution)) {
-            String previous = previousSummaryOf(messages);
-            if (previous != null && !previous.isBlank()) {
-                return previous;
-            }
-        }
+    private String summaryInput(List<Message> messages) {
+        // Full compression of the live context: after a rebuild it already holds the previous
+        // summary as one of its system messages, plus every retained message and new work, so a
+        // plain render is correct and cheap and folds in anything produced since the last rebuild.
         return renderConversation(messages);
     }
 
-    /** True when the session was already rebuilt from a summary at least once. */
-    private boolean hasPreviousSummary(Execution execution) {
-        CompactionState state = conversationManager.compactionState(execution);
-        return state != null && state.summaryGeneration() > 0;
-    }
 
-    /**
-     * The summary system message the previous rebuild left at the head of the session.
-     *
-     * <p>A rebuilt session opens with all its system messages — leading prompt, optional protected
-     * attachment, then the summary — so the last system message of that leading block is the summary
-     * (§3.4 premise A). Returns {@code null} when the session carries no such block.</p>
-     */
-    private String previousSummaryOf(List<Message> messages) {
-        String candidate = null;
-        // Index 0 is the leading business prompt; it is never the summary of a previous generation.
-        for (int i = 1; i < messages.size(); i++) {
-            if (!(messages.get(i) instanceof SystemMessageEntity systemMessage)) {
-                break;
-            }
-            candidate = systemMessage.getText();
-        }
-        return candidate;
-    }
+
+
 
     private String generate(String executionId, String history) {
         Optional<String> attachment = contextAttachmentProvider.attachment(executionId);

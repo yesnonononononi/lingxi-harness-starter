@@ -11,6 +11,7 @@ import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
+import com.summit.core.conversation.message.ToolMessageEntity;
 import com.summit.core.model.chat.ChatModel;
 import com.summit.core.runtime.loop.ContextUsageReporter;
 import com.summit.runtime.agent.AgentConfig;
@@ -71,9 +72,9 @@ class CompactionStateMachineTest {
         assertEquals(1, state.summaryAttempts());
     }
 
-    /** Case 2: the second summarize round of a window sends the previous summary, not the history. */
+    /** Case 2: a rerun re-summarizes the whole live context (previous summary + retained), not the compressed history. */
     @Test
-    void chainedSummaryUsesPreviousSummaryAsInput() {
+    void summaryInputSummarizesTheWholeLiveContext() {
         Execution execution = execution();
         BoundaryChecker checker = checker(answeringModel(), 3);
 
@@ -86,9 +87,35 @@ class CompactionStateMachineTest {
         assertTrue(firstInput.contains(HISTORY_MARKER),
                 "the first round summarizes the rendered history: " + firstInput);
         assertTrue(secondInput.contains("SUMMARY-ALPHA"),
-                "the second round summarizes the previous summary: " + secondInput);
-        assertFalse(secondInput.contains(HISTORY_MARKER),
-                "the second round must not pay for the original history again: " + secondInput);
+                "the previous summary is part of the live context and is re-summarized: " + secondInput);
+        assertFalse(secondInput.contains("first answer"),
+                "the compressed-away assistant turn is gone, not replayed: " + secondInput);
+        assertTrue(secondInput.contains(HISTORY_MARKER),
+                "every retained user turn stays in the live context and is re-summarized: " + secondInput);
+    }
+
+    /** Case 2b (regression): a chained summary folds in work produced after the previous rebuild. */
+    @Test
+    void summaryFoldsInMessagesAddedAfterRebuild() {
+        Execution execution = execution();
+        BoundaryChecker checker = checker(answeringModel(), 4);
+
+        checker.before(execution); // first generation: summarize the history and rebuild
+
+        // Work done after the rebuild: it must reach the next summary instead of being dropped.
+        execution.getMessages().add(AiMessageEntity.builder().text("NEW-ASSISTANT-WORK").build());
+        execution.getMessages().add(ToolMessageEntity.builder()
+                .id("new-tool-call").name("manage_command").toolOutput("NEW-TOOL-RESULT-MARKER")
+                .isError(false).build());
+
+        checker.before(execution); // second generation must fold the appended work in
+
+        assertEquals(2, requests.size());
+        String secondInput = payloadOf(requests.get(1));
+        assertTrue(secondInput.contains("SUMMARY-ALPHA"),
+                "the chained round still carries the previous summary: " + secondInput);
+        assertTrue(secondInput.contains("NEW-TOOL-RESULT-MARKER"),
+                "a chained summary must fold in tool results produced after the rebuild: " + secondInput);
     }
 
     /** Case 3: at the attempt budget the last result is accepted and summarization is closed. */
