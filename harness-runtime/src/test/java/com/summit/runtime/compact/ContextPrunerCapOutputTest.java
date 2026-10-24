@@ -110,6 +110,33 @@ class ContextPrunerCapOutputTest {
         assertTrue(kept.text().length() < payload.length(), "it must be cut, not bypassed");
     }
 
+    /** A SKELETON tool output that starts with the placeholder text is replaced by one-line placeholder. */
+    @Test
+    void aSkeletonToolOutputThatStartsWithThePlaceholderPrefixBecomesOneLine() {
+        String payload = "[output omitted · example from a file]\n" + "x".repeat(4_000);
+
+        Execution execution = execution(
+                SystemMessageEntity.builder().text("system").build(),
+                UserMessageEntity.from("question"),
+                AiMessageEntity.builder()
+                        .toolCalls(List.of(new ToolCallRequest("c1", "read", 0, "{}"))).build(),
+                ToolMessageEntity.builder().id("c1").name("read").toolOutput(payload).build());
+
+        // fullSegmentCount 0 => no segment is FULL, so the tool result is SKELETONized.
+        AgentConfig config = AgentConfig.builder().maxTokens(1_000_000).pruneTargetRatio(0.9d)
+                .fullSegmentCount(0).build();
+        DefaultContextPruner pruner = new DefaultContextPruner(config, reporter());
+
+        assertTrue(pruner.compact(new ContextCompactRequest(execution, null)));
+
+        ToolMessageEntity kept = assertInstanceOf(ToolMessageEntity.class, execution.getMessages().get(3));
+        assertTrue(kept.text().startsWith("[output omitted"), kept.text());
+        assertFalse(kept.text().contains("\n"),
+                "the placeholder must be a single line even when the raw output starts with the prefix: "
+                        + kept.text());
+        assertFalse(kept.text().equals(payload), "the raw multi-line body is not kept verbatim");
+    }
+
     // ------------------------------------------------------------------ fixtures
 
     private ContextUsageReporter reporter() {

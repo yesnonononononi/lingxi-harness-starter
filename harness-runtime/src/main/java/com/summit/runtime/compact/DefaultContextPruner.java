@@ -566,8 +566,8 @@ public class DefaultContextPruner implements ContextCompacter {
      */
     private String placeholderOf(ToolMessageEntity tool) {
         String text = tool.text();
-        if (text != null && text.startsWith(OMITTED_PREFIX)) {
-            return text; // already a placeholder: keep it verbatim so pruning stays idempotent
+        if (isGeneratedPlaceholder(text)) {
+            return text; // already OUR one-line placeholder: keep it verbatim (idempotent)
         }
         List<String> parts = new ArrayList<>(3);
         int lines = lineCount(text);
@@ -577,6 +577,18 @@ public class DefaultContextPruner implements ContextCompacter {
         parts.add(sizeOf(text));
         parts.add(tool.getExitCode() == null ? "ERROR" : "exit=" + tool.getExitCode());
         return OMITTED_PREFIX + " " + String.join(" / ", parts) + "]";
+    }
+
+    /**
+     * True only for a placeholder THIS class generated: it starts with the prefix, is a single line
+     * (no newline), and closes with {@code ]}. A normal multi-line tool output that merely happens to
+     * begin with the prefix text is NOT a placeholder and must still be replaced by one.
+     */
+    private static boolean isGeneratedPlaceholder(String text) {
+        return text != null
+                && text.startsWith(OMITTED_PREFIX)
+                && text.indexOf('\n') < 0
+                && text.endsWith("]");
     }
 
     private static int lineCount(String text) {
