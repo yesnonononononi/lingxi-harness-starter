@@ -39,6 +39,18 @@ class ShellInterpreterEncodingTest {
 
     @Test
     @EnabledOnOs(OS.WINDOWS)
+    void cmdPassesNonAsciiCommandTextToProgramsIntact() throws Exception {
+        // 实测结论：命令文本经 CreateProcessW 以 UTF-16 传给子进程，完全无损；
+        // 变成乱码的是 cmd 内置命令（echo 等）的输出，不是命令文本本身。
+        WorkspaceCommands.CommandResult result = run(ShellType.CMD,
+                "node -e \"process.stdout.write([...process.argv[1]].map(c => c.codePointAt(0).toString(16)).join(','))\" "
+                        + SAMPLE);
+        assertEquals(0, result.exitCode(), result.output());
+        assertEquals("4e2d,6587,1f600", result.output().strip());
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
     void windowsPowerShellKeepsNonAsciiScriptAndStderrIntact() throws Exception {
         WorkspaceCommands.CommandResult out = run(ShellType.POWERSHELL, "[Console]::Write('" + SAMPLE + "')");
         assertEquals(0, out.exitCode(), out.output());

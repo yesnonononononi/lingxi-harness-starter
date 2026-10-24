@@ -41,8 +41,9 @@ public enum ShellType {
     CMD("cmd.exe") {
         @Override
         public List<String> buildCommand(String command) {
-            // 输出代码页是 cmd 进程级状态，必须在同一个 cmd 里切；与用户脚本用 & 顺序连接，
-            // 脚本自身的引号、管道、重定向语义不变。
+            // cmd 在进程启动时用控制台输入代码页把命令行转成字节，之后程序按该代码页输出；引导切到 65001，
+            // 让按控制台代码页输出字节的程序（git、node 等）与 UTF-8 解码一致。注意 cmd 内置命令（echo 等）
+            // 用的是启动时解析出的 ANSI 字节，chcp 对它们无效；脚本的引号/管道/重定向语义不受影响。
             return List.of(
                     this.command,
                     "/d",
