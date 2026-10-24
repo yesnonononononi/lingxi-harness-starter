@@ -391,6 +391,43 @@ class DefaultContextPrunerTest {
                 "a FULL segment keeps at most the configured token cap, was " + tokenizer.count(kept));
     }
 
+    /**
+     * Regression for defect 1: when a tool result is not adjacent to the assistant message that owns
+     * it (a user turn sits between them), the pass must still succeed — the product keeps the exact
+     * input order and the generation advances. The old renderer flushed a segment's tools together
+     * with its head, producing an out-of-order sourceIndex, failing assertion 7 and silently
+     * returning {@code false}; case 15 alone could not see that because it never asserted success.
+     */
+    @Test
+    void nonAdjacentToolResultsKeepOrderAndThePassSucceeds() {
+        Execution execution = execution(
+                SystemMessageEntity.builder().text("system").build(),
+                AiMessageEntity.builder().toolCalls(List.of(
+                        new ToolCallRequest("c1", "read", 0, "{}"),
+                        new ToolCallRequest("c2", "read", 1, "{}"))).build(),
+                tool("c1", "a".repeat(30_000), null),
+                UserMessageEntity.from("continue please"),
+                tool("c2", "b".repeat(30_000), null));
+        // Budget between FULL and SKELETON so the single segment is skeletonized (a real trim).
+        AgentConfig config = AgentConfig.builder().maxTokens(1_000).pruneTargetRatio(0.5d).build();
+
+        boolean changed = pruner(config).compact(new ContextCompactRequest(execution, null));
+
+        assertTrue(changed,
+                "trimming must actually succeed even though the two tool results are not adjacent");
+        assertEquals(1, execution.getCompactionState().pruneGeneration(),
+                "a successful pass advances the prune generation");
+        List<String> texts = textsOf(execution);
+        assertEquals(5, texts.size(), "system, ai, placeholder(c1), user, placeholder(c2): " + texts);
+        assertEquals("system", texts.get(0));
+        assertEquals("continue please", texts.get(3),
+                "the interleaved user turn keeps its own original slot: " + texts);
+        assertTrue(texts.get(2).startsWith("[output omitted ·"),
+                "c1's placeholder stays at its own original index: " + texts);
+        assertTrue(texts.get(4).startsWith("[output omitted ·"),
+                "c2's placeholder stays at its own original index, after the user turn: " + texts);
+    }
+
     // ------------------------------------------------------------------ fixtures
 
     private DefaultContextPruner pruner(double pruneTargetRatio) {

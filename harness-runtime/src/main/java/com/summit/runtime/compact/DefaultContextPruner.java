@@ -366,34 +366,62 @@ public class DefaultContextPruner implements ContextCompacter {
     private List<OutputEntry> render(List<Message> input, List<Segment> segments,
                                      Map<Integer, Level> levels) {
         Map<Integer, Segment> segmentByAiIndex = new HashMap<>();
+        Map<Integer, Segment> ownerByToolIndex = new HashMap<>();
         for (Segment segment : segments) {
             segmentByAiIndex.put(segment.aiIndex(), segment);
+            for (Integer toolIndex : segment.toolIndexes()) {
+                ownerByToolIndex.put(toolIndex, segment);
+            }
         }
 
         List<OutputEntry> product = new ArrayList<>(input.size());
+        // System messages are hoisted to the front, keeping their relative order — the single
+        // reordering providers require.
         for (int i = 0; i < input.size(); i++) {
             if (input.get(i) instanceof SystemMessageEntity) {
                 product.add(new OutputEntry(input.get(i), i));
             }
         }
+        // Every remaining message is emitted at its own original index, one by one, so the product
+        // keeps a strictly increasing sourceIndex even when a tool result is not adjacent to the
+        // assistant message that owns it (assertion 7). A tool result is never flushed together with
+        // its segment head; it is rendered here by its own index according to its segment's level.
         for (int i = 0; i < input.size(); i++) {
             Message message = input.get(i);
-            if (message instanceof SystemMessageEntity || message instanceof ToolMessageEntity) {
-                continue; // system messages are hoisted; tool results follow their segment head
+            if (message instanceof SystemMessageEntity) {
+                continue; // already hoisted
+            }
+            if (message instanceof ToolMessageEntity tool) {
+                Segment owner = ownerByToolIndex.get(i);
+                if (owner == null) {
+                    continue; // orphan: already dropped (and warned) during segmentation
+                }
+                if (owner.frozen()) {
+                    product.add(new OutputEntry(message, i)); // verbatim, thinking/identity intact
+                    continue;
+                }
+                Level level = levels.getOrDefault(owner.aiIndex(), Level.SKELETON);
+                if (level == Level.DROP) {
+                    continue;
+                }
+                String output = level == Level.FULL ? capOutput(tool.text()) : placeholderOf(tool);
+                product.add(new OutputEntry(copyTool(tool, output), i));
+                continue;
             }
             Segment segment = segmentByAiIndex.get(i);
             if (segment == null) {
-                product.add(new OutputEntry(message, i));
+                product.add(new OutputEntry(message, i)); // a user message or other standalone message
                 continue;
             }
             if (segment.frozen()) {
-                product.addAll(verbatim(segment));
+                product.add(new OutputEntry(segment.ai(), i)); // verbatim, thinking included
                 continue;
             }
             Level level = levels.getOrDefault(i, Level.SKELETON);
-            if (level != Level.DROP) {
-                product.addAll(rendered(segment, level));
+            if (level == Level.DROP) {
+                continue;
             }
+            product.add(new OutputEntry(rewriteAi(segment.ai()), i));
         }
         return product;
     }
@@ -472,13 +500,56 @@ public class DefaultContextPruner implements ContextCompacter {
         if (output == null) {
             return null;
         }
-        int cap = agentConfig.fullToolOutputCap();
-        int tokens = tokenizer.count(countable(output));
-        if (tokens <= cap) {
-            return output;
+        if (output.startsWith(OMITTED_PREFIX)) {
+            return output; // already a placeholder: keep it verbatim so pruning stays idempotent
         }
-        long keepChars = Math.max(1L, (long) Math.floor((double) output.length() * cap / tokens));
-        return output.substring(0, (int) Math.min(output.length(), keepChars));
+        int cap = agentConfig.fullToolOutputCap();
+        if (tokenizer.count(countable(output)) <= cap) {
+            return output; // within budget (also idempotent: a previously capped product fits again)
+        }
+        // The average chars-per-token ratio is not safe to extrapolate: a dense prefix (CJK, symbols)
+        // can carry far more tokens per char than the suffix. Cut by a bounded search over the prefix
+        // length, re-counting with the real tokenizer at every probe, so the kept prefix truly fits.
+        return output.substring(0, longestPrefixWithinCap(output, cap));
+    }
+
+    /**
+     * Length in characters of the longest prefix of {@code output} whose token count does not exceed
+     * {@code cap}, measured by re-tokenizing each candidate prefix.
+     *
+     * <p>Binary search over the (monotonic in practice) character-length axis, followed by a small
+     * linear shrink that guarantees the result really fits even if the tokenizer is not perfectly
+     * monotone. Never returns zero: an empty tool output is rejected by providers, so at least one
+     * character is always kept.</p>
+     *
+     * @param output the string to shrink
+     * @param cap    the inclusive token ceiling
+     * @return a prefix length in {@code [1, output.length()]} whose token count is {@code <= cap}
+     *         (or {@code 1} when even a single character exceeds a pathologically small cap)
+     */
+    private int longestPrefixWithinCap(String output, int cap) {
+        int lo = 1;
+        int hi = output.length();
+        int best = 0;
+        while (lo <= hi) {
+            int mid = (lo + hi) >>> 1;
+            if (tokenCountOfPrefix(output, mid) <= cap) {
+                best = mid;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        // Guard against a non-monotone tokenizer: shrink until the chosen prefix truly fits.
+        while (best > 1 && tokenCountOfPrefix(output, best) > cap) {
+            best--;
+        }
+        return Math.max(1, best);
+    }
+
+    /** Token count of the first {@code length} characters of {@code output}, via the tokenizer SPI. */
+    private int tokenCountOfPrefix(String output, int length) {
+        return tokenizer.count(countable(output.substring(0, length)));
     }
 
     /** Measures an arbitrary string through the tokenizer SPI. */
