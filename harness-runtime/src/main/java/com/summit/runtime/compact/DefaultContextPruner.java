@@ -500,9 +500,9 @@ public class DefaultContextPruner implements ContextCompacter {
         if (output == null) {
             return null;
         }
-        if (output.startsWith(OMITTED_PREFIX)) {
-            return output; // already a placeholder: keep it verbatim so pruning stays idempotent
-        }
+        // Never short-circuit on OMITTED_PREFIX: a genuine placeholder is already tiny and the count
+        // check below keeps it unchanged, while a normal tool output that merely starts with that
+        // text must still be capped.
         int cap = agentConfig.fullToolOutputCap();
         if (tokenizer.count(countable(output)) <= cap) {
             return output; // within budget (also idempotent: a previously capped product fits again)

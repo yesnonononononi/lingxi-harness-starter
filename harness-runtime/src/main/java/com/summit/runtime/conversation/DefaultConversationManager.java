@@ -227,7 +227,7 @@ public class DefaultConversationManager implements ConversationManager {
                         """, value)).build()));
 
         // protection policy TWO :  find the last user message and the turn belong to it
-        List<Message> tail = retainableTail(current);
+        List<Message> tail = stripOldThinking(retainableTail(current));
 
         // leading -- attachment -- summary(processed) -- userMessage list -- last turns
         rebuilt.add(leading);
@@ -356,6 +356,34 @@ public class DefaultConversationManager implements ConversationManager {
         return new ArrayList<>(
                 result.subList(lastAiMessageIndex, result.size())
         );
+    }
+
+    /**
+     * Removes thinking (and its provider signature attribute) from the retained trailing assistant
+     * messages.
+     *
+     * <p>A summary rebuild replaces the history prefix, which invalidates any thinking signature the
+     * trailing assistant turn still carries: replaying that signature under a changed prefix is what
+     * a prefix-bound preserved-thinking model rejects (signature mismatch). Only this rebuild path
+     * strips thinking; a plain snapshot restore keeps it, because only here does the prefix change.</p>
+     */
+    private static List<Message> stripOldThinking(List<Message> tail) {
+        List<Message> stripped = new ArrayList<>(tail.size());
+        for (Message message : tail) {
+            if (message instanceof AiMessageEntity ai) {
+                boolean thinkingFree = (ai.getThinking() == null || ai.getThinking().isBlank())
+                        && (ai.getAttributes() == null || ai.getAttributes().isEmpty());
+                stripped.add(thinkingFree ? ai : AiMessageEntity.builder()
+                        .text(ai.getText())
+                        .thinking(null)
+                        .attributes(java.util.Map.of())
+                        .toolCalls(ai.getToolCalls() == null ? List.of() : List.copyOf(ai.getToolCalls()))
+                        .build());
+            } else {
+                stripped.add(message);
+            }
+        }
+        return stripped;
     }
 
     private String processSummary(String summary){

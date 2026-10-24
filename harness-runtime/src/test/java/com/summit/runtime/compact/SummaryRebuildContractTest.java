@@ -23,6 +23,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -179,6 +180,29 @@ class SummaryRebuildContractTest {
                 "the last assistant message survives: " + texts);
         assertEquals(List.of("do the work"), userTexts(execution),
                 "user messages still survive regardless of the tail shrink");
+    }
+
+    /** A summary rebuild strips the stale thinking signature from the trailing assistant turn. */
+    @Test
+    void summaryRebuildStripsTheStaleThinkingSignatureFromTheTrailingTurn() {
+        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        Execution execution = execution(
+                SystemMessageEntity.builder().text("LEADING").build(),
+                UserMessageEntity.from("continue"),
+                AiMessageEntity.builder().text("answer").thinking("OLD-THINKING")
+                        .attributes(java.util.Map.of("signature", "OLD-SIG")).build());
+
+        conversations.rebuildContext("compressed summary", execution);
+
+        AiMessageEntity retained = execution.getMessages().stream()
+                .filter(AiMessageEntity.class::isInstance).map(AiMessageEntity.class::cast)
+                .findFirst().orElse(null);
+        assertNotNull(retained, "the trailing assistant turn survives");
+        assertEquals("answer", retained.getText(), "text is preserved");
+        assertTrue(retained.getThinking() == null || retained.getThinking().isBlank(),
+                "the stale thinking block is removed");
+        assertTrue(retained.getAttributes() == null || retained.getAttributes().isEmpty(),
+                "the stale thinking signature attribute is removed");
     }
 
     private static Execution execution(Message... messages) {

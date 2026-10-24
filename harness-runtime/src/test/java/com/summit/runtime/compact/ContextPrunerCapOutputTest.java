@@ -83,6 +83,33 @@ class ContextPrunerCapOutputTest {
         assertEquals(firstProduct, textsOf(execution), "the capped product is a fixed point");
     }
 
+    /** A tool output that merely STARTS with the placeholder text must still be capped. */
+    @Test
+    void aToolOutputThatStartsWithThePlaceholderPrefixIsStillCapped() {
+        String payload = "[output omitted · example from a file]\n" + "x".repeat(4_000);
+
+        Execution execution = execution(
+                SystemMessageEntity.builder().text("system").build(),
+                UserMessageEntity.from("question"),
+                AiMessageEntity.builder()
+                        .toolCalls(List.of(new ToolCallRequest("c1", "read", 0, "{}"))).build(),
+                ToolMessageEntity.builder().id("c1").name("read").toolOutput(payload).build());
+
+        AgentConfig config = AgentConfig.builder().maxTokens(1_000_000).pruneTargetRatio(0.9d)
+                .fullToolOutputCap(CAP).build();
+        DefaultContextPruner pruner = new DefaultContextPruner(config, reporter());
+
+        assertTrue(pruner.compact(new ContextCompactRequest(execution, null)),
+                "the oversized FULL tool output is trimmed");
+
+        ToolMessageEntity kept = assertInstanceOf(ToolMessageEntity.class, execution.getMessages().get(3));
+        int keptTokens = bpe.estimateText(kept.text());
+        assertTrue(keptTokens <= CAP,
+                "a placeholder-prefixed tool output must still be capped; was " + keptTokens + " tokens");
+        assertTrue(payload.startsWith(kept.text()), "the cap keeps the head");
+        assertTrue(kept.text().length() < payload.length(), "it must be cut, not bypassed");
+    }
+
     // ------------------------------------------------------------------ fixtures
 
     private ContextUsageReporter reporter() {
