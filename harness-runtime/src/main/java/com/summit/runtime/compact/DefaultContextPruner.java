@@ -580,18 +580,22 @@ public class DefaultContextPruner implements ContextCompacter {
         return OMITTED_PREFIX + " " + String.join(" / ", parts) + "]";
     }
 
-    /** Matches exactly the one-line placeholder this class generates. */
+    /** Upper bound on a genuine placeholder's length; a long numeric look-alike exceeds it. */
+    private static final int MAX_PLACEHOLDER_LENGTH = 200;
+    /** Matches exactly the one-line placeholder this class generates, with bounded numeric fields. */
     private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile(
-            "\\[output omitted · (?:\\d+ lines / )?\\d+(?:B|KB|MB) / (?:exit=-?\\d+|ERROR)\\]");
+            "\\[output omitted · (?:\\d{1,7} lines / )?\\d{1,10}(?:B|KB|MB) / (?:exit=-?\\d{1,5}|ERROR)\\]");
 
     /**
      * True only when {@code text} is exactly a placeholder THIS class generated: it must match the
-     * full structural format (prefix + optional line count + size + exit status), not merely start
-     * with the prefix. A normal output that happens to start with the prefix and end with {@code ]}
-     * — even on a single line — is not a placeholder and is regenerated.
+     * full structural format (prefix + optional line count + size + exit status) with bounded numeric
+     * fields, and fit within {@link #MAX_PLACEHOLDER_LENGTH}. A normal output that merely resembles
+     * the prefix — even a single short line — is not a placeholder and is regenerated.
      */
     private static boolean isGeneratedPlaceholder(String text) {
-        return text != null && PLACEHOLDER_PATTERN.matcher(text).matches();
+        return text != null
+                && text.length() <= MAX_PLACEHOLDER_LENGTH
+                && PLACEHOLDER_PATTERN.matcher(text).matches();
     }
 
     private static int lineCount(String text) {

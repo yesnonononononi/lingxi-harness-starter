@@ -161,6 +161,29 @@ class ContextPrunerCapOutputTest {
         assertFalse(kept.text().contains("\n"));
     }
 
+    /** A long run of digits inside the placeholder shape is not a real placeholder. */
+    @Test
+    void aLongNumericPlaceholderLookalikeIsStillReplaced() {
+        String payload = "[output omitted · " + "1".repeat(30_000) + "B / exit=0]";
+
+        Execution execution = execution(
+                SystemMessageEntity.builder().text("system").build(),
+                UserMessageEntity.from("question"),
+                AiMessageEntity.builder()
+                        .toolCalls(List.of(new ToolCallRequest("c1", "read", 0, "{}"))).build(),
+                ToolMessageEntity.builder().id("c1").name("read").toolOutput(payload).build());
+
+        AgentConfig config = AgentConfig.builder().maxTokens(1_000_000).pruneTargetRatio(0.9d)
+                .fullSegmentCount(0).build();
+        DefaultContextPruner pruner = new DefaultContextPruner(config, reporter());
+
+        assertTrue(pruner.compact(new ContextCompactRequest(execution, null)));
+
+        ToolMessageEntity kept = assertInstanceOf(ToolMessageEntity.class, execution.getMessages().get(3));
+        assertFalse(kept.text().equals(payload), "a long numeric look-alike is not our placeholder");
+        assertTrue(kept.text().length() <= 200, "the replacement placeholder is short: " + kept.text().length());
+    }
+
     // ------------------------------------------------------------------ fixtures
 
     private ContextUsageReporter reporter() {
