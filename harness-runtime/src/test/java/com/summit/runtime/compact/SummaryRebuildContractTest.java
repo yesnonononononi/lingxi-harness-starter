@@ -108,7 +108,7 @@ class SummaryRebuildContractTest {
                 "the new summary must be present: " + systems);
         assertEquals(List.of("user-one"), userTexts(execution), "the user message survives the rebuild");
 
-        // All system messages precede every non-system message.
+        // Systems-first order: leading, attachment and summary all precede every non-system message.
         int lastSystemIndex = -1;
         int firstNonSystemIndex = Integer.MAX_VALUE;
         for (int i = 0; i < rebuilt.size(); i++) {

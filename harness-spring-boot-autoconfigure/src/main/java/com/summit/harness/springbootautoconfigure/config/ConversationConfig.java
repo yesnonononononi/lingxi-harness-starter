@@ -44,9 +44,11 @@ public class ConversationConfig {
     public ConversationManager conversationManager(ContextAttachmentProvider contextAttachmentProvider,
                                                    ObjectProvider<ConversationTranscriptSink> conversationTranscriptSink,
                                                    ObjectProvider<PromptAssembler> promptAssembler,
-                                                   SkillLoader skillLoader) {
+                                                   SkillLoader skillLoader,
+                                                   Tokenizer tokenizer,
+                                                   AgentConfig agentConfig) {
         return new DefaultConversationManager(
-                conversationTranscriptSink.getIfAvailable(),
+                tokenizer, agentConfig.maxTokens(), conversationTranscriptSink.getIfAvailable(),
                 contextAttachmentProvider,
                 () -> promptAssembler.getIfAvailable(SystemPromptAssembler::new),
                 skillLoader

@@ -3,6 +3,7 @@ package com.summit.runtime.conversation;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
+import com.summit.core.compact.Tokenizer;
 import com.summit.core.conf.SkillConfig;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ChatResponseEntity;
@@ -18,14 +19,12 @@ import com.summit.core.tool.ToolDefinition;
 import com.summit.core.tool.ToolExecuteResult;
 import com.summit.runtime.prompt.SystemPromptAssembler;
 import lombok.extern.slf4j.Slf4j;
-
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 import java.util.function.Supplier;
+
 
 /**
  * Stateless operations over the context owned by one execution.
@@ -34,10 +33,14 @@ import java.util.function.Supplier;
 public class DefaultConversationManager implements ConversationManager {
     private static final String CONTINUE_AFTER_COMPACTION_PROMPT = """
             The conversation history before this point has been compacted into the summary above.
+            you may can see all user messages of the history, after that, lastest turn message
             Continue the work from there: do not repeat steps that are already marked as completed.
             """;
 
-
+    private final Tokenizer tokenizer;
+    private final int maxTokens;
+    /** Fallback context cap for the convenience constructors; the Spring bean passes the real one. */
+    private static final int DEFAULT_MAX_TOKENS = 1_024_000;
     private final ContextAttachmentProvider contextAttachmentProvider;
     private final ConversationTranscriptSink conversationTranscriptSink;
     private final SkillLoader skillLoader;
@@ -53,20 +56,49 @@ public class DefaultConversationManager implements ConversationManager {
 
 
     public DefaultConversationManager(ContextAttachmentProvider contextAttachmentProvider) {
-        this(null, contextAttachmentProvider);
+        this(contextAttachmentProvider, new DefaultTokenizer());
+    }
+
+    public DefaultConversationManager(ContextAttachmentProvider contextAttachmentProvider, Tokenizer tokenizer) {
+        this(null, contextAttachmentProvider, tokenizer);
     }
 
     public DefaultConversationManager(ConversationTranscriptSink conversationTranscriptSink,
-                                      ContextAttachmentProvider contextAttachmentProvider
-    ) {
-        this(conversationTranscriptSink, contextAttachmentProvider, SystemPromptAssembler::new, null);
+                                      ContextAttachmentProvider contextAttachmentProvider) {
+        this(new DefaultTokenizer(), DEFAULT_MAX_TOKENS, conversationTranscriptSink, contextAttachmentProvider,
+                SystemPromptAssembler::new, null);
     }
 
     public DefaultConversationManager(ConversationTranscriptSink conversationTranscriptSink,
                                       ContextAttachmentProvider contextAttachmentProvider,
                                       Supplier<PromptAssembler> promptAssemblerFactory,
+                                      SkillLoader skillLoader) {
+        this(new DefaultTokenizer(), DEFAULT_MAX_TOKENS, conversationTranscriptSink, contextAttachmentProvider,
+                promptAssemblerFactory, skillLoader);
+    }
+
+    public DefaultConversationManager(Tokenizer tokenizer, ConversationTranscriptSink conversationTranscriptSink,
+                                      ContextAttachmentProvider contextAttachmentProvider,
+                                      Supplier<PromptAssembler> promptAssemblerFactory,
+                                      SkillLoader skillLoader) {
+        this(tokenizer, DEFAULT_MAX_TOKENS, conversationTranscriptSink, contextAttachmentProvider,
+                promptAssemblerFactory, skillLoader);
+    }
+
+    public DefaultConversationManager(ConversationTranscriptSink conversationTranscriptSink,
+                                      ContextAttachmentProvider contextAttachmentProvider, Tokenizer tokenizer
+    ) {
+        this(tokenizer, DEFAULT_MAX_TOKENS, conversationTranscriptSink, contextAttachmentProvider, SystemPromptAssembler::new, null);
+    }
+
+    public DefaultConversationManager(Tokenizer tokenizer, int maxTokens,
+                                      ConversationTranscriptSink conversationTranscriptSink,
+                                      ContextAttachmentProvider contextAttachmentProvider,
+                                      Supplier<PromptAssembler> promptAssemblerFactory,
                                       SkillLoader skillLoader
     ) {
+        this.tokenizer = tokenizer;
+        this.maxTokens = maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS;
 
         this.contextAttachmentProvider = contextAttachmentProvider == null
                 ? ContextAttachmentProvider.NONE : contextAttachmentProvider;
@@ -164,70 +196,49 @@ public class DefaultConversationManager implements ConversationManager {
     @Override
     public void rebuildContext(String summary, Execution execution, boolean answeredTrailingUserTurn) {
         if (summary == null || summary.isBlank()) return;
+
         List<Message> current = execution.getMessages();
+        List<Message> attachment = new ArrayList<>();
+        SystemMessageEntity summaryMessage = SystemMessageEntity.builder().text(processSummary(summary)).build();
+        List<Message> rebuilt = new ArrayList<>();
+
+        // protection policy ONE :  find the original system prompt (the protection policy)
         SystemMessageEntity leading = current.stream()
                 .filter(SystemMessageEntity.class::isInstance)
                 .map(SystemMessageEntity.class::cast)
                 .findFirst()
                 .orElseGet(() -> SystemMessageEntity.builder().text(businessPromptOf(execution)).build());
-        List<Message> tail = retainableTail(current, answeredTrailingUserTurn);
-        List<Message> rebuilt = new ArrayList<>();
-        rebuilt.add(leading);
+
+        List<Message> userMessageList = execution.getMessages().stream().filter(UserMessageEntity.class::isInstance).toList();
+
         contextAttachmentProvider.attachment(execution.getId())
                 .filter(value -> !value.isBlank())
-                .ifPresent(value -> rebuilt.add(SystemMessageEntity.builder().text(String.format("""
+                .ifPresent(value -> attachment.add(SystemMessageEntity.builder().text(String.format("""
                         The protected application state produced earlier is reproduced below. Keep following it:
-
+                      
                         %s
                         """, value)).build()));
-        rebuilt.add(SystemMessageEntity.builder().text(summary).build());
-        // Contract (§3.4 premise B): every user message of the pre-rebuild context survives, merged
-        // with the retainable tail in its original order. retainableTail() alone keeps at most the
-        // last turn, which silently dropped the user's earlier requests from the rebuilt session.
-        List<Message> retained = mergeWithAllUserMessages(current, tail);
-        if (retained.isEmpty()) rebuilt.add(UserMessageEntity.from(CONTINUE_AFTER_COMPACTION_PROMPT));
-        else rebuilt.addAll(retained);
+
+        // protection policy TWO :  find the last user message and the turn belong to it
+        List<Message> tail = retainableTail(current);
+
+        // leading -- attachment -- summary(processed) -- userMessage list -- last turns
+        rebuilt.add(leading);
+        rebuilt.addAll(attachment);
+        rebuilt.add(summaryMessage);
+        rebuilt.addAll(userMessageList);
+        rebuilt.addAll(tail);
+
+
         execution.setMessages(rebuilt);
+
         // Only the counters this class owns are written (§3.3.4): a rebuild advances the summary
         // generation and invalidates any prune, but says nothing about the attempt budget or the
         // "summarization is closed" latch — resetting those here is the P0-1 regression.
         execution.setCompactionState(execution.getCompactionState().afterSummaryRebuild());
     }
 
-    /**
-     * Merges the pre-rebuild context with the retainable tail, keeping <b>every</b> user message.
-     *
-     * <p>The two sources are merged by walking the original list once, so the result keeps the
-     * original relative order instead of grouping user turns and tail turns apart: a user turn that
-     * came before a retained tool round must still come before it. System messages are not part of
-     * the result — the caller re-emits them at the front, which is the only reordering the provider
-     * requires.</p>
-     *
-     * @param current the context as it was before the rebuild
-     * @param tail    the retainable tail resolved by {@link #retainableTail}; may be empty
-     * @return the non-system messages to append after the rebuilt system prefix, in original order
-     */
-    private static List<Message> mergeWithAllUserMessages(List<Message> current, List<Message> tail) {
-        Set<Message> tailMembers = Collections.newSetFromMap(new IdentityHashMap<>());
-        tailMembers.addAll(tail);
-        List<Message> merged = new ArrayList<>();
-        Set<Message> mergedMembers = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (Message message : current) {
-            if (message instanceof UserMessageEntity) {
-                merged.add(message);
-                mergedMembers.add(message);
-            } else if (tailMembers.contains(message) && mergedMembers.add(message)) {
-                merged.add(message);
-            }
-        }
-        // Defensive: a tail message the current list no longer holds would otherwise be lost.
-        for (Message message : tail) {
-            if (mergedMembers.add(message)) {
-                merged.add(message);
-            }
-        }
-        return merged;
-    }
+
 
     /**
      * Builds the leading system message: where the agent runs, who it is, the remote tools it may
@@ -282,33 +293,68 @@ public class DefaultConversationManager implements ConversationManager {
 
     private void setLeadingSystemMessage(Execution execution, SystemMessageEntity systemMessage) {
         List<Message> messages = execution.getMessages();
+
         if (!messages.isEmpty() && messages.getFirst() instanceof SystemMessageEntity) messages.set(0, systemMessage);
         else messages.addFirst(systemMessage);
     }
 
-    private List<Message> retainableTail(List<Message> messages, boolean answeredTrailingUserTurn) {
-        List<Message> result = new ArrayList<>();
+    private List<Message> retainableTail(List<Message> messages) {
+        int lastUserMessageIndex = -1;
+        final double THRESHOLD = 0.20;
+
         for (int i = messages.size() - 1; i >= 0; i--) {
-            Message message = messages.get(i);
-            if (message instanceof ToolMessageEntity) {
-                result.addFirst(message);
-                continue;
-            }
-            if (message instanceof AiMessageEntity || message instanceof UserMessageEntity) {
-                result.addFirst(message);
+            if (messages.get(i) instanceof UserMessageEntity) {
+                lastUserMessageIndex = i;
                 break;
             }
         }
-        if (answeredTrailingUserTurn && result.stream().anyMatch(UserMessageEntity.class::isInstance)) return List.of();
-        boolean hasAssistant = result.stream().anyMatch(AiMessageEntity.class::isInstance);
-        if (!hasAssistant) return result.stream().noneMatch(ToolMessageEntity.class::isInstance) ? result : List.of();
-        return result.stream().allMatch(DefaultConversationManager::isThinkingSafe) ? result : List.of();
+
+        if (lastUserMessageIndex == -1) {
+            return List.of();
+        }
+
+        if (lastUserMessageIndex == messages.size() - 1) {
+            return List.of();
+        }
+
+        ArrayList<Message> result = new ArrayList<>(
+                messages.subList(lastUserMessageIndex + 1, messages.size())
+        );
+
+        // tokenizer needs to calc the result tokens, if it exceeds the acceptable limit, then the policy further needs to compact
+        double ratio = tokenizer.calcCurrentTokenRatio(result, maxTokens);
+
+        if(ratio >= THRESHOLD){
+            return furtherCompact(result);
+        }
+
+        return result;
     }
 
-    private static boolean isThinkingSafe(Message message) {
-        if (!(message instanceof AiMessageEntity ai)) return true;
-        return ai.getThinking() != null && !ai.getThinking().isBlank();
+    private List<Message> furtherCompact(ArrayList<Message> result) {
+        int lastAiMessageIndex = -1;
+
+        for (int i = result.size() - 1; i >= 0; i--) {
+            Message message = result.get(i);
+            if(message instanceof AiMessageEntity aiMessageEntity){
+                lastAiMessageIndex = i;
+                break;
+            }
+        }
+
+        if(lastAiMessageIndex == -1) {
+            return List.of();
+        }
+
+        return new ArrayList<>(
+                result.subList(lastAiMessageIndex, result.size())
+        );
     }
+
+    private String processSummary(String summary){
+        return summary + "\n" + CONTINUE_AFTER_COMPACTION_PROMPT;
+    }
+
 
     private List<SkillResume> loadSkill(SkillConfig skillConfig) {
         try {

@@ -66,7 +66,7 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
                 ContextUpdateEvent.Band.SUMMARY, "Model compaction started");
         try {
             if (!summaryApplier.apply(
-                    generate(execution.getId(), summaryInput(messages)), execution, false)) {
+                    generate(execution.getId(), renderConversation(messages)), execution, false)) {
                 // STARTED is already out: every failure path closes the pair, otherwise consumers
                 // stay on the in-flight state until the next plain UPDATE happens to arrive.
                 usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_COMPLETED,
@@ -93,29 +93,6 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
         return ToolExecuteResult.success(output, ToolResultType.CONTEXT_COMPACT);
     }
 
-    /**
-     * The history fed to the compact model for this round (§3.2).
-     *
-     * <p>First round of a trigger window ({@code summaryGeneration == 0}): the rendered session.
-     * Every later round: <b>only the previous summary</b>, so the chain shrinks instead of paying for
-     * the full history again. When the previous summary cannot be located the rendered session is
-     * used as a safe fallback — a wrong-but-large input only costs tokens, while dropping the input
-     * would summarize nothing.</p>
-     *
-     * @param execution the execution being compacted, read for its summary generation
-     * @param messages  the session messages as they are right now
-     * @return the compact-model input for this round
-     */
-    private String summaryInput(List<Message> messages) {
-        // Full compression of the live context: after a rebuild it already holds the previous
-        // summary as one of its system messages, plus every retained message and new work, so a
-        // plain render is correct and cheap and folds in anything produced since the last rebuild.
-        return renderConversation(messages);
-    }
-
-
-
-
 
     private String generate(String executionId, String history) {
         Optional<String> attachment = contextAttachmentProvider.attachment(executionId);
@@ -137,21 +114,21 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
                 continue;
             }
             if (message instanceof SystemMessageEntity systemMessage) {
-                appendLine(history, "[系统]", systemMessage.getText());
+                appendLine(history, "[System]", systemMessage.getText());
             } else if (message instanceof UserMessageEntity userMessage) {
-                appendLine(history, "[用户]", userMessage.text());
+                appendLine(history, "[User]", userMessage.text());
             } else if (message instanceof AiMessageEntity aiMessage) {
-                appendLine(history, "[助手]", aiMessage.getText());
+                appendLine(history, "[Assistant]", aiMessage.getText());
                 if (aiMessage.getToolCalls() != null) {
                     for (ToolCallRequest call : aiMessage.getToolCalls()) {
                         if (call != null) {
-                            appendLine(history, "[工具调用]", call.name() + "(" + call.arguments() + ")");
+                            appendLine(history, "[ToolInvocation]", call.name() + "(" + call.arguments() + ")");
                         }
                     }
                 }
             } else if (message instanceof ToolMessageEntity toolMessage) {
                 String toolName = toolMessage.getName() == null ? "" : toolMessage.getName();
-                appendLine(history, "[工具结果 " + toolName + "]", toolMessage.getToolOutput());
+                appendLine(history, "[ToolResult " + toolName + "]", toolMessage.getToolOutput());
             }
         }
         return history.toString();
