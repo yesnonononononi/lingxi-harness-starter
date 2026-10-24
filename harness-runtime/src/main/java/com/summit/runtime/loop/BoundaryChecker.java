@@ -142,7 +142,7 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
     private boolean compactBySummary(Execution execution, ContextSqueezeRequest request) {
         CompactionState state = conversationManager.compactionState(execution);
         if (state.summaryUnavailable()) {
-            log.info("【context-compact】summarization is closed for this execution, model compaction "
+            log.info("[context-compact] summarization is closed for this execution, model compaction "
                     + "skipped: executionId={}", execution.getId());
             return false;
         }
@@ -153,7 +153,7 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
             return false;
         }
         if (modelCompacter == null) {
-            log.warn("【context-compact】no model compacter is wired, the prune band takes over: executionId={}",
+            log.warn("[context-compact] no model compacter is wired, the prune band takes over: executionId={}",
                     execution.getId());
             return false;
         }
@@ -165,7 +165,7 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
             compacted = modelCompacter.compact(new ContextCompactRequest(execution, request));
         } catch (RuntimeException e) {
             // The compacter reports its own failures, but an escaping one must still close the gate.
-            log.warn("【context-compact】model compaction raised, summarization will be closed: executionId={}",
+            log.warn("[context-compact] model compaction raised, summarization will be closed: executionId={}",
                     execution.getId(), e);
         }
         if (!compacted) {
@@ -179,7 +179,7 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
         double ratio = tokenRatio(execution);
         if (ratio < modelThreshold()) {
             execution.setCompactionState(afterRebuild.summaryWindowReset());
-            log.info("【context-compact】model compaction brought the context back under the threshold, "
+            log.info("[context-compact] model compaction brought the context back under the threshold, "
                     + "attempts reset: ratio={}, attempts={}, executionId={}",
                     ratio, afterRebuild.summaryAttempts(), execution.getId());
             return true;
@@ -189,7 +189,7 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
                     + ") is spent and the rebuilt context is still at ratio=" + ratio);
             return false;
         }
-        log.info("【context-compact】chained summary accepted, the next checkpoint compresses this "
+        log.info("[context-compact] chained summary accepted, the next checkpoint compresses this "
                         + "summary again: ratio={}, attempts={}/{}, executionId={}",
                 ratio, afterRebuild.summaryAttempts(), attemptBudget, execution.getId());
         return true;
@@ -224,7 +224,7 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
      */
     private void markSummarizationUnavailable(Execution execution, String reason) {
         execution.setCompactionState(conversationManager.compactionState(execution).summarizationUnavailable());
-        log.warn("【context-compact】summarization closed for the rest of this execution ({}); later "
+        log.warn("[context-compact] summarization closed for the rest of this execution ({}); later "
                 + "checkpoints will not call the compact model: executionId={}", reason, execution.getId());
     }
 

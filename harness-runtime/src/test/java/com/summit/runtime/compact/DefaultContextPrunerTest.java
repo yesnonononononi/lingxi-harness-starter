@@ -114,8 +114,9 @@ class DefaultContextPrunerTest {
         TokenBudgetExceededException error = assertThrows(TokenBudgetExceededException.class,
                 () -> pruner(1_000).compact(new ContextCompactRequest(execution)));
 
-        assertTrue(error.getMessage().contains("提高上下文"));
-        assertTrue(error.getMessage().contains("保留消息"));
+        assertTrue(error.getMessage().contains("Increase the context budget"));
+        assertTrue(error.getMessage().contains("Protected messages"));
+        assertTrue(error.getMessage().chars().allMatch(character -> character < 128));
         assertSame(original, execution.getMessages());
         assertEquals(0, execution.getCompactionState().pruneGeneration());
         assertPairedEvents();
@@ -179,7 +180,7 @@ class DefaultContextPrunerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"[output omitted · example]\n", "[output omitted · ", "[output omitted · 1B / exit=0]"})
+    @ValueSource(strings = {"[output omitted: example]\n", "[output omitted: ", "[output omitted: 1B / exit=0]"})
     void arbitraryPlaceholderLookingOutputIsAlwaysSkeletonized(String prefix) {
         String payload = prefix + "9".repeat(30_000) + "]";
         Execution execution = history("{}", payload, "latest output");

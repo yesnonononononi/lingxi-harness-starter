@@ -15,8 +15,8 @@ class CompactSummaryResolverTest {
     void resolvesAWellFormedSummaryObject() {
         String raw = """
                 {
-                  "goal": "实现模型配置 CRUD",
-                  "summary": "已完成后端命令合并",
+                  "goal": "Implement model configuration CRUD",
+                  "summary": "Backend commands consolidated",
                   "completed": ["task-1", "task-2"],
                   "pending": ["task-3"],
                   "state": "DONE"
@@ -26,8 +26,8 @@ class CompactSummaryResolverTest {
         ContextSummary summary = CompactSummaryResolver.resolve(raw);
 
         assertNotNull(summary);
-        assertEquals("实现模型配置 CRUD", summary.getGoal());
-        assertEquals("已完成后端命令合并", summary.getSummary());
+        assertEquals("Implement model configuration CRUD", summary.getGoal());
+        assertEquals("Backend commands consolidated", summary.getSummary());
         assertEquals(List.of("task-1", "task-2"), summary.getCompleted());
         assertEquals(List.of("task-3"), summary.getPending());
         assertEquals("DONE", summary.getState());
@@ -41,33 +41,33 @@ class CompactSummaryResolverTest {
      */
     @Test
     void salvageOfATruncatedOutputNeverFails() {
-        String truncated = "{\"goal\": \"实现模型配置 CRUD\", \"summary\": \"已完成后端命令合并\", "
+        String truncated = "{\"goal\": \"Implement model configuration CRUD\", \"summary\": \"Backend commands consolidated\", "
                 + "\"completed[]\": [\"task-1\", \"task-2\"], \"pending[]\": [\"task-";
 
         ContextSummary summary = CompactSummaryResolver.resolve(truncated);
 
         assertNotNull(summary);
-        assertEquals("实现模型配置 CRUD", summary.getGoal());
-        assertEquals("已完成后端命令合并", summary.getSummary());
+        assertEquals("Implement model configuration CRUD", summary.getGoal());
+        assertEquals("Backend commands consolidated", summary.getSummary());
         assertEquals(List.of("task-1", "task-2"), summary.getCompleted());
     }
 
     @Test
     void typographicQuotesInsideAValueDoNotBreakTheJson() {
-        String raw = "{\"goal\": \"g\", \"summary\": \"新增“添加自定义模型”入口\", \"state\": \"DONE\"}";
+        String raw = "{\"goal\": \"g\", \"summary\": \"Added the \u201cAdd a custom model\u201d entry\", \"state\": \"DONE\"}";
 
         ContextSummary summary = CompactSummaryResolver.resolve(raw);
 
         assertNotNull(summary);
-        assertEquals("新增“添加自定义模型”入口", summary.getSummary());
+        assertEquals("Added the \u201cAdd a custom model\u201d entry", summary.getSummary());
     }
 
     @Test
     void proseWithoutAnyJsonFallsBackToTheRawText() {
-        ContextSummary summary = CompactSummaryResolver.resolve("这是一段没有任何结构的纯文本摘要");
+        ContextSummary summary = CompactSummaryResolver.resolve("A plain-text summary without structured fields");
 
         assertNotNull(summary);
-        assertEquals("这是一段没有任何结构的纯文本摘要", summary.getSummary());
+        assertEquals("A plain-text summary without structured fields", summary.getSummary());
     }
 
     @Test

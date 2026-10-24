@@ -93,7 +93,7 @@ class CompactionRegressionTest {
         assertEquals("old turn", ai.text(), "the skeleton keeps the assistant text");
         assertEquals(1, ai.getToolCalls().size(), "the skeleton keeps the tool calls");
         ToolMessageEntity tool = assertInstanceOf(ToolMessageEntity.class, execution.getMessages().get(3));
-        assertTrue(tool.text().startsWith("[output omitted ·"), "the payload is replaced: " + tool.text());
+        assertTrue(tool.text().startsWith("[output omitted:"), "the payload is replaced: " + tool.text());
         assertTrue(tool.text().length() < 200, "the placeholder is one line, not the payload");
         assertEquals("c1", tool.getId(), "the pairing to the assistant tool call survives");
     }

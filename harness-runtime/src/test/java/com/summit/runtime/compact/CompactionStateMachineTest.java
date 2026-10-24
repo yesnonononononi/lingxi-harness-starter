@@ -52,7 +52,7 @@ class CompactionStateMachineTest {
     private DefaultConversationManager conversations =
             new DefaultConversationManager(ContextAttachmentProvider.NONE);
 
-    // ---------------------------------------------------------------- 摘要档 1~9
+    // ---------------------------------------------------------------- Summary cases 1-9
 
     /** Case 1: one failure closes summarization, so the failing model is called exactly once. */
     @Test

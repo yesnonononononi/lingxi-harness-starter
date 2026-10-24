@@ -208,7 +208,7 @@ public class DefaultContextPruner implements ContextCompacter {
 
     private ToolMessageEntity skeleton(ToolMessageEntity source) {
         // Derive the placeholder from execution metadata, never from the previous output's spelling.
-        String output = "[output omitted · status=" + (source.isError() ? "error" : "success")
+        String output = "[output omitted: status=" + (source.isError() ? "error" : "success")
                 + (source.getExitCode() == null ? "" : ", exit=" + source.getExitCode()) + "]";
 
         if (output.equals(source.text())) return source;
@@ -226,8 +226,10 @@ public class DefaultContextPruner implements ContextCompacter {
         int tokens = tokenizer.count(messages);
         if (tokens <= agentConfig.maxTokens()) return;
 
-        throw new TokenBudgetExceededException("上下文压缩失败：模型摘要不可用或未能压至预算内，保留消息、历史 AI 正文和最近一轮工具结果仍占用 "
-                + tokens + " tokens，超过上下文预算 " + agentConfig.maxTokens()
-                + " tokens。请提高上下文预算，或减少系统提示词、业务保留消息及历史输入。");
+        throw new TokenBudgetExceededException("Context compaction failed: model summarization is unavailable or "
+                + "could not meet the input budget. Protected messages, historical assistant text, and the latest "
+                + "tool results still use " + tokens + " tokens, exceeding the input budget of "
+                + agentConfig.maxTokens() + " tokens. Increase the context budget or reduce system prompts, "
+                + "protected application state, and historical input.");
     }
 }
