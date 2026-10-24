@@ -137,6 +137,30 @@ class ContextPrunerCapOutputTest {
         assertFalse(kept.text().equals(payload), "the raw multi-line body is not kept verbatim");
     }
 
+    /** A single-line text that starts with the prefix and ends with ] is NOT a placeholder. */
+    @Test
+    void aSingleLinePrefixAndBracketTextIsStillSkeletonized() {
+        String payload = "[output omitted · " + "x".repeat(4_000) + "]";
+
+        Execution execution = execution(
+                SystemMessageEntity.builder().text("system").build(),
+                UserMessageEntity.from("question"),
+                AiMessageEntity.builder()
+                        .toolCalls(List.of(new ToolCallRequest("c1", "read", 0, "{}"))).build(),
+                ToolMessageEntity.builder().id("c1").name("read").toolOutput(payload).build());
+
+        AgentConfig config = AgentConfig.builder().maxTokens(1_000_000).pruneTargetRatio(0.9d)
+                .fullSegmentCount(0).build();
+        DefaultContextPruner pruner = new DefaultContextPruner(config, reporter());
+
+        assertTrue(pruner.compact(new ContextCompactRequest(execution, null)));
+
+        ToolMessageEntity kept = assertInstanceOf(ToolMessageEntity.class, execution.getMessages().get(3));
+        assertFalse(kept.text().equals(payload), "a single-line prefix+bracket text is not our placeholder");
+        assertTrue(kept.text().startsWith("[output omitted"), kept.text());
+        assertFalse(kept.text().contains("\n"));
+    }
+
     // ------------------------------------------------------------------ fixtures
 
     private ContextUsageReporter reporter() {

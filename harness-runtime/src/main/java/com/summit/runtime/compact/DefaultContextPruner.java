@@ -24,6 +24,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Pattern;
 import java.util.Set;
 
 /**
@@ -579,16 +580,18 @@ public class DefaultContextPruner implements ContextCompacter {
         return OMITTED_PREFIX + " " + String.join(" / ", parts) + "]";
     }
 
+    /** Matches exactly the one-line placeholder this class generates. */
+    private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile(
+            "\\[output omitted · (?:\\d+ lines / )?\\d+(?:B|KB|MB) / (?:exit=-?\\d+|ERROR)\\]");
+
     /**
-     * True only for a placeholder THIS class generated: it starts with the prefix, is a single line
-     * (no newline), and closes with {@code ]}. A normal multi-line tool output that merely happens to
-     * begin with the prefix text is NOT a placeholder and must still be replaced by one.
+     * True only when {@code text} is exactly a placeholder THIS class generated: it must match the
+     * full structural format (prefix + optional line count + size + exit status), not merely start
+     * with the prefix. A normal output that happens to start with the prefix and end with {@code ]}
+     * — even on a single line — is not a placeholder and is regenerated.
      */
     private static boolean isGeneratedPlaceholder(String text) {
-        return text != null
-                && text.startsWith(OMITTED_PREFIX)
-                && text.indexOf('\n') < 0
-                && text.endsWith("]");
+        return text != null && PLACEHOLDER_PATTERN.matcher(text).matches();
     }
 
     private static int lineCount(String text) {
