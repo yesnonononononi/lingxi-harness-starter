@@ -54,23 +54,30 @@ public class AgentConfiguration {
     }
 
     /**
-     * The squeeze thresholds are not read here.
+     * The compaction ratios and budgets are not read here.
      *
-     * <p>They are published as a {@link AgentConfig.ProgressiveSqueezePolicy} bean by the module that
+     * <p>They are published as {@link AgentConfig.ProgressiveSqueezePolicy} and
+     * {@link AgentConfig.CompactionTuning} beans by the module that
      * owns compaction ({@code harness-kernel-tools}), and consumed through an {@code ObjectProvider}
      * so this module needs no dependency on it. A run without that module gets a null policy and the
-     * runtime's own fallback bands — which is the right answer for a deployment that has no
+     * runtime's own fallback values — which is the right answer for a deployment that has no
      * compaction configured at all.</p>
      */
     @Bean
     @ConditionalOnMissingBean(AgentConfig.class)
     public AgentConfig agentConfig(AgentChatProperties agentProperties,
-                                   ObjectProvider<AgentConfig.ProgressiveSqueezePolicy> squeezePolicy) {
+                                   ObjectProvider<AgentConfig.ProgressiveSqueezePolicy> squeezePolicy,
+                                   ObjectProvider<AgentConfig.CompactionTuning> compactionTuning) {
+        AgentConfig.CompactionTuning tuning = compactionTuning.getIfAvailable();
         return AgentConfig.builder()
                 .squeezeThreshold(squeezePolicy.getIfAvailable())
                 .maxTokens(agentProperties.getMaxTokens())
                 .maxIterations(agentProperties.getMaxIterations())
                 .maxConsecutiveCompactions(agentProperties.getMaxConsecutiveCompactions())
+                .maxSummaryAttempts(tuning == null ? null : tuning.maxSummaryAttempts())
+                .pruneTargetRatio(tuning == null ? null : tuning.pruneTargetRatio())
+                .fullSegmentCount(tuning == null ? null : tuning.fullSegmentCount())
+                .fullToolOutputCap(tuning == null ? null : tuning.fullToolOutputCap())
                 .build();
     }
 }

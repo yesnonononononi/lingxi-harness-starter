@@ -142,7 +142,7 @@ public class DefaultContextPruner implements ContextCompacter {
     public boolean compact(ContextCompactRequest request) {
         Execution execution = Objects.requireNonNull(request, "request").execution();
         usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_STARTED,
-                ContextUpdateEvent.Band.MANUAL, "Context prune started");
+                ContextUpdateEvent.Band.PRUNE, "Context prune started");
         boolean changed;
         try {
             changed = prune(execution);
@@ -151,11 +151,11 @@ public class DefaultContextPruner implements ContextCompacter {
             log.error("【context-prune】prune failed, context left untouched: executionId={}",
                     execution.getId(), e);
             usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_COMPLETED,
-                    ContextUpdateEvent.Band.MANUAL, "Context prune failed");
+                    ContextUpdateEvent.Band.PRUNE, "Context prune failed");
             return false;
         }
         usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_COMPLETED,
-                ContextUpdateEvent.Band.MANUAL,
+                ContextUpdateEvent.Band.PRUNE,
                 changed ? "Context prune completed" : "Context prune finished without changes");
         return changed;
     }

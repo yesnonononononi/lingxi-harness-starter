@@ -32,9 +32,11 @@ class KernelToolsConfigurationMetadataTest {
             assertTrue(metadata.contains("lingxi.agent.runtime.tool.read-skill.max-output"));
             assertTrue(metadata.contains("lingxi.agent.runtime.tool.read-skill.timeout"));
             assertTrue(metadata.contains("lingxi.agent.runtime.tool.context-compact.enabled"));
-            assertTrue(metadata.contains("lingxi.agent.runtime.tool.context-compact.truncate-threshold"));
             assertTrue(metadata.contains("lingxi.agent.runtime.tool.context-compact.model-threshold"));
-            assertTrue(metadata.contains("lingxi.agent.runtime.tool.context-compact.truncate-rounds"));
+            assertTrue(metadata.contains("lingxi.agent.runtime.tool.context-compact.prune-target-ratio"));
+            assertTrue(metadata.contains("lingxi.agent.runtime.tool.context-compact.full-segment-count"));
+            assertTrue(metadata.contains("lingxi.agent.runtime.tool.context-compact.full-tool-output-cap"));
+            assertTrue(metadata.contains("lingxi.agent.runtime.tool.context-compact.max-summary-attempts"));
         }
     }
 }

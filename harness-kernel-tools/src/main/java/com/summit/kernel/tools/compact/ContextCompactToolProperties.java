@@ -4,12 +4,17 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Settings of context compaction: the tool that asks the model to summarize, and the multi-stage
- * thresholds that decide when compaction happens at all.
+ * Settings of context compaction: the tool that asks the model to summarize, the ratio that decides
+ * when that happens, and the budget a local prune pass sizes the context against.
  *
- * <p>Both live here because they are one subject. The tool is what the model calls when it is told
- * to; the thresholds are what tells it to — splitting them across two namespaces meant the same
- * question ("when do we compress?") had two answers in two files.</p>
+ * <p>All of them live here because they are one subject. The tool is what the model calls when it is
+ * told to; the ratios are what tells it to — splitting them across two namespaces meant the same
+ * question ("when and how do we compress?") had two answers in two files.</p>
+ *
+ * <p>The local truncation band is gone: a checkpoint now answers with a <em>summary</em> (a model
+ * call, gated by {@link #maxSummaryAttempts}) or with a <em>prune</em> (local, model-free, sized by
+ * {@link #pruneTargetRatio}). Nothing here configures truncation any more, because there is no
+ * truncation band left to configure.</p>
  *
  * <p>The tool is on by default: the field default was already {@code true} while the
  * auto-configuration only matched an explicit {@code enabled: true}, so the two disagreed and a
@@ -23,31 +28,45 @@ public class ContextCompactToolProperties {
     private boolean enabled = true;
 
     /**
-     * First stage: at this context-to-budget ratio the oldest tool rounds start being truncated
-     * locally, without calling a model.
+     * At this context-to-budget ratio the expensive band is entered: the history is summarized by a
+     * model and the session is rebuilt from the summary.
      *
-     * <p>The cheap stage. Truncation loses detail, so it starts well before the budget is tight,
-     * giving the run room to finish on its own before anything is summarized away.</p>
-     */
-    private double truncateThreshold = 0.7;
-
-    /**
-     * Second stage: at this ratio truncation stops and the history is summarized by a model.
-     *
-     * <p>The expensive stage, and the last resort — a summary is lossy in a way truncation is not,
-     * so it is only worth paying for when the cheap stage can no longer keep up. Must be above
-     * {@link #truncateThreshold}: the two are read together as one band
-     * ({@code [truncateThreshold, modelThreshold)} truncates, {@code >= modelThreshold} summarizes),
-     * so an inverted pair leaves the first stage permanently unreachable.</p>
+     * <p>The only ratio that still gates anything. Below it nothing happens; at or above it the
+     * checkpoint first tries to summarize and, once summarization is closed for the execution (it
+     * failed, or its attempt budget is spent while the context is still oversized), prunes the tool
+     * history locally.</p>
      */
     private double modelThreshold = 0.85;
 
     /**
-     * Tool rounds the local stage processes per pass.
+     * Share of the context cap a prune pass sizes its product against
+     * ({@code pruneTargetRatio × maxTokens}).
      *
-     * <p>Bounds how much one truncation pass removes. Too large and a single checkpoint discards
-     * context the run still needed; too small and the ratio barely moves before the next check.
-     * Values below one fall back to the runtime's own default.</p>
+     * <p><b>Initial value 0.40, to be calibrated against real sessions</b> (design §6, D5). Pruning
+     * never gives up because the non-cuttable part is large — it degrades every gradable segment as
+     * far as the budget allows and reports the overflow — so this value steers how aggressive the
+     * pass is, not whether it runs at all.</p>
      */
-    private int truncateRounds = 5;
+    private Double pruneTargetRatio = 0.40;
+
+    /**
+     * How many of the newest segments a prune pass may keep {@code FULL} (payload included).
+     *
+     * <p>The rest degrade to {@code SKELETON} (payload replaced by a one-line placeholder) and then
+     * to {@code DROP} as the budget runs out (§3.6).</p>
+     */
+    private Integer fullSegmentCount = 8;
+
+    /** Token cap applied to a single tool result kept inside a {@code FULL} segment. */
+    private Integer fullToolOutputCap = 4_000;
+
+    /**
+     * Total summarize attempts of one trigger window: the first attempt plus its chained
+     * re-compaction (design D1 fixes this at 2).
+     *
+     * <p>{@code null} means a single attempt — the framework deliberately carries no default here,
+     * so "how many times may I pay for a summary" stays an application decision. Values {@code <= 0}
+     * are rejected when the agent configuration is built.</p>
+     */
+    private Integer maxSummaryAttempts;
 }

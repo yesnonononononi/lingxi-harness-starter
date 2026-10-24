@@ -230,7 +230,6 @@ class CompactionStateMachineTest {
                 .maxTokens(100_000)
                 .maxSummaryAttempts(maxSummaryAttempts)
                 .squeezeThreshold(new AgentConfig.ProgressiveSqueezePolicy(
-                        new AgentConfig.OriginalSqueeze(0.7, 5),
                         new AgentConfig.ModelSqueeze(MODEL_THRESHOLD)))
                 .build();
         // The prune band backs the summarize band up: once summarization is closed the checkpoint

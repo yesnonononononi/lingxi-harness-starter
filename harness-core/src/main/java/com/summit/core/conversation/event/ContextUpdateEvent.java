@@ -8,7 +8,7 @@ import java.util.Map;
 
 /**
  * Context-compaction progress event, published twice by each {@code ContextCompacter} implementation
- * (manual per-round truncation / model deep compaction) during its blocking flow:
+ * (local history pruning / model deep compaction) during its blocking flow:
  * <ul>
  *   <li>{@link Phase#SQUEEZE_STARTED} squeeze started: {@link #usage} holds the usage before compaction;</li>
  *   <li>{@link Phase#SQUEEZE_COMPLETED} squeeze flow finished: {@link #usage} holds the usage after
@@ -17,7 +17,7 @@ import java.util.Map;
  *
  * <p>Both events carry {@code tokenCount / maxTokens / ratio} so the front-end can render how the
  * "context usage" evolved (e.g. a gauge), and the {@link Band} that produced them so consumers can
- * decide per band what to do with the pair — the manual band finishes in milliseconds and most
+ * decide per band what to do with the pair — the prune band finishes in milliseconds and most
  * consumers should not render it as an in-flight compaction.</p>
  */
 @Data
@@ -43,8 +43,8 @@ public class ContextUpdateEvent implements AgentEvent {
      * ({@link Phase#UPDATE}) carries none.
      */
     public enum Band {
-        /** Local round-based truncation, no model call involved. */
-        MANUAL,
+        /** Local history pruning: tool payloads are graded and trimmed, no model call involved. */
+        PRUNE,
         /** Model deep compaction: the context is rebuilt from a generated summary. */
         SUMMARY
     }

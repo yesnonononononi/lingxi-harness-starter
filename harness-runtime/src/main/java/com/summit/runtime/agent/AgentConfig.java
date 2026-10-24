@@ -90,19 +90,41 @@ public record AgentConfig(
         return Math.max(1, (int) Math.floor(pruneTargetRatio * maxTokens));
     }
 
-    public record ProgressiveSqueezePolicy(
-            OriginalSqueeze truncateSqueeze,
-            ModelSqueeze modelSqueeze
-    ){}
+    /**
+     * The compaction band policy: the ratio at which the model summarize band is entered.
+     *
+     * <p>It used to describe two bands — a local truncation band {@code [truncateThreshold,
+     * modelThreshold)} and the model band above it. The truncation band is gone, and with it the
+     * truncation threshold and the per-pass round count, so the policy now carries exactly one
+     * threshold. Pruning is not ratio-driven: it is the fallback that runs once summarization is
+     * closed, and its budget comes from {@link #pruneTargetRatio()}.</p>
+     */
+    public record ProgressiveSqueezePolicy(ModelSqueeze modelSqueeze){}
 
-    public record OriginalSqueeze(Double threshold,int expectTruncateTurn){
-        public OriginalSqueeze defaultPolicy(){
-            return new OriginalSqueeze(0.7,5);
-        }
-    }
     public record ModelSqueeze(Double threshold){
         public ModelSqueeze defaultPolicy(){
             return new ModelSqueeze(0.85);
         }
     }
+
+    /**
+     * Compaction tuning published by the module that owns the compaction properties.
+     *
+     * <p>It travels as its own bean because the module that knows the properties (the kernel tools)
+     * must not be a dependency of the module that builds {@link AgentConfig} (the auto
+     * configuration): the arrow would point upwards. The auto configuration consumes this through an
+     * {@code ObjectProvider} exactly like the squeeze policy, so a deployment without the kernel
+     * tools simply gets the {@link AgentConfig} defaults.</p>
+     *
+     * @param maxSummaryAttempts total summarize attempts of one trigger window, {@code null} = single
+     * @param pruneTargetRatio   share of the context cap a prune pass sizes against, {@code null} = default
+     * @param fullSegmentCount   newest segments a prune pass may keep {@code FULL}, {@code null} = default
+     * @param fullToolOutputCap  token cap of one tool result inside a {@code FULL} segment, {@code null} = default
+     */
+    public record CompactionTuning(
+            Integer maxSummaryAttempts,
+            Double pruneTargetRatio,
+            Integer fullSegmentCount,
+            Integer fullToolOutputCap
+    ) {}
 }

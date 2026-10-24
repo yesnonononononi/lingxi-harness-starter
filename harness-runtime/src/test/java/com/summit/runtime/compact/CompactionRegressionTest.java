@@ -112,7 +112,7 @@ class CompactionRegressionTest {
         assertEquals(2, events.size());
         assertEquals(ContextUpdateEvent.Phase.SQUEEZE_STARTED, events.getFirst().getPhase());
         assertEquals(ContextUpdateEvent.Phase.SQUEEZE_COMPLETED, events.getLast().getPhase());
-        events.forEach(event -> assertEquals(ContextUpdateEvent.Band.MANUAL, event.getBand()));
+        events.forEach(event -> assertEquals(ContextUpdateEvent.Band.PRUNE, event.getBand()));
 
         // A pass that trims nothing still closes the pair: a lone STARTED would leave consumers
         // stuck on the in-flight state until some unrelated event cleared it.
@@ -127,7 +127,7 @@ class CompactionRegressionTest {
         assertEquals(2, events.size());
         assertEquals(ContextUpdateEvent.Phase.SQUEEZE_STARTED, events.getFirst().getPhase());
         assertEquals(ContextUpdateEvent.Phase.SQUEEZE_COMPLETED, events.getLast().getPhase());
-        events.forEach(event -> assertEquals(ContextUpdateEvent.Band.MANUAL, event.getBand()));
+        events.forEach(event -> assertEquals(ContextUpdateEvent.Band.PRUNE, event.getBand()));
     }
 
     @Test
@@ -157,7 +157,7 @@ class CompactionRegressionTest {
         StubContextTokenizer ratioTokenizer = new StubContextTokenizer(0.95);
         AgentConfig config = AgentConfig.builder().maxTokens(MAX_TOKENS)
                 .squeezeThreshold(new AgentConfig.ProgressiveSqueezePolicy(
-                        new AgentConfig.OriginalSqueeze(0.7, 5), new AgentConfig.ModelSqueeze(0.85)))
+                        new AgentConfig.ModelSqueeze(0.85)))
                 .build();
         BoundaryChecker checker = new BoundaryChecker(config, ratioTokenizer, conversations,
                 new DefaultContextPruner(config, capturingReporter(events)), compacter);
@@ -175,7 +175,7 @@ class CompactionRegressionTest {
                 "a failing summarize is never retried within the execution");
         assertTrue(execution.getCompactionState().summaryUnavailable());
         assertEquals(1, execution.getCompactionState().pruneGeneration(), "the prune band ran exactly once");
-        assertTrue(events.stream().anyMatch(event -> event.getBand() == ContextUpdateEvent.Band.MANUAL),
+        assertTrue(events.stream().anyMatch(event -> event.getBand() == ContextUpdateEvent.Band.PRUNE),
                 "the closed summarize band hands the checkpoint over to pruning");
     }
 
