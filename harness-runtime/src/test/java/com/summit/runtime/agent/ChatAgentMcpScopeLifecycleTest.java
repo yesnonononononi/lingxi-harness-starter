@@ -5,6 +5,7 @@ import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
 import com.summit.core.conf.McpConfig;
 import com.summit.core.conf.McpTransport;
+import com.summit.core.conf.SensitiveDataSpec;
 import com.summit.core.conversation.event.ExecutionErrorEvent;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.conversation.message.UserMessageEntity;
@@ -123,16 +124,12 @@ class ChatAgentMcpScopeLifecycleTest {
         assertEquals(0, closed.get());
     }
 
-    /**
-     * A request that declares servers but runs on an agent without a register must not fail the
-     * request, and must not silently pretend everything is fine either: the empty scope is a
-     * configuration fault worth warning about.
-     */
     @Test
-    void declaredServersWithoutARegisterDegradeToEmptyScope() {
+    void declaredServersWithoutARegisterFailInitialization() {
         TestAgent agent = agentWithoutRegister(ExecutionState.COMPLETED);
-
-        agent.execute(request("e-3"));
+        Execution execution = request("e-3");
+        assertThrows(IllegalStateException.class, () -> agent.execute(execution));
+        assertEquals(ExecutionState.FAILED, execution.getExecutionState());
 
         assertEquals(0, opened.get(), "no register means no session can be opened");
         assertEquals(0, closed.get());
@@ -195,7 +192,7 @@ class ChatAgentMcpScopeLifecycleTest {
                 .messages(new ArrayList<>(List.of(UserMessageEntity.from("task"))))
                 .agentRequest(AgentRequest.builder()
                         .messages(List.of(UserMessageEntity.from("task")))
-                        .mcpConfig(mcpConfig())
+                        .mcpConfigSpec(SensitiveDataSpec.builder().id(99L).version(3).build())
                         .build())
                 .build();
     }
@@ -218,8 +215,9 @@ class ChatAgentMcpScopeLifecycleTest {
 
         private TestAgent(RuntimeFactory factory, ScopeMcpProvider register,
                           InMemoryActiveExecutionRegistry repository, RuntimeEventPublisher events) {
-            super(factory, null, null, null, register, repository,
-                    new DefaultExecutionController(() -> null, repository, events, new DefaultRuntimeLifeStyleManager(events)));
+            super(factory, null, null, register, null, repository,
+                    new DefaultExecutionController(() -> null, repository, events, new DefaultRuntimeLifeStyleManager(events)),
+                    (id, version) -> mcpConfig(), null);
         }
 
         @Override

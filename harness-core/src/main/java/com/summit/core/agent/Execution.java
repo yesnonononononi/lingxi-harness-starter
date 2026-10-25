@@ -3,6 +3,7 @@ package com.summit.core.agent;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.summit.core.compact.ContextUsageMetric;
 import com.summit.core.conf.McpConfig;
 import com.summit.core.conversation.api.ResponseIdGenerator;
@@ -67,10 +68,11 @@ public class Execution {
      * Retired copy of {@code agentRequest.mcpConfig}.
      *
      * <p>Kept only so snapshots written before the request became the single source still restore.
-     * Nothing produces it anymore and nothing reads it: {@link Execution#create} no longer fills
-     * it, and the run resolves MCP servers from the request.</p>
+     * It is never written back: {@link Execution#create} no longer fills it, and the run resolves
+     * MCP servers from the request reference.</p>
      */
     @Deprecated(forRemoval = true)
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private McpConfig mcpConfig;
 
     private String errorMessage;

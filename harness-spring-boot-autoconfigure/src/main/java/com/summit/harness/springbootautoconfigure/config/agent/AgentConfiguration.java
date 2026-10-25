@@ -1,6 +1,8 @@
 package com.summit.harness.springbootautoconfigure.config.agent;
 
+import com.summit.core.conf.McpConfig;
 import com.summit.core.conf.ModelConfig;
+import com.summit.core.conf.SensitiveDataProvider;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.core.model.RequestModelInvokerFactory;
@@ -26,22 +28,28 @@ import org.springframework.context.annotation.Bean;
 public class AgentConfiguration {
     @Bean
     @ConditionalOnMissingBean(ChatAgent.class)
-    public DefaultChatAgent defaultChatAgent(RuntimeFactory defaultRuntimeFactory,
-                                             RequestModelInvokerFactory modelInvokerFactory,
-                                             WorkspaceResolver workspaceResolver,
-                                             @Qualifier("chatModelConfig") ModelConfig modelConfig,
-                                             ScopeMcpProvider scopeMcpProvider,
-                                             ExecutionRepository executionRepository,
-                                             ExecutionControl executionControl) {
-        return new DefaultChatAgent(
-                defaultRuntimeFactory,
-                modelInvokerFactory,
-                workspaceResolver,
-                modelConfig,
-                scopeMcpProvider,
-                executionRepository,
-                executionControl
-        );
+    public ChatAgent defaultChatAgent(
+            RuntimeFactory defaultRuntimeFactory,
+            RequestModelInvokerFactory modelInvokerFactory,
+            WorkspaceResolver workspaceResolver,
+            @Qualifier("chatModelConfig") ModelConfig modelConfig,
+            ScopeMcpProvider scopeMcpProvider,
+            ExecutionRepository executionRepository,
+            ExecutionControl executionControl,
+            ObjectProvider<SensitiveDataProvider<McpConfig>> mcpConfigSensitiveDataProvider,
+            ObjectProvider<SensitiveDataProvider<ModelConfig>> modelConfigSensitiveDataProvider
+    ) {
+        return DefaultChatAgent.builder()
+                .defaultRuntimeFactory(defaultRuntimeFactory)
+                .executionControl(executionControl)
+                .workspaceResolver(workspaceResolver)
+                .executionRepository(executionRepository)
+                .mcpConfigSensitiveDataProvider(mcpConfigSensitiveDataProvider.getIfAvailable())
+                .modelConfigSensitiveDataProvider(modelConfigSensitiveDataProvider.getIfAvailable())
+                .modelConfig(modelConfig)
+                .scopeMcpProvider(scopeMcpProvider)
+                .modelInvokerFactory(modelInvokerFactory)
+                .build();
     }
 
     @Bean

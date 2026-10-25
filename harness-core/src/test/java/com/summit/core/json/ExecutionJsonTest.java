@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.exc.InvalidTypeIdException;
 import com.fasterxml.jackson.databind.jsontype.NamedType;
 import com.summit.core.agent.*;
-import com.summit.core.conf.ModelConfig;
+import com.summit.core.conf.SensitiveDataSpec;
 import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.message.*;
 import com.summit.core.conversation.message.content.*;
@@ -14,7 +14,6 @@ import com.summit.core.workspace.BasicWorkspaceSpec;
 import com.summit.core.workspace.WorkspaceSpec;
 import org.junit.jupiter.api.Test;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
@@ -86,10 +85,8 @@ class ExecutionJsonTest {
                         .workspaceSpec(new BasicWorkspaceSpec("local", "/tmp/work", "tenant", Map.of("x", "y")))
                         .runtimeParameters(AgentRuntimeParameters.builder().allowOutsideWorkspace(true)
                                 .attributes(Map.of("attempt", 2, "labels", List.of("a", "b"))).build())
-                        .modelConfig(ModelConfig.builder().baseUrl("https://example.invalid")
-                                .apiKey("test-key").modelName("test-model").timeout(Duration.ofMillis(1250))
-                                .anthropicOptions(ModelConfig.AnthropicOptions.builder()
-                                        .thinkingType("enabled").thinkingBudgetTokens(2048).build()).build())
+                        .modelConfigSpec(SensitiveDataSpec.builder().id(2113133924577333249L).version(7).build())
+                        .mcpConfigSpec(SensitiveDataSpec.builder().id(99L).version(3).build())
                         .build()).build();
 
         String json = mapper.writeValueAsString(original);
@@ -116,11 +113,11 @@ class ExecutionJsonTest {
         assertInstanceOf(PdfFileContent.class, user.getContent().get(4));
         assertInstanceOf(UserMessageEntity.class, restored.getAgentRequest().getMessages().get(1));
         assertEquals(original.getAgentRequest().getWorkspaceSpec(), restored.getAgentRequest().getWorkspaceSpec());
-        assertEquals(Duration.ofMillis(1250), restored.getAgentRequest().getModelConfig().getTimeout());
+        assertEquals(original.getAgentRequest().getModelConfigSpec(), restored.getAgentRequest().getModelConfigSpec());
+        assertEquals(99L, restored.getAgentRequest().getMcpConfigSpec().getId().longValue());
+        assertEquals(3, restored.getAgentRequest().getMcpConfigSpec().getVersion());
         assertEquals(ai.getToolCalls(), restored.getAiMessage().getToolCalls());
         assertEquals(ai.getAttributes(), restored.getAiMessage().getAttributes());
-        assertEquals("enabled", restored.getAgentRequest().getModelConfig().getAnthropicOptions().thinkingType());
-        assertEquals(2048, restored.getAgentRequest().getModelConfig().getAnthropicOptions().thinkingBudgetTokens());
         assertEquals(12, restored.getTokenUsage().getTotalTokens());
         assertEquals(new TokenUsageEntity.InputTokens(8, 3), restored.getTokenUsage().getInputTokens());
         assertEquals(new TokenUsageEntity.OutputTokens(4, 2), restored.getTokenUsage().getOutputTokens());

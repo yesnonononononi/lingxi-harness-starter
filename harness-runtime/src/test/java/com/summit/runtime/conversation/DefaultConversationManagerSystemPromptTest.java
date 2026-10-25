@@ -3,8 +3,7 @@ package com.summit.runtime.conversation;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
-import com.summit.core.conf.McpConfig;
-import com.summit.core.conf.McpTransport;
+import com.summit.core.conf.SensitiveDataSpec;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
@@ -50,7 +49,7 @@ class DefaultConversationManagerSystemPromptTest {
                         .messages(List.of(UserMessageEntity.from("帮我看看这个仓库")))
                         .systemPrompt("You are LingXi, a coding agent. Reply in the user's language.")
                         .toolList(List.of("read_file", "edit_file", "search_tool"))
-                        .mcpConfig(mcpConfig())
+                        .mcpConfigSpec(SensitiveDataSpec.builder().id(99L).version(3).build())
                         .build(),
                 sandbox(),
                 scopeOf(githubTools()));
@@ -281,11 +280,4 @@ class DefaultConversationManagerSystemPromptTest {
         }));
     }
 
-    private static McpConfig mcpConfig() {
-        McpConfig config = new McpConfig();
-        config.setMcp(List.of(new McpConfig.MCP("github", "GitHub remote tools", McpTransport.STREAMABLE_HTTP,
-                new McpConfig.StreamableHttp("https://example.invalid/mcp", Map.of(), null, null),
-                1000)));
-        return config;
-    }
 }

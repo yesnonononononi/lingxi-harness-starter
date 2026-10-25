@@ -76,7 +76,7 @@ class ChatAgentWorkspaceTest {
 
     private static final class TestAgent extends ChatAgent {
         private TestAgent(WorkspaceResolver resolver) {
-            super(null, null, resolver, null, null, null);
+            super(null, null, resolver, null, null, null, null, null, null);
         }
 
         @Override

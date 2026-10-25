@@ -3,6 +3,7 @@ package com.summit.runtime.agent;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.conf.ModelRetryConfig;
+import com.summit.core.conf.SensitiveDataSpec;
 import com.summit.core.model.RequestModelInvokerFactory;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
@@ -21,20 +22,16 @@ class ChatAgentModelRoutingTest {
             }
             public Selection select(String provider) { return select(ModelConfig.builder().provider(provider).build()); }
         };
-        ChatAgent selectedAgent = new ChatAgent(null, factory, null, null, null, null) {
-            public String id() { return "retry-test"; }
-        };
         ModelConfig config = ModelConfig.builder().provider("test").maxRetries(3).build();
-        selectedAgent.findSelection(AgentRequest.builder().modelConfig(config)
+        ChatAgent selectedAgent = DefaultChatAgent.builder().modelInvokerFactory(factory)
+                .modelConfigSensitiveDataProvider((id, version) -> config).build();
+        selectedAgent.findSelection(AgentRequest.builder().modelConfigSpec(spec())
                 .retryConfig(ModelRetryConfig.builder().enabled(true).build()).build());
         assertEquals(0, selected.get().getMaxRetries());
         assertEquals(3, config.getMaxRetries());
-        selectedAgent.findSelection(AgentRequest.builder().modelConfig(config).build());
+        selectedAgent.findSelection(AgentRequest.builder().modelConfigSpec(spec()).build());
         assertEquals(3, selected.get().getMaxRetries());
     }
-    private final ChatAgent agent = new ChatAgent(null, null, null, null, null, null) {
-        public String id() { return "routing-test"; }
-    };
 
     @Test
     void claudePrefixSelectsNativeAnthropicForBothModes() {
@@ -51,7 +48,8 @@ class ChatAgentModelRoutingTest {
                 .modelName("claude-opus-4-6").returnThinking(true).reasoningEffort("high")
                 .anthropicOptions(ModelConfig.AnthropicOptions.builder()
                         .thinkingType("enabled").thinkingBudgetTokens(2048).build()).maxTokens(4096).build();
-        ModelConfig resolved = agent.resolveModelConfig(AgentRequest.builder().modelConfig(config)
+        ChatAgent agent = DefaultChatAgent.builder().modelConfigSensitiveDataProvider((id, version) -> config).build();
+        ModelConfig resolved = agent.resolveModelConfig(AgentRequest.builder().modelConfigSpec(spec())
                 .modelProvider("ignored").build());
         assertEquals("anthropic-streaming", resolved.getProvider());
         assertEquals(config.toBuilder().provider("anthropic-streaming").build(), resolved);
@@ -59,8 +57,14 @@ class ChatAgentModelRoutingTest {
     }
 
     private ModelConfig resolve(String model, boolean streaming, String provider) {
-        return agent.resolveModelConfig(AgentRequest.builder().modelConfig(ModelConfig.builder()
+        ModelConfig config = ModelConfig.builder()
                 .baseUrl("http://localhost/v1").apiKey("key").modelName(model)
-                .returnThinking(streaming).provider(provider).build()).build());
+                .returnThinking(streaming).provider(provider).build();
+        return DefaultChatAgent.builder().modelConfigSensitiveDataProvider((id, version) -> config).build()
+                .resolveModelConfig(AgentRequest.builder().modelConfigSpec(spec()).build());
+    }
+
+    private static SensitiveDataSpec spec() {
+        return SensitiveDataSpec.builder().id(31L).version(7).build();
     }
 }
