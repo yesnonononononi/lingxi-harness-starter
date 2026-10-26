@@ -6,6 +6,8 @@ import com.summit.core.anno.OtherProperty;
 import com.summit.core.anno.Tool;
 import com.summit.core.anno.ToolArgument;
 import com.summit.core.anno.ToolProperty;
+import com.summit.core.anno.type.ObjectValue;
+import com.summit.core.anno.type.OptionalBoolean;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -67,6 +69,17 @@ class AnnotationToolDefinitionFactoryTest {
         assertThrows(IllegalArgumentException.class,
                 () -> factory.create(MixedExtras.class.getAnnotation(Tool.class), new TestExecutor()));
     }
+
+    @Test
+    void typedSchemaCannotSilentlyIgnoreLegacyProperties() {
+        assertThrows(IllegalArgumentException.class,
+                () -> factory.create(MixedTypedLegacy.class.getAnnotation(Tool.class), new TestExecutor()));
+    }
+
+    @Tool(id = "mixed-typed-legacy", name = "mixed", description = "Ambiguous typed schema", executor = TestExecutor.class,
+            parameters = @ObjectValue(additionalProperties = OptionalBoolean.FALSE),
+            props = @ToolProperty(key = "path", value = @ToolArgument))
+    static class MixedTypedLegacy { }
 
     @Tool(id = "schema-id", name = "schema_tool", description = "Complete schema",
             executor = TestExecutor.class, timeout = 17L, maxOutput = 123,

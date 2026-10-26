@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.summit.core.anno.OtherProperty;
 import com.summit.core.anno.Tool;
 import com.summit.core.anno.ToolProperty;
+import com.summit.core.anno.type.ObjectValue;
 
 import java.util.Objects;
 
@@ -30,11 +31,15 @@ public final class AnnotationToolDefinitionFactory {
     }
 
     private JsonNode buildSchema(Tool tool) {
+        boolean structured = !tool.parameters().equals(defaultParameters());
+        if (structured && (tool.props().length != 0 || tool.others().length != 0 || !tool.type().equals("object"))) {
+            throw new IllegalArgumentException("Tool '" + tool.id() + "' cannot combine parameters with props, others or type");
+        }
         if (!tool.parametersJsonSchema().isBlank()) {
             // Two schema sources would make an ignored constraint look successfully declared.
-            if (tool.props().length != 0 || tool.others().length != 0) {
+            if (structured || tool.props().length != 0 || tool.others().length != 0) {
                 throw new IllegalArgumentException("Tool '" + tool.id()
-                        + "' cannot combine parametersJsonSchema with props or others");
+                        + "' cannot combine parametersJsonSchema with parameters, props or others");
             }
             try {
                 JsonNode schema = objectMapper.reader()
@@ -47,6 +52,10 @@ public final class AnnotationToolDefinitionFactory {
             } catch (JsonProcessingException error) {
                 throw new IllegalArgumentException("Tool '" + tool.id() + "' parameter schema is not valid JSON", error);
             }
+        }
+
+        if (structured) {
+            return new ToolParameterSchemaBuilder(objectMapper, tool.id()).build(tool.parameters());
         }
 
         ObjectNode schema = objectMapper.createObjectNode();
@@ -63,9 +72,18 @@ public final class AnnotationToolDefinitionFactory {
         schema.put("type", tool.type());
         schema.set("properties", properties);
         schema.set("required", required);
+
         for (OtherProperty property : tool.others()) {
             schema.put(property.key(), property.value());
         }
         return schema;
+    }
+
+    private ObjectValue defaultParameters() {
+        try {
+            return (ObjectValue) Tool.class.getDeclaredMethod("parameters").getDefaultValue();
+        } catch (NoSuchMethodException error) {
+            throw new IllegalStateException(error);
+        }
     }
 }

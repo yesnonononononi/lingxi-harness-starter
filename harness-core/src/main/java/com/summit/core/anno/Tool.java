@@ -1,5 +1,6 @@
 package com.summit.core.anno;
 
+import com.summit.core.anno.type.ObjectValue;
 import com.summit.core.tool.ConcurrentPolicy;
 import com.summit.core.tool.ToolExecutor;
 
@@ -15,6 +16,8 @@ public @interface Tool {
     String id();
     String description();
     Class<? extends ToolExecutor> executor();
+    /** Fixed object-root schema; use parametersJsonSchema for nested object or array items. */
+    ObjectValue parameters() default @ObjectValue;
     ToolProperty[] props() default {};
     OtherProperty[] others() default {};
     String parametersJsonSchema() default "";

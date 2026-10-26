@@ -6,6 +6,8 @@ import com.summit.core.anno.OtherProperty;
 import com.summit.core.anno.Tool;
 import com.summit.core.anno.ToolArgument;
 import com.summit.core.anno.ToolProperty;
+import com.summit.core.anno.type.ObjectValue;
+import com.summit.core.anno.type.OptionalBoolean;
 import com.summit.core.tool.ConcurrentPolicy;
 import com.summit.core.tool.ToolDefinition;
 import com.summit.core.tool.ToolExecuteResult;
@@ -94,6 +96,26 @@ class ToolRegisterTest {
                     () -> assertEquals(ConcurrentPolicy.SERIAL_MUTATION, definition.concurrentPolicy()),
                     () -> assertFalse(definition.allowConcurrent()),
                     () -> assertFalse(definition.readOnly()));
+        }
+    }
+
+    @Test
+    void registersTypedObjectSchemaThroughTheSameRegistryPath() throws Exception {
+        try (AnnotationConfigApplicationContext context = context(TypedDescriptor.class)) {
+            ToolDefinition<?> definition = requireTool(register(context), "typed_tool");
+            assertSame(executor, definition.executor());
+            assertEquals(objectMapper.readTree("{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}"),
+                    objectMapper.readTree(definition.parametersJsonSchema()));
+        }
+    }
+
+    @Test
+    void rejectsInvalidTypedSchemaBeforeItEntersTheRegistry() {
+        try (AnnotationConfigApplicationContext context = context(InvalidTypedDescriptor.class)) {
+            ToolRegistry registry = new ToolRegistry(new ArrayList<>());
+            RuntimeException error = assertThrows(RuntimeException.class, () -> run(context, registry));
+            assertTrue(error.getMessage().contains("invalid-typed-id"));
+            assertNull(registry.getTool("invalid_typed_tool"));
         }
     }
 
@@ -253,6 +275,14 @@ class ToolRegisterTest {
             executor = RecordingExecutor.class)
     static class DuplicateDescriptor {
     }
+
+    @Tool(id = "typed-id", name = "typed_tool", description = "Typed schema", executor = RecordingExecutor.class,
+            parameters = @ObjectValue(additionalProperties = OptionalBoolean.FALSE))
+    static class TypedDescriptor { }
+
+    @Tool(id = "invalid-typed-id", name = "invalid_typed_tool", description = "Invalid typed schema", executor = RecordingExecutor.class,
+            parameters = @ObjectValue(required = "missing"))
+    static class InvalidTypedDescriptor { }
 
     static class UnannotatedDescriptor {
     }
