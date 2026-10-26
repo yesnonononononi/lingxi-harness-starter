@@ -17,6 +17,7 @@ public @interface Tool {
     Class<? extends ToolExecutor> executor();
     ToolProperty[] props() default {};
     OtherProperty[] others() default {};
+    String parametersJsonSchema() default "";
     String type() default "object";
     int maxOutput() default 5000;
     long timeout() default 60_000L;
