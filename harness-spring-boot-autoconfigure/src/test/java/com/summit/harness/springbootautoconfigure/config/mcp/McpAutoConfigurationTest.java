@@ -11,6 +11,7 @@ import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.core.tool.ToolDefinition;
 import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolExecution;
+import com.summit.core.tool.ToolExecutor;
 import com.summit.core.tool.ToolRegistry;
 import com.sun.net.httpserver.HttpServer;
 import dev.langchain4j.mcp.client.McpClient;
@@ -21,6 +22,7 @@ import org.springframework.core.env.MapPropertySource;
 
 import java.net.InetSocketAddress;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -36,7 +38,7 @@ class McpAutoConfigurationTest {
             context.refresh();
             assertEquals(1, context.getBeansOfType(McpClientFactory.class).size());
             assertInstanceOf(AgentScopeMcpProvider.class, context.getBean(ScopeMcpProvider.class));
-            assertTrue(context.getBean(ToolRegistry.class).getTools().isEmpty());
+            assertTrue(context.getBean(RecordingToolRegistry.class).registrations.isEmpty());
         }
     }
 
@@ -53,7 +55,7 @@ class McpAutoConfigurationTest {
             context.refresh();
             assertInstanceOf(AgentScopeMcpProvider.class, context.getBean(ScopeMcpProvider.class));
             assertEquals(1, context.getBeansOfType(ScopeMcpProvider.class).size());
-            assertTrue(context.getBean(ToolRegistry.class).getTools().isEmpty());
+            assertTrue(context.getBean(RecordingToolRegistry.class).registrations.isEmpty());
         }
     }
 
@@ -188,9 +190,23 @@ class McpAutoConfigurationTest {
     private static AnnotationConfigApplicationContext context(Map<String, Object> properties) {
         AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
         context.getEnvironment().getPropertySources().addFirst(new MapPropertySource("test", properties));
-        context.registerBean(ToolRegistry.class, () -> new ToolRegistry(List.of()));
+        context.registerBean(RecordingToolRegistry.class, () -> new RecordingToolRegistry());
         context.register(McpAutoConfiguration.class);
         return context;
+    }
+
+    static class RecordingToolRegistry extends ToolRegistry {
+        private final List<ToolDefinition<? extends ToolExecutor>> registrations = new ArrayList<>();
+
+        RecordingToolRegistry() {
+            super(new ArrayList<>());
+        }
+
+        @Override
+        public void register(ToolDefinition<?> definition) {
+            registrations.add(definition);
+            super.register(definition);
+        }
     }
 
 }
