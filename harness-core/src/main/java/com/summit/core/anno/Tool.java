@@ -18,10 +18,7 @@ public @interface Tool {
     Class<? extends ToolExecutor> executor();
     /** Fixed object-root schema; use parametersJsonSchema for nested object or array items. */
     ObjectValue parameters() default @ObjectValue;
-    ToolProperty[] props() default {};
-    OtherProperty[] others() default {};
     String parametersJsonSchema() default "";
-    String type() default "object";
     int maxOutput() default 5000;
     long timeout() default 60_000L;
     ConcurrentPolicy concurrentPolicy() default ConcurrentPolicy.READ_ONLY;

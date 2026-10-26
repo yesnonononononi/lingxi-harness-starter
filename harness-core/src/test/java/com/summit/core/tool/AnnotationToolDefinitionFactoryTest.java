@@ -2,12 +2,12 @@ package com.summit.core.tool;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.core.anno.OtherProperty;
 import com.summit.core.anno.Tool;
-import com.summit.core.anno.ToolArgument;
-import com.summit.core.anno.ToolProperty;
 import com.summit.core.anno.type.ObjectValue;
 import com.summit.core.anno.type.OptionalBoolean;
+import com.summit.core.anno.type.ToolProperty;
+import com.summit.core.anno.type.Value;
+import com.summit.core.anno.type.ValueType;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -71,15 +71,44 @@ class AnnotationToolDefinitionFactoryTest {
     }
 
     @Test
-    void typedSchemaCannotSilentlyIgnoreLegacyProperties() {
-        assertThrows(IllegalArgumentException.class,
-                () -> factory.create(MixedTypedLegacy.class.getAnnotation(Tool.class), new TestExecutor()));
+    void defaultAndExplicitEmptyParametersUseTheObjectBuilder() throws Exception {
+        for (Class<?> declaration : new Class<?>[]{DefaultSchema.class, EmptySchema.class}) {
+            ToolDefinition<TestExecutor> definition = factory.create(declaration.getAnnotation(Tool.class), new TestExecutor());
+            assertEquals(mapper.readTree("{\"type\":\"object\",\"properties\":{}}"),
+                    mapper.readTree(definition.parametersJsonSchema()));
+        }
     }
 
-    @Tool(id = "mixed-typed-legacy", name = "mixed", description = "Ambiguous typed schema", executor = TestExecutor.class,
-            parameters = @ObjectValue(additionalProperties = OptionalBoolean.FALSE),
-            props = @ToolProperty(key = "path", value = @ToolArgument))
-    static class MixedTypedLegacy { }
+    @Test
+    void removedLegacySchemaAttributesCannotBeDeclared() {
+        for (String name : new String[]{"props", "others", "type"}) {
+            assertThrows(NoSuchMethodException.class, () -> Tool.class.getDeclaredMethod(name));
+        }
+    }
+
+    @Test
+    void retiredAnnotationTypesAreAbsentFromTheArtifact() {
+        for (String name : new String[]{"ToolArgument", "ToolProperty", "OtherProperty"}) {
+            assertThrows(ClassNotFoundException.class, () -> Class.forName("com.summit.core.anno." + name));
+        }
+    }
+
+    @Test
+    void rawSchemaCannotSilentlyIgnoreRequiredNames() {
+        assertThrows(IllegalArgumentException.class,
+                () -> factory.create(MixedRequired.class.getAnnotation(Tool.class), new TestExecutor()));
+    }
+
+    @Tool(id = "default", name = "default", description = "Default object", executor = TestExecutor.class)
+    static class DefaultSchema { }
+
+    @Tool(id = "empty", name = "empty", description = "Explicit empty object", executor = TestExecutor.class,
+            parameters = @ObjectValue)
+    static class EmptySchema { }
+
+    @Tool(id = "mixed-required", name = "mixed_required", description = "Ambiguous required names", executor = TestExecutor.class,
+            parametersJsonSchema = "{}", parameters = @ObjectValue(required = "ignored"))
+    static class MixedRequired { }
 
     @Tool(id = "schema-id", name = "schema_tool", description = "Complete schema",
             executor = TestExecutor.class, timeout = 17L, maxOutput = 123,
@@ -111,13 +140,13 @@ class AnnotationToolDefinitionFactoryTest {
 
     @Tool(id = "mixed-props", name = "mixed_props", description = "Ambiguous schema",
             executor = TestExecutor.class, parametersJsonSchema = "{}",
-            props = @ToolProperty(key = "path", value = @ToolArgument))
+            parameters = @ObjectValue(properties = @ToolProperty(key = "path", value = @Value(type = ValueType.STRING))))
     static class MixedProperties {
     }
 
     @Tool(id = "mixed-extras", name = "mixed_extras", description = "Ambiguous extras",
             executor = TestExecutor.class, parametersJsonSchema = "{}",
-            others = @OtherProperty(key = "title", value = "Ignored"))
+            parameters = @ObjectValue(additionalProperties = OptionalBoolean.FALSE))
     static class MixedExtras {
     }
 

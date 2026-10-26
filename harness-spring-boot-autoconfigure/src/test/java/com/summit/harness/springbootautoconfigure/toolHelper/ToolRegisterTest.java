@@ -2,12 +2,12 @@ package com.summit.harness.springbootautoconfigure.toolHelper;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.core.anno.OtherProperty;
 import com.summit.core.anno.Tool;
-import com.summit.core.anno.ToolArgument;
-import com.summit.core.anno.ToolProperty;
 import com.summit.core.anno.type.ObjectValue;
 import com.summit.core.anno.type.OptionalBoolean;
+import com.summit.core.anno.type.ToolProperty;
+import com.summit.core.anno.type.Value;
+import com.summit.core.anno.type.ValueType;
 import com.summit.core.tool.ConcurrentPolicy;
 import com.summit.core.tool.ToolDefinition;
 import com.summit.core.tool.ToolExecuteResult;
@@ -48,7 +48,7 @@ class ToolRegisterTest {
                     () -> assertSame(executor, definition.executor()));
             assertEquals("injected dependency", definition.executor().execute(null).getToolOutput());
             assertEquals(objectMapper.readTree("""
-                    {"type":"object","properties":{},"required":[]}
+                    {"type":"object","properties":{}}
                     """), objectMapper.readTree(definition.parametersJsonSchema()));
         }
     }
@@ -63,7 +63,7 @@ class ToolRegisterTest {
                     {
                       "query":{"type":"string","description":"Find \\\"quoted\\\" text\\non disk"},
                       "limit":{"type":"integer","description":"Maximum results"},
-                      "include_hidden":{"type":"boolean","description":""}
+                      "include_hidden":{"type":"boolean"}
                     }
                     """), schema.get("properties"));
             assertEquals(objectMapper.readTree("[\"query\",\"include_hidden\"]"), schema.get("required"));
@@ -73,8 +73,8 @@ class ToolRegisterTest {
 
     @Test
     void carriesAdditionalSchemaPropertiesAndEscapesTheirValues() throws Exception {
-        try (AnnotationConfigApplicationContext context = context(SearchDescriptor.class)) {
-            JsonNode schema = objectMapper.readTree(requireTool(register(context), "search_tool")
+        try (AnnotationConfigApplicationContext context = context(RawDescriptor.class)) {
+            JsonNode schema = objectMapper.readTree(requireTool(register(context), "raw_tool")
                     .parametersJsonSchema());
 
             assertEquals("Search \"files\"\nC:\\workspace", schema.path("title").asText());
@@ -258,18 +258,17 @@ class ToolRegisterTest {
     @Tool(id = "search-id", name = "search_tool", description = "Search files",
             executor = RecordingExecutor.class, maxOutput = 1234, timeout = 4321L,
             concurrentPolicy = ConcurrentPolicy.SERIAL_MUTATION,
-            props = {
-                    @ToolProperty(key = "query", value = @ToolArgument(description = "Find \"quoted\" text\non disk")),
-                    @ToolProperty(key = "limit", value = @ToolArgument(type = "integer",
-                            description = "Maximum results", isRequired = false)),
-                    @ToolProperty(key = "include_hidden", value = @ToolArgument(type = "boolean"))
-            },
-            others = {
-                    @OtherProperty(key = "title", value = "Search \"files\"\nC:\\workspace"),
-                    @OtherProperty(key = "$schema", value = "https://example.test/tool.schema.json")
-            })
+            parameters = @ObjectValue(properties = {
+                    @ToolProperty(key = "query", value = @Value(type = ValueType.STRING, description = "Find \"quoted\" text\non disk")),
+                    @ToolProperty(key = "limit", value = @Value(type = ValueType.INTEGER, description = "Maximum results")),
+                    @ToolProperty(key = "include_hidden", value = @Value(type = ValueType.BOOLEAN))
+            }, required = {"query", "include_hidden"}))
     static class SearchDescriptor {
     }
+
+    @Tool(id = "raw-id", name = "raw_tool", description = "Raw schema metadata", executor = RecordingExecutor.class,
+            parametersJsonSchema = "{\"type\":\"object\",\"title\":\"Search \\\"files\\\"\\nC:\\\\workspace\",\"$schema\":\"https://example.test/tool.schema.json\"}")
+    static class RawDescriptor { }
 
     @Tool(id = "duplicate-id", name = "default_tool", description = "Duplicate tool name",
             executor = RecordingExecutor.class)

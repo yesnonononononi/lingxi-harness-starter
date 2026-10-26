@@ -3,7 +3,6 @@ package com.summit.core.tool;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.anno.Tool;
-import com.summit.core.anno.OtherProperty;
 import com.summit.core.anno.type.ArrayValue;
 import com.summit.core.anno.type.BooleanValue;
 import com.summit.core.anno.type.IntegerValue;
@@ -219,19 +218,7 @@ class StructuredToolSchemaTest {
             parametersJsonSchema = "{}", parameters = @ObjectValue(additionalProperties = OptionalBoolean.FALSE))
     static class MixedRaw { }
 
-    @Tool(id = "MixedLegacy", name = "mixed", description = "Mixed declaration", executor = AnnotationToolDefinitionFactoryTest.TestExecutor.class,
-            type = "string", parameters = @ObjectValue(additionalProperties = OptionalBoolean.FALSE))
-    static class MixedLegacy { }
-
-    @Tool(id = "MixedType", name = "mixed", description = "Mixed declaration", executor = AnnotationToolDefinitionFactoryTest.TestExecutor.class,
-            type = "array", parameters = @ObjectValue(additionalProperties = OptionalBoolean.FALSE))
-    static class MixedType { }
-
-    @Tool(id = "MixedOthers", name = "mixed", description = "Mixed declaration", executor = AnnotationToolDefinitionFactoryTest.TestExecutor.class,
-            others = @OtherProperty(key = "title", value = "ignored"), parameters = @ObjectValue(additionalProperties = OptionalBoolean.FALSE))
-    static class MixedOthers { }
-
     static Stream<Class<?>> invalidDeclarations() {
-        return Stream.of(UnknownRequired.class, DuplicateRequired.class, BlankKey.class, DuplicateKey.class, InactiveString.class, InactiveInteger.class, InactiveNumber.class, InactiveBoolean.class, InactiveArray.class, StringDefaultMany.class, StringConstMany.class, StringNegative.class, StringRange.class, StringEnumDuplicates.class, ArrayNegative.class, ArrayRange.class, IntegerMany.class, IntegerRange.class, IntegerExclusive.class, IntegerMultiple.class, IntegerEnumDuplicates.class, NumberMany.class, NumberNaN.class, NumberInfinite.class, NumberRange.class, NumberExclusive.class, NumberMultiple.class, NumberEnumDuplicates.class, MixedRaw.class, MixedLegacy.class, MixedType.class, MixedOthers.class);
+        return Stream.of(UnknownRequired.class, DuplicateRequired.class, BlankKey.class, DuplicateKey.class, InactiveString.class, InactiveInteger.class, InactiveNumber.class, InactiveBoolean.class, InactiveArray.class, StringDefaultMany.class, StringConstMany.class, StringNegative.class, StringRange.class, StringEnumDuplicates.class, ArrayNegative.class, ArrayRange.class, IntegerMany.class, IntegerRange.class, IntegerExclusive.class, IntegerMultiple.class, IntegerEnumDuplicates.class, NumberMany.class, NumberNaN.class, NumberInfinite.class, NumberRange.class, NumberExclusive.class, NumberMultiple.class, NumberEnumDuplicates.class, MixedRaw.class);
     }
 }
