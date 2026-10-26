@@ -94,7 +94,7 @@ class SearchToolAutoConfigurationTest {
                     .build());
         }
         ToolRegistry registry = new ToolRegistry(List.of());
-        tools.forEach(tool -> registry.getTools().put(tool.name(), tool));
+        registry.register(tools);
         return registry;
     }
 

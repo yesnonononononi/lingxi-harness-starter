@@ -282,7 +282,7 @@ class SearchToolExecutorTest {
 
     private ToolRegistry registryOf(List<ToolDefinition<?>> staticTools) {
         ToolRegistry registry = new ToolRegistry(List.of());
-        staticTools.forEach(tool -> registry.getTools().put(tool.name(), tool));
+        registry.register(staticTools);
         return registry;
     }
 

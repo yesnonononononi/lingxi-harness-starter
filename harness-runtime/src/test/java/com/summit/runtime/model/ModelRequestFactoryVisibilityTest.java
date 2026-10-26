@@ -102,7 +102,7 @@ class ModelRequestFactoryVisibilityTest {
         private final McpToolScope scope;
 
         private Fixture(List<ToolDefinition<?>> staticTools, List<ToolDefinition<?>> remoteTools) {
-            staticTools.forEach(tool -> registry.getTools().put(tool.name(), tool));
+            registry.register(staticTools);
             List<ToolDefinition<? extends ToolExecutor>> scoped = new ArrayList<>(remoteTools);
             scope = scoped.isEmpty()
                     ? McpToolScope.EMPTY

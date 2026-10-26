@@ -97,7 +97,7 @@ class ModelInvocationAttemptTest {
             requests.add(request);
             if (calls.incrementAndGet() == 1) {
                 fixture.execution.getMessages().add(UserMessageEntity.from("later input"));
-                fixture.registry.getTools().put("later-tool", ToolDefinition.builder().id("later-tool")
+                fixture.registry.register(ToolDefinition.builder().id("later-tool")
                         .name("later-tool").timeout(5L).maxOutput(100)
                         .executor(execution -> ToolExecuteResult.success("ok")).build());
             }
