@@ -39,7 +39,7 @@ class ToolRegistryRegistrationTest {
         ToolDefinition<ToolExecutor> existing = definition("existing", "existing-id");
         ToolRegistry registry = new ToolRegistry(new ArrayList<>(List.of(existing)));
 
-        assertThrows(NullPointerException.class, () -> registry.register(null));
+        assertThrows(NullPointerException.class, () -> registry.register((ToolDefinition<?>) null));
 
         assertSame(existing, registry.getTool("existing"));
     }
