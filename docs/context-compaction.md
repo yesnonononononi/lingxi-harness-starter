@@ -48,6 +48,26 @@ An unsuccessful prune publishes its completion event but changes neither message
 
 ## Configuration and validation
 
+Each request's resolved `ModelConfig` can select the summary connection explicitly:
+
+```java
+ModelConfig reuseCurrent = ModelConfig.builder()
+        .baseUrl("https://models.example/v1").apiKey("request-key").modelName("main-model")
+        .reuseModelForCompaction(true).build();
+ModelConfig separate = reuseCurrent.toBuilder().reuseModelForCompaction(false)
+        .compactModel(new ModelConfig.CompactModelConfig(
+                "https://summaries.example/v1", "summary-key", "summary-model")).build();
+```
+
+`reuseModelForCompaction` takes precedence over `compactModel`. Reuse preserves the request's model
+options and maps built-in streaming providers to their synchronous counterparts. An independent
+connection requires all three fields and selects its protocol from the model name. Its timeout,
+token limit and retry count follow the parent configuration; thinking is disabled. Legacy requests
+with neither setting retain the application compact model. Both automatic and tool-requested
+compaction resolve the exact `modelConfigSpec` revision; unavailable revisions fail rather than
+substituting application credentials. Tool-requested compaction loads the originating execution
+through `ExecutionRepository`. Credentials remain in the configuration provider, not its snapshot.
+
 `lingxi.agent.runtime.tool.context-compact.max-summary-attempts` still controls the summary attempt limit.
 `prune-target-ratio`, `full-segment-count`, and `full-tool-output-cap` have been removed, along with
 their Java policy fields. Applications should remove those obsolete properties.

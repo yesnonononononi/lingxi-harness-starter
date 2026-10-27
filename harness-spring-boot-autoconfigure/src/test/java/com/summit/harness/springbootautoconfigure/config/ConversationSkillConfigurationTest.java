@@ -2,24 +2,77 @@ package com.summit.harness.springbootautoconfigure.config;
 
 import com.summit.core.adapter.TokenEstimator;
 import com.summit.core.conf.SkillConfig;
+import com.summit.core.conf.ModelConfig;
+import com.summit.core.conf.McpConfig;
+import com.summit.core.conf.SensitiveDataProvider;
+import com.summit.core.conf.SensitiveDataSpec;
+import com.summit.core.agent.AgentRequest;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.model.chat.ChatModel;
+import com.summit.core.model.ModelProviderRegistry;
+import com.summit.core.model.ModelProvider;
+import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.skill.SkillLoader;
 import com.summit.core.skill.SkillResolver;
 import com.summit.core.skill.SkillResume;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
 import com.summit.runtime.agent.AgentConfig;
+import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
+import com.summit.runtime.compact.RequestCompactModelResolver;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.ArrayList;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class ConversationSkillConfigurationTest {
+    @Test
+    void compactionResolvesTheTypedRequestRevisionProvider() {
+        try (AnnotationConfigApplicationContext context = context(false)) {
+            context.register(RequestRevisionConfiguration.class);
+            context.refresh();
+            List<ModelConfig> selected = new ArrayList<>();
+            ModelProviderRegistry<ChatModel> providers = context.getBean(ModelProviderRegistry.class);
+            providers.register(new ModelProvider<>() {
+                public String name() { return "default"; }
+                public ChatModel create(ModelConfig config) {
+                    selected.add(config);
+                    return request -> null;
+                }
+            });
+            context.getBean(RequestCompactModelResolver.class).resolve(AgentRequest.builder()
+                    .modelConfigSpec(new SensitiveDataSpec(31L, 2)).build());
+            assertEquals("https://request.example/v1", selected.getFirst().getBaseUrl());
+            assertEquals("request-key", selected.getFirst().getApiKey());
+            assertEquals("default", selected.getFirst().getProvider());
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class RequestRevisionConfiguration {
+        @Bean
+        SensitiveDataProvider<ModelConfig> modelRevisions() {
+            return (id, version) -> {
+                assertEquals(31L, id.longValue());
+                assertEquals(2, version);
+                return ModelConfig.builder().baseUrl("https://request.example/v1").apiKey("request-key")
+                        .modelName("request-model").provider("default-streaming").reuseModelForCompaction(true).build();
+            };
+        }
+
+        @Bean
+        SensitiveDataProvider<McpConfig> mcpRevisions() {
+            return (id, version) -> { throw new AssertionError("MCP revisions cannot resolve model configuration"); };
+        }
+    }
+
     @Test
     void customResolverReplacesDefault() {
         try (AnnotationConfigApplicationContext context = context(false)) {
@@ -75,6 +128,9 @@ class ConversationSkillConfigurationTest {
         context.registerBean(RuntimeEventPublisher.class, () -> new RuntimeEventPublisher(List.of()));
         context.registerBean(AgentChatProperties.class, AgentChatProperties::new);
         context.registerBean("defaultContextCompactModel", ChatModel.class, () -> request -> null);
+        context.registerBean("chatModelConfig", ModelConfig.class, () -> ModelConfig.builder().build());
+        context.registerBean(ModelProviderRegistry.class, ModelProviderRegistry::new);
+        context.registerBean(ExecutionRepository.class, () -> new InMemoryActiveExecutionRegistry());
         context.register(ConversationConfig.class);
         return context;
     }

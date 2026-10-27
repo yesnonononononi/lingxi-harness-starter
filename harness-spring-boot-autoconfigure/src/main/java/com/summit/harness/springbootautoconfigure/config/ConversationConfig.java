@@ -3,18 +3,23 @@ package com.summit.harness.springbootautoconfigure.config;
 import com.summit.core.adapter.TokenEstimator;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.Tokenizer;
+import com.summit.core.conf.ModelConfig;
+import com.summit.core.conf.SensitiveDataProvider;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ConversationTranscriptSink;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.model.chat.ChatModel;
+import com.summit.core.model.ModelProviderRegistry;
 import com.summit.core.prompt.PromptAssembler;
 import com.summit.core.runtime.loop.ContextUsageReporter;
+import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.skill.SkillLoader;
 import com.summit.core.skill.SkillResolver;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.compact.DefaultContextPruner;
 import com.summit.runtime.compact.DefaultModelCompacter;
+import com.summit.runtime.compact.RequestCompactModelResolver;
 import com.summit.runtime.conversation.DefaultConversationManager;
 import com.summit.runtime.conversation.DefaultTokenizer;
 import com.summit.runtime.prompt.SystemPromptAssembler;
@@ -106,10 +111,18 @@ public class ConversationConfig {
 
     @Bean
     @ConditionalOnMissingBean(name = "modelCompacter")
-    public DefaultModelCompacter modelCompacter(@Qualifier("defaultContextCompactModel") ChatModel model,
+    public DefaultModelCompacter modelCompacter(RequestCompactModelResolver models, ExecutionRepository executions,
             ConversationManager conversations, ContextAttachmentProvider attachments,
             ContextUsageReporter usage) {
-        return new DefaultModelCompacter(model, conversations, attachments, usage);
+        return new DefaultModelCompacter(models::resolve, executions, conversations, attachments, usage);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public RequestCompactModelResolver requestCompactModelResolver(@Qualifier("chatModelConfig") ModelConfig config,
+            ObjectProvider<SensitiveDataProvider<ModelConfig>> configurations, ModelProviderRegistry<ChatModel> providers,
+            @Qualifier("defaultContextCompactModel") ChatModel applicationCompactModel) {
+        return new RequestCompactModelResolver(config, configurations.getIfAvailable(), providers, applicationCompactModel);
     }
 
     @Bean

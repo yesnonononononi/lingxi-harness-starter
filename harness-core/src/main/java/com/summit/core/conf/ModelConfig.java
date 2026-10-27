@@ -66,6 +66,11 @@ public class ModelConfig {
         }
     }
 
+    @Builder(toBuilder = true)
+    @Jacksonized
+    public record CompactModelConfig(String baseUrl, String apiKey, String modelName) {
+    }
+
     private String baseUrl;
     private String apiKey;
     private String modelName;
@@ -79,5 +84,10 @@ public class ModelConfig {
     private int maxRetries = 3;
     private AnthropicOptions anthropicOptions;
     private ImageOptions imageOptions;
+
+    /** Reuses this request's connection and model options for synchronous context summarization. */
+    private boolean reuseModelForCompaction;
+    /** Independent request-level connection; absent settings retain the application's compact model. */
+    private CompactModelConfig compactModel;
 
 }

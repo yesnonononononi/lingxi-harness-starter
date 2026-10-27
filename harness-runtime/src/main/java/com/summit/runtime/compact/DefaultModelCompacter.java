@@ -3,6 +3,7 @@ package com.summit.runtime.compact;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.agent.Execution;
+import com.summit.core.agent.AgentRequest;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.ContextCompactRequest;
 import com.summit.core.compact.ContextCompacter;
@@ -14,6 +15,7 @@ import com.summit.core.conversation.event.ContextUpdateEvent;
 import com.summit.core.conversation.message.*;
 import com.summit.core.model.chat.ChatModel;
 import com.summit.core.runtime.loop.ContextUsageReporter;
+import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolExecution;
 import com.summit.core.tool.ToolExecutor;
@@ -23,6 +25,7 @@ import org.jspecify.annotations.NonNull;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 
 /**
  * Both automatic and tool-requested model compaction use the same generation pipeline.
@@ -42,7 +45,8 @@ import java.util.Optional;
 @Slf4j
 public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    private final ChatModel chatModel;
+    private final Function<AgentRequest, ChatModel> models;
+    private final ExecutionRepository executions;
     private final ConversationManager conversationManager;
     private final ContextAttachmentProvider contextAttachmentProvider;
     private final ContextUsageReporter usage;
@@ -50,7 +54,14 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
 
     public DefaultModelCompacter(ChatModel chatModel, ConversationManager conversationManager,
                                  ContextAttachmentProvider contextAttachmentProvider, ContextUsageReporter usage) {
-        this.chatModel = chatModel;
+        this(ignored -> chatModel, null, conversationManager, contextAttachmentProvider, usage);
+    }
+
+    public DefaultModelCompacter(Function<AgentRequest, ChatModel> models, ExecutionRepository executions,
+                                 ConversationManager conversationManager, ContextAttachmentProvider contextAttachmentProvider,
+                                 ContextUsageReporter usage) {
+        this.models = models;
+        this.executions = executions;
         this.conversationManager = conversationManager;
         this.contextAttachmentProvider = contextAttachmentProvider;
         this.usage = usage;
@@ -59,14 +70,14 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
 
     @Override
     public boolean compact(ContextCompactRequest request) {
-        var execution = request.execution();
-        var messages = conversationManager.messages(execution);
+        Execution execution = request.execution();
+        List<Message> messages = conversationManager.messages(execution);
         if (messages.isEmpty()) return false;
         usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_STARTED,
                 ContextUpdateEvent.Band.SUMMARY, "Model compaction started");
         try {
             if (!summaryApplier.apply(
-                    generate(execution.getId(), renderConversation(messages)), execution)) {
+                    generate(execution.getAgentRequest(), execution.getId(), renderConversation(messages)), execution)) {
                 // STARTED is already out: every failure path closes the pair, otherwise consumers
                 // stay on the in-flight state until the next plain UPDATE happens to arrive.
                 usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_COMPLETED,
@@ -86,7 +97,10 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
 
     @Override
     public @NonNull ToolExecuteResult execute(ToolExecution execution) {
-        String output = generate(execution.getExecutionId(), extractContext(execution.getArgs()));
+        AgentRequest request = executions == null ? null : executions.findById(execution.getExecutionId())
+                .orElseThrow(() -> new IllegalStateException("Execution is unavailable for context compaction: "
+                        + execution.getExecutionId())).getAgentRequest();
+        String output = generate(request, execution.getExecutionId(), extractContext(execution.getArgs()));
         if (CompactSummaryResolver.resolve(output) == null) {
             return ToolExecuteResult.err("Compaction returned no usable summary");
         }
@@ -94,13 +108,13 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
     }
 
 
-    private String generate(String executionId, String history) {
+    private String generate(AgentRequest request, String executionId, String history) {
         Optional<String> attachment = contextAttachmentProvider.attachment(executionId);
         String prompt = ContextCompactionPrompt.BASE_COMPACTION_PROMPT
                 + (attachment.isPresent() ? "\nPreserve the attached application state verbatim." : "");
         String payload = attachment.map(value -> history + "\n\n[PROTECTED APPLICATION STATE]\n" + value)
                 .orElse(history);
-        ChatResponseEntity response = chatModel.chat(ChatRequestEntity.builder().messages(List.of(
+        ChatResponseEntity response = models.apply(request).chat(ChatRequestEntity.builder().messages(List.of(
                 SystemMessageEntity.builder().text(prompt).build(), UserMessageEntity.from(payload))).build());
         return response.getAiMessageEntity().text();
     }
