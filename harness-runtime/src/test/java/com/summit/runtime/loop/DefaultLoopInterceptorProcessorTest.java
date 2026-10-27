@@ -1,5 +1,9 @@
 package com.summit.runtime.loop;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxy;
+import ch.qos.logback.core.read.ListAppender;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
@@ -9,8 +13,10 @@ import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.runtime.loop.*;
 import com.summit.core.tool.ToolExecuteResult;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -233,7 +239,7 @@ class DefaultLoopInterceptorProcessorTest {
     @Test
     void completionDecisionRunsInOrderAndStopsLaterInterceptors() {
         List<String> seen = new ArrayList<>();
-        InterceptorResult suspended = InterceptorResult.of(LoopResult.suspended("waiting for child"));
+        InterceptorResult suspended = InterceptorResult.of(LoopResult.suspended("waiting for child"), false);
         LoopInterceptor late = new LoopInterceptor() {
             public int order() { return 10; }
             public InterceptorResult onBeforeComplete(LoopContext context) {
@@ -262,6 +268,71 @@ class DefaultLoopInterceptorProcessorTest {
         };
         assertSame(failure, assertThrows(IllegalStateException.class,
                 () -> processor(mandatory).onBeforeComplete(context())));
+    }
+
+    @Test
+    void explicitContinuationStopsTheCompletionInterceptorChain() {
+        AtomicInteger laterCalls = new AtomicInteger();
+        InterceptorResult continuation = InterceptorResult.of(LoopResult.continueLoop(), false);
+        LoopInterceptor early = new LoopInterceptor() {
+            public int order() { return -600; }
+            public InterceptorResult onBeforeComplete(LoopContext context) { return continuation; }
+        };
+
+        assertSame(continuation, processor(counter(0, laterCalls), early).onBeforeComplete(context()));
+        assertEquals(0, laterCalls.get());
+    }
+
+    @Test
+    void invalidResultStackIdentifiesTheProducingInterceptorWithoutConstructorOrder() {
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> processor(new InvalidResultInterceptor(false)).onBeforeComplete(context()));
+
+        assertTrue(Arrays.stream(failure.getStackTrace()).anyMatch(frame ->
+                frame.getClassName().equals(InvalidResultInterceptor.class.getName())
+                        && frame.getMethodName().equals("onBeforeComplete") && frame.getLineNumber() > 0));
+    }
+
+    @Test
+    void containedInvalidResultLogsItsOriginalStackAndStillDelegates() {
+        Logger logger = (Logger) LoggerFactory.getLogger(DefaultLoopInterceptorProcessor.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        AtomicInteger laterCalls = new AtomicInteger();
+        try {
+            assertSame(InterceptorResult.NONE,
+                    processor(new InvalidResultInterceptor(true), counter(0, laterCalls))
+                            .onBeforeComplete(context()));
+
+            assertEquals(1, laterCalls.get());
+            assertEquals(1, appender.list.size());
+            ILoggingEvent event = appender.list.getFirst();
+            assertTrue(event.getFormattedMessage().contains(InvalidResultInterceptor.class.getName()));
+            assertTrue(event.getFormattedMessage().contains("order=-600"));
+            Throwable original = assertInstanceOf(ThrowableProxy.class, event.getThrowableProxy()).getThrowable();
+            assertInstanceOf(IllegalArgumentException.class, original);
+            assertTrue(Arrays.stream(original.getStackTrace()).anyMatch(frame ->
+                    frame.getClassName().equals(InvalidResultInterceptor.class.getName())
+                            && frame.getMethodName().equals("onBeforeComplete") && frame.getLineNumber() > 0));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    private static final class InvalidResultInterceptor implements LoopInterceptor {
+        private final boolean containFailure;
+
+        private InvalidResultInterceptor(boolean containFailure) {
+            this.containFailure = containFailure;
+        }
+
+        public int order() { return -600; }
+        public boolean catchErr() { return containFailure; }
+        public InterceptorResult onBeforeComplete(LoopContext context) {
+            return InterceptorResult.of(LoopResult.suspended("waiting"), true);
+        }
     }
 
     @Test

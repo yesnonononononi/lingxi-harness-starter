@@ -215,7 +215,7 @@ class LoopRegressionTest {
                 assertEquals(current.getAiMessage().getText(), saved.getAiMessage().getText());
                 assertEquals(current.getTokenUsage().getTotalTokens(), saved.getTokenUsage().getTotalTokens());
                 assertEquals(TokenInfo.from(current.getTokenUsage()), TokenInfo.from(saved.getTokenUsage()));
-                return round == 1 ? InterceptorResult.of(LoopResult.suspended("waiting for child"))
+                return round == 1 ? InterceptorResult.of(LoopResult.suspended("waiting for child"), false)
                         : InterceptorResult.NONE;
             }
             public InterceptorResult onLoopEnd(LoopContext context) {
@@ -278,7 +278,7 @@ class LoopRegressionTest {
         LoopInterceptor interceptor = new LoopInterceptor() {
             public int order() { return 0; }
             private InterceptorResult stopAt(String current) {
-                return stage.equals(current) ? InterceptorResult.of(LoopResult.cancelled("stop"))
+                return stage.equals(current) ? InterceptorResult.of(LoopResult.cancelled("stop"), false)
                         : InterceptorResult.NONE;
             }
             public InterceptorResult onAfterModelInvoke(LoopContext context, ChatResponseEntity response) {
@@ -313,7 +313,7 @@ class LoopRegressionTest {
         LoopInterceptor interceptor = new LoopInterceptor() {
             public int order() { return 0; }
             public InterceptorResult onAfterModelInvoke(LoopContext context, ChatResponseEntity response) {
-                return rounds.getAndIncrement() == 0 ? InterceptorResult.of(LoopResult.suspended("wait"))
+                return rounds.getAndIncrement() == 0 ? InterceptorResult.of(LoopResult.suspended("wait"), false)
                         : InterceptorResult.NONE;
             }
         };
@@ -432,7 +432,7 @@ class LoopRegressionTest {
             public InterceptorResult onBeforeComplete(LoopContext context) {
                 context.getSignal().requireSuspend();
                 context.getSignal().requireCancel();
-                return InterceptorResult.of(LoopResult.suspended("waiting for child"));
+                return InterceptorResult.of(LoopResult.suspended("waiting for child"), false);
             }
         };
         runtime(command -> response(false), List.of(), processor, 1, new RuntimeListener() { }, null)
@@ -601,6 +601,105 @@ class LoopRegressionTest {
     }
 
     @Test
+    void completionContinuationKeepsCommittedReplyAndInjectedInputThenNoneCompletes() {
+        AtomicInteger calls = new AtomicInteger();
+        AtomicInteger hooks = new AtomicInteger();
+        AtomicInteger starts = new AtomicInteger();
+        AtomicInteger runEnds = new AtomicInteger();
+        AtomicReference<LoopMessages> observed = new AtomicReference<>();
+        Execution execution = execution();
+        LoopInterceptor reminder = new LoopInterceptor() {
+            public int order() { return -600; }
+            public boolean catchErr() { return false; }
+            public InterceptorResult onBeforeComplete(LoopContext context) {
+                observed.set(context.getLoopMessages());
+                int round = hooks.incrementAndGet();
+                assertEquals(ExecutionState.RUNNING, execution.getExecutionState());
+                assertEquals(round, transcripts.get());
+                assertEquals(round * 3, execution.getTokenUsage().getTotalTokens());
+                assertEquals(round, repository.findById("e").orElseThrow().getModelAttempts());
+                if (round == 1) {
+                    context.appendMessage(List.of(UserMessageEntity.from("finish the checklist")));
+                    return InterceptorResult.of(LoopResult.continueLoop(), false);
+                }
+                return InterceptorResult.NONE;
+            }
+            public InterceptorResult onRunEnd(Execution current) {
+                assertEquals(ExecutionState.COMPLETED, current.getExecutionState());
+                runEnds.incrementAndGet();
+                return InterceptorResult.NONE;
+            }
+        };
+
+        runtime(command -> {
+            int round = calls.incrementAndGet();
+            if (round == 2) {
+                assertEquals(1, command.getMessages().stream().filter(AiMessageEntity.class::isInstance).count());
+                assertEquals(1, command.getMessages().stream()
+                        .filter(message -> message.text().equals("finish the checklist")).count());
+            }
+            return response(false);
+        }, List.of(), reminder, 2, new RuntimeListener() {
+            public void onExecutionStart(ExecutionStartEvent event) { starts.incrementAndGet(); }
+        }).execute(execution);
+
+        assertEquals(ExecutionState.COMPLETED, execution.getExecutionState());
+        assertEquals(2, calls.get());
+        assertEquals(2, hooks.get());
+        assertEquals(2, transcripts.get());
+        assertEquals(6, execution.getTokenUsage().getTotalTokens());
+        assertEquals(1, starts.get());
+        assertEquals(1, runEnds.get());
+        assertNull(observed.get().getResponse());
+        assertEquals(2, execution.getMessages().stream().filter(AiMessageEntity.class::isInstance).count());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"cancel", "suspend"})
+    void completionControlSignalOverridesAnExplicitContinuation(String signal) {
+        AtomicInteger calls = new AtomicInteger();
+        Execution execution = execution();
+        LoopInterceptorProcessor processor = new LoopInterceptorProcessor() {
+            public InterceptorResult onBeforeComplete(LoopContext context) {
+                context.getSignal().requireSuspend();
+                if (signal.equals("cancel")) context.getSignal().requireCancel();
+                return InterceptorResult.of(LoopResult.continueLoop(), false);
+            }
+        };
+
+        runtime(command -> { calls.incrementAndGet(); return response(false); }, List.of(), processor,
+                2, new RuntimeListener() { }, null).execute(execution);
+
+        assertEquals(signal.equals("cancel") ? ExecutionState.CANCELLED : ExecutionState.SUSPENDED,
+                execution.getExecutionState());
+        assertEquals(1, calls.get());
+        assertEquals(1, transcripts.get());
+        assertEquals(3, execution.getTokenUsage().getTotalTokens());
+    }
+
+    @Test
+    void repeatedCompletionContinuationsCannotBypassTheModelAttemptBudget() {
+        AtomicInteger calls = new AtomicInteger();
+        Execution execution = execution();
+        LoopInterceptor reminder = new LoopInterceptor() {
+            public int order() { return -600; }
+            public InterceptorResult onBeforeComplete(LoopContext context) {
+                return InterceptorResult.of(LoopResult.continueLoop(), false);
+            }
+        };
+
+        assertThrows(MaxStepsExceededException.class, () -> runtime(command -> {
+            calls.incrementAndGet();
+            return response(false);
+        }, List.of(), reminder, 2, new RuntimeListener() { }).execute(execution));
+
+        assertEquals(ExecutionState.FAILED, execution.getExecutionState());
+        assertEquals(2, calls.get());
+        assertEquals(2, transcripts.get());
+        assertEquals(6, execution.getTokenUsage().getTotalTokens());
+    }
+
+    @Test
     void resumeDoesNotResetConsumedBudget() {
         Execution execution = execution();
         execution.setExecutionState(ExecutionState.SUSPENDED);
@@ -711,7 +810,7 @@ class LoopRegressionTest {
             public InterceptorResult onBeforeModelInvoke(LoopContext context) {
                 starts.add(context.getConsecutiveCompactTurns());
                 if (context.getConsecutiveCompactTurns() == 1 && pauses.getAndIncrement() == 0)
-                    return InterceptorResult.of(LoopResult.suspended("waiting for input"));
+                    return InterceptorResult.of(LoopResult.suspended("waiting for input"), false);
                 return InterceptorResult.NONE;
             }
             public InterceptorResult onLoopEnd(LoopContext context) {
@@ -880,7 +979,7 @@ class LoopRegressionTest {
             public int order() { return 0; }
 
             public InterceptorResult onBeforeModelInvoke(LoopContext context) {
-                return InterceptorResult.of(LoopResult.suspended("waiting for input"));
+                return InterceptorResult.of(LoopResult.suspended("waiting for input"), false);
             }
         };
 

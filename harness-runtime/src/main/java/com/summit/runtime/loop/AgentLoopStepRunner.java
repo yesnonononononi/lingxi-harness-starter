@@ -59,17 +59,17 @@ public class AgentLoopStepRunner {
      * What a single round tells the loop: stop with a result, or go around again. A round that
      * went around again after a compaction is distinguished so the loop can bound the streak.
      */
-    private record RoundOutcome(@Nullable LoopResult result, boolean compacted) {
+    private record RoundOutcome(LoopResult result, boolean compacted) {
 
-        static final RoundOutcome NEXT = new RoundOutcome(null, false);
-        static final RoundOutcome COMPACTED = new RoundOutcome(null, true);
+        static final RoundOutcome NEXT = new RoundOutcome(LoopResult.continueLoop(), false);
+        static final RoundOutcome COMPACTED = new RoundOutcome(LoopResult.continueLoop(), true);
 
-        static RoundOutcome finish(LoopResult result) {
-            return new RoundOutcome(result, false);
+        static RoundOutcome resolveResult(LoopResult result) {
+            return result.shouldContinue() ? NEXT : new RoundOutcome(result, false);
         }
 
         boolean isFinal() {
-            return result != null;
+            return !result.shouldContinue();
         }
     }
 
@@ -124,34 +124,34 @@ public class AgentLoopStepRunner {
 
         private RoundOutcome runRound() throws Exception {
             LoopResult halt = beforeModel();
-            if (halt != null) return RoundOutcome.finish(halt);
+            if (!halt.shouldContinue()) return RoundOutcome.resolveResult(halt);
 
             ChatResponseEntity response;
             try {
                 response = invokeModel();
             } catch (ExecutionInterruptedException e) {
-                return RoundOutcome.finish(toLoopResult(e));
+                return RoundOutcome.resolveResult(toLoopResult(e));
             }
             messages.response(response);
 
-            halt = haltOf(interceptor.onAfterModelInvoke(loopContext, response));
-            if (halt != null) return RoundOutcome.finish(halt);
+            halt = interceptor.onAfterModelInvoke(loopContext, response).loopResult();
+            if (!halt.shouldContinue()) return RoundOutcome.resolveResult(halt);
 
             publishAiMessage(response);
 
             AiMessageEntity aiMessage = response.getAiMessageEntity();
-            if (hasNoToolCall(aiMessage)) return RoundOutcome.finish(completeWithoutToolCalls());
+            if (hasNoToolCall(aiMessage)) return RoundOutcome.resolveResult(completeWithoutToolCalls());
 
-            halt = haltOf(interceptor.onBeforeToolCall(loopContext));
-            if (halt != null) return RoundOutcome.finish(halt);
+            halt = interceptor.onBeforeToolCall(loopContext).loopResult();
+            if (!halt.shouldContinue()) return RoundOutcome.resolveResult(halt);
 
             List<ToolExecuteResult> toolResults = executeTools(aiMessage, response.getResponseId(), control);
             messages.toolResults(toolResults);
 
-            halt = haltOf(interceptor.onAfterToolCall(loopContext, toolResults));
-            if (halt != null) return RoundOutcome.finish(halt);
+            halt = interceptor.onAfterToolCall(loopContext, toolResults).loopResult();
+            if (!halt.shouldContinue()) return RoundOutcome.resolveResult(halt);
 
-            if (hasPromise(toolResults)) return RoundOutcome.finish(suspendForPromise());
+            if (hasPromise(toolResults)) return RoundOutcome.resolveResult(suspendForPromise());
 
             if (applyCompaction()) {
                 reportCompletedRound();
@@ -162,26 +162,26 @@ public class AgentLoopStepRunner {
             appendMessages();
             consecutiveCompactRounds = 0;
 
-            halt = haltOf(boundaryGuard.afterTools(execution, control));
-            if (halt != null) return RoundOutcome.finish(halt);
+            halt = boundaryGuard.afterTools(execution, control);
+            if (!halt.shouldContinue()) return RoundOutcome.resolveResult(halt);
 
             reportCompletedRound();
             return RoundOutcome.NEXT;
         }
 
-        /** Loop-start and pre-model hooks, then the control boundary. Returns a result to stop, or null. */
-        private @Nullable LoopResult beforeModel() {
-            LoopResult halt = haltOf(interceptor.onLoopStart(loopContext));
-            if (halt != null) return halt;
+        /** External input callbacks run before budget checks so the model sees only validated input. */
+        private LoopResult beforeModel() {
+            LoopResult halt = interceptor.onLoopStart(loopContext).loopResult();
+            if (!halt.shouldContinue()) return halt;
 
-            halt = haltOf(interceptor.onBeforeModelInvoke(loopContext));
-            if (halt != null) return halt;
+            halt = interceptor.onBeforeModelInvoke(loopContext).loopResult();
+            if (!halt.shouldContinue()) return halt;
 
             // External input must be present before compaction and budget checks run.
-            return haltOf(boundaryGuard.beforeModel(execution, control));
+            return boundaryGuard.beforeModel(execution, control);
         }
 
-        /** The model answered without asking for tools: commit the round and finish, unless control says otherwise. */
+        /** Commit before the completion decision so an explicit continuation retains this reply. */
         private LoopResult completeWithoutToolCalls() {
             appendMessages();
             consecutiveCompactRounds = 0;
@@ -196,7 +196,7 @@ public class AgentLoopStepRunner {
             requested = resolveControlResult(control);
             if (requested != null) return requested;
 
-            return beforeComplete.shouldContinue() ? LoopResult.completed() : beforeComplete.loopResult();
+            return beforeComplete.next() ? LoopResult.completed() : beforeComplete.loopResult();
         }
 
         /** A tool asked to suspend: commit the round, then suspend. Only a pending cancellation overrides that. */
@@ -338,16 +338,6 @@ public class AgentLoopStepRunner {
     // ---------------------------------------------------------------------------------------
     // Stateless helpers
     // ---------------------------------------------------------------------------------------
-
-    /** The result to stop the loop with, or null when the interceptor lets the round carry on. */
-    private static @Nullable LoopResult haltOf(InterceptorResult result) {
-        return result.shouldContinue() ? null : result.loopResult();
-    }
-
-    /** The result to stop the loop with, or null when the boundary lets the round carry on. */
-    private static @Nullable LoopResult haltOf(LoopResult result) {
-        return result.shouldContinue() ? null : result;
-    }
 
     private static @Nullable LoopResult resolveControlResult(@NonNull ExecutionControlSignal control) {
         if (control.isCancelRequired()) {

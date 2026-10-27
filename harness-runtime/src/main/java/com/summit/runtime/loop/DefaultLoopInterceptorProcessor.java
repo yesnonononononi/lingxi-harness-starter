@@ -1,6 +1,5 @@
 package com.summit.runtime.loop;
 
-
 import com.summit.core.agent.Execution;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.runtime.loop.InterceptorResult;
@@ -13,7 +12,6 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
-
 
 @Slf4j
 public class DefaultLoopInterceptorProcessor implements LoopInterceptorProcessor {
@@ -31,13 +29,13 @@ public class DefaultLoopInterceptorProcessor implements LoopInterceptorProcessor
         for (LoopInterceptor interceptor : interceptors) {
             try {
                 result = interceptor.onLoopStart(context);
-                if (result.shouldContinue()) {
+                if (result.next()) {
                     continue;
                 }
                 return result;
             } catch (Exception e) {
                 if (interceptor.catchErr()) {
-                    log.error("Error occurred while processing loop interceptor on loop start order:{}", interceptor.order(), e);
+                    log.error("Error occurred while processing loop interceptor on loop start interceptor={}, order={}", interceptor.getClass().getName(), interceptor.order(), e);
                 } else {
                     throw e;
                 }
@@ -53,13 +51,13 @@ public class DefaultLoopInterceptorProcessor implements LoopInterceptorProcessor
         for (LoopInterceptor interceptor : interceptors) {
             try {
                 result = interceptor.onBeforeModelInvoke(context);
-                if (result.shouldContinue()) {
+                if (result.next()) {
                     continue;
                 }
                 return result;
             } catch (Exception e) {
                 if (interceptor.catchErr()) {
-                    log.error("Error occurred while processing loop interceptor before the invocation of model order:{}", interceptor.order(), e);
+                    log.error("Error occurred while processing loop interceptor before the invocation of model interceptor={}, order={}", interceptor.getClass().getName(), interceptor.order(), e);
                 } else {
                     throw e;
                 }
@@ -75,13 +73,13 @@ public class DefaultLoopInterceptorProcessor implements LoopInterceptorProcessor
         for (LoopInterceptor interceptor : interceptors) {
             try {
                 result = interceptor.onAfterModelInvoke(context, response);
-                if (result.shouldContinue()) {
+                if (result.next()) {
                     continue;
                 }
                 return result;
             } catch (Exception e) {
                 if (interceptor.catchErr()) {
-                    log.error("Error occurred while processing loop interceptor after the model invoke order:{}", interceptor.order(), e);
+                    log.error("Error occurred while processing loop interceptor after the model invoke interceptor={}, order={}", interceptor.getClass().getName(), interceptor.order(), e);
                 } else {
                     throw e;
                 }
@@ -97,13 +95,13 @@ public class DefaultLoopInterceptorProcessor implements LoopInterceptorProcessor
         for (LoopInterceptor interceptor : interceptors) {
             try {
                 result = interceptor.onAfterToolCall(context, results);
-                if (result.shouldContinue()) {
+                if (result.next()) {
                     continue;
                 }
                 return result;
             } catch (Exception e) {
                 if (interceptor.catchErr()) {
-                    log.error("Error occurred while processing loop interceptor after the tool call order:{}", interceptor.order(), e);
+                    log.error("Error occurred while processing loop interceptor after the tool call interceptor={}, order={}", interceptor.getClass().getName(), interceptor.order(), e);
                 } else {
                     throw e;
                 }
@@ -119,13 +117,13 @@ public class DefaultLoopInterceptorProcessor implements LoopInterceptorProcessor
         for (LoopInterceptor interceptor : interceptors) {
             try {
                 result = interceptor.onBeforeToolCall(context);
-                if (result.shouldContinue()) {
+                if (result.next()) {
                     continue;
                 }
                 return result;
             } catch (Exception e) {
                 if (interceptor.catchErr()) {
-                    log.error("Error occurred while processing loop interceptor before the tool call order:{}", interceptor.order(), e);
+                    log.error("Error occurred while processing loop interceptor before the tool call interceptor={}, order={}", interceptor.getClass().getName(), interceptor.order(), e);
                 } else {
                     throw e;
                 }
@@ -139,10 +137,10 @@ public class DefaultLoopInterceptorProcessor implements LoopInterceptorProcessor
         for (LoopInterceptor interceptor : interceptors) {
             try {
                 InterceptorResult result = interceptor.onBeforeComplete(context);
-                if (!result.shouldContinue()) return result;
+                if (!result.next()) return result;
             } catch (Exception e) {
                 if (interceptor.catchErr()) {
-                    log.error("Error occurred while processing loop interceptor before completion order:{}", interceptor.order(), e);
+                    log.error("Error occurred while processing loop interceptor before completion interceptor={}, order={}", interceptor.getClass().getName(), interceptor.order(), e);
                 } else {
                     throw e;
                 }
@@ -158,13 +156,13 @@ public class DefaultLoopInterceptorProcessor implements LoopInterceptorProcessor
         for (LoopInterceptor interceptor : interceptors) {
             try {
                 result = interceptor.onLoopEnd(context);
-                if (result.shouldContinue()) {
+                if (result.next()) {
                     continue;
                 }
                 return result;
             } catch (Exception e) {
                 if (interceptor.catchErr()) {
-                    log.error("Error occurred while processing loop interceptor on loop end order:{}", interceptor.order(), e);
+                    log.error("Error occurred while processing loop interceptor on loop end interceptor={}, order={}", interceptor.getClass().getName(), interceptor.order(), e);
                 } else {
                     throw e;
                 }
@@ -172,8 +170,6 @@ public class DefaultLoopInterceptorProcessor implements LoopInterceptorProcessor
         }
         return NONE;
     }
-
-
 
     @Override
     public InterceptorResult onRunEnd(Execution execution) {
@@ -182,13 +178,13 @@ public class DefaultLoopInterceptorProcessor implements LoopInterceptorProcessor
         for (LoopInterceptor interceptor : interceptors) {
             try {
                 result = interceptor.onRunEnd(execution);
-                if (result.shouldContinue()) {
+                if (result.next()) {
                     continue;
                 }
                 return result;
             } catch (Exception e) {
                 if (interceptor.catchErr()) {
-                    log.error("Error occurred while processing loop interceptor on run end order:{}", interceptor.order(), e);
+                    log.error("Error occurred while processing loop interceptor on run end interceptor={}, order={}", interceptor.getClass().getName(), interceptor.order(), e);
                 } else {
                     throw e;
                 }
@@ -196,14 +192,5 @@ public class DefaultLoopInterceptorProcessor implements LoopInterceptorProcessor
         }
         return NONE;
     }
-
-
-
-
-
-
-
-
-
 
 }

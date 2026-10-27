@@ -54,8 +54,9 @@ public interface LoopInterceptor {
     /**
      * Called only for a response without tool calls, after its event, messages, token accounting,
      * transcript and execution checkpoint have been recorded, but before natural completion.
-     * The execution is still RUNNING. NONE/CONTINUE allow completion; suspension/cancellation
-     * retain the committed round. Do not commit the round again from this callback.
+     * The execution is still RUNNING. NONE allows completion; an explicit CONTINUE with next=false
+     * starts another model round. Suspension/cancellation retain the committed round.
+     * Do not commit the round again from this callback.
      */
     default InterceptorResult onBeforeComplete(LoopContext context) {
         return InterceptorResult.NONE;

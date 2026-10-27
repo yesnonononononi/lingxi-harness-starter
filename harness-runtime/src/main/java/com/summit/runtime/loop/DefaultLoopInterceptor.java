@@ -56,10 +56,10 @@ public class DefaultLoopInterceptor implements LoopInterceptor {
 
     private InterceptorResult checkSignal(ExecutionControlSignal control) {
         if (control.isCancelRequired()) {
-            return InterceptorResult.of(LoopResult.cancelled("execution cancellation requested"));
+            return InterceptorResult.of(LoopResult.cancelled("execution cancellation requested"), false);
         }
         if (control.isSuspendRequired()) {
-            return InterceptorResult.of(LoopResult.suspended("execution suspension requested"));
+            return InterceptorResult.of(LoopResult.suspended("execution suspension requested"), false);
         }
         return InterceptorResult.NONE;
     }
