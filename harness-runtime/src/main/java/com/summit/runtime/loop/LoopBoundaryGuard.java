@@ -21,10 +21,7 @@ final class LoopBoundaryGuard {
         LoopResult signal = resolveControlResult(control);
         if (!signal.shouldContinue()) return signal;
 
-        LoopResult result = resolveBoundaryResult(checker.before(execution), control);
-        // A callback or boundary that stops this attempt must not consume the model budget.
-        if (result.shouldContinue()) execution.incrementModelAttempts();
-        return result;
+        return resolveBoundaryResult(checker.before(execution), control);
     }
 
     @NonNull LoopResult afterTools(Execution execution, ExecutionControlSignal control) {

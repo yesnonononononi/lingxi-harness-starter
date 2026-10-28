@@ -1,24 +1,22 @@
 package com.summit.core.conversation.event;
 
+import com.summit.core.conversation.api.ChatResponseEntity;
 import lombok.Data;
 
 import java.time.Instant;
 import java.util.Map;
-import java.util.UUID;
 
 @Data
 public class AgentMessageEvent implements AgentEvent{
-    private final String text;
-    private final String thinking;
+    private final ChatResponseEntity chatResponseEntity;
     private final String executionId;
-    private final UUID responseId;
+    private final String responseId;
     private final Map<String,Object> metaData;
     private final Instant timestamp = Instant.now();
 
 
-    public AgentMessageEvent(String text, String thinking, String executionId, UUID responseId,Map<String,Object> metaData) {
-        this.text = text;
-        this.thinking = thinking;
+    public AgentMessageEvent(ChatResponseEntity chatResponseEntity, String executionId, String responseId,Map<String,Object> metaData) {
+        this.chatResponseEntity = chatResponseEntity;
         this.executionId = executionId;
         this.responseId = responseId;
         this.metaData = metaData == null ? Map.of() : Map.copyOf(metaData);

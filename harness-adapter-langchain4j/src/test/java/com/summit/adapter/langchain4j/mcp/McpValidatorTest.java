@@ -103,6 +103,14 @@ class McpValidatorTest {
     }
 
     @Test
+    void stdioWorkDirIsOptionalButNeverBlank() {
+        assertDoesNotThrow(() -> McpValidator.validate(new McpConfig.MCP("npx", null, McpTransport.STDIO,
+                new McpConfig.Stdio(List.of("npx"), Map.of(), "D:/tools", INIT, EXEC), 100)));
+        assertInvalid(new McpConfig.MCP("npx", null, McpTransport.STDIO,
+                new McpConfig.Stdio(List.of("npx"), Map.of(), "  ", INIT, EXEC), 100), "work-dir");
+    }
+
+    @Test
     void parseMapsTheDashedConfigForm() {
         assertEquals(McpTransport.STREAMABLE_HTTP, McpTransport.parse("streamable-http"));
         assertEquals(McpTransport.STDIO, McpTransport.parse("stdio"));

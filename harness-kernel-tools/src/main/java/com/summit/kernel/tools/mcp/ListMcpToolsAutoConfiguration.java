@@ -31,23 +31,26 @@ public class ListMcpToolsAutoConfiguration {
                                                                        ListMcpToolsProperties properties) {
         String name = ListMcpToolsExecutor.NAME;
         return ToolDefinition.<ListMcpToolsExecutor>builder()
-                .executor(new ListMcpToolsExecutor(objectMapper, properties.getMaxTools()))
+                .executor(new ListMcpToolsExecutor(objectMapper, properties.getMaxWindow(), properties.getDefaultWindow()))
                 .id(name)
                 .name(name)
                 .concurrentPolicy(ConcurrentPolicy.READ_ONLY)
                 .description("""
                         List the tools a connected MCP server contributed to this run, by name and description.
                         The system prompt shows one line per MCP server with how many tools it has; call this with
-                        that server's name to see which tools they are. Returns no parameter schema, so it does not
-                        make anything callable — use search_tool once you have picked a tool name. Omitting the
-                        name lists the tools of every connected server.
+                        that server's name to see which tools they are. A server with more tools than one window can
+                        hold is listed in successive windows: pass start and end to read a later one, and keep calling
+                        while the result's hasMore is true. Returns no parameter schema, so it does not make anything
+                        callable — use search_tool once you have picked a tool name. Omitting the name lists the tools
+                        of every connected server.
                         """)
                 .parametersJsonSchema("""
                         {
                           "type": "object",
                           "properties": {
                             "mcpName": {"type": "string", "description": "Name of the MCP server to list, as shown in the system prompt's MCP section. Optional; omit to list every connected server."},
-                            "limit": {"type": "integer", "description": "Maximum number of tools to return. Optional."}
+                            "start": {"type": "integer", "minimum": 0, "description": "First tool index to read, zero-based, in name order. Optional; defaults to 0. Use it to read past the first window."},
+                            "end": {"type": "integer", "minimum": 0, "description": "Index one past the last tool to read; the range [start, end) is returned. Optional; defaults to start plus the default window size. A range wider than the cap is narrowed to it."}
                           }
                         }
                         """)

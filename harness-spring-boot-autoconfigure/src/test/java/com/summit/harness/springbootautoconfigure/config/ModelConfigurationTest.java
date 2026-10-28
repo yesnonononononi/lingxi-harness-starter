@@ -23,8 +23,13 @@ class ModelConfigurationTest {
         chat.setTimeout(Duration.ofSeconds(17));
         chat.setMaxTokens(1234);
         chat.setReasoningEffort("medium");
+        chat.setThinkingType("enabled");
+        chat.setThinkingBudgetTokens(1024);
         chat.setSendThinking(false);
         chat.setReturnThinking(false);
+        chat.setPromptCache(true);
+        chat.setPromptCacheTtl("1h");
+        chat.setPromptCacheConversation(true);
 
         ModelConfig compact = configuration.compactContextModelConfig(
                 new CompactContextModelProperties(), chat);
@@ -36,8 +41,30 @@ class ModelConfigurationTest {
         assertEquals(chat.getTimeout(), compact.getTimeout());
         assertEquals(chat.getMaxTokens(), compact.getMaxTokens());
         assertEquals(chat.getReasoningEffort(), compact.getReasoningEffort());
+        assertEquals(chat.getThinkingType(), compact.getAnthropicOptions().thinkingType());
+        assertEquals(chat.getThinkingBudgetTokens(), compact.getAnthropicOptions().thinkingBudgetTokens());
         assertEquals(chat.isSendThinking(), compact.isSendThinking());
         assertEquals(chat.isReturnThinking(), compact.isReturnThinking());
+        assertEquals(configuration.chatModelConfig(chat).getAnthropicOptions(), compact.getAnthropicOptions());
+        assertEquals(new ModelConfig.AnthropicOptions("enabled", 1024, true, "1h", true), compact.getAnthropicOptions());
+    }
+
+    @Test
+    void claudeModelsSelectNativeProvidersForChatAndCompaction() {
+        AgentChatProperties chat = new AgentChatProperties();
+        chat.setBaseUrl("https://models.example/v1");
+        chat.setApiKey("test-key");
+        chat.setModelName("claude-sonnet-4-6");
+        assertEquals("anthropic", configuration.chatModelConfig(chat).getProvider());
+        assertEquals("anthropic-compact", configuration.compactContextModelConfig(
+                new CompactContextModelProperties(), chat).getProvider());
+        CompactContextModelProperties compact = new CompactContextModelProperties();
+        compact.setBaseUrl("https://models.example/v1");
+        compact.setApiKey("test-key");
+        compact.setModelName("claude-sonnet-4-6");
+        assertEquals("anthropic-compact", configuration.compactContextModelConfig(compact, chat).getProvider());
+        chat.setProvider("default");
+        assertEquals("default", configuration.chatModelConfig(chat).getProvider());
     }
 
     @Test
@@ -48,6 +75,11 @@ class ModelConfigurationTest {
         properties.setBaseUrl("https://compact.example/v1");
         properties.setApiKey("compact-secret");
         properties.setModelName("compact-model");
+        properties.setThinkingType("enabled");
+        properties.setThinkingBudgetTokens(1024);
+        properties.setPromptCache(false);
+        properties.setPromptCacheTtl("5m");
+        properties.setPromptCacheConversation(true);
 
         ModelConfig compact = configuration.compactContextModelConfig(properties, chat);
 
@@ -55,5 +87,6 @@ class ModelConfigurationTest {
         assertEquals("https://compact.example/v1", compact.getBaseUrl());
         assertEquals("compact-secret", compact.getApiKey());
         assertEquals("compact-model", compact.getModelName());
+        assertEquals(new ModelConfig.AnthropicOptions("enabled", 1024, false, "5m", true), compact.getAnthropicOptions());
     }
 }

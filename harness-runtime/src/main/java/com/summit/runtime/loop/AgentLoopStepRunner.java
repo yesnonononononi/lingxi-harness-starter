@@ -1,15 +1,15 @@
 package com.summit.runtime.loop;
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.AgentRuntimeParameters;
 import com.summit.core.agent.Execution;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.api.ToolCallRequest;
-import com.summit.runtime.context.RuntimeContext;
 import com.summit.core.conversation.event.AgentMessageEvent;
 import com.summit.core.conversation.event.ContextUpdateEvent;
 import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.Message;
-import com.summit.core.model.ModelChatCommand;
+import com.summit.core.model.ModelInvocationUsage;
 import com.summit.core.runtime.loop.*;
 import com.summit.core.runtime.loop.suspension.ExecutionInterruptedException;
 import com.summit.core.tool.ToolExecuteCommand;
@@ -17,15 +17,13 @@ import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolResultType;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.compact.CompactSummaryApplier;
+import com.summit.runtime.context.RuntimeContext;
 import com.summit.runtime.model.ModelRequestFactory;
-import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 
@@ -33,162 +31,315 @@ import java.util.concurrent.ExecutionException;
  * Runs complete model/tool rounds until the model finishes or a cooperative control boundary stops
  * the execution. A suspended execution deliberately discards an uncommitted round and starts with a
  * fresh model request when it is resumed.
+ * <p>
+ * The runner itself is stateless. Everything that belongs to a single {@link #run} call lives in
+ * the private {@link Run} object, so one runner instance can serve many executions.
  */
-@Slf4j
 public class AgentLoopStepRunner {
 
     private final RuntimeContext context;
-    private final ModelRequestFactory requests;
-    private final LoopBoundaryGuard boundaries;
-
+    private final ModelRequestFactory modelRequests;
+    private final LoopBoundaryGuard boundaryGuard;
 
     public AgentLoopStepRunner(RuntimeContext context) {
         this.context = context;
-        this.requests = new ModelRequestFactory(context);
-        this.boundaries = new LoopBoundaryGuard(context.getRuntimeBoundaryChecker());
+        this.modelRequests = new ModelRequestFactory(context);
+        this.boundaryGuard = new LoopBoundaryGuard(context.getRuntimeBoundaryChecker());
     }
 
     public LoopResult run(Execution execution, ExecutionControlSignal control) throws Exception {
-        int consecutiveCompactRounds = 0;
-        InterceptorResult interceptorResult;
-        LoopResult controlResult;
-
-        LoopInterceptorProcessor interceptor = this.context.getLoopInterceptorProcessor();
-
-        LoopContext loopContext = new LoopContext(
-                execution,
-                control,
-                consecutiveCompactRounds,
-                execution.getAgentRequest().runtimeParametersOrDefault().getAttributes(),
-                e -> e.forEach(m -> this.context.getConversationManager().appendMessage(execution, m))
-        );
-        while (true) {
-
-            try (LoopRoundScope ignored = new LoopRoundScope(interceptor, loopContext)) {
-                if (!(interceptorResult = interceptor.onLoopStart(loopContext)).shouldContinue())
-                    return interceptorResult.loopResult();
-
-                if (!(interceptorResult = interceptor.onBeforeModelInvoke(loopContext)).shouldContinue())
-                    return interceptorResult.loopResult();
-
-                // External input must be present before compaction and budget checks run.
-                if (!(controlResult = boundaries.beforeModel(execution, control)).shouldContinue()) return controlResult;
-
-                ChatResponseEntity response;
-                try {
-                    response = invokeModel(execution, control, UUID.randomUUID());
-                } catch (ExecutionInterruptedException e) {
-                    return e.kind() == ExecutionInterruptedException.Kind.CANCEL
-                            ? LoopResult.cancelled(e.getMessage())
-                            : LoopResult.suspended(e.getMessage());
-                }
-
-                if (!(interceptorResult = interceptor.onAfterModelInvoke(loopContext, response)).shouldContinue())
-                    return interceptorResult.loopResult();
-
-                AiMessageEntity aiMessage = response.getAiMessageEntity();
-
-                if (hasNoToolCall(aiMessage)) {
-                    appendMessage(execution, response, null);
-                    return LoopResult.completed();
-                }
-
-                if (!(interceptorResult = interceptor.onBeforeToolCall(loopContext)).shouldContinue())
-                    return interceptorResult.loopResult();
-
-                List<ToolExecuteResult> toolResults = doToolCall(execution, aiMessage, response.getResponseId());
-
-                if (!(interceptorResult = interceptor.onAfterToolCall(loopContext, toolResults)).shouldContinue())
-                    return interceptorResult.loopResult();
-
-                if (hasPromise(toolResults)) {
-
-                    appendMessage(execution, response, toolResults);
-
-                    reportCompletedRound(execution);
-
-                    if ((controlResult = resolveControlResult(control)) != null
-                            && controlResult.status() == LoopResult.Status.CANCELLED) return controlResult;
-
-                    return LoopResult.suspended("tool result requested execution suspension");
-                }
-
-                if (applyCompaction(execution, response, toolResults)) {
-
-                    reportCompletedRound(execution);
-
-                    consecutiveCompactRounds++;
-
-                    if (consecutiveCompactRounds >= maxConsecutiveCompactions()) {
-                        return LoopResult.cancelled("too many consecutive context compactions");
-                    }
-
-                    continue;
-                }
-
-                consecutiveCompactRounds = 0;
-
-                appendMessage(execution, response, toolResults);
-
-                if (!(controlResult = boundaries.afterTools(execution, control)).shouldContinue()) return controlResult;
-                reportCompletedRound(execution);
-
-            }
-        }
+        return new Run(execution, control).execute();
     }
 
-    private @NonNull ChatResponseEntity invokeModel(Execution execution, ExecutionControlSignal control,UUID responseId) throws Exception {
-        try {
-
-            ModelChatCommand command = requests.build(execution, configuredTools(execution), responseId,control);
-            ChatResponseEntity response = context.getInvoker().invoke(command);
-            response.setResponseId(responseId);
-
-
-            context.getRuntimeEventPublisher().onAiMessage(new AgentMessageEvent(
-                    response.getAiMessageEntity().text(),
-                    response.getAiMessageEntity().getThinking(),
-                    execution.getId(),
-                    responseId,
-                    execution.eventMetaData()
-            ));
-
-            return response;
-        } catch (Exception e) {
-            // A control request reached the streaming handler while the model was still producing
-            // output. The streaming invoker waits on a CompletableFuture, and CompletableFuture.join()
-            // wraps whatever completed the future in a CompletionException. Unwrap it so the control
-            // flow signal is recognized instead of being reported as an execution failure.
-            ExecutionInterruptedException interrupted = findInterrupted(e);
-            if (interrupted != null) {
-                throw interrupted;
-            }
-            throw e;
-        }
-    }
+    // ---------------------------------------------------------------------------------------
+    // Round outcome
+    // ---------------------------------------------------------------------------------------
 
     /**
-     * Walks the cause chain looking for the control-flow signal raised by the streaming handler,
-     * hiding the wrapper types added by {@link java.util.concurrent.CompletableFuture}. The walk
-     * stops as soon as an unrelated exception shows up, so a genuine model failure keeps its own
-     * identity and is still reported as a failure.
+     * What a single round tells the loop: stop with a result, or go around again. A round that
+     * went around again after a compaction is distinguished so the loop can bound the streak.
      */
-    private @Nullable ExecutionInterruptedException findInterrupted(Throwable error) {
-        Throwable cause = error;
-        while (cause != null) {
-            if (cause instanceof ExecutionInterruptedException interrupted) return interrupted;
-            boolean wrapper = cause instanceof CompletionException
-                    || cause instanceof ExecutionException
-                    || cause.getClass() == RuntimeException.class;
-            if (!wrapper) return null;
-            Throwable next = cause.getCause();
-            if (next == cause) return null;
-            cause = next;
+    private record RoundOutcome(LoopResult result, boolean compacted) {
+
+        static final RoundOutcome NEXT = new RoundOutcome(LoopResult.continueLoop(), false);
+        static final RoundOutcome COMPACTED = new RoundOutcome(LoopResult.continueLoop(), true);
+
+        static RoundOutcome resolveResult(LoopResult result) {
+            return result.shouldContinue() ? NEXT : new RoundOutcome(result, false);
         }
-        return null;
+
+        boolean isFinal() {
+            return !result.shouldContinue();
+        }
     }
 
-    private @Nullable LoopResult resolveControlResult(@NonNull ExecutionControlSignal control) {
+    // ---------------------------------------------------------------------------------------
+    // One execution's worth of loop state
+    // ---------------------------------------------------------------------------------------
+
+    private final class Run {
+
+        private final Execution execution;
+        private final ExecutionControlSignal control;
+        private final LoopMessages messages;
+        private final LoopInterceptorProcessor interceptor;
+        private final LoopContext loopContext;
+        private int consecutiveCompactRounds;
+
+        private Run(Execution execution, ExecutionControlSignal control) {
+            this.execution = execution;
+            this.control = control;
+            this.messages = LoopMessages.builder().execution(execution).build();
+            this.interceptor = context.getLoopInterceptorProcessor();
+            this.loopContext = LoopContext.withCompactionCounter(
+                    messages,
+                    control,
+                    () -> consecutiveCompactRounds,
+                    appended -> appended.forEach(m -> context.getConversationManager().appendMessage(execution, m))
+            );
+        }
+
+        LoopResult execute() throws Exception {
+            while (true) {
+                RoundOutcome outcome;
+                try (LoopRoundScope ignored = new LoopRoundScope(interceptor, loopContext)) {
+                    outcome = runRound();
+                } finally {
+                    // onLoopEnd observes the current round; every exit, including compaction's
+                    // continue, clears it before the next round can reuse this context.
+                    messages.clear();
+                }
+
+                if (outcome.isFinal()) return outcome.result();
+
+                if (outcome.compacted() && consecutiveCompactRounds >= maxConsecutiveCompactions()) {
+                    return LoopResult.cancelled("too many consecutive context compactions");
+                }
+            }
+        }
+
+        // -----------------------------------------------------------------------------------
+        // A round: before model -> model -> (no tools | tools -> promise | compaction | commit)
+        // -----------------------------------------------------------------------------------
+
+        private RoundOutcome runRound() throws Exception {
+            LoopResult halt = beforeModel();
+            if (!halt.shouldContinue()) return RoundOutcome.resolveResult(halt);
+
+            ChatResponseEntity response;
+            try {
+                response = invokeModel();
+            } catch (ExecutionInterruptedException e) {
+                return RoundOutcome.resolveResult(toLoopResult(e));
+            }
+            messages.response(response);
+
+            halt = interceptor.onAfterModelInvoke(loopContext, response).loopResult();
+            if (!halt.shouldContinue()) return RoundOutcome.resolveResult(halt);
+
+            publishAiMessage(response);
+
+            AiMessageEntity aiMessage = response.getAiMessageEntity();
+            if (hasNoToolCall(aiMessage)) return RoundOutcome.resolveResult(completeWithoutToolCalls());
+
+            halt = interceptor.onBeforeToolCall(loopContext).loopResult();
+            if (!halt.shouldContinue()) return RoundOutcome.resolveResult(halt);
+
+            List<ToolExecuteResult> toolResults = executeTools(aiMessage, response.getResponseId(), control);
+            messages.toolResults(toolResults);
+
+            halt = interceptor.onAfterToolCall(loopContext, toolResults).loopResult();
+            if (!halt.shouldContinue()) return RoundOutcome.resolveResult(halt);
+
+            if (hasPromise(toolResults)) return RoundOutcome.resolveResult(suspendForPromise());
+
+            if (applyCompaction()) {
+                reportCompletedRound();
+                consecutiveCompactRounds++;
+                return RoundOutcome.COMPACTED;
+            }
+
+            appendMessages();
+            consecutiveCompactRounds = 0;
+
+            halt = boundaryGuard.afterTools(execution, control);
+            if (!halt.shouldContinue()) return RoundOutcome.resolveResult(halt);
+
+            reportCompletedRound();
+            return RoundOutcome.NEXT;
+        }
+
+        /** External input callbacks run before budget checks so the model sees only validated input. */
+        private LoopResult beforeModel() {
+            LoopResult halt = interceptor.onLoopStart(loopContext).loopResult();
+            if (!halt.shouldContinue()) return halt;
+
+            halt = interceptor.onBeforeModelInvoke(loopContext).loopResult();
+            if (!halt.shouldContinue()) return halt;
+
+            // External input must be present before compaction and budget checks run.
+            return boundaryGuard.beforeModel(execution, control);
+        }
+
+        /** Commit before the completion decision so an explicit continuation retains this reply. */
+        private LoopResult completeWithoutToolCalls() {
+            appendMessages();
+            consecutiveCompactRounds = 0;
+            reportCompletedRound();
+
+            LoopResult requested = resolveControlResult(control);
+            if (requested != null) return requested;
+
+            InterceptorResult beforeComplete = interceptor.onBeforeComplete(loopContext);
+
+            // Re-checked on purpose: a control request raised while the interceptor ran still wins.
+            requested = resolveControlResult(control);
+            if (requested != null) return requested;
+
+            return beforeComplete.next() ? LoopResult.completed() : beforeComplete.loopResult();
+        }
+
+        /** A tool asked to suspend: commit the round, then suspend. Only a pending cancellation overrides that. */
+        private LoopResult suspendForPromise() {
+            appendMessages();
+            consecutiveCompactRounds = 0;
+            reportCompletedRound();
+
+            LoopResult requested = resolveControlResult(control);
+            if (requested != null && requested.status() == LoopResult.Status.CANCELLED) return requested;
+
+            return LoopResult.suspended("tool result requested execution suspension");
+        }
+
+        // -----------------------------------------------------------------------------------
+        // Model
+        // -----------------------------------------------------------------------------------
+
+        private @NonNull ChatResponseEntity invokeModel() throws Exception {
+            ModelInvocationUsage invocationUsage = new ModelInvocationUsage();
+            try {
+                return context.getInvoker().invoke(modelRequests.buildAttempts(execution, configuredTools(), control,
+                        invocationUsage));
+            } catch (Exception e) {
+                // A control request reached the streaming handler while the model was still producing
+                // output. The streaming invoker waits on a CompletableFuture, and CompletableFuture.join()
+                // wraps whatever completed the future in a CompletionException. Unwrap it so the control
+                // flow signal is recognized instead of being reported as an execution failure.
+                ExecutionInterruptedException interrupted = findInterrupted(e);
+                if (interrupted != null) throw interrupted;
+                throw e;
+            } finally {
+                // Usage is incurred even if invocation fails or the round is never committed.
+                execution.getTokenUsage().add(invocationUsage.finish());
+            }
+        }
+
+        private void publishAiMessage(ChatResponseEntity response) {
+            context.getRuntimeEventPublisher().onAiMessage(new AgentMessageEvent(
+                    response,
+                    execution.getId(),
+                    response.getResponseId(),
+                    execution.eventMetaData()
+            ));
+        }
+
+        // -----------------------------------------------------------------------------------
+        // Tools
+        // -----------------------------------------------------------------------------------
+
+        private List<ToolExecuteResult> executeTools(@NonNull AiMessageEntity aiMessage, String responseId,ExecutionControlSignal signal) {
+            AgentRequest request = execution.getAgentRequest();
+            AgentRuntimeParameters params = request.runtimeParametersOrDefault();
+
+            return context.getToolExecutionManager().execute(
+                    ToolExecuteCommand.builder()
+                            .executionId(execution.getId())
+                            .workspace(context.getWorkspace())
+                            .attributes(params.getAttributes())
+                            .eventMetaData(params.getEventMetaData())
+                            .responseId(responseId)
+                            .requests(aiMessage.getToolCalls())
+                            .allowedTools(configuredTools())
+                            .allowOutsideWorkspace(params.isAllowOutsideWorkspace())
+                            .mcpToolScope(context.getMcpToolScope())
+                            .skillConfig(request.getSkillConfig())
+                            .signal(signal)
+                            .build()
+            );
+        }
+
+        private @Nullable List<String> configuredTools() {
+            return execution.getAgentRequest().getToolList();
+        }
+
+        // -----------------------------------------------------------------------------------
+        // Compaction
+        // -----------------------------------------------------------------------------------
+
+        /**
+         * Mixed batches keep all results; only a dedicated successful compact round replaces context.
+         * The rebuilt context is what must survive the round: the compacted view is kept as the live
+         * context while the compact round itself is appended only to the transcript, so the model is
+         * served the summary instead of the history it replaces.
+         */
+        private boolean applyCompaction() {
+            List<ToolExecuteResult> results = messages.getToolExecuteResults();
+            if (results == null || results.size() != 1) return false;
+            if (messages.getResponse().getAiMessageEntity().getToolCalls().size() != 1) return false;
+
+            ToolExecuteResult result = results.getFirst();
+            if (!result.isSuccess() || result.getToolResultType() != ToolResultType.CONTEXT_COMPACT)
+                return false;
+
+            boolean applied = new CompactSummaryApplier(context.getConversationManager())
+                    .apply(result.getToolOutput(), execution);
+            if (!applied) return false;
+
+            appendCompactRoundToTranscriptOnly();
+            publishCompactionCompleted();
+            return true;
+        }
+
+        /**
+         * Records the compact round in the transcript and accounting only: it must not stay in the
+         * model context, so the rebuilt view is restored afterward.
+         */
+        private void appendCompactRoundToTranscriptOnly() {
+            List<Message> compacted = execution.getMessages();
+            execution.setMessages(new ArrayList<>(compacted));
+            try {
+                appendMessages();
+            } finally {
+                execution.setMessages(compacted);
+            }
+        }
+
+        private void publishCompactionCompleted() {
+            if (context.getUsage() != null) {
+                context.getUsage().publish(execution,
+                        ContextUpdateEvent.Phase.SQUEEZE_COMPLETED, "Tool compaction completed");
+            }
+        }
+
+        // -----------------------------------------------------------------------------------
+        // Persistence / accounting
+        // -----------------------------------------------------------------------------------
+
+        private void appendMessages() {
+            context.getConversationManager().addMessage(messages);
+        }
+
+        private void reportCompletedRound() {
+            if (context.getUsage() != null) context.getUsage().afterRound(execution);
+            if (context.getExecutionRepository() != null) context.getExecutionRepository().save(execution);
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Stateless helpers
+    // ---------------------------------------------------------------------------------------
+
+    private static @Nullable LoopResult resolveControlResult(@NonNull ExecutionControlSignal control) {
         if (control.isCancelRequired()) {
             return LoopResult.cancelled("execution cancellation requested");
         }
@@ -198,76 +349,38 @@ public class AgentLoopStepRunner {
         return null;
     }
 
-    private List<ToolExecuteResult> doToolCall(@NonNull Execution execution,
-                                               @NonNull AiMessageEntity aiMessageEntity,
-                                               UUID responseId
-    ) {
-        AgentRequest agentRequest = execution.getAgentRequest();
-
-        Map<String, Object> attributes = agentRequest.runtimeParametersOrDefault().getAttributes();
-        Map<String, Object> eventAttributes = agentRequest.runtimeParametersOrDefault().getEventMetaData();
-        return context.getToolExecutionManager().execute(
-                new ToolExecuteCommand(
-                        aiMessageEntity.getToolCalls(),
-                        execution.getId(),
-                        context.getWorkspace(),
-                        attributes,
-                        eventAttributes,
-                        configuredTools(execution),
-                        responseId,
-                        agentRequest.runtimeParametersOrDefault().isAllowOutsideWorkspace(),
-                        context.getMcpToolScope(),
-                        agentRequest.getSkillConfig()
-                )
-        );
-    }
-
-    private void appendMessage(Execution execution, ChatResponseEntity response, List<ToolExecuteResult> toolResults) {
-        context.getConversationManager().addMessage(execution, response, toolResults);
-    }
-
-
-    private @Nullable List<String> configuredTools(@NonNull Execution execution) {
-        AgentRequest request = execution.getAgentRequest();
-        return request.getToolList();
+    private static LoopResult toLoopResult(ExecutionInterruptedException e) {
+        return e.kind() == ExecutionInterruptedException.Kind.CANCEL
+                ? LoopResult.cancelled(e.getMessage())
+                : LoopResult.suspended(e.getMessage());
     }
 
     /**
-     * Mixed batches keep all results; only a dedicated successful compact round replaces context.
-     * The rebuilt context is what must survive the round: the compacted view is kept as the live
-     * context while the compact round itself is appended only to the transcript, so the model is
-     * served the summary instead of the history it replaces.
+     * Walks the cause chain looking for the control-flow signal raised by the streaming handler,
+     * hiding the wrapper types added by {@link java.util.concurrent.CompletableFuture}. The walk
+     * stops as soon as an unrelated exception shows up, so a genuine model failure keeps its own
+     * identity and is still reported as a failure.
      */
-    private boolean applyCompaction(Execution execution, ChatResponseEntity response, List<ToolExecuteResult> results) {
-        ToolExecuteResult result = results.getFirst();
-
-        if (response.getAiMessageEntity().getToolCalls().size() != 1 || results.size() != 1)
-            return false;
-
-        if (!result.isSuccess() || result.getToolResultType() != ToolResultType.CONTEXT_COMPACT)
-            return false;
-
-        if (!new CompactSummaryApplier(context.getConversationManager())
-                .apply(result.getToolOutput(), execution, true))
-            return false;
-
-        List<Message> compacted = execution.getMessages();
-        execution.setMessages(new ArrayList<>(compacted));
-        try {
-            // Record the compact round in the transcript and accounting only: it must not stay in
-            // the model context, so the rebuilt view captured above is restored afterward.
-            appendMessage(execution, response, results);
-        } finally {
-            execution.setMessages(compacted);
+    private static @Nullable ExecutionInterruptedException findInterrupted(Throwable error) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ExecutionInterruptedException interrupted) return interrupted;
+            if (!isTransparentWrapper(cause)) return null;
         }
-
-        if (context.getUsage() != null) context.getUsage().publish(execution,
-                ContextUpdateEvent.Phase.SQUEEZE_COMPLETED, "Tool compaction completed");
-
-        return true;
+        return null;
     }
 
-    private boolean hasPromise(List<ToolExecuteResult> toolResults) {
+    private static boolean isTransparentWrapper(Throwable cause) {
+        return cause instanceof CompletionException
+                || cause instanceof ExecutionException
+                || cause.getClass() == RuntimeException.class;
+    }
+
+    private static boolean hasNoToolCall(@NonNull AiMessageEntity response) {
+        List<ToolCallRequest> toolCalls = response.getToolCalls();
+        return toolCalls == null || toolCalls.isEmpty();
+    }
+
+    private static boolean hasPromise(List<ToolExecuteResult> toolResults) {
         return toolResults != null && toolResults.stream()
                 .anyMatch(result -> result != null && result.isPromise());
     }
@@ -281,16 +394,4 @@ public class AgentLoopStepRunner {
         Integer configured = context.getMaxConsecutiveCompactions();
         return configured == null ? AgentConfig.DEFAULT_MAX_CONSECUTIVE_COMPACTIONS : configured;
     }
-
-    private void reportCompletedRound(Execution execution) {
-        if (context.getUsage() != null) context.getUsage().afterRound(execution);
-        if (context.getExecutionRepository() != null) context.getExecutionRepository().save(execution);
-    }
-
-    private boolean hasNoToolCall(@NonNull AiMessageEntity response) {
-        List<ToolCallRequest> toolCalls = response.getToolCalls();
-        return toolCalls == null || toolCalls.isEmpty();
-    }
-
-
 }

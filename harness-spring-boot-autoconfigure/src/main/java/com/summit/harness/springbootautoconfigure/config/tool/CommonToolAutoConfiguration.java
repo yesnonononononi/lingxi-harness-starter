@@ -1,13 +1,16 @@
 package com.summit.harness.springbootautoconfigure.config.tool;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.interceptor.InterceptorProcessor;
 import com.summit.core.tool.*;
 import com.summit.harness.springbootautoconfigure.properties.tool.ToolProperties;
+import com.summit.harness.springbootautoconfigure.toolHelper.ToolRegister;
 import com.summit.runtime.tool.DefaultToolExecutionManager;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import java.util.List;
 @EnableConfigurationProperties(ToolProperties.class)
@@ -25,6 +28,13 @@ public class CommonToolAutoConfiguration {
     @ConditionalOnMissingBean(name = "toolRegistry")
     public ToolRegistry toolRegistry(List<ToolDefinition<? extends ToolExecutor>> list) {
         return new ToolRegistry(list);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(ToolRegister.class)
+    public ToolRegister toolRegister(ToolRegistry toolRegistry, ObjectMapper objectMapper,
+                                     ApplicationContext applicationContext) {
+        return new ToolRegister(toolRegistry, objectMapper, applicationContext);
     }
 
 

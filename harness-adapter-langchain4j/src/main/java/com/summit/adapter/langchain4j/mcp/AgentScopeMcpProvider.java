@@ -1,9 +1,10 @@
 package com.summit.adapter.langchain4j.mcp;
 
 import com.summit.core.conf.McpConfig;
-import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.core.mcp.McpSession;
 import com.summit.core.mcp.McpToolScope;
+import com.summit.core.mcp.ScopeMcpProvider;
+import com.summit.core.runtime.workspace.Workspace;
 import dev.langchain4j.mcp.client.McpClient;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +38,12 @@ public class AgentScopeMcpProvider implements ScopeMcpProvider {
 
     @Override
     public McpToolScope openScope(@NonNull McpConfig mcpConfig) {
+        return openScope(mcpConfig, null);
+    }
+
+    @Override
+    public McpToolScope openScope(@NonNull McpConfig mcpConfig, Workspace workspace) {
+        McpWorkspaceAdapter.validate(mcpConfig, workspace);
         List<McpConfig.MCP> servers = mcpConfig.getMcp();
 
         if (servers == null || servers.isEmpty()) {
@@ -47,7 +54,7 @@ public class AgentScopeMcpProvider implements ScopeMcpProvider {
 
         for (McpConfig.MCP server : servers) {
 
-            McpSession session = openSession(server);
+            McpSession session = openSession(server, workspace);
 
             if (session != null) {
                 sessions.add(session);
@@ -57,11 +64,11 @@ public class AgentScopeMcpProvider implements ScopeMcpProvider {
     }
 
     /** @return the session of one server, or {@code null} when it is invalid or unreachable. */
-    private McpSession openSession(McpConfig.MCP server) {
+    private McpSession openSession(McpConfig.MCP server, Workspace workspace) {
         McpClient client = null;
         try {
             McpValidator.validate(server);
-            client = factory.create(server.name(), server);
+            client = factory.create(server.name(), server, workspace);
 
             return Langchain4jMcpSession.connect(server.name(), server.description(), client, converterOf(server));
         } catch (Exception failure) {

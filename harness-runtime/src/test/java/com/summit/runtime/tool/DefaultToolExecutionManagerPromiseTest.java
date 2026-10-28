@@ -6,18 +6,11 @@ import com.summit.core.conversation.event.ToolCallEndEvent;
 import com.summit.core.runtime.RuntimeEnvironment;
 import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.runtime.workspace.Workspace;
-import com.summit.core.tool.ConcurrentPolicy;
-import com.summit.core.tool.ToolCallStatus;
-import com.summit.core.tool.ToolDefinition;
-import com.summit.core.tool.ToolExecuteCommand;
-import com.summit.core.tool.ToolExecuteResult;
-import com.summit.core.tool.ToolExecutionContext;
-import com.summit.core.tool.ToolRegistry;
+import com.summit.core.tool.*;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -35,8 +28,13 @@ class DefaultToolExecutionManagerPromiseTest {
                 .runtimeEventPublisher(new RuntimeEventPublisher(List.of())).build();
         // The whitelist is an allow-list with no implicit default, so the tool under test is named
         // explicitly — this case is about policy bypass, not about admission.
-        ToolExecuteCommand command = new ToolExecuteCommand(List.of(new ToolCallRequest("c", "write", "{}")),
-                "e", workspace(), null, List.of("write"), UUID.randomUUID());
+        ToolExecuteCommand command = ToolExecuteCommand.builder()
+                .requests(List.of(new ToolCallRequest("c", "write", 0, "{}")))
+                .executionId("e")
+                .workspace(workspace())
+                .allowedTools(List.of("write"))
+                .responseId("1234567890123456789")
+                .build();
         for (boolean bypass : List.of(true, false)) {
             List<com.summit.core.tool.ToolExecutionPolicy> policies = bypass
                     ? List.of(execution -> ToolExecuteResult.success("cached")) : List.of();
@@ -75,12 +73,13 @@ class DefaultToolExecutionManagerPromiseTest {
                 context,
                 invocation -> invocation.getMethod().invoke(invocation.getTarget(), invocation.getContext()),
                 List.of(execution -> ToolExecuteResult.promise("waiting")))) {
-            List<ToolExecuteResult> results = manager.execute(new ToolExecuteCommand(
-                    List.of(new ToolCallRequest("call-1", "choice", "{}")),
-                    "execution-1",
-                    workspace(),
-                    null,
-                    List.of("choice"), UUID.randomUUID()));
+            List<ToolExecuteResult> results = manager.execute(ToolExecuteCommand.builder()
+                    .requests(List.of(new ToolCallRequest("call-1", "choice", 0, "{}")))
+                    .executionId("execution-1")
+                    .workspace(workspace())
+                    .allowedTools(List.of("choice"))
+                    .responseId("1234567890123456789")
+                    .build());
 
             assertEquals(1, results.size());
             assertTrue(results.getFirst().isPromise());

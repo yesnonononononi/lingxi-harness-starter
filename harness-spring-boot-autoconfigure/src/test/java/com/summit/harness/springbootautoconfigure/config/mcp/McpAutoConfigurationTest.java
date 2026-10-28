@@ -2,14 +2,17 @@ package com.summit.harness.springbootautoconfigure.config.mcp;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.adapter.langchain4j.mcp.McpClientFactory;
 import com.summit.adapter.langchain4j.mcp.AgentScopeMcpProvider;
+import com.summit.adapter.langchain4j.mcp.McpClientFactory;
 import com.summit.core.conf.McpConfig;
 import com.summit.core.conf.McpTransport;
-import com.summit.core.mcp.ScopeMcpProvider;
- 
 import com.summit.core.mcp.McpToolScope;
-import com.summit.core.tool.*;
+import com.summit.core.mcp.ScopeMcpProvider;
+import com.summit.core.tool.ToolDefinition;
+import com.summit.core.tool.ToolExecuteResult;
+import com.summit.core.tool.ToolExecution;
+import com.summit.core.tool.ToolExecutor;
+import com.summit.core.tool.ToolRegistry;
 import com.sun.net.httpserver.HttpServer;
 import dev.langchain4j.mcp.client.McpClient;
 import org.junit.jupiter.api.Test;
@@ -19,6 +22,7 @@ import org.springframework.core.env.MapPropertySource;
 
 import java.net.InetSocketAddress;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -29,17 +33,19 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class McpAutoConfigurationTest {
     @Test
-    void disabledByDefaultDoesNotCreateConnections() {
-        try (var context = context(Map.of("lingxi.mcp.servers.github.url", "invalid"))) {
+    void registersInfrastructureByDefaultWithoutExposingGlobalTools() {
+        try (AnnotationConfigApplicationContext context = context(Map.of("lingxi.mcp.servers.github.url", "invalid"))) {
             context.refresh();
-            assertTrue(context.getBeansOfType(McpClientFactory.class).isEmpty());
-            assertTrue(context.getBean(ToolRegistry.class).getTools().isEmpty());
+            assertEquals(1, context.getBeansOfType(McpClientFactory.class).size());
+            assertInstanceOf(AgentScopeMcpProvider.class, context.getBean(ScopeMcpProvider.class));
+            assertTrue(context.getBean(RecordingToolRegistry.class).registrations.isEmpty());
         }
     }
 
     @Test
-    void enabledConfigurationRegistersAdapterProviderWithoutOpeningConnections() {
-        try (AnnotationConfigApplicationContext context = context(Map.of("lingxi.mcp.enabled", true))) {
+    void legacyDisabledFlagDoesNotDisableInfrastructureOrOpenConnections() {
+        try (AnnotationConfigApplicationContext context = context(Map.of(
+                "lingxi.mcp.enabled", false, "lingxi.mcp.servers.github.url", "invalid"))) {
             context.registerBean(McpClientFactory.class, () -> new McpClientFactory() {
                 @Override
                 public McpClient create(String key, McpConfig.MCP server) {
@@ -49,13 +55,13 @@ class McpAutoConfigurationTest {
             context.refresh();
             assertInstanceOf(AgentScopeMcpProvider.class, context.getBean(ScopeMcpProvider.class));
             assertEquals(1, context.getBeansOfType(ScopeMcpProvider.class).size());
-            assertTrue(context.getBean(ToolRegistry.class).getTools().isEmpty());
+            assertTrue(context.getBean(RecordingToolRegistry.class).registrations.isEmpty());
         }
     }
 
     @Test
     void applicationProviderReplacesDefault() {
-        try (AnnotationConfigApplicationContext context = context(Map.of("lingxi.mcp.enabled", true))) {
+        try (AnnotationConfigApplicationContext context = context(Map.of())) {
             ScopeMcpProvider custom = configuration -> McpToolScope.EMPTY;
             context.registerBean("customProvider", ScopeMcpProvider.class, () -> custom);
             context.refresh();
@@ -74,10 +80,11 @@ class McpAutoConfigurationTest {
                 throw new IllegalStateException("test connection failure");
             }
         };
-        try (AnnotationConfigApplicationContext context = context(Map.of("lingxi.mcp.enabled", true))) {
+        try (AnnotationConfigApplicationContext context = context(Map.of())) {
             context.registerBean("customFactory", McpClientFactory.class, () -> custom);
             context.refresh();
             assertSame(custom, context.getBean(McpClientFactory.class));
+            assertEquals(1, context.getBeansOfType(McpClientFactory.class).size());
             assertEquals(0, created.get());
             assertTrue(context.getBean(ScopeMcpProvider.class).openScope(config(server("test"))).isEmpty());
             assertEquals(1, created.get());
@@ -133,7 +140,7 @@ class McpAutoConfigurationTest {
         });
         server.start();
         try {
-            try (var context = context(Map.of("lingxi.mcp.enabled", true))) {
+            try (AnnotationConfigApplicationContext context = context(Map.of())) {
                 context.refresh();
                 String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/mcp";
                 McpConfig.MCP github = new McpConfig.MCP("github", null, McpTransport.STREAMABLE_HTTP,
@@ -181,11 +188,25 @@ class McpAutoConfigurationTest {
     }
 
     private static AnnotationConfigApplicationContext context(Map<String, Object> properties) {
-        var context = new AnnotationConfigApplicationContext();
+        AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
         context.getEnvironment().getPropertySources().addFirst(new MapPropertySource("test", properties));
-        context.registerBean(ToolRegistry.class, () -> new ToolRegistry(List.of()));
+        context.registerBean(RecordingToolRegistry.class, () -> new RecordingToolRegistry());
         context.register(McpAutoConfiguration.class);
         return context;
+    }
+
+    static class RecordingToolRegistry extends ToolRegistry {
+        private final List<ToolDefinition<? extends ToolExecutor>> registrations = new ArrayList<>();
+
+        RecordingToolRegistry() {
+            super(new ArrayList<>());
+        }
+
+        @Override
+        public void register(ToolDefinition<?> definition) {
+            registrations.add(definition);
+            super.register(definition);
+        }
     }
 
 }

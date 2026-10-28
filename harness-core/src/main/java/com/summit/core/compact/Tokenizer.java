@@ -1,8 +1,6 @@
 package com.summit.core.compact;
 
 import com.summit.core.conversation.message.Message;
-import com.summit.core.conversation.message.TokenUsageEntity;
-import lombok.NonNull;
 
 import java.util.List;
 

@@ -5,7 +5,6 @@ import com.summit.core.conversation.message.ToolMessageEntity;
 
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 public interface ConversationTranscriptSink {
     /**
@@ -23,8 +22,9 @@ public interface ConversationTranscriptSink {
 
     /** Preserves the model invocation identity while keeping existing sinks compatible. */
     default void appendRound(String executionId, AiMessageEntity aiMessage,
-                             List<ToolMessageEntity> toolMessages, UUID responseId,
-                             Map<String, Object> eventMetaData) {
+                             List<ToolMessageEntity> toolMessages, String responseId,
+                             Map<String, Object> eventMetaData
+    ) {
         appendRound(executionId, aiMessage, toolMessages, eventMetaData);
     }
 }

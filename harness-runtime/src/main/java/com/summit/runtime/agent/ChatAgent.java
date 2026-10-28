@@ -6,23 +6,25 @@ import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
 import com.summit.core.conf.McpConfig;
 import com.summit.core.conf.ModelConfig;
-import com.summit.core.mcp.ScopeMcpProvider;
+import com.summit.core.conf.SensitiveDataProvider;
+import com.summit.core.conf.SensitiveDataSpec;
 import com.summit.core.mcp.McpToolScope;
-import com.summit.core.model.DefaultModelProviderNames;
+import com.summit.core.mcp.ScopeMcpProvider;
+import com.summit.core.model.ModelProviderRouting;
 import com.summit.core.model.RequestModelInvokerFactory;
 import com.summit.core.runtime.ExecutionRuntime;
 import com.summit.core.runtime.RuntimeFactory;
-import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.runtime.loop.ExecutionControl;
+import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.workspace.BasicWorkspaceSpec;
-import com.summit.core.workspace.WorkspaceManager;
+import com.summit.core.workspace.WorkspaceResolver;
 import com.summit.core.workspace.WorkspaceSpec;
 import com.summit.runtime.workspace.LocalWorkspaceProvider;
 import lombok.AllArgsConstructor;
+import lombok.experimental.SuperBuilder;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
-
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -35,14 +37,17 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Slf4j
 @AllArgsConstructor
+@SuperBuilder
 public abstract class ChatAgent implements Agent {
     protected final RuntimeFactory defaultRuntimeFactory;
     protected final RequestModelInvokerFactory modelInvokerFactory;
-    protected final WorkspaceManager workspaceManager;
-    private final ModelConfig modelConfig;
+    protected final WorkspaceResolver workspaceResolver;
     private final ScopeMcpProvider scopeMcpProvider;
+    private final ModelConfig modelConfig;
     private final ExecutionRepository executionRepository;
     private final ExecutionControl executionControl;
+    private final SensitiveDataProvider<McpConfig> mcpConfigSensitiveDataProvider;
+    private final SensitiveDataProvider<ModelConfig> modelConfigSensitiveDataProvider;
 
     /**
      * MCP scopes of the executions currently in flight, so a resumed execution reuses the scope its
@@ -56,23 +61,6 @@ public abstract class ChatAgent implements Agent {
      * so the retained scope is reused and eventually released.</p>
      */
     private final Map<String, McpToolScope> mcpScopes = new ConcurrentHashMap<>();
-
-    public ChatAgent(RuntimeFactory defaultRuntimeFactory,
-                     RequestModelInvokerFactory modelInvokerFactory,
-                     WorkspaceManager workspaceManager,
-                     ModelConfig modelConfig,
-                     ExecutionRepository executionRepository,
-                     ExecutionControl executionControl
-    ) {
-        this(defaultRuntimeFactory,
-                modelInvokerFactory,
-                workspaceManager,
-                modelConfig,
-                null,
-                executionRepository,
-                executionControl
-        );
-    }
 
 
     @Override
@@ -127,7 +115,7 @@ public abstract class ChatAgent implements Agent {
 
         execution.setStreaming(model.streaming());
 
-        McpToolScope mcpToolScope = openMcpScope(execution);
+        McpToolScope mcpToolScope = openMcpScope(execution, workspace);
 
         return defaultRuntimeFactory.createRuntime(
                 model.invoker(),
@@ -137,39 +125,50 @@ public abstract class ChatAgent implements Agent {
     }
 
     protected RequestModelInvokerFactory.Selection findSelection(AgentRequest agentRequest) {
-        return this.modelInvokerFactory.select(resolveModelConfig(agentRequest));
+        ModelConfig config = resolveModelConfig(agentRequest);
+        if (agentRequest.getRetryConfig() != null && agentRequest.getRetryConfig().isEnabled()) {
+            // Runtime retries own control, attempt identity and budget; SDK retries must not multiply them.
+            config = config.toBuilder().maxRetries(0).build();
+        }
+        return this.modelInvokerFactory.select(config);
     }
 
     /**
      * Resolves the model configuration for one request. The rules are deliberately flat — no
      * field-level fallback and no precedence chain:
      * <ol>
-     *   <li>{@code modelConfig} is set — used as is when it names a provider; otherwise it is
+     *   <li>{@code modelConfigSpec} is set — its exact revision is required and used as is when it names a provider; otherwise it is
      *       completed by {@link #completeRequestConfig(ModelConfig)} and {@code modelProvider} is ignored.</li>
      *   <li>{@code modelProvider} is set — the application configuration with that provider.</li>
      *   <li>neither is set — the application configuration as is.</li>
      * </ol>
      */
     protected ModelConfig resolveModelConfig(@NonNull AgentRequest agentRequest) {
-        ModelConfig requestConfig = agentRequest.getModelConfig();
-        if (requestConfig != null) {
+        SensitiveDataSpec modelConfigSpec = agentRequest.getModelConfigSpec();
+        if (modelConfigSpec != null) {
+            if (modelConfigSensitiveDataProvider == null) {
+                throw new IllegalStateException("A model configuration reference requires a SensitiveDataProvider<ModelConfig>");
+            }
+            ModelConfig requestConfig = modelConfigSensitiveDataProvider.get(modelConfigSpec.getId(), modelConfigSpec.getVersion());
+            if (requestConfig == null) {
+                throw new IllegalStateException("Model configuration revision is unavailable: id="
+                        + modelConfigSpec.getId() + ", version=" + modelConfigSpec.getVersion());
+            }
             return completeRequestConfig(requestConfig);
         }
-        if (this.modelConfig == null) {
-            throw new IllegalStateException("No application model configuration is available");
-        }
 
-        if (agentRequest.getModelProvider() == null || agentRequest.getModelProvider().isBlank()) {
-            return this.modelConfig;
+        if (this.modelConfig == null) {
+            throw new IllegalStateException("A request without a model configuration reference requires an application model configuration");
         }
-        return this.modelConfig.toBuilder().provider(agentRequest.getModelProvider().trim()).build();
+        String provider = agentRequest.getModelProvider();
+        return provider == null || provider.isBlank() ? this.modelConfig
+                : this.modelConfig.toBuilder().provider(provider.trim()).build();
     }
 
     /**
      * Completes a request-level configuration the caller did not bind to a provider. Such a
-     * configuration carries no protocol of its own, so the framework derives one: the three
-     * attributes a model cannot be built without are required up front, and {@code returnThinking}
-     * selects the streaming protocol because thinking output is delivered as a stream.
+     * configuration carries no protocol of its own, so the model name selects the provider family.
+     * {@code returnThinking} retains the existing synchronous/streaming selection convention.
      */
     protected ModelConfig completeRequestConfig(@NonNull ModelConfig requestConfig) {
         if (requestConfig.getProvider() != null && !requestConfig.getProvider().isBlank()) {
@@ -179,8 +178,8 @@ public abstract class ChatAgent implements Agent {
         ensureNotBlank(requestConfig.getApiKey(), "apiKey");
         ensureNotBlank(requestConfig.getModelName(), "modelName");
         return requestConfig.toBuilder()
-                .provider(requestConfig.isReturnThinking()
-                        ? DefaultModelProviderNames.DEFAULT_STREAMING : DefaultModelProviderNames.DEFAULT)
+                .provider(ModelProviderRouting.chatProvider(null, requestConfig.getModelName(),
+                        requestConfig.isReturnThinking()))
                 .build();
     }
 
@@ -195,11 +194,8 @@ public abstract class ChatAgent implements Agent {
      * Resolves the workspace of one request without ever owning its lifetime.
      * A request without a spec uses the local process working directory ({@code user.dir}).
      *
-     * <p>The request's spec is resolved through {@link WorkspaceManager#acquire(WorkspaceSpec)}, which
-     * reuses the sandbox already provisioned for that configuration and creates
-     * one only the first time the configuration is seen. The workspace therefore
-     * survives the request, so the next turn — and the next session on the same
-     * project — starts from a warm toolchain instead of a cold container.</p>
+     * <p>The resolver routes the spec to its provider on every call. Providers own any resource
+     * reuse and cleanup; completing a request never destroys the returned workspace.</p>
      */
     protected Workspace resolveWorkspace(AgentRequest request) {
 
@@ -207,7 +203,7 @@ public abstract class ChatAgent implements Agent {
         if (spec == null) {
             spec = new BasicWorkspaceSpec(LocalWorkspaceProvider.TYPE, System.getProperty("user.dir"));
         }
-        return workspaceManager.acquire(spec);
+        return workspaceResolver.resolve(spec);
     }
 
 
@@ -215,20 +211,29 @@ public abstract class ChatAgent implements Agent {
      * Opens the MCP tool scope of this request, or reuses the one kept by a previous suspension of
      * the same execution. A request without MCP configuration gets the shared empty scope.
      *
-     * <p>Every path that yields no MCP tools is logged. A request that declares servers but still
-     * ends up empty is a configuration fault, and failing silently there turns a one-character
-     * mistake into "the tools just vanished" with nothing in the log to point at.</p>
+     * <p>An explicit reference must resolve its exact revision; missing configuration must not
+     * silently remove tools from a resumed execution.</p>
      */
-    protected McpToolScope openMcpScope(Execution execution) {
-        McpConfig mcpConfig = execution.getAgentRequest().getMcpConfig();
-        if (mcpConfig == null || mcpConfig.getMcp() == null || mcpConfig.getMcp().isEmpty()) {
-            // The request declared no servers: absence is intentional, no diagnostic needed.
+    protected McpToolScope openMcpScope(Execution execution, Workspace workspace) {
+        SensitiveDataSpec mcpConfigSpec = execution.getAgentRequest().getMcpConfigSpec();
+        if (mcpConfigSpec == null) {
+            return McpToolScope.EMPTY;
+        }
+        if (mcpConfigSensitiveDataProvider == null) {
+            throw new IllegalStateException("An MCP configuration reference requires a SensitiveDataProvider<McpConfig>");
+        }
+        McpConfig mcpConfig = mcpConfigSensitiveDataProvider.get(mcpConfigSpec.getId(), mcpConfigSpec.getVersion());
+        if (mcpConfig == null) {
+            throw new IllegalStateException("MCP configuration revision is unavailable: id="
+                    + mcpConfigSpec.getId() + ", version=" + mcpConfigSpec.getVersion());
+        }
+        if (mcpConfig.getMcp() == null || mcpConfig.getMcp().isEmpty()) {
             return McpToolScope.EMPTY;
         }
         if (scopeMcpProvider == null) {
-            return McpToolScope.EMPTY;
+            throw new IllegalStateException("Configured MCP servers require a ScopeMcpProvider");
         }
-        return mcpScopes.computeIfAbsent(execution.getId(), ignored -> scopeMcpProvider.openScope(mcpConfig));
+        return mcpScopes.computeIfAbsent(execution.getId(), ignored -> scopeMcpProvider.openScope(mcpConfig, workspace));
     }
 
     /**

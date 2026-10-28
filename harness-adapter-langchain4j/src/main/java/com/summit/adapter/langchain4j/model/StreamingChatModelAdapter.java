@@ -1,9 +1,10 @@
 package com.summit.adapter.langchain4j.model;
 
-import com.summit.adapter.langchain4j.codec.MessageCodec;
-import com.summit.adapter.langchain4j.codec.MessageCodecAdapter;
-import com.summit.adapter.langchain4j.codec.ToolCodec;
-import com.summit.adapter.langchain4j.codec.ToolCodecAdapter;
+import com.summit.adapter.langchain4j.codec.message.AnthropicMessageCodecAdapter;
+import com.summit.adapter.langchain4j.codec.message.MessageCodec;
+import com.summit.adapter.langchain4j.codec.message.OpenAiMessageCodecAdapter;
+import com.summit.adapter.langchain4j.codec.tool.ToolCodec;
+import com.summit.adapter.langchain4j.codec.tool.ToolCodecAdapter;
 import com.summit.core.conversation.api.ChatRequestEntity;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.model.streaming.StreamingChatModel;
@@ -11,6 +12,7 @@ import com.summit.core.model.streaming.StreamingChatResponseHandler;
 import com.summit.core.model.streaming.StreamingHandler;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.model.anthropic.AnthropicStreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.*;
 
@@ -26,7 +28,14 @@ public class StreamingChatModelAdapter implements StreamingChatModel {
     private final ToolCodec<ToolSpecification> toolCodec;
 
     public StreamingChatModelAdapter(dev.langchain4j.model.chat.StreamingChatModel delegate) {
-        this(delegate, new MessageCodecAdapter(), new ToolCodecAdapter());
+        this(delegate, delegate instanceof AnthropicStreamingChatModel
+                ? new AnthropicMessageCodecAdapter() : new OpenAiMessageCodecAdapter());
+    }
+
+    /** Use explicit codec injection when the delegate is a wrapper or a custom provider. */
+    public StreamingChatModelAdapter(dev.langchain4j.model.chat.StreamingChatModel delegate,
+                                     MessageCodec<ChatMessage, ChatResponse> messageCodec) {
+        this(delegate, messageCodec, new ToolCodecAdapter());
     }
 
     public StreamingChatModelAdapter(dev.langchain4j.model.chat.StreamingChatModel delegate,
@@ -40,7 +49,11 @@ public class StreamingChatModelAdapter implements StreamingChatModel {
     @Override
     public void chat(ChatRequestEntity request, StreamingChatResponseHandler handler) {
         ChatRequest chatRequest = ChatRequestBuilder.buildRequest(request, messageCodec, toolCodec);
-        delegate.chat(chatRequest, new StreamingHandlerBridge(handler, messageCodec));
+        try {
+            delegate.chat(chatRequest, new StreamingHandlerBridge(handler, messageCodec));
+        } catch (RuntimeException error) {
+            throw ModelExceptionMapper.map(error);
+        }
 
     }
 
@@ -94,7 +107,7 @@ public class StreamingChatModelAdapter implements StreamingChatModel {
 
         @Override
         public void onError(Throwable error) {
-            target.onError(error);
+            target.onError(ModelExceptionMapper.map(error));
         }
     }
 }

@@ -6,17 +6,11 @@ import com.summit.core.mcp.McpSession;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.runtime.RuntimeEnvironment;
 import com.summit.core.runtime.workspace.Workspace;
-import com.summit.core.tool.ConcurrentPolicy;
-import com.summit.core.tool.ToolDefinition;
-import com.summit.core.tool.ToolExecuteCommand;
-import com.summit.core.tool.ToolExecuteResult;
-import com.summit.core.tool.ToolExecutionContext;
-import com.summit.core.tool.ToolRegistry;
+import com.summit.core.tool.*;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -65,17 +59,14 @@ class McpToolAdmissionTest {
         AtomicInteger calls = new AtomicInteger();
         try (DefaultToolExecutionManager manager = manager()) {
             // A static tool has exactly one way in: being named. Omitting it is enough to block it.
-            List<ToolExecuteResult> results = manager.execute(new ToolExecuteCommand(
-                    List.of(new ToolCallRequest("call-1", STATIC_TOOL, "{}")),
-                    "execution-1",
-                    workspace(),
-                    null,
-                    null,
-                    List.of("something_else"),
-                    UUID.randomUUID(),
-                    false,
-                    McpToolScope.EMPTY
-                    )
+            List<ToolExecuteResult> results = manager.execute(ToolExecuteCommand.builder()
+                    .requests(List.of(new ToolCallRequest("call-1", STATIC_TOOL, 0, "{}")))
+                    .executionId("execution-1")
+                    .workspace(workspace())
+                    .allowedTools(List.of("something_else"))
+                    .responseId("1234567890123456789")
+                    .mcpToolScope(McpToolScope.EMPTY)
+                    .build()
             );
 
             assertEquals(1, results.size());
@@ -102,9 +93,13 @@ class McpToolAdmissionTest {
     @Test
     void absentWhitelistStillRejectsStaticTools() {
         try (DefaultToolExecutionManager manager = manager()) {
-            List<ToolExecuteResult> results = manager.execute(new ToolExecuteCommand(
-                    List.of(new ToolCallRequest("call-1", STATIC_TOOL, "{}")),
-                    "execution-1", workspace(), null,null, null, UUID.randomUUID(), false, McpToolScope.EMPTY));
+            List<ToolExecuteResult> results = manager.execute(ToolExecuteCommand.builder()
+                    .requests(List.of(new ToolCallRequest("call-1", STATIC_TOOL, 0, "{}")))
+                    .executionId("execution-1")
+                    .workspace(workspace())
+                    .responseId("1234567890123456789")
+                    .mcpToolScope(McpToolScope.EMPTY)
+                    .build());
 
             assertEquals(1, results.size());
             assertEquals("Tool '" + STATIC_TOOL + "' is not allowed for this agent request",
@@ -141,9 +136,14 @@ class McpToolAdmissionTest {
     private ToolExecuteResult executeMCP(DefaultToolExecutionManager manager,
                                          List<String> allowedTools,
                                          McpToolScope scope) {
-        List<ToolExecuteResult> results = manager.execute(new ToolExecuteCommand(
-                List.of(new ToolCallRequest("call-1", MCP_TOOL, "{}")),
-                "execution-1", workspace(), null, null,allowedTools, UUID.randomUUID(), false, scope));
+        List<ToolExecuteResult> results = manager.execute(ToolExecuteCommand.builder()
+                .requests(List.of(new ToolCallRequest("call-1", MCP_TOOL, 0, "{}")))
+                .executionId("execution-1")
+                .workspace(workspace())
+                .allowedTools(allowedTools)
+                .responseId("1234567890123456789")
+                .mcpToolScope(scope)
+                .build());
 
         assertEquals(1, results.size());
         return results.getFirst();

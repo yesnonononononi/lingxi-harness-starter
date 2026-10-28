@@ -3,11 +3,7 @@ package com.summit.kernel.tools.search;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.mcp.McpToolScope;
-import com.summit.core.tool.ConcurrentPolicy;
-import com.summit.core.tool.ToolDefinition;
-import com.summit.core.tool.ToolExecuteResult;
-import com.summit.core.tool.ToolExecution;
-import com.summit.core.tool.ToolRegistry;
+import com.summit.core.tool.*;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -98,7 +94,7 @@ class SearchToolAutoConfigurationTest {
                     .build());
         }
         ToolRegistry registry = new ToolRegistry(List.of());
-        tools.forEach(tool -> registry.getTools().put(tool.name(), tool));
+        registry.register(tools);
         return registry;
     }
 

@@ -3,19 +3,23 @@ package com.summit.harness.springbootautoconfigure.config.execution;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
+import com.summit.core.conversation.api.ResponseIdGenerator;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.runtime.RuntimeFactory;
+import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.runtime.loop.*;
-import com.summit.core.runtime.*;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.tool.ToolExecutionManager;
 import com.summit.runtime.agent.AgentConfig;
-import com.summit.runtime.conversation.DefaultRuntimeFactory;
-import com.summit.runtime.compact.DefaultManualCompacter;
+import com.summit.runtime.compact.DefaultContextPruner;
 import com.summit.runtime.compact.DefaultModelCompacter;
+import com.summit.runtime.conversation.DefaultRuntimeFactory;
+import com.summit.runtime.conversation.SnowflakeResponseIdGenerator;
 import com.summit.runtime.loop.BoundaryChecker;
 import com.summit.runtime.loop.DefaultLoopInterceptorProcessor;
 import com.summit.runtime.loop.DefaultRuntimeLifeStyleManager;
 import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
@@ -24,6 +28,14 @@ import java.util.List;
 
 @AutoConfiguration
 public class ExecutionRuntimeConfig {
+    /** Configure distinct worker IDs (0..1023) for runtime instances that share response storage. */
+    @Bean
+    @ConditionalOnMissingBean(ResponseIdGenerator.class)
+    public ResponseIdGenerator responseIdGenerator(
+            @Value("${lingxi.agent.runtime.response-id.worker-id:0}") long workerId) {
+        return workerId == 0 ? SnowflakeResponseIdGenerator.DEFAULT : new SnowflakeResponseIdGenerator(workerId);
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public RuntimeFactory defaultRuntimeFactory(RuntimeEventPublisher defaultRuntimeListener,
@@ -33,15 +45,17 @@ public class ExecutionRuntimeConfig {
                                                 Tokenizer tokenizer,
                                                 ExecutionRepository executionRepository,
                                                 ExecutionControl executionControl,
-                                                DefaultManualCompacter manualCompacter,
+                                                DefaultContextPruner contextPruner,
                                                 DefaultModelCompacter modelCompacter, RuntimeLifeStyleManager runtimeLifeStyleManager,
                                                 LoopInterceptorProcessor loopInterceptorProcessor,
                                                 RuntimeBoundaryChecker boundaryChecker,
-                                                List<ExecutionFailureObserver> failureObservers
+                                                List<ExecutionFailureObserver> failureObservers,
+                                                ResponseIdGenerator responseIdGenerator
     ) {
         return DefaultRuntimeFactory.builder()
                 .toolExecutionManager(defaultToolExecutionManager)
                 .runtimeEventPublisher(defaultRuntimeListener)
+                .responseIdGenerator(responseIdGenerator)
                 .conversationManager(conversationManager)
                 .usage(usage)
                 .tokenizer(tokenizer)
@@ -49,7 +63,7 @@ public class ExecutionRuntimeConfig {
                 .executionRepository(executionRepository)
                 .executionControl(executionControl)
                 .agentConfig(agentConfig)
-                .manualCompacter(manualCompacter)
+                .contextPruner(contextPruner)
                 .runtimeLifeStyleManager(runtimeLifeStyleManager)
                 .failureObservers(failureObservers)
                 .modelCompacter(modelCompacter)
@@ -70,10 +84,10 @@ public class ExecutionRuntimeConfig {
     @ConditionalOnMissingBean(RuntimeBoundaryChecker.class)
     public RuntimeBoundaryChecker boundaryChecker(AgentConfig agentConfig, Tokenizer tokenizer,
                                                   ConversationManager conversationManager,
-                                                  DefaultManualCompacter manualCompacter,
+                                                  DefaultContextPruner contextPruner,
                                                   DefaultModelCompacter modelCompacter) {
         return new BoundaryChecker(agentConfig, tokenizer, conversationManager,
-                manualCompacter, modelCompacter);
+                contextPruner, modelCompacter);
     }
 
     /** The dispatcher orders callbacks only; runtime limits are owned by the loop. */

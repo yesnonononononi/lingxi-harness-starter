@@ -51,7 +51,7 @@ class SkillConversationTest {
     }
 
     private String start(FileSystemSkillLoader loader, SkillConfig config) {
-        DefaultConversationManager conversations = new DefaultConversationManager(null,
+        DefaultConversationManager conversations = new DefaultConversationManager(new com.summit.runtime.conversation.DefaultTokenizer(), null,
                 ContextAttachmentProvider.NONE, SystemPromptAssembler::new, loader);
         AgentRequest request = AgentRequest.builder().skillConfig(config)
                 .messages(List.of(UserMessageEntity.from("review"))).build();

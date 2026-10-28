@@ -3,25 +3,26 @@ package com.summit.runtime;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.AgentRuntimeParameters;
 import com.summit.core.agent.Execution;
+import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.api.ConversationTranscriptSink;
-import com.summit.core.conversation.message.ToolMessageEntity;
-import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.conversation.api.ToolCallRequest;
-import com.summit.runtime.context.RuntimeContext;
 import com.summit.core.conversation.event.*;
 import com.summit.core.conversation.message.AiMessageEntity;
+import com.summit.core.conversation.message.TokenUsageEntity;
+import com.summit.core.conversation.message.ToolMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.model.ModelChatCommand;
 import com.summit.core.model.streaming.StreamingHandler;
 import com.summit.core.runtime.RuntimeEnvironment;
 import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.runtime.loop.ContextUsageReporter;
+import com.summit.core.runtime.loop.LoopMessages;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.*;
+import com.summit.runtime.context.RuntimeContext;
 import com.summit.runtime.conversation.DefaultConversationManager;
 import com.summit.runtime.conversation.DefaultTokenizer;
-import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.runtime.loop.DefaultRuntimeLifeStyleManager;
 import com.summit.runtime.model.ModelRequestFactory;
 import com.summit.runtime.tool.DefaultToolExecutionManager;
@@ -30,7 +31,6 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
-import java.util.UUID;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -87,7 +87,7 @@ class EventMetadataPropagationTest {
                 .conversationManager(new DefaultConversationManager(
                         (id, ai, toolMessages) -> { }, ContextAttachmentProvider.NONE))
                 .build();
-        ModelChatCommand command = new ModelRequestFactory(context).build(execution, List.of(), UUID.randomUUID(), null);
+        ModelChatCommand command = new ModelRequestFactory(context).build(execution, List.of(), "1234567890123456789", null);
         command.streamingChatResponseHandler().onPartialResponse("hello", NOOP_TRANSPORT);
         command.streamingChatResponseHandler().onPartialThinking("reason", NOOP_TRANSPORT);
         command.streamingChatResponseHandler().onFinalResponse(ChatResponseEntity.builder()
@@ -164,9 +164,9 @@ class EventMetadataPropagationTest {
         Execution execution = execution("transcript", METADATA);
         execution.setTokenUsage(TokenUsageEntity.empty());
 
-        conversations.addMessage(execution, ChatResponseEntity.builder()
+        conversations.addMessage(LoopMessages.builder().execution(execution).response(ChatResponseEntity.builder()
                 .aiMessageEntity(AiMessageEntity.builder().text("answer").build())
-                .tokenUsage(TokenUsageEntity.empty()).build(), List.of());
+                .tokenUsage(TokenUsageEntity.empty()).build()).toolExecuteResults(List.of()).build());
 
         assertEquals(METADATA, received.get());
     }
@@ -194,11 +194,18 @@ class EventMetadataPropagationTest {
     }
 
     private ToolExecuteCommand command(String id, Map<String, Object> metadata) {
-        return new ToolExecuteCommand(List.of(
-                new ToolCallRequest(id + "-success", "test", "{}"),
-                new ToolCallRequest(id + "-failure", "test", "fail"),
-                new ToolCallRequest(id + "-unknown", "missing", "{}")),
-                id, workspace(), Map.of("private", "internal"), metadata, List.of("test"), UUID.randomUUID(), false, null);
+        return ToolExecuteCommand.builder()
+                .requests(List.of(
+                new ToolCallRequest(id + "-success", "test", 0, "{}"),
+                new ToolCallRequest(id + "-failure", "test", 1, "fail"),
+                new ToolCallRequest(id + "-unknown", "missing", 2, "{}")))
+                .executionId(id)
+                .workspace(workspace())
+                .attributes(Map.of("private", "internal"))
+                .eventMetaData(metadata)
+                .allowedTools(List.of("test"))
+                .responseId("1234567890123456789")
+                .build();
     }
 
     private Workspace workspace() {

@@ -1,12 +1,16 @@
 package com.summit.adapter.langchain4j.mcp;
 
 import com.summit.core.conf.McpConfig;
+import com.summit.core.runtime.workspace.Workspace;
 import dev.langchain4j.mcp.client.DefaultMcpClient;
 import dev.langchain4j.mcp.client.McpClient;
 import dev.langchain4j.mcp.client.transport.McpTransport;
 import dev.langchain4j.mcp.client.transport.http.StreamableHttpMcpTransport;
 import dev.langchain4j.mcp.client.transport.stdio.StdioMcpTransport;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
@@ -17,7 +21,22 @@ import java.util.Map;
 public class McpClientFactory {
 
     public McpClient create(String key, McpConfig.MCP server) {
-        McpTransport transport = transportOf(key, server.conf());
+        return createClient(key, server, transportOf(key, server.conf()));
+    }
+
+    public McpClient create(String key, McpConfig.MCP server, Workspace workspace) {
+        if (!McpWorkspaceAdapter.isolated(workspace)) return create(key, server);
+        if (!(server.conf() instanceof McpConfig.Stdio stdio)) {
+            throw new IllegalArgumentException("Isolated workspace permits only stdio MCP: " + key);
+        }
+        try {
+            return createClient(key, server, new OwnedStdioMcpTransport(McpWorkspaceAdapter.prepare(stdio, workspace)));
+        } catch (IOException failure) {
+            throw new UncheckedIOException("Failed to prepare isolated MCP: " + key, failure);
+        }
+    }
+
+    private McpClient createClient(String key, McpConfig.MCP server, McpTransport transport) {
         try {
             return new DefaultMcpClient.Builder()
                     .key(key)
@@ -52,12 +71,20 @@ public class McpClientFactory {
             // The bundled client library ships no SSE transport; the validator rejects it first.
             case McpConfig.Sse ignored -> throw new IllegalArgumentException(
                     "MCP server '" + key + "': SSE transport is not supported; use streamable-http");
-            case McpConfig.Stdio stdio -> StdioMcpTransport.builder()
-                    .command(WindowsCommandResolver.resolve(List.copyOf(stdio.command())))
-                    .environment(orEmpty(stdio.env()))
-                    .logEvents(false)
-                    .build();
+            case McpConfig.Stdio stdio -> stdioTransport(stdio);
         };
+    }
+
+    /** A configured working directory keeps a server that resolves relative paths inside its own tree. */
+    private StdioMcpTransport stdioTransport(McpConfig.Stdio stdio) {
+        StdioMcpTransport.Builder builder = StdioMcpTransport.builder()
+                .command(WindowsCommandResolver.resolve(List.copyOf(stdio.command())))
+                .environment(orEmpty(stdio.env()))
+                .logEvents(false);
+        if (stdio.workDir() != null && !stdio.workDir().isBlank()) {
+            builder.workingDirectory(Path.of(stdio.workDir()));
+        }
+        return builder.build();
     }
 
     private static Map<String, String> orEmpty(Map<String, String> values) {

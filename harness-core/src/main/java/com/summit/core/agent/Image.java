@@ -2,12 +2,12 @@ package com.summit.core.agent;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import lombok.Data;
-import lombok.NonNull;
+import lombok.*;
 
 import java.net.URI;
 import java.util.Objects;
 @Data
+@Builder
 public class Image {
     private final URI url;
     private final String base64Data;

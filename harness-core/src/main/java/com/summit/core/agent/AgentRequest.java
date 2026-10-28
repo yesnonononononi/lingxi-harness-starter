@@ -1,10 +1,11 @@
 package com.summit.core.agent;
 
 
-import com.summit.core.conf.McpConfig;
-import com.summit.core.conf.ModelConfig;
+import com.summit.core.conf.ModelRetryConfig;
+import com.summit.core.conf.SensitiveDataSpec;
 import com.summit.core.conf.SkillConfig;
 import com.summit.core.conversation.message.Message;
+import com.summit.core.memory.MemoryConfig;
 import com.summit.core.workspace.WorkspaceSpec;
 import lombok.Builder;
 import lombok.Data;
@@ -37,19 +38,26 @@ public class AgentRequest {
     /** Optional request-level whitelist of tool names. A {@code null} list keeps all registered tools unavailable; an empty list exposes no tools. Applications retain final authority over every model-visible capability. */
     private List<String> toolList;
     /** Optional managed workspace specification. When absent, the runtime uses the local process working directory. */
-    private final  WorkspaceSpec workspaceSpec;
+    private final WorkspaceSpec workspaceSpec;
 
-    private McpConfig mcpConfig;
+    /** Optional per-execution memory access configuration; absent means no memory integration. */
+    private MemoryConfig memoryConfig;
+    /** Only the reference is persisted; the application resolves the exact MCP configuration revision. */
+    private SensitiveDataSpec mcpConfigSpec;
 
     private SkillConfig skillConfig;
+
     @Builder.Default
     private AgentRuntimeParameters runtimeParameters = AgentRuntimeParameters.builder().build();
 
-    /** Request-level model provider override. Only the provider implementation is swapped; every other attribute keeps the application value. Ignored when {@link #modelConfig} is set. */
+    /** Request-level model provider override. Only the provider implementation is swapped; every other attribute keeps the application value. Ignored when {@link #modelConfigSpec} is set. */
     private String modelProvider;
 
-    /** Request-level model configuration. Used as is for this request — no field-level fallback to the application configuration. Takes precedence over {@link #modelProvider}. */
-    private ModelConfig modelConfig;
+    /** Required model configuration revision when present; unresolved references never fall back to application defaults. */
+    private SensitiveDataSpec modelConfigSpec;
+
+    /** Absent or disabled settings leave framework retries off. */
+    private ModelRetryConfig retryConfig;
 
     public AgentRuntimeParameters runtimeParametersOrDefault() {
         return runtimeParameters != null ? runtimeParameters : AgentRuntimeParameters.builder().build();

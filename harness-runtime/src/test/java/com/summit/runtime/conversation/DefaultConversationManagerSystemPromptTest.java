@@ -3,8 +3,7 @@ package com.summit.runtime.conversation;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
-import com.summit.core.conf.McpConfig;
-import com.summit.core.conf.McpTransport;
+import com.summit.core.conf.SensitiveDataSpec;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
@@ -28,10 +27,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * The leading system message of one execution, asserted as rendered text.
@@ -53,7 +49,7 @@ class DefaultConversationManagerSystemPromptTest {
                         .messages(List.of(UserMessageEntity.from("帮我看看这个仓库")))
                         .systemPrompt("You are LingXi, a coding agent. Reply in the user's language.")
                         .toolList(List.of("read_file", "edit_file", "search_tool"))
-                        .mcpConfig(mcpConfig())
+                        .mcpConfigSpec(SensitiveDataSpec.builder().id(99L).version(3).build())
                         .build(),
                 sandbox(),
                 scopeOf(githubTools()));
@@ -80,7 +76,9 @@ class DefaultConversationManagerSystemPromptTest {
                 Their parameter schemas are deliberately left out of this prompt. Call `list_mcp_tools` with
                 a server name to list that server's tools (name and description), or `search_tool` with a
                 keyword to get one tool's schema directly. A tool found either way becomes callable from your
-                next turn on.
+                next turn on. A server holding more tools than one listing shows is listed in successive
+                windows: pass `start` and `end` to read a later one, and keep going while the result reports
+                `hasMore`.
 
                 - github - GitHub remote tools - 2 tools""", prompt);
     }
@@ -282,11 +280,4 @@ class DefaultConversationManagerSystemPromptTest {
         }));
     }
 
-    private static McpConfig mcpConfig() {
-        McpConfig config = new McpConfig();
-        config.setMcp(List.of(new McpConfig.MCP("github", "GitHub remote tools", McpTransport.STREAMABLE_HTTP,
-                new McpConfig.StreamableHttp("https://example.invalid/mcp", Map.of(), null, null),
-                1000)));
-        return config;
-    }
 }

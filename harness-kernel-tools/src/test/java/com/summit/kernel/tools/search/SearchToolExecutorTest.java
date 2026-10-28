@@ -4,21 +4,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.mcp.McpSession;
 import com.summit.core.mcp.McpToolScope;
-import com.summit.core.tool.ConcurrentPolicy;
-import com.summit.core.tool.ToolDefinition;
-import com.summit.core.tool.ToolExecuteResult;
-import com.summit.core.tool.ToolExecution;
-import com.summit.core.tool.ToolExecutor;
-import com.summit.core.tool.ToolRegistry;
+import com.summit.core.tool.*;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 工具检索回归。
@@ -289,7 +282,7 @@ class SearchToolExecutorTest {
 
     private ToolRegistry registryOf(List<ToolDefinition<?>> staticTools) {
         ToolRegistry registry = new ToolRegistry(List.of());
-        staticTools.forEach(tool -> registry.getTools().put(tool.name(), tool));
+        registry.register(staticTools);
         return registry;
     }
 

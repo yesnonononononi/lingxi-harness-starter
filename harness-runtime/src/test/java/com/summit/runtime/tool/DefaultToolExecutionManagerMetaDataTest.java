@@ -6,29 +6,17 @@ import com.summit.core.conversation.event.ToolCallEndEvent;
 import com.summit.core.runtime.RuntimeEnvironment;
 import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.runtime.workspace.Workspace;
-import com.summit.core.tool.ConcurrentPolicy;
-import com.summit.core.tool.ToolCallStatus;
-import com.summit.core.tool.ToolDefinition;
-import com.summit.core.tool.ToolExecuteCommand;
-import com.summit.core.tool.ToolExecuteResult;
-import com.summit.core.tool.ToolExecutionContext;
-import com.summit.core.tool.ToolRegistry;
-import com.summit.core.tool.ToolResultType;
+import com.summit.core.tool.*;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
-import java.util.UUID;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * A tool's {@code toolMetaData} must reach listeners on the {@code ToolCallEndEvent}, merged with the
@@ -100,9 +88,13 @@ class DefaultToolExecutionManagerMetaDataTest {
         ToolDefinition<?> b = readOnlyTool("b", "b", Map.of("call", "b"));
         var context = ToolExecutionContext.builder().toolRegistry(new ToolRegistry(List.of(a, b)))
                 .runtimeEventPublisher(new RuntimeEventPublisher(List.of(listener))).build();
-        ToolExecuteCommand command = new ToolExecuteCommand(
-                List.of(new ToolCallRequest("call-a", "a", "{}"), new ToolCallRequest("call-b", "b", "{}")),
-                "exec-1", workspace(), null, List.of("a", "b"), UUID.randomUUID());
+        ToolExecuteCommand command = ToolExecuteCommand.builder()
+                .requests(List.of(new ToolCallRequest("call-a", "a", 0, "{}"), new ToolCallRequest("call-b", "b", 1, "{}")))
+                .executionId("exec-1")
+                .workspace(workspace())
+                .allowedTools(List.of("a", "b"))
+                .responseId("1234567890123456789")
+                .build();
 
         try (DefaultToolExecutionManager manager = newManager(context)) {
             List<ToolExecuteResult> results = manager.execute(command);
@@ -144,8 +136,14 @@ class DefaultToolExecutionManagerMetaDataTest {
                 .executor(execution -> toolResult).build();
         var context = ToolExecutionContext.builder().toolRegistry(new ToolRegistry(List.of(tool)))
                 .runtimeEventPublisher(new RuntimeEventPublisher(List.of(listener))).build();
-        ToolExecuteCommand command = new ToolExecuteCommand(List.of(new ToolCallRequest("call-1", "meta", "{}")),
-                "exec-1", workspace(), null, eventMetaData, List.of("meta"), UUID.randomUUID(), false, null);
+        ToolExecuteCommand command = ToolExecuteCommand.builder()
+                .requests(List.of(new ToolCallRequest("call-1", "meta", 0, "{}")))
+                .executionId("exec-1")
+                .workspace(workspace())
+                .eventMetaData(eventMetaData)
+                .allowedTools(List.of("meta"))
+                .responseId("1234567890123456789")
+                .build();
 
         try (DefaultToolExecutionManager manager = newManager(context)) {
             List<ToolExecuteResult> results = manager.execute(command);

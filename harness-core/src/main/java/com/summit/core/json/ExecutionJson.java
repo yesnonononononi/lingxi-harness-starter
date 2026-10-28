@@ -4,8 +4,8 @@ import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.jsontype.NamedType;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.databind.jsontype.NamedType;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.summit.core.workspace.BasicWorkspaceSpec;
 import com.summit.core.workspace.WorkspaceSpec;
@@ -16,7 +16,7 @@ public final class ExecutionJson {
 
     /**
      * Supports built-in messages, time values and BasicWorkspaceSpec. Register other workspace
-     * implementations with stable names, e.g. new NamedType(DockerWorkspaceSpec.class, "docker").
+     * implementations with stable names through the workspaceTypes parameter.
      * Runtime attributes must contain JSON-compatible values; arbitrary Java object identity is
      * not preserved. Snapshots include request model credentials and belong in trusted storage.
      * No global default typing is enabled.

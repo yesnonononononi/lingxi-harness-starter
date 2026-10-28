@@ -10,8 +10,8 @@ import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.conversation.event.TokenInfo;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.runtime.RuntimeListener;
-import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.loop.ApprovalOutcome;
+import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
 import org.junit.jupiter.api.Test;
@@ -21,13 +21,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class DefaultExecutionControllerTest {
 
@@ -239,7 +233,8 @@ class DefaultExecutionControllerTest {
 
         Execution withUsage = Execution.builder().agentRequest(AgentRequest.builder().build())
                 .id("with-usage").executionState(ExecutionState.SUSPENDED)
-                .tokenUsage(TokenUsageEntity.of(150, 100, 50)).build();
+                .tokenUsage(new TokenUsageEntity(150, new TokenUsageEntity.InputTokens(100, 60),
+                        new TokenUsageEntity.OutputTokens(50, 20))).build();
         controller.beginApproval(withUsage);
         controller.failApproval(withUsage, "command result uncertain");
         repository.commit();
@@ -249,6 +244,16 @@ class DefaultExecutionControllerTest {
         assertEquals(100, failed.inputTokenCount());
         assertEquals(50, failed.outputTokenCount());
         assertEquals(150, failed.totalTokenCount());
+        assertEquals(60, failed.cacheTokens());
+        assertEquals(20, failed.reasoningTokens());
+
+        Execution cancelled = Execution.builder().agentRequest(AgentRequest.builder().build())
+                .id("cancelled-with-usage").executionState(ExecutionState.SUSPENDED)
+                .tokenUsage(withUsage.getTokenUsage()).build();
+        controller.beginApproval(cancelled);
+        controller.finishApproval(cancelled, ApprovalOutcome.CANCELLED);
+        repository.commit();
+        assertEquals(failed, usage.get(2));
     }
 
     private static final class DeferredRepository implements ExecutionRepository {

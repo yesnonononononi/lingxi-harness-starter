@@ -3,10 +3,12 @@ package com.summit.core.agent;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.summit.core.compact.ContextUsageMetric;
 import com.summit.core.conf.McpConfig;
-import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.api.ResponseIdGenerator;
 import com.summit.core.conversation.message.AiMessageEntity;
+import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import lombok.Builder;
 import lombok.Data;
@@ -66,10 +68,11 @@ public class Execution {
      * Retired copy of {@code agentRequest.mcpConfig}.
      *
      * <p>Kept only so snapshots written before the request became the single source still restore.
-     * Nothing produces it anymore and nothing reads it: {@link Execution#create} no longer fills
-     * it, and the run resolves MCP servers from the request.</p>
+     * It is never written back: {@link Execution#create} no longer fills it, and the run resolves
+     * MCP servers from the request reference.</p>
      */
     @Deprecated(forRemoval = true)
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private McpConfig mcpConfig;
 
     private String errorMessage;
@@ -81,11 +84,49 @@ public class Execution {
     private int maxSteps;
     /** Model attempts consumed across all resumes of this execution. */
     private int modelAttempts;
+    /** Last allocated response ID, including interrupted rounds, retained in execution snapshots. */
+    private String lastResponseId;
+
+    /** Allocates before model output is published; failed rounds must not reuse their identity. */
+    public String nextResponseId(ResponseIdGenerator generator) {
+        String next = Objects.requireNonNull(generator.nextId(lastResponseId), "responseId");
+        long value = Long.parseLong(next);
+        if (value <= 0 || !Long.toString(value).equals(next)
+                || (lastResponseId != null && value <= Long.parseLong(lastResponseId))) {
+            throw new IllegalStateException("response ID must be a positive decimal integer greater than its predecessor");
+        }
+        lastResponseId = next;
+        return next;
+    }
 
     /**
      *  having value when the end of execution
      */
     private ContextUsageMetric contextUsageMetric;
+
+    /**
+     * How far the context compaction of this execution has progressed.
+     *
+     * <p>The state belongs to the execution, not to the component that produces it:
+     * {@link com.summit.core.conversation.ConversationManager} is a singleton shared by every
+     * execution, so it must hold no per-run state, while "how many generations the context went
+     * through" is execution history and therefore belongs in the snapshot next to the messages.</p>
+     *
+     * <p>Never {@code null} in practice: snapshots written before this field existed decode as
+     * {@link CompactionState#none()}, and every writer replaces the whole value object instead of
+     * mutating it, so a reader always sees a consistent set of counters.</p>
+     */
+    @Builder.Default
+    private CompactionState compactionState = CompactionState.none();
+
+    /**
+     * The compaction state of this execution.
+     *
+     * @return the current state, or {@link CompactionState#none()} when the snapshot carried none
+     */
+    public CompactionState getCompactionState() {
+        return this.compactionState == null ? CompactionState.none() : this.compactionState;
+    }
 
     public void cancel(){
         this.executionState = ExecutionState.CANCELLED;

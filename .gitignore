@@ -35,6 +35,7 @@ build/
 ### Local build/validation scratch (not for VCS) ###
 .tmp-build/
 .probe/
+/.lingxi/
 .workbuddy/
 .workbuddy-ai/
 *.log

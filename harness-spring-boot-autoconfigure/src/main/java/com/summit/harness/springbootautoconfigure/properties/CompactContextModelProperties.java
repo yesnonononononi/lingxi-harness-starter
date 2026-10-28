@@ -19,8 +19,16 @@ public class CompactContextModelProperties {
     private int maxTokens = 32768;
     /** none | minimal | low | medium | high | xhigh | max */
     private String reasoningEffort = "none";
+    private String thinkingType;
+    private Integer thinkingBudgetTokens;
     private boolean returnThinking = false;
     private boolean sendThinking = false;
+    /** Whether Anthropic may cache the system prompt and tool definitions across requests. */
+    private boolean promptCache = true;
+    /** Cache TTL for every breakpoint: {@code 5m} (default) or {@code 1h}. */
+    private String promptCacheTtl;
+    /** Whether Anthropic may cache the whole conversation as it grows. */
+    private boolean promptCacheConversation;
     private Duration timeout = Duration.ofSeconds(60);
 
     /** Whether the application selected a dedicated compaction model. */

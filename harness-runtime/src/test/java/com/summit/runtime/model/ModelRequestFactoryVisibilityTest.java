@@ -3,8 +3,6 @@ package com.summit.runtime.model;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.conversation.ConversationManager;
-import com.summit.core.conversation.api.ChatResponseEntity;
-import com.summit.runtime.context.RuntimeContext;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;
@@ -12,13 +10,14 @@ import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.mcp.McpSession;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.model.ModelChatCommand;
+import com.summit.core.runtime.loop.LoopMessages;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.*;
+import com.summit.runtime.context.RuntimeContext;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.Map;
 import java.util.Set;
 
@@ -103,7 +102,7 @@ class ModelRequestFactoryVisibilityTest {
         private final McpToolScope scope;
 
         private Fixture(List<ToolDefinition<?>> staticTools, List<ToolDefinition<?>> remoteTools) {
-            staticTools.forEach(tool -> registry.getTools().put(tool.name(), tool));
+            registry.register(staticTools);
             List<ToolDefinition<? extends ToolExecutor>> scoped = new ArrayList<>(remoteTools);
             scope = scoped.isEmpty()
                     ? McpToolScope.EMPTY
@@ -115,7 +114,7 @@ class ModelRequestFactoryVisibilityTest {
         }
 
         private Map<String, ToolDefinition<?>> visibleTools(List<String> whitelist) {
-            ModelChatCommand command = factory().build(execution(whitelist), whitelist, UUID.randomUUID(), null);
+            ModelChatCommand command = factory().build(execution(whitelist), whitelist, "1234567890123456789", null);
             Map<String, ToolDefinition<?>> visible = new java.util.LinkedHashMap<>();
             for (ToolDefinition<?> tool : command.chatRequest().getTools()) {
                 visible.put(tool.name(), tool);
@@ -151,15 +150,13 @@ class ModelRequestFactoryVisibilityTest {
         return new ConversationManager() {
             public void startConversation(Execution execution, Workspace workspace, McpToolScope scope) { }
 
-            public void addMessage(Execution execution, ChatResponseEntity response,
-                                   List<ToolExecuteResult> results) { }
+            public void addMessage(LoopMessages loopMessages) { }
 
             public List<Message> messages(Execution execution) { return execution.getMessages(); }
 
             public TokenUsageEntity tokenUsage(Execution execution) { return TokenUsageEntity.empty(); }
 
-            public void rebuildContext(String summary, Execution execution,
-                                       boolean answeredTrailingUserTurn) { }
+            public void rebuildContext(String summary, Execution execution) { }
 
             public void appendSystemMessage(Execution execution, SystemMessageEntity entity) { }
 

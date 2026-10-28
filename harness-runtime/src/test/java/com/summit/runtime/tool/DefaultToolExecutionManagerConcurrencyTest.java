@@ -4,18 +4,12 @@ import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.runtime.RuntimeEnvironment;
 import com.summit.core.runtime.workspace.Workspace;
-import com.summit.core.tool.ConcurrentPolicy;
-import com.summit.core.tool.ToolDefinition;
-import com.summit.core.tool.ToolExecuteCommand;
-import com.summit.core.tool.ToolExecuteResult;
-import com.summit.core.tool.ToolExecutionContext;
-import com.summit.core.tool.ToolRegistry;
+import com.summit.core.tool.*;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -117,9 +111,15 @@ class DefaultToolExecutionManagerConcurrencyTest {
 
     private ToolExecuteCommand command(String toolName, int calls) {
         List<ToolCallRequest> requests = IntStream.range(0, calls)
-                .mapToObj(index -> new ToolCallRequest("call-" + index, toolName, "{}"))
+                .mapToObj(index -> new ToolCallRequest("call-" + index, toolName, index, "{}"))
                 .toList();
-        return new ToolExecuteCommand(requests, "execution-1", workspace(), null, List.of(toolName), UUID.randomUUID());
+        return ToolExecuteCommand.builder()
+                .requests(requests)
+                .executionId("execution-1")
+                .workspace(workspace())
+                .allowedTools(List.of(toolName))
+                .responseId("1234567890123456789")
+                .build();
     }
 
     private List<String> idsOf(List<ToolExecuteResult> results) {

@@ -5,7 +5,7 @@
 
     <groupId>io.github.yesnonononononi</groupId>
     <artifactId>lingXi-harness-agent</artifactId>
-    <version>1.1.0</version>
+    <version>1.1.8-SNAPSHOT</version>
 
 
     <name>LingXi-harness-project</name>
@@ -39,15 +39,15 @@
         <module>harness-spring-boot-autoconfigure</module>
         <module>harness-runtime</module>
         <module>harness-kernel-tools</module>
-        <module>harness-sandbox-docker</module>
+        <module>harness-sandbox-mxc</module>
     </modules>
 
 
     <properties>
         <java.version>21</java.version>
-        <lingxi-harness.version>1.1.0</lingxi-harness.version>
-        <langchain4j.version>1.20.0</langchain4j.version>
-        <langchain4j-mcp.version>1.20.0-beta30</langchain4j-mcp.version>
+        <lingxi-harness.version>1.1.8-SNAPSHOT</lingxi-harness.version>
+        <langchain4j.version>1.22.0</langchain4j.version>
+        <langchain4j-mcp.version>1.22.0-beta32</langchain4j-mcp.version>
         <lombok.version>1.18.46</lombok.version>
         <java-diff-utils.version>4.15</java-diff-utils.version>
         <commonmark-ext-yaml-front-matter.version>0.22.0</commonmark-ext-yaml-front-matter.version>
@@ -62,17 +62,18 @@
 
             <dependency>
                 <groupId>io.github.yesnonononononi</groupId>
+                <artifactId>harness-sandbox-mxc</artifactId>
+                <version>${lingxi-harness.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>io.github.yesnonononononi</groupId>
                 <artifactId>harness-runtime</artifactId>
                 <version>${lingxi-harness.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.github.yesnonononononi</groupId>
                 <artifactId>harness-kernel-tools</artifactId>
-                <version>${lingxi-harness.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.github.yesnonononononi</groupId>
-                <artifactId>harness-sandbox-docker</artifactId>
                 <version>${lingxi-harness.version}</version>
             </dependency>
             <dependency>
@@ -97,6 +98,7 @@
             </dependency>
 
 
+
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
@@ -115,6 +117,11 @@
             <dependency>
                 <groupId>dev.langchain4j</groupId>
                 <artifactId>langchain4j-open-ai</artifactId>
+                <version>${langchain4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.langchain4j</groupId>
+                <artifactId>langchain4j-anthropic</artifactId>
                 <version>${langchain4j.version}</version>
             </dependency>
             <dependency>

@@ -33,6 +33,16 @@ public class UserMessageEntity implements Message{
     public MessageType type() {
         return this.type;
     }
+
+    public static UserMessageEntity from(@NonNull String text, @NonNull List<Image> images){
+        List<Content> contents = new ArrayList<>();
+        contents.add(TextContent.from(text));
+        contents.addAll(images.stream().map(ImageContent::from).toList());
+        return UserMessageEntity.builder()
+                .content(contents)
+                .build();
+    }
+
     public static UserMessageEntity from(@NonNull String text,@NonNull Image image){
         return UserMessageEntity.builder()
                 .content(new ArrayList<>(List.of(TextContent.from(text), ImageContent.from(image))))

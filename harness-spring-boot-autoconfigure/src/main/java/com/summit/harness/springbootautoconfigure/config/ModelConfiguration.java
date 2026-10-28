@@ -1,15 +1,16 @@
 package com.summit.harness.springbootautoconfigure.config;
 
-import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
-import com.summit.harness.springbootautoconfigure.properties.CompactContextModelProperties;
+import com.summit.adapter.langchain4j.codec.token.TokenEstimatorAdapter;
+import com.summit.core.adapter.TokenEstimator;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.model.ModelProviderRegistry;
+import com.summit.core.model.ModelProviderRouting;
 import com.summit.core.model.RequestModelInvokerFactory;
-import com.summit.runtime.model.DefaultRequestModelInvokerFactory;
-import com.summit.adapter.langchain4j.codec.TokenEstimatorAdapter;
-import com.summit.core.adapter.TokenEstimator;
 import com.summit.core.model.chat.ChatModel;
 import com.summit.core.model.streaming.StreamingChatModel;
+import com.summit.harness.springbootautoconfigure.properties.CompactContextModelProperties;
+import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
+import com.summit.runtime.model.DefaultRequestModelInvokerFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -35,7 +36,11 @@ public class ModelConfiguration {
                 .maxTokens(agentChatProperties.getMaxTokens())
                 .reasoningEffort(agentChatProperties.getReasoningEffort())
                 .returnThinking(agentChatProperties.isReturnThinking())
-                .provider(agentChatProperties.getProvider())
+                .anthropicOptions(new ModelConfig.AnthropicOptions(
+                        agentChatProperties.getThinkingType(), agentChatProperties.getThinkingBudgetTokens(),
+                        agentChatProperties.isPromptCache(), agentChatProperties.getPromptCacheTtl(), agentChatProperties.isPromptCacheConversation()))
+                .provider(ModelProviderRouting.chatProvider(agentChatProperties.getProvider(),
+                        agentChatProperties.getModelName(), false))
                 .build();
     }
 
@@ -54,7 +59,10 @@ public class ModelConfiguration {
                     .maxTokens(chat.getMaxTokens())
                     .reasoningEffort(chat.getReasoningEffort())
                     .returnThinking(chat.isReturnThinking())
-                    .provider(chat.getProvider())
+                    .anthropicOptions(new ModelConfig.AnthropicOptions(
+                            chat.getThinkingType(), chat.getThinkingBudgetTokens(),
+                            chat.isPromptCache(), chat.getPromptCacheTtl(), chat.isPromptCacheConversation()))
+                    .provider(ModelProviderRouting.compactProvider(chat.getProvider(), chat.getModelName()))
                     .build();
         }
         return ModelConfig.builder()
@@ -66,8 +74,10 @@ public class ModelConfiguration {
                 .maxTokens(compact.getMaxTokens())
                 .reasoningEffort(compact.getReasoningEffort())
                 .returnThinking(compact.isReturnThinking())
-                .provider(compact.getProvider() == null || compact.getProvider().isBlank()
-                        ? "default-compact" : compact.getProvider())
+                .anthropicOptions(new ModelConfig.AnthropicOptions(
+                        compact.getThinkingType(), compact.getThinkingBudgetTokens(),
+                        compact.isPromptCache(), compact.getPromptCacheTtl(), compact.isPromptCacheConversation()))
+                .provider(ModelProviderRouting.compactProvider(compact.getProvider(), compact.getModelName()))
                 .build();
     }
 

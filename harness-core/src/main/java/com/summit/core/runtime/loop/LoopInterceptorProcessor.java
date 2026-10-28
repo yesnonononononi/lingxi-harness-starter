@@ -18,13 +18,18 @@ public interface LoopInterceptorProcessor {
     }
 
     /**
-     * Called after a successful tool batch is committed or its compaction is reconciled.
+     * Called after tool execution, before Promise/compaction reconciliation and checkpoint persistence.
      */
     default InterceptorResult onAfterToolCall(LoopContext context, List<ToolExecuteResult> results) {
         return NONE;
     }
 
     default InterceptorResult onBeforeToolCall(LoopContext context) {
+        return NONE;
+    }
+
+    /** @see LoopInterceptor#onBeforeComplete(LoopContext) */
+    default InterceptorResult onBeforeComplete(LoopContext context) {
         return NONE;
     }
 

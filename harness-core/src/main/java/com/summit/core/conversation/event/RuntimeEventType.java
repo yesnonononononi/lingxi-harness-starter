@@ -114,9 +114,20 @@ public enum RuntimeEventType {
         public String type() {
             return "CONTEXT_UPDATE";
         }
+    },
+
+    INVOKE_RETRY{
+        @Override
+        public String type() {
+            return "INVOKE_RETRY";
+        }
     };
+
+
 
     public String type() {
         return name();
     }
+
+
 }

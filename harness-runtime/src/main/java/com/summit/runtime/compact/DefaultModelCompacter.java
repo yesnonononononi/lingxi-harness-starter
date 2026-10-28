@@ -2,22 +2,51 @@ package com.summit.runtime.compact;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.core.compact.*;
+import com.summit.core.agent.Execution;
+import com.summit.core.agent.AgentRequest;
+import com.summit.core.compact.ContextAttachmentProvider;
+import com.summit.core.compact.ContextCompactRequest;
+import com.summit.core.compact.ContextCompacter;
 import com.summit.core.conversation.ConversationManager;
-import com.summit.core.conversation.api.*;
-import com.summit.core.conversation.message.*;
+import com.summit.core.conversation.api.ChatRequestEntity;
+import com.summit.core.conversation.api.ChatResponseEntity;
+import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.event.ContextUpdateEvent;
+import com.summit.core.conversation.message.*;
 import com.summit.core.model.chat.ChatModel;
 import com.summit.core.runtime.loop.ContextUsageReporter;
-import com.summit.core.tool.*;
+import com.summit.core.runtime.loop.ExecutionRepository;
+import com.summit.core.tool.ToolExecuteResult;
+import com.summit.core.tool.ToolExecution;
+import com.summit.core.tool.ToolExecutor;
+import com.summit.core.tool.ToolResultType;
 import lombok.extern.slf4j.Slf4j;
-import java.util.*;
+import org.jspecify.annotations.NonNull;
 
-/** Both automatic and tool-requested model compaction use the same generation pipeline. */
+import java.util.List;
+import java.util.Optional;
+import java.util.function.Function;
+
+/**
+ * Both automatic and tool-requested model compaction use the same generation pipeline.
+ *
+ * <p><b>Chained summarization</b> (§3.2): the first round of a trigger window summarizes the
+ * rendered history, and every following round summarizes <b>the previous summary</b> instead of the
+ * original history. Retrying the full history costs a full-size input for a result of the same
+ * shape, while compressing the model's own previous output is both cheap and the thing the model
+ * does best. The chain is stateless here: a rebuild replaces the history with the summary, so the
+ * result of the rebuild <em>is</em> the next input — this class reads the session at call time and
+ * therefore never holds per-execution state.</p>
+ *
+ * <p>How many rounds a window may run is decided by the caller
+ * ({@code BoundaryChecker}), which also owns the attempt counter and the "summarization is closed"
+ * latch on {@link Execution#getCompactionState()}.</p>
+ */
 @Slf4j
 public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    private final ChatModel chatModel;
+    private final Function<AgentRequest, ChatModel> models;
+    private final ExecutionRepository executions;
     private final ConversationManager conversationManager;
     private final ContextAttachmentProvider contextAttachmentProvider;
     private final ContextUsageReporter usage;
@@ -25,7 +54,14 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
 
     public DefaultModelCompacter(ChatModel chatModel, ConversationManager conversationManager,
                                  ContextAttachmentProvider contextAttachmentProvider, ContextUsageReporter usage) {
-        this.chatModel = chatModel;
+        this(ignored -> chatModel, null, conversationManager, contextAttachmentProvider, usage);
+    }
+
+    public DefaultModelCompacter(Function<AgentRequest, ChatModel> models, ExecutionRepository executions,
+                                 ConversationManager conversationManager, ContextAttachmentProvider contextAttachmentProvider,
+                                 ContextUsageReporter usage) {
+        this.models = models;
+        this.executions = executions;
         this.conversationManager = conversationManager;
         this.contextAttachmentProvider = contextAttachmentProvider;
         this.usage = usage;
@@ -34,37 +70,51 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
 
     @Override
     public boolean compact(ContextCompactRequest request) {
-        var execution = request.execution();
-        var messages = conversationManager.messages(execution);
+        Execution execution = request.execution();
+        List<Message> messages = conversationManager.messages(execution);
         if (messages.isEmpty()) return false;
-        usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_STARTED, "Model compaction started");
+        usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_STARTED,
+                ContextUpdateEvent.Band.SUMMARY, "Model compaction started");
         try {
             if (!summaryApplier.apply(
-                    generate(execution.getId(), renderConversation(messages)), execution, false)) return false;
-            usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_COMPLETED, "Model compaction completed");
+                    generate(execution.getAgentRequest(), execution.getId(), renderConversation(messages)), execution)) {
+                // STARTED is already out: every failure path closes the pair, otherwise consumers
+                // stay on the in-flight state until the next plain UPDATE happens to arrive.
+                usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_COMPLETED,
+                        ContextUpdateEvent.Band.SUMMARY, "Model compaction finished without rewriting the context");
+                return false;
+            }
+            usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_COMPLETED,
+                    ContextUpdateEvent.Band.SUMMARY, "Model compaction completed");
             return true;
         } catch (Exception e) {
             log.warn("Model compaction failed: executionId={}", execution.getId(), e);
+            usage.publish(execution, ContextUpdateEvent.Phase.SQUEEZE_COMPLETED,
+                    ContextUpdateEvent.Band.SUMMARY, "Model compaction failed");
             return false;
         }
     }
 
     @Override
-    public ToolExecuteResult execute(ToolExecution execution) {
-        String output = generate(execution.getExecutionId(), extractContext(execution.getArgs()));
+    public @NonNull ToolExecuteResult execute(ToolExecution execution) {
+        AgentRequest request = executions == null ? null : executions.findById(execution.getExecutionId())
+                .orElseThrow(() -> new IllegalStateException("Execution is unavailable for context compaction: "
+                        + execution.getExecutionId())).getAgentRequest();
+        String output = generate(request, execution.getExecutionId(), extractContext(execution.getArgs()));
         if (CompactSummaryResolver.resolve(output) == null) {
             return ToolExecuteResult.err("Compaction returned no usable summary");
         }
         return ToolExecuteResult.success(output, ToolResultType.CONTEXT_COMPACT);
     }
 
-    private String generate(String executionId, String history) {
+
+    private String generate(AgentRequest request, String executionId, String history) {
         Optional<String> attachment = contextAttachmentProvider.attachment(executionId);
         String prompt = ContextCompactionPrompt.BASE_COMPACTION_PROMPT
                 + (attachment.isPresent() ? "\nPreserve the attached application state verbatim." : "");
         String payload = attachment.map(value -> history + "\n\n[PROTECTED APPLICATION STATE]\n" + value)
                 .orElse(history);
-        ChatResponseEntity response = chatModel.chat(ChatRequestEntity.builder().messages(List.of(
+        ChatResponseEntity response = models.apply(request).chat(ChatRequestEntity.builder().messages(List.of(
                 SystemMessageEntity.builder().text(prompt).build(), UserMessageEntity.from(payload))).build());
         return response.getAiMessageEntity().text();
     }
@@ -78,21 +128,21 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
                 continue;
             }
             if (message instanceof SystemMessageEntity systemMessage) {
-                appendLine(history, "[系统]", systemMessage.getText());
+                appendLine(history, "[System]", systemMessage.getText());
             } else if (message instanceof UserMessageEntity userMessage) {
-                appendLine(history, "[用户]", userMessage.text());
+                appendLine(history, "[User]", userMessage.text());
             } else if (message instanceof AiMessageEntity aiMessage) {
-                appendLine(history, "[助手]", aiMessage.getText());
+                appendLine(history, "[Assistant]", aiMessage.getText());
                 if (aiMessage.getToolCalls() != null) {
                     for (ToolCallRequest call : aiMessage.getToolCalls()) {
                         if (call != null) {
-                            appendLine(history, "[工具调用]", call.name() + "(" + call.arguments() + ")");
+                            appendLine(history, "[ToolInvocation]", call.name() + "(" + call.arguments() + ")");
                         }
                     }
                 }
             } else if (message instanceof ToolMessageEntity toolMessage) {
                 String toolName = toolMessage.getName() == null ? "" : toolMessage.getName();
-                appendLine(history, "[工具结果 " + toolName + "]", toolMessage.getText());
+                appendLine(history, "[ToolResult " + toolName + "]", toolMessage.getToolOutput());
             }
         }
         return history.toString();

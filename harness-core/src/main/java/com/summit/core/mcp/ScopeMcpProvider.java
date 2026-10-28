@@ -1,6 +1,7 @@
 package com.summit.core.mcp;
 
 import com.summit.core.conf.McpConfig;
+import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.ToolDefinition;
 import lombok.NonNull;
 
@@ -19,4 +20,12 @@ public interface ScopeMcpProvider {
 
     /** Opens the sessions declared by the given configuration. Never returns {@code null}. */
     McpToolScope openScope(@NonNull McpConfig mcpConfig);
+
+    /** Existing providers remain local-only unless they explicitly implement isolated startup. */
+    default McpToolScope openScope(@NonNull McpConfig config, Workspace workspace) {
+        if (workspace != null && workspace.runtimeEnvironment().isolated()) {
+            throw new IllegalStateException("MCP provider does not support isolated workspaces");
+        }
+        return openScope(config);
+    }
 }

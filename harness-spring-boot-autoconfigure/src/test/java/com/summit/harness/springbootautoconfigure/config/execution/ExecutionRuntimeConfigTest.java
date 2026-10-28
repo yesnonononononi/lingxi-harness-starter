@@ -1,9 +1,11 @@
 package com.summit.harness.springbootautoconfigure.config.execution;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
 import com.summit.core.conf.ModelConfig;
+import com.summit.core.conversation.api.ResponseIdGenerator;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.json.ExecutionJson;
@@ -11,35 +13,67 @@ import com.summit.core.mcp.McpToolScope;
 import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.core.model.RequestModelInvokerFactory;
 import com.summit.core.runtime.RuntimeFactory;
-import com.summit.core.runtime.loop.ExecutionControl;
-import com.summit.core.runtime.loop.ExecutionRepository;
+import com.summit.core.runtime.loop.*;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
-import com.summit.core.workspace.WorkspaceManager;
-import com.summit.core.runtime.loop.ExecutionControlSignal;
-import com.summit.core.runtime.loop.InterceptorResult;
-import com.summit.core.runtime.loop.LoopContext;
-import com.summit.core.runtime.loop.LoopInterceptor;
-import com.summit.core.runtime.loop.LoopInterceptorProcessor;
+import com.summit.core.workspace.WorkspaceResolver;
 import com.summit.harness.springbootautoconfigure.config.InterceptorConfig;
 import com.summit.harness.springbootautoconfigure.config.agent.AgentConfiguration;
 import com.summit.runtime.agent.ChatAgent;
 import com.summit.runtime.agent.DefaultChatAgent;
 import com.summit.runtime.conversation.DefaultRuntimeFactory;
+import com.summit.runtime.conversation.SnowflakeResponseIdGenerator;
 import com.summit.runtime.loop.DefaultExecutionController;
 import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.core.env.MapPropertySource;
 
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.*;
 
 class ExecutionRuntimeConfigTest {
     private final ExecutionRuntimeConfig configuration = new ExecutionRuntimeConfig();
+
+    @Test
+    void responseGeneratorDefaultsToTheSharedWorkerAndBindsTheConfiguredWorker() {
+        try (AnnotationConfigApplicationContext context = responseGeneratorContext()) {
+            context.refresh();
+            assertSame(SnowflakeResponseIdGenerator.DEFAULT, context.getBean(ResponseIdGenerator.class));
+        }
+        try (AnnotationConfigApplicationContext context = responseGeneratorContext()) {
+            context.getEnvironment().getPropertySources().addFirst(new MapPropertySource("worker",
+                    Map.of("lingxi.agent.runtime.response-id.worker-id", "23")));
+            context.refresh();
+            long id = Long.parseLong(context.getBean(ResponseIdGenerator.class).nextId(null));
+            assertEquals(23, (id >>> 12) & 1023);
+        }
+    }
+
+    @Test
+    void applicationResponseGeneratorReplacesTheDefaultBean() {
+        ResponseIdGenerator custom = previous -> "123";
+        try (AnnotationConfigApplicationContext context = responseGeneratorContext()) {
+            context.registerBean("customResponseIds", ResponseIdGenerator.class, () -> custom);
+            context.refresh();
+            assertSame(custom, context.getBean(ResponseIdGenerator.class));
+            assertEquals(1, context.getBeansOfType(ResponseIdGenerator.class).size());
+        }
+    }
+
+    private AnnotationConfigApplicationContext responseGeneratorContext() {
+        AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
+        context.registerBean(ObjectMapper.class, () -> ExecutionJson.newObjectMapper());
+        context.registerBean(RuntimeFactory.class, () -> DefaultRuntimeFactory.builder().build());
+        context.registerBean(RuntimeBoundaryChecker.class, () -> (RuntimeBoundaryChecker) Proxy.newProxyInstance(
+                RuntimeBoundaryChecker.class.getClassLoader(), new Class<?>[]{RuntimeBoundaryChecker.class},
+                (proxy, method, args) -> { throw new UnsupportedOperationException("boundary is unused"); }));
+        context.register(ExecutionRuntimeConfig.class);
+        return context;
+    }
 
     @Test
     void defaultAgentAndRuntimeFactoryShareTheControllerWithoutACircularDependency() {
@@ -56,8 +90,8 @@ class ExecutionRuntimeConfigTest {
                 public Selection select(String providerName) { return new Selection(null, null, false); }
                 public Selection select(ModelConfig config) { return new Selection(null, null, false); }
             });
-            context.registerBean(WorkspaceManager.class, () -> (WorkspaceManager) Proxy.newProxyInstance(
-                    WorkspaceManager.class.getClassLoader(), new Class<?>[]{WorkspaceManager.class},
+            context.registerBean(WorkspaceResolver.class, () -> (WorkspaceResolver) Proxy.newProxyInstance(
+                    WorkspaceResolver.class.getClassLoader(), new Class<?>[]{WorkspaceResolver.class},
                     (proxy, method, args) -> { throw new UnsupportedOperationException("workspace is unused"); }));
             context.registerBean(ScopeMcpProvider.class, () -> config -> McpToolScope.EMPTY);
             context.register(AgentConfiguration.class);
@@ -109,7 +143,7 @@ class ExecutionRuntimeConfigTest {
         LoopInterceptor interceptor = new InterceptorConfig().loopInterceptor();
 
         assertEquals(InterceptorResult.NONE, interceptor.onBeforeModelInvoke(context));
-        assertEquals(0, context.execution().getModelAttempts());
+        assertEquals(0, context.getLoopMessages().getExecution().getModelAttempts());
     }
 
     private static LoopContext context() {
@@ -118,8 +152,8 @@ class ExecutionRuntimeConfigTest {
                 .agentRequest(AgentRequest.builder()
                         .messages(List.of(UserMessageEntity.from("task"))).build())
                 .build();
-        return new LoopContext(execution, new ExecutionControlSignal("e-1"), 0,
-                Map.of(), messages -> { });
+        return new LoopContext(LoopMessages.builder().execution(execution).build(),
+                new ExecutionControlSignal("e-1"), 0, messages -> { });
     }
 
     private static LoopInterceptor interceptor(String name, int order, List<String> seen) {

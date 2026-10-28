@@ -1,25 +1,36 @@
 package com.summit.runtime.loop;
 
-import com.summit.core.agent.*;
+import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.Execution;
+import com.summit.core.agent.ExecutionState;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.conf.SkillConfig;
-import com.summit.core.exception.MaxStepsExceededException;
-import com.summit.core.conversation.api.*;
-import com.summit.runtime.context.RuntimeContext;
+import com.summit.core.conversation.api.ChatResponseEntity;
+import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.event.*;
 import com.summit.core.conversation.message.*;
+import com.summit.core.exception.MaxStepsExceededException;
+import com.summit.core.model.chat.ChatModel;
 import com.summit.core.model.ModelInvoker;
+import com.summit.runtime.model.DefaultChatModelInvoker;
 import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.runtime.loop.*;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.tool.*;
 import com.summit.runtime.agent.AgentConfig;
-import com.summit.runtime.conversation.*;
+import com.summit.runtime.context.RuntimeContext;
+import com.summit.runtime.conversation.DefaultConversationManager;
+import com.summit.runtime.conversation.DefaultTokenizer;
 import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
-import java.util.*;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -92,7 +103,7 @@ class LoopRegressionTest {
                 .loopInterceptorProcessor(new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor())))
                 .runtimeBoundaryChecker(boundaryChecker(3))
                 .usage(new ContextUsageReporter(tokenizer, 1_024_000, events, 1))
-                .invoker(command -> response(rounds.getAndIncrement() == 0)).build();
+                .invoker(new DefaultChatModelInvoker(request -> response(rounds.getAndIncrement() == 0))).build();
         ExecutionControlSignal control = repository.register(execution.getId());
         try {
             assertEquals(LoopResult.Status.COMPLETED, new AgentLoopStepRunner(context).run(execution, control).status());
@@ -121,20 +132,20 @@ class LoopRegressionTest {
     }
     private ChatResponseEntity response(boolean tools) {
         return ChatResponseEntity.builder().aiMessageEntity(AiMessageEntity.builder().text("answer")
-                .toolCalls(tools ? List.of(new ToolCallRequest("c", "test", "{}")) : List.of()).build())
+                .toolCalls(tools ? List.of(new ToolCallRequest("c", "test", 0, "{}")) : List.of()).build())
                 .tokenUsage(TokenUsageEntity.of(3, 2, 1)).build();
     }
 
-    private RuntimeProcessorTemplate runtime(ModelInvoker invoker, List<ToolExecuteResult> results,
+    private RuntimeProcessorTemplate runtime(ChatModel model, List<ToolExecuteResult> results,
                                              LoopInterceptor interceptor, int maxSteps, RuntimeListener listener) {
-        return runtime(invoker, results, interceptor, maxSteps, listener, null);
+        return runtime(model, results, interceptor, maxSteps, listener, null);
     }
 
-    private RuntimeProcessorTemplate runtime(ModelInvoker invoker, List<ToolExecuteResult> results,
+    private RuntimeProcessorTemplate runtime(ChatModel model, List<ToolExecuteResult> results,
                                              LoopInterceptor interceptor, int maxSteps, RuntimeListener listener,
                                              RuntimeLifeStyleManager lifecycle) {
         LoopInterceptor framework = new DefaultLoopInterceptor();
-        return runtime(invoker, results,
+        return runtime(model, results,
                 new DefaultLoopInterceptorProcessor(List.of(framework, interceptor)), maxSteps, listener, lifecycle);
     }
 
@@ -143,21 +154,28 @@ class LoopRegressionTest {
                 tokenizer, conversations, null, null);
     }
 
-    private RuntimeProcessorTemplate runtime(ModelInvoker invoker, List<ToolExecuteResult> results,
+    private RuntimeProcessorTemplate runtime(ChatModel model, List<ToolExecuteResult> results,
                                              LoopInterceptorProcessor interceptorProcessor, int maxSteps,
                                              RuntimeListener listener, RuntimeLifeStyleManager lifecycle) {
-        return runtime(invoker, results, interceptorProcessor, listener, lifecycle, boundaryChecker(maxSteps));
+        return runtime(model, results, interceptorProcessor, listener, lifecycle, boundaryChecker(maxSteps));
     }
 
-    private RuntimeProcessorTemplate runtime(ModelInvoker invoker, List<ToolExecuteResult> results,
+    private RuntimeProcessorTemplate runtime(ChatModel model, List<ToolExecuteResult> results,
                                              LoopInterceptorProcessor interceptorProcessor,
                                              RuntimeListener listener, RuntimeLifeStyleManager lifecycle,
                                              RuntimeBoundaryChecker checker) {
-        RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(listener));
         ToolExecutionManager tools = new ToolExecutionManager() {
             public List<ToolExecuteResult> execute(ToolExecuteCommand command) { return results; }
             public ToolRegistry toolRegistry() { return new ToolRegistry(List.of()); }
         };
+        return runtimeWithTools(new DefaultChatModelInvoker(model), tools, interceptorProcessor, listener, lifecycle, checker);
+    }
+
+    private RuntimeProcessorTemplate runtimeWithTools(ModelInvoker invoker, ToolExecutionManager tools,
+                                             LoopInterceptorProcessor interceptorProcessor,
+                                             RuntimeListener listener, RuntimeLifeStyleManager lifecycle,
+                                             RuntimeBoundaryChecker checker) {
+        RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(listener));
         RuntimeLifeStyleManager notifications = lifecycle == null ? new DefaultRuntimeLifeStyleManager(events) : lifecycle;
         return new RuntimeProcessorTemplate(RuntimeContext.builder().conversationManager(conversations)
                 .executionRepository(repository)
@@ -167,6 +185,301 @@ class LoopRegressionTest {
                 .runtimeBoundaryChecker(checker)
                 .usage(new ContextUsageReporter(tokenizer, 1_024_000, events, 1))
                 .runtimeEventPublisher(events).toolExecutionManager(tools).invoker(invoker).build());
+    }
+
+    @Test
+    void completionHookSuspendsCommittedReplyAndResumesFromItsSnapshot() {
+        Execution execution = execution();
+        AtomicInteger hooks = new AtomicInteger();
+        AtomicInteger aiEvents = new AtomicInteger();
+        AtomicInteger runEnds = new AtomicInteger();
+        AtomicReference<LoopMessages> observedRound = new AtomicReference<>();
+        AtomicReference<TokenInfo> completedUsage = new AtomicReference<>();
+        LoopInterceptor interceptor = new LoopInterceptor() {
+            public int order() { return 0; }
+            public InterceptorResult onBeforeComplete(LoopContext context) {
+                int round = hooks.incrementAndGet();
+                LoopMessages messages = context.getLoopMessages();
+                Execution current = messages.getExecution();
+                observedRound.set(messages);
+                assertEquals(ExecutionState.RUNNING, current.getExecutionState());
+                assertSame(messages.getResponse().getAiMessageEntity(), current.getAiMessage());
+                assertTrue(current.getMessages().contains(current.getAiMessage()));
+                assertEquals(round, aiEvents.get());
+                assertEquals(round, transcripts.get());
+                assertEquals(round * 3, current.getTokenUsage().getTotalTokens());
+                assertEquals(round, current.getTokenUsage().getInputTokens().getCacheHitTokens());
+                assertEquals(round, current.getTokenUsage().getOutputTokens().getReasoningTokens());
+                assertNull(messages.getToolExecuteResults());
+                Execution saved = repository.findById(current.getId()).orElseThrow();
+                assertEquals(current.getAiMessage().getText(), saved.getAiMessage().getText());
+                assertEquals(current.getTokenUsage().getTotalTokens(), saved.getTokenUsage().getTotalTokens());
+                assertEquals(TokenInfo.from(current.getTokenUsage()), TokenInfo.from(saved.getTokenUsage()));
+                return round == 1 ? InterceptorResult.of(LoopResult.suspended("waiting for child"), false)
+                        : InterceptorResult.NONE;
+            }
+            public InterceptorResult onLoopEnd(LoopContext context) {
+                assertNotNull(context.getLoopMessages().getResponse(), "cleanup follows the end callback");
+                return InterceptorResult.NONE;
+            }
+            public InterceptorResult onRunEnd(Execution finished) {
+                runEnds.incrementAndGet();
+                return InterceptorResult.NONE;
+            }
+        };
+        RuntimeListener listener = new RuntimeListener() {
+            public void onAiMessage(AgentMessageEvent event) { aiEvents.incrementAndGet(); }
+            @Override
+            public void onExecutionCompleted(ExecutionCompleteEvent event) {
+                completedUsage.set(event.getTokenInfo());
+            }
+        };
+
+        runtime(command -> detailedResponse(), List.of(), interceptor, 2, listener).execute(execution);
+
+        assertEquals(ExecutionState.SUSPENDED, execution.getExecutionState());
+        assertEquals(0, runEnds.get());
+        assertNull(observedRound.get().getResponse());
+        assertEquals(0, observedRound.get().getVersion());
+        Execution restored = repository.findById("e").orElseThrow();
+        assertEquals(ExecutionState.SUSPENDED, restored.getExecutionState());
+        assertEquals(1, restored.getModelAttempts());
+        assertEquals(3, restored.getTokenUsage().getTotalTokens());
+        assertEquals(new TokenInfo(2, 1, 3, 1, 1), TokenInfo.from(restored.getTokenUsage()));
+        runtime(command -> {
+            assertTrue(command.getMessages().stream()
+                    .anyMatch(message -> message instanceof AiMessageEntity ai && "answer".equals(ai.getText())));
+            ChatResponseEntity next = detailedResponse();
+            next.getAiMessageEntity().setText("child result accepted");
+            return next;
+        }, List.of(), interceptor, 2, listener).execute(restored);
+
+        assertEquals(ExecutionState.COMPLETED, restored.getExecutionState());
+        assertEquals(2, restored.getModelAttempts());
+        assertEquals(2, transcripts.get(), "resume must not recommit the suspended reply");
+        assertEquals(6, restored.getTokenUsage().getTotalTokens());
+        assertEquals(new TokenInfo(4, 2, 6, 2, 2), completedUsage.get());
+        assertEquals(1, runEnds.get());
+        assertNull(observedRound.get().getResponse());
+    }
+
+    private ChatResponseEntity detailedResponse() {
+        ChatResponseEntity response = response(false);
+        response.setTokenUsage(new TokenUsageEntity(3, new TokenUsageEntity.InputTokens(2, 1),
+                new TokenUsageEntity.OutputTokens(1, 1)));
+        return response;
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"after-model", "before-tools", "after-tools"})
+    void uncommittedCancellationStillReportsReturnedModelUsage(String stage) {
+        Execution execution = execution();
+        AtomicReference<TokenInfo> cancelledUsage = new AtomicReference<>();
+        LoopInterceptor interceptor = new LoopInterceptor() {
+            public int order() { return 0; }
+            private InterceptorResult stopAt(String current) {
+                return stage.equals(current) ? InterceptorResult.of(LoopResult.cancelled("stop"), false)
+                        : InterceptorResult.NONE;
+            }
+            public InterceptorResult onAfterModelInvoke(LoopContext context, ChatResponseEntity response) {
+                return stopAt("after-model");
+            }
+            public InterceptorResult onBeforeToolCall(LoopContext context) { return stopAt("before-tools"); }
+            public InterceptorResult onAfterToolCall(LoopContext context, List<ToolExecuteResult> results) {
+                return stopAt("after-tools");
+            }
+        };
+        runtime(command -> {
+            ChatResponseEntity response = detailedResponse();
+            response.getAiMessageEntity().setToolCalls(List.of(new ToolCallRequest("c", "test", 0, "{}")));
+            return response;
+        }, List.of(ToolExecuteResult.success("ok")), interceptor, 1, new RuntimeListener() {
+            @Override public void onExecutionCancelled(ExecutionCancelledEvent event) {
+                cancelledUsage.set(event.getTokenInfo());
+            }
+        }).execute(execution);
+
+        assertEquals(ExecutionState.CANCELLED, execution.getExecutionState());
+        assertEquals(0, transcripts.get());
+        assertFalse(execution.getMessages().stream().anyMatch(AiMessageEntity.class::isInstance));
+        assertEquals(new TokenInfo(2, 1, 3, 1, 1), cancelledUsage.get());
+    }
+
+    @Test
+    void uncommittedSuspensionPersistsUsageAndResumeCountsEachResponseOnce() {
+        Execution execution = execution();
+        AtomicInteger rounds = new AtomicInteger();
+        AtomicReference<TokenInfo> completedUsage = new AtomicReference<>();
+        LoopInterceptor interceptor = new LoopInterceptor() {
+            public int order() { return 0; }
+            public InterceptorResult onAfterModelInvoke(LoopContext context, ChatResponseEntity response) {
+                return rounds.getAndIncrement() == 0 ? InterceptorResult.of(LoopResult.suspended("wait"), false)
+                        : InterceptorResult.NONE;
+            }
+        };
+        RuntimeListener listener = new RuntimeListener() {
+            @Override public void onExecutionCompleted(ExecutionCompleteEvent event) {
+                completedUsage.set(event.getTokenInfo());
+            }
+        };
+        runtime(command -> detailedResponse(), List.of(), interceptor, 2, listener).execute(execution);
+        assertEquals(ExecutionState.SUSPENDED, execution.getExecutionState());
+        assertEquals(0, transcripts.get());
+        Execution restored = repository.findById(execution.getId()).orElseThrow();
+        assertEquals(new TokenInfo(2, 1, 3, 1, 1), TokenInfo.from(restored.getTokenUsage()));
+        assertFalse(restored.getMessages().stream().anyMatch(AiMessageEntity.class::isInstance));
+
+        runtime(command -> detailedResponse(), List.of(), interceptor, 2, listener).execute(restored);
+        assertEquals(ExecutionState.COMPLETED, restored.getExecutionState());
+        assertEquals(1, transcripts.get());
+        assertEquals(new TokenInfo(4, 2, 6, 2, 2), completedUsage.get());
+    }
+
+    @Test
+    void toolFailureReportsReturnedModelUsageWithoutCommittingMessages() {
+        Execution execution = execution();
+        IllegalStateException failure = new IllegalStateException("tool failed");
+        AtomicReference<TokenInfo> failedUsage = new AtomicReference<>();
+        ToolExecutionManager tools = new ToolExecutionManager() {
+            public List<ToolExecuteResult> execute(ToolExecuteCommand command) { throw failure; }
+            public ToolRegistry toolRegistry() { return new ToolRegistry(List.of()); }
+        };
+        RuntimeProcessorTemplate runtime = runtimeWithTools(new DefaultChatModelInvoker(command -> {
+            ChatResponseEntity response = detailedResponse();
+            response.getAiMessageEntity().setToolCalls(List.of(new ToolCallRequest("c", "test", 0, "{}")));
+            return response;
+        }), tools, new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor())),
+                new RuntimeListener() {
+                    @Override public void onExecutionError(ExecutionErrorEvent event) {
+                        failedUsage.set(event.getTokenInfo());
+                    }
+                }, null, boundaryChecker(1));
+
+        assertSame(failure, assertThrows(IllegalStateException.class, () -> runtime.execute(execution)));
+        assertEquals(ExecutionState.FAILED, execution.getExecutionState());
+        assertEquals(0, transcripts.get());
+        assertFalse(execution.getMessages().stream().anyMatch(AiMessageEntity.class::isInstance));
+        assertEquals(new TokenInfo(2, 1, 3, 1, 1), failedUsage.get());
+    }
+
+    @Test
+    void completionHookOnlyRunsForFinalReplyAndRoundDataIsClearedBetweenToolsAndCompletion() {
+        AtomicInteger rounds = new AtomicInteger();
+        AtomicInteger starts = new AtomicInteger();
+        AtomicInteger ends = new AtomicInteger();
+        AtomicInteger completions = new AtomicInteger();
+        AtomicReference<LoopMessages> observed = new AtomicReference<>();
+        LoopInterceptor interceptor = new LoopInterceptor() {
+            public int order() { return 0; }
+            public InterceptorResult onLoopStart(LoopContext context) {
+                starts.incrementAndGet();
+                assertNull(context.getLoopMessages().getResponse());
+                assertNull(context.getLoopMessages().getToolExecuteResults());
+                assertEquals(0, context.getLoopMessages().getVersion());
+                return InterceptorResult.NONE;
+            }
+            public InterceptorResult onBeforeComplete(LoopContext context) {
+                completions.incrementAndGet();
+                assertEquals(2, starts.get());
+                assertNull(context.getLoopMessages().getToolExecuteResults());
+                return InterceptorResult.NONE;
+            }
+            public InterceptorResult onLoopEnd(LoopContext context) {
+                LoopMessages messages = context.getLoopMessages();
+                observed.set(messages);
+                assertNotNull(messages.getResponse());
+                if (ends.incrementAndGet() == 1) assertEquals(1, messages.getToolExecuteResults().size());
+                else assertNull(messages.getToolExecuteResults());
+                return InterceptorResult.NONE;
+            }
+        };
+        Execution execution = execution();
+        runtime(command -> response(rounds.getAndIncrement() == 0), List.of(ToolExecuteResult.success("ok")),
+                interceptor, 2, new RuntimeListener() { }).execute(execution);
+        assertEquals(ExecutionState.COMPLETED, execution.getExecutionState());
+        assertEquals(1, completions.get());
+        assertEquals(2, ends.get());
+        assertEquals(2, transcripts.get());
+        assertEquals(1, execution.getMessages().stream().filter(ToolMessageEntity.class::isInstance).count());
+        assertNull(observed.get().getResponse());
+        assertNull(observed.get().getToolExecuteResults());
+    }
+
+    @Test
+    void suspensionRequestedAfterAiEventSkipsCompletionHookAndKeepsCommittedReply() {
+        AtomicInteger hooks = new AtomicInteger();
+        LoopInterceptor interceptor = new LoopInterceptor() {
+            public int order() { return 0; }
+            public InterceptorResult onBeforeComplete(LoopContext context) {
+                hooks.incrementAndGet();
+                return InterceptorResult.NONE;
+            }
+        };
+        Execution execution = execution();
+        runtime(command -> response(false), List.of(), interceptor, 1, new RuntimeListener() {
+            public void onAiMessage(AgentMessageEvent event) { repository.requireSuspend("e"); }
+        }).execute(execution);
+        assertEquals(ExecutionState.SUSPENDED, execution.getExecutionState());
+        assertEquals(0, hooks.get());
+        assertEquals(1, transcripts.get());
+        assertEquals(3, execution.getTokenUsage().getTotalTokens());
+    }
+
+    @Test
+    void cancellationInsideCompletionHookOverridesItsSuspensionWithoutDefaultInterceptor() {
+        Execution execution = execution();
+        LoopInterceptorProcessor processor = new LoopInterceptorProcessor() {
+            public InterceptorResult onBeforeComplete(LoopContext context) {
+                context.getSignal().requireSuspend();
+                context.getSignal().requireCancel();
+                return InterceptorResult.of(LoopResult.suspended("waiting for child"), false);
+            }
+        };
+        runtime(command -> response(false), List.of(), processor, 1, new RuntimeListener() { }, null)
+                .execute(execution);
+        assertEquals(ExecutionState.CANCELLED, execution.getExecutionState());
+        assertEquals(1, transcripts.get());
+        assertEquals(3, execution.getTokenUsage().getTotalTokens());
+    }
+
+    @Test
+    void mandatoryCompletionHookFailureKeepsCommittedReplyAndClearsRoundData() {
+        Execution execution = execution();
+        IllegalStateException failure = new IllegalStateException("completion decision failed");
+        AtomicReference<LoopMessages> observed = new AtomicReference<>();
+        LoopInterceptor interceptor = new LoopInterceptor() {
+            public int order() { return 0; }
+            public boolean catchErr() { return false; }
+            public InterceptorResult onBeforeComplete(LoopContext context) {
+                observed.set(context.getLoopMessages());
+                throw failure;
+            }
+        };
+        assertSame(failure, assertThrows(IllegalStateException.class,
+                () -> runtime(command -> response(false), List.of(), interceptor, 1, new RuntimeListener() { })
+                        .execute(execution)));
+        assertEquals(ExecutionState.FAILED, execution.getExecutionState());
+        assertEquals(1, transcripts.get());
+        assertEquals(3, execution.getTokenUsage().getTotalTokens());
+        assertNull(observed.get().getResponse());
+    }
+
+    @Test
+    void promiseSuspensionDoesNotInvokeCompletionHook() {
+        AtomicInteger hooks = new AtomicInteger();
+        LoopInterceptor interceptor = new LoopInterceptor() {
+            public int order() { return 0; }
+            public InterceptorResult onBeforeComplete(LoopContext context) {
+                hooks.incrementAndGet();
+                return InterceptorResult.NONE;
+            }
+        };
+        Execution execution = execution();
+        runtime(command -> response(true), List.of(ToolExecuteResult.promise("pending")),
+                interceptor, 1, new RuntimeListener() { }).execute(execution);
+        assertEquals(ExecutionState.SUSPENDED, execution.getExecutionState());
+        assertEquals(1, transcripts.get());
+        assertEquals(0, hooks.get());
     }
 
     @Test
@@ -201,7 +514,7 @@ class LoopRegressionTest {
             }
 
             public InterceptorResult onAfterToolCall(LoopContext context, List<ToolExecuteResult> results) {
-                repository.requireSuspend(context.execution().getId());
+                repository.requireSuspend(context.getLoopMessages().getExecution().getId());
                 return InterceptorResult.NONE;
             }
             public InterceptorResult onRunEnd(Execution finished) {
@@ -284,7 +597,106 @@ class LoopRegressionTest {
                 }).execute(execution);
         assertEquals(ExecutionState.COMPLETED, execution.getExecutionState());
         assertEquals(1, calls.get());
-        assertEquals(1, updates.get());
+        assertEquals(2, updates.get(), "committed final round plus final lifecycle flush");
+    }
+
+    @Test
+    void completionContinuationKeepsCommittedReplyAndInjectedInputThenNoneCompletes() {
+        AtomicInteger calls = new AtomicInteger();
+        AtomicInteger hooks = new AtomicInteger();
+        AtomicInteger starts = new AtomicInteger();
+        AtomicInteger runEnds = new AtomicInteger();
+        AtomicReference<LoopMessages> observed = new AtomicReference<>();
+        Execution execution = execution();
+        LoopInterceptor reminder = new LoopInterceptor() {
+            public int order() { return -600; }
+            public boolean catchErr() { return false; }
+            public InterceptorResult onBeforeComplete(LoopContext context) {
+                observed.set(context.getLoopMessages());
+                int round = hooks.incrementAndGet();
+                assertEquals(ExecutionState.RUNNING, execution.getExecutionState());
+                assertEquals(round, transcripts.get());
+                assertEquals(round * 3, execution.getTokenUsage().getTotalTokens());
+                assertEquals(round, repository.findById("e").orElseThrow().getModelAttempts());
+                if (round == 1) {
+                    context.appendMessage(List.of(UserMessageEntity.from("finish the checklist")));
+                    return InterceptorResult.of(LoopResult.continueLoop(), false);
+                }
+                return InterceptorResult.NONE;
+            }
+            public InterceptorResult onRunEnd(Execution current) {
+                assertEquals(ExecutionState.COMPLETED, current.getExecutionState());
+                runEnds.incrementAndGet();
+                return InterceptorResult.NONE;
+            }
+        };
+
+        runtime(command -> {
+            int round = calls.incrementAndGet();
+            if (round == 2) {
+                assertEquals(1, command.getMessages().stream().filter(AiMessageEntity.class::isInstance).count());
+                assertEquals(1, command.getMessages().stream()
+                        .filter(message -> message.text().equals("finish the checklist")).count());
+            }
+            return response(false);
+        }, List.of(), reminder, 2, new RuntimeListener() {
+            public void onExecutionStart(ExecutionStartEvent event) { starts.incrementAndGet(); }
+        }).execute(execution);
+
+        assertEquals(ExecutionState.COMPLETED, execution.getExecutionState());
+        assertEquals(2, calls.get());
+        assertEquals(2, hooks.get());
+        assertEquals(2, transcripts.get());
+        assertEquals(6, execution.getTokenUsage().getTotalTokens());
+        assertEquals(1, starts.get());
+        assertEquals(1, runEnds.get());
+        assertNull(observed.get().getResponse());
+        assertEquals(2, execution.getMessages().stream().filter(AiMessageEntity.class::isInstance).count());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"cancel", "suspend"})
+    void completionControlSignalOverridesAnExplicitContinuation(String signal) {
+        AtomicInteger calls = new AtomicInteger();
+        Execution execution = execution();
+        LoopInterceptorProcessor processor = new LoopInterceptorProcessor() {
+            public InterceptorResult onBeforeComplete(LoopContext context) {
+                context.getSignal().requireSuspend();
+                if (signal.equals("cancel")) context.getSignal().requireCancel();
+                return InterceptorResult.of(LoopResult.continueLoop(), false);
+            }
+        };
+
+        runtime(command -> { calls.incrementAndGet(); return response(false); }, List.of(), processor,
+                2, new RuntimeListener() { }, null).execute(execution);
+
+        assertEquals(signal.equals("cancel") ? ExecutionState.CANCELLED : ExecutionState.SUSPENDED,
+                execution.getExecutionState());
+        assertEquals(1, calls.get());
+        assertEquals(1, transcripts.get());
+        assertEquals(3, execution.getTokenUsage().getTotalTokens());
+    }
+
+    @Test
+    void repeatedCompletionContinuationsCannotBypassTheModelAttemptBudget() {
+        AtomicInteger calls = new AtomicInteger();
+        Execution execution = execution();
+        LoopInterceptor reminder = new LoopInterceptor() {
+            public int order() { return -600; }
+            public InterceptorResult onBeforeComplete(LoopContext context) {
+                return InterceptorResult.of(LoopResult.continueLoop(), false);
+            }
+        };
+
+        assertThrows(MaxStepsExceededException.class, () -> runtime(command -> {
+            calls.incrementAndGet();
+            return response(false);
+        }, List.of(), reminder, 2, new RuntimeListener() { }).execute(execution));
+
+        assertEquals(ExecutionState.FAILED, execution.getExecutionState());
+        assertEquals(2, calls.get());
+        assertEquals(2, transcripts.get());
+        assertEquals(6, execution.getTokenUsage().getTotalTokens());
     }
 
     @Test
@@ -331,11 +743,11 @@ class LoopRegressionTest {
         AtomicInteger calls = new AtomicInteger();
         AtomicReference<List<Message>> served = new AtomicReference<>();
         Execution execution = execution();
-        ModelInvoker invoker = command -> {
-            served.set(command.chatRequest().getMessages());
+        ChatModel model = command -> {
+            served.set(command.getMessages());
             return response(calls.getAndIncrement() == 0);
         };
-        runtime(invoker,
+        runtime(model,
                 List.of(ToolExecuteResult.success("{\"summary\":\"finished earlier work\"}", ToolResultType.CONTEXT_COMPACT)),
                 LoopInterceptor.NOOP, 2, new RuntimeListener() {}).execute(execution);
         List<Message> compactedContext = served.get();
@@ -344,6 +756,115 @@ class LoopRegressionTest {
         assertTrue(systemTexts(compactedContext).stream().anyMatch(text -> text.contains("finished earlier work")));
         assertFalse(compactedContext.stream().anyMatch(ToolMessageEntity.class::isInstance));
         assertFalse(execution.getMessages().stream().anyMatch(ToolMessageEntity.class::isInstance));
+    }
+
+    @Test
+    void compactionCounterUpdatesBeforeEndAndResetsOnOrdinaryAndFinalRounds() {
+        AtomicInteger rounds = new AtomicInteger();
+        List<Integer> starts = new ArrayList<>();
+        List<Integer> afterTools = new ArrayList<>();
+        List<Integer> ends = new ArrayList<>();
+        List<ToolExecuteResult> results = new ArrayList<>();
+        LoopInterceptor observer = new LoopInterceptor() {
+            public int order() { return 0; }
+            public InterceptorResult onLoopStart(LoopContext context) {
+                starts.add(context.getConsecutiveCompactTurns());
+                return InterceptorResult.NONE;
+            }
+            public InterceptorResult onAfterToolCall(LoopContext context, List<ToolExecuteResult> tools) {
+                afterTools.add(context.getConsecutiveCompactTurns());
+                return InterceptorResult.NONE;
+            }
+            public InterceptorResult onLoopEnd(LoopContext context) {
+                ends.add(context.getConsecutiveCompactTurns());
+                return InterceptorResult.NONE;
+            }
+            public InterceptorResult onBeforeComplete(LoopContext context) {
+                assertEquals(0, context.getConsecutiveCompactTurns());
+                return InterceptorResult.NONE;
+            }
+        };
+        Execution execution = execution();
+        runtime(command -> {
+            int round = rounds.getAndIncrement();
+            results.clear();
+            results.add(round == 2 ? ToolExecuteResult.success("ordinary result")
+                    : ToolExecuteResult.success("{\"summary\":\"earlier work\"}", ToolResultType.CONTEXT_COMPACT));
+            return response(round < 4);
+        }, results, observer, 5, new RuntimeListener() { }).execute(execution);
+
+        assertEquals(ExecutionState.COMPLETED, execution.getExecutionState());
+        assertEquals(List.of(0, 1, 2, 0, 1), starts);
+        assertEquals(List.of(0, 1, 2, 0), afterTools, "tool callbacks precede settlement");
+        assertEquals(List.of(1, 2, 0, 1, 0), ends);
+        assertEquals(5, transcripts.get());
+    }
+
+    @Test
+    void uncommittedShortCircuitKeepsTheStreakButResumeStartsAtZero() {
+        List<Integer> starts = new ArrayList<>();
+        List<Integer> ends = new ArrayList<>();
+        AtomicInteger pauses = new AtomicInteger();
+        LoopInterceptor observer = new LoopInterceptor() {
+            public int order() { return 0; }
+            public InterceptorResult onBeforeModelInvoke(LoopContext context) {
+                starts.add(context.getConsecutiveCompactTurns());
+                if (context.getConsecutiveCompactTurns() == 1 && pauses.getAndIncrement() == 0)
+                    return InterceptorResult.of(LoopResult.suspended("waiting for input"), false);
+                return InterceptorResult.NONE;
+            }
+            public InterceptorResult onLoopEnd(LoopContext context) {
+                ends.add(context.getConsecutiveCompactTurns());
+                return InterceptorResult.NONE;
+            }
+        };
+        Execution execution = execution();
+        runtime(command -> response(true),
+                List.of(ToolExecuteResult.success("{\"summary\":\"earlier work\"}", ToolResultType.CONTEXT_COMPACT)),
+                observer, 3, new RuntimeListener() { }).execute(execution);
+
+        assertEquals(ExecutionState.SUSPENDED, execution.getExecutionState());
+        assertEquals(1, execution.getModelAttempts());
+        Execution restored = repository.findById(execution.getId()).orElseThrow();
+        runtime(command -> response(false), List.of(), observer, 3, new RuntimeListener() { }).execute(restored);
+
+        assertEquals(ExecutionState.COMPLETED, restored.getExecutionState());
+        assertEquals(List.of(0, 1, 0), starts);
+        assertEquals(List.of(1, 1, 0), ends);
+        assertEquals(2, transcripts.get());
+    }
+
+    @Test
+    void compactionLimitAndCounterAreIndependentWhenReusingOneRunner() throws Exception {
+        List<Integer> ends = new ArrayList<>();
+        ToolExecutionManager tools = new ToolExecutionManager() {
+            public List<ToolExecuteResult> execute(ToolExecuteCommand command) {
+                return List.of(ToolExecuteResult.success("{\"summary\":\"earlier work\"}", ToolResultType.CONTEXT_COMPACT));
+            }
+            public ToolRegistry toolRegistry() { return new ToolRegistry(List.of()); }
+        };
+        LoopInterceptor observer = new LoopInterceptor() {
+            public int order() { return 0; }
+            public InterceptorResult onLoopEnd(LoopContext context) {
+                ends.add(context.getConsecutiveCompactTurns());
+                return InterceptorResult.NONE;
+            }
+        };
+        AgentLoopStepRunner runner = new AgentLoopStepRunner(RuntimeContext.builder()
+                .conversationManager(conversations).toolExecutionManager(tools)
+                .runtimeEventPublisher(new RuntimeEventPublisher(List.of()))
+                .loopInterceptorProcessor(new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor(), observer)))
+                .runtimeBoundaryChecker(boundaryChecker(10)).maxConsecutiveCompactions(2)
+                .invoker(new DefaultChatModelInvoker(request -> response(true))).build());
+        for (int run = 0; run < 2; run++) {
+            Execution execution = execution();
+            execution.setId("run-" + run);
+            LoopResult result = runner.run(execution, new ExecutionControlSignal(execution.getId()));
+            assertEquals(LoopResult.Status.CANCELLED, result.status());
+            assertEquals(2, execution.getModelAttempts());
+        }
+        assertEquals(List.of(1, 2, 1, 2), ends);
+        assertEquals(4, transcripts.get());
     }
 
     private List<String> systemTexts(List<Message> messages) {
@@ -362,7 +883,7 @@ class LoopRegressionTest {
             if (calls.getAndIncrement() > 0) return response(false);
             ChatResponseEntity response = response(true);
             response.getAiMessageEntity().setToolCalls(List.of(
-                    new ToolCallRequest("a", "compact", "{}"), new ToolCallRequest("b", "read", "{}")));
+                    new ToolCallRequest("a", "compact", 0, "{}"), new ToolCallRequest("b", "read", 1, "{}")));
             return response;
         }, List.of(ToolExecuteResult.success("summary", ToolResultType.CONTEXT_COMPACT), ToolExecuteResult.success("read result")),
                 LoopInterceptor.NOOP, 2, new RuntimeListener() {}).execute(execution);
@@ -413,7 +934,7 @@ class LoopRegressionTest {
         runtime(command -> {
             phases.add("model");
             assertEquals(1, execution.getModelAttempts());
-            assertTrue(command.chatRequest().getMessages().stream()
+            assertTrue(command.getMessages().stream()
                     .anyMatch(message -> message.text().equals("checked input")));
             return response(false);
         }, List.of(), new DefaultLoopInterceptorProcessor(List.of(last, new DefaultLoopInterceptor(), first)),
@@ -458,7 +979,7 @@ class LoopRegressionTest {
             public int order() { return 0; }
 
             public InterceptorResult onBeforeModelInvoke(LoopContext context) {
-                return InterceptorResult.of(LoopResult.suspended("waiting for input"));
+                return InterceptorResult.of(LoopResult.suspended("waiting for input"), false);
             }
         };
 
@@ -480,7 +1001,7 @@ class LoopRegressionTest {
             public int order() { return 0; }
 
             public InterceptorResult onBeforeModelInvoke(LoopContext context) {
-                context.signal().requireCancel();
+                context.getSignal().requireCancel();
                 return InterceptorResult.NONE;
             }
         };
@@ -701,9 +1222,14 @@ class LoopRegressionTest {
         Exception primary = new Exception("checked model failure");
         IllegalStateException cleanup = new IllegalStateException("round projection failed");
 
+        ToolExecutionManager tools = new ToolExecutionManager() {
+            public List<ToolExecuteResult> execute(ToolExecuteCommand command) { return List.of(); }
+            public ToolRegistry toolRegistry() { return new ToolRegistry(List.of()); }
+        };
         RuntimeException thrown = assertThrows(RuntimeException.class, () ->
-                runtime(command -> { throw primary; }, List.of(), failingRoundEnd(cleanup), 1,
-                        new RuntimeListener() { }).execute(execution));
+                runtimeWithTools(command -> { throw primary; }, tools,
+                        new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor(), failingRoundEnd(cleanup))),
+                        new RuntimeListener() { }, null, boundaryChecker(1)).execute(execution));
 
         assertSame(primary, thrown.getCause());
         assertArrayEquals(new Throwable[] { cleanup }, primary.getSuppressed());

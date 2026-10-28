@@ -5,9 +5,9 @@ import com.summit.core.conf.SkillConfig;
 import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.tool.*;
+import com.summit.runtime.conversation.DefaultTokenizer;
 import com.summit.runtime.tool.DefaultToolExecutionManager;
 import com.summit.runtime.tool.DefaultToolInterceptor;
-import com.summit.runtime.conversation.DefaultTokenizer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -15,10 +15,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.UUID;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class ReadSkillToolTest {
@@ -117,8 +117,15 @@ class ReadSkillToolTest {
     }
 
     private ToolExecuteCommand command(Path root, List<String> allowed) {
-        return new ToolExecuteCommand(List.of(new ToolCallRequest("call", ReadSkillTool.NAME,
-                "{\"path\":\"SKILL.md\"}")), "test", null, Map.of(), Map.of(), allowed,
-                UUID.randomUUID(), false, null, new SkillConfig(root));
+        return ToolExecuteCommand.builder()
+                .requests(List.of(new ToolCallRequest("call", ReadSkillTool.NAME, 0,
+                "{\"path\":\"SKILL.md\"}")))
+                .executionId("test")
+                .attributes(Map.of())
+                .eventMetaData(Map.of())
+                .allowedTools(allowed)
+                .responseId("1234567890123456789")
+                .skillConfig(new SkillConfig(root))
+                .build();
     }
 }

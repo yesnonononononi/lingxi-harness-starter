@@ -39,14 +39,21 @@ public class ContextUsageReporter {
     }
 
     public void publish(Execution execution) {
-        publish(execution, ContextUpdateEvent.Phase.UPDATE, "");
+        publish(execution, ContextUpdateEvent.Phase.UPDATE, null, "");
     }
 
     public void publish(Execution execution, ContextUpdateEvent.Phase phase, String message) {
+        publish(execution, phase, null, message);
+    }
+
+    /** Compaction events name the band that produced them so consumers can decide per band. */
+    public void publish(Execution execution, ContextUpdateEvent.Phase phase,
+                        ContextUpdateEvent.Band band, String message) {
         try {
             publisher.onContextUpdate(new ContextUpdateEvent(
                     execution.getId(),
                     phase,
+                    band,
                     tokenizer.usage(execution.getMessages(), maxTokens),
                     message, execution.eventMetaData()));
         } catch (Exception e) {

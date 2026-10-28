@@ -3,8 +3,11 @@
  *
  * <p>Package layout:</p>
  * <ul>
- *   <li>{@code codec}    - LangChain4j-local message/tool codecs and the core
- *       {@link com.summit.core.adapter.TokenEstimator} implementation</li>
+ *   <li>{@code codec.message} - core message/content to langchain4j message conversion,
+ *       including the per-protocol message codecs</li>
+ *   <li>{@code codec.tool}    - tool specification and JSON-schema conversion</li>
+ *   <li>{@code codec.media}   - image content conversion</li>
+ *   <li>{@code codec.token}   - the core {@link com.summit.core.adapter.TokenEstimator} implementation</li>
  *   <li>{@code model}    - adapters for core {@code ChatModel} / {@code StreamingChatModel} (accept any langchain4j model instance)</li>
  *   <li>{@code provider} - model factories per protocol (OpenAI protocol, wired to the core Provider SPI and configuration)</li>
  * </ul>

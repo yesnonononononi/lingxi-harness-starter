@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -32,9 +33,11 @@ class KernelToolsConfigurationMetadataTest {
             assertTrue(metadata.contains("lingxi.agent.runtime.tool.read-skill.max-output"));
             assertTrue(metadata.contains("lingxi.agent.runtime.tool.read-skill.timeout"));
             assertTrue(metadata.contains("lingxi.agent.runtime.tool.context-compact.enabled"));
-            assertTrue(metadata.contains("lingxi.agent.runtime.tool.context-compact.truncate-threshold"));
             assertTrue(metadata.contains("lingxi.agent.runtime.tool.context-compact.model-threshold"));
-            assertTrue(metadata.contains("lingxi.agent.runtime.tool.context-compact.truncate-rounds"));
+            assertFalse(metadata.contains("lingxi.agent.runtime.tool.context-compact.prune-target-ratio"));
+            assertFalse(metadata.contains("lingxi.agent.runtime.tool.context-compact.full-segment-count"));
+            assertFalse(metadata.contains("lingxi.agent.runtime.tool.context-compact.full-tool-output-cap"));
+            assertTrue(metadata.contains("lingxi.agent.runtime.tool.context-compact.max-summary-attempts"));
         }
     }
 }

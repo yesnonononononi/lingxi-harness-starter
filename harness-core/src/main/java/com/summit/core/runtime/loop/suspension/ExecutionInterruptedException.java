@@ -1,5 +1,8 @@
 package com.summit.core.runtime.loop.suspension;
 
+import com.summit.core.agent.Execution;
+import com.summit.core.exception.NonRetriableModelException;
+
 /**
  * Raised inside a streaming model call when a control request arrives mid-flight.
  *
@@ -11,7 +14,7 @@ package com.summit.core.runtime.loop.suspension;
  * <p>It is a control-flow signal, not a failure: the loop translates it into
  * {@code LoopResult.suspended} / {@code LoopResult.cancelled} rather than an execution error.</p>
  */
-public class ExecutionInterruptedException extends RuntimeException {
+public class ExecutionInterruptedException extends NonRetriableModelException {
 
     /** The intention observed mid-stream, so the loop can distinguish suspend from cancel. */
     private final Kind kind;
@@ -22,10 +25,14 @@ public class ExecutionInterruptedException extends RuntimeException {
     }
 
     public ExecutionInterruptedException(Kind kind, String message) {
-        super(message);
+        super(message,null);
         this.kind = kind;
     }
 
+    public ExecutionInterruptedException(String message,Kind kind,Throwable throwable){
+        super(message,throwable);
+        this.kind = kind;
+    }
     public Kind kind() {
         return kind;
     }

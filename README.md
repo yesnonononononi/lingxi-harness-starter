@@ -23,7 +23,7 @@ Requires Java 21. Add the starter to a Spring Boot application:
 <dependency>
     <groupId>io.github.yesnonononononi</groupId>
     <artifactId>lingxi-harness-spring-boot-starter</artifactId>
-    <version>1.1.1</version>
+    <version>1.1.7</version>
 </dependency>
 ```
 
@@ -79,9 +79,25 @@ AgentRequest request = AgentRequest.builder()
         .build();
 ```
 
-The local directory must already exist. The same provider, scope, and provider identity configuration reuses a managed workspace; finishing a request does not destroy it automatically. Call `WorkspaceManager.destroy(ref)` when cleanup is needed. The local provider uses `ATTACHED` ownership and is not responsible for deleting user directories.
+The local directory must already exist and is checked on every resolution. Its normalized directory and scope determine a stable workspace identity; the framework does not register or delete user directories.
 
-Docker is an optional module: add the `harness-sandbox-docker` dependency and pass a `DockerWorkspaceSpec` explicitly. See the [Docker README](harness-sandbox-docker/src/main/docker/README.md) for image builds. To customize a remote environment, implement `WorkspaceProvider` and return your own `Workspace` and `WorkspaceBridge`.
+To customize an execution environment, register a `WorkspaceProvider` bean with a unique `type()` and implement `resolve(WorkspaceSpec)` to return your own `Workspace` and `WorkspaceBridge`. `WorkspaceResolver` routes each request to that provider without caching resource records. Providers own container provisioning, reuse, persistence, recovery and cleanup; the framework does not close or destroy the returned workspace when a request completes. The default local provider runs commands on the host without OS sandbox isolation.
+
+The optional `harness-sandbox-mxc` module supplies `MxcWorkspaceProvider` for Linux
+Bubblewrap and native Windows BaseContainer execution through Microsoft MXC. Register the provider and
+explicitly select it with `MxcWorkspaceSpec`; an unavailable backend fails resolution.
+Network access is denied by default; explicit security policy can permit outbound access
+and deny private paths. Ingress and host loopback remain denied.
+See the [MXC adapter guide](harness-sandbox-mxc/README.md) for deployment,
+filesystem semantics, limits, and validation. The former SRT adapter has been removed.
+
+`WorkspaceBridge` implementations provide six operations: `exists`, `createDirectories`, `deleteFile`, `readString`, `writeString`, and `execute`. Writing creates missing files; there is no separate `createFile` operation. `readLines` defaults to splitting the text returned by `readString`, so line parsing does not need a separate environment adapter.
+
+`WorkspaceBridge.execute` accepts one raw command string, not process argv. Tools pass the original command without adding a shell launcher; each bridge selects and invokes the shell advertised by its workspace's `RuntimeEnvironment`. Quotes, variables, pipelines and line breaks belong to the script and must survive transport unchanged. `ProcessRunner` is the lower-level argv executor used internally by bridges.
+
+`ProcessRunner.run(...)` is a stateless convenience API: each call creates an independent `CancellableProcessRunner`. Callers that need cancellation retain their own `CancellableProcessRunner` and call its instance `run(...)` and `cancel()` methods. Each instance allows one active command and can be reused after that call returns. Both APIs share the same stdin, output, timeout, and process-tree cleanup implementation.
+
+For background execution, `WorkspaceCommands.startCommand(...)` returns a `CommandHandler` on Local and MXC workspaces. Its bounded `outputSnapshot()` contains command text, `isDone()` observes completion, and repeated `await()` calls return the same collected result. Timeout and cleanup run independently of waiting callers. `stop()` returns a `StopResult` only after settlement and propagates cleanup failures. MXC uses framed output and token-based cancellation under the same workspace policy as synchronous commands.
 
 `allowOutsideWorkspace` defaults to `false` and is passed to tools with the request. Custom tools should use the workspace path resolution, `encloses` checks, and the bridge; when a tool uses host file APIs or starts processes directly, the framework does not automatically convert those operations into workspace operations.
 
@@ -175,6 +191,21 @@ The limit is clamped at execution time to `[1, batch size]`; when the manager is
 
 Source: [DefaultToolExecutionManager](harness-runtime/src/main/java/com/summit/runtime/tool/DefaultToolExecutionManager.java), [ConcurrentPolicy](harness-core/src/main/java/com/summit/core/tool/ConcurrentPolicy.java).
 
+## Model Protocol Selection
+
+Explicit `ModelConfig.provider` always wins, including when a Claude model uses an OpenAI-compatible gateway. For request-level configurations without a provider, a case-insensitive `claude-` prefix selects native Anthropic; other names use OpenAI. The existing `returnThinking` convention selects the streaming variant for request-level inference. Application chat and compaction defaults infer the protocol from the same prefix while retaining synchronous invocation.
+
+| Protocol | Chat | Streaming | Compaction |
+| --- | --- | --- | --- |
+| OpenAI | `default` | `default-streaming` | `default-compact` |
+| Anthropic | `anthropic` | `anthropic-streaming` | `anthropic-compact` |
+
+OpenAI passes `reasoningEffort` unchanged. Anthropic maps effort to native `output_config.effort` with adaptive thinking on modern Claude models. `minimal` maps to `low`, `xhigh` maps to `high`, and `none` disables thinking. Claude 3 and early Claude 4 models use manual thinking budgets (1024/4096/8192/16384 for low/medium/high/max); budgets must be at least 1024 and below `maxTokens`. Opus 4.5 also receives native effort. Explicit `thinkingType` and `thinkingBudgetTokens` override the inferred mode/budget, so custom model aliases and capability differences can be configured without relying on their name.
+
+`sendThinking` controls replay of historical thinking; `returnThinking` controls retention of returned thinking. Neither is a substitute for the provider's reasoning configuration. `AiMessageEntity.attributes` preserves thinking signatures and redacted blocks across execution snapshots and subsequent model rounds. Anthropic usage includes uncached input, cache creation and cache reads in the input total; cache reads remain available as a subcount.
+
+The corresponding Spring properties are `lingxi.agent.model.conf.chat.thinking-type` / `thinking-budget-tokens` and the same properties under `compact`.
+
 ## Human Interaction and Approval Resume
 
 The framework hands execution back to the application using the `PROMISE` tool result. It is a marker meaning "suspend after this round's results are submitted" — not a Java Future, and the framework does not hold a thread waiting for the user.
@@ -245,6 +276,7 @@ import com.summit.core.runtime.loop.InterceptorResult;
 import com.summit.core.runtime.loop.LoopContext;
 import com.summit.core.runtime.loop.LoopInterceptor;
 import com.summit.core.runtime.loop.LoopResult;
+import java.util.Map;
 
 @Bean
 LoopInterceptor businessLoopInterceptor() {
@@ -252,8 +284,10 @@ LoopInterceptor businessLoopInterceptor() {
         public int order() { return 100; }
 
         public InterceptorResult onBeforeModelInvoke(LoopContext context) {
-            if (Boolean.TRUE.equals(context.attributes().get("pauseBeforeModel"))) {
-                return InterceptorResult.of(LoopResult.suspended("Waiting for application confirmation"));
+            Map<String, Object> attributes = context.getLoopMessages().getExecution().getAgentRequest()
+                    .runtimeParametersOrDefault().getAttributes();
+            if (Boolean.TRUE.equals(attributes.get("pauseBeforeModel"))) {
+                return InterceptorResult.of(LoopResult.suspended("Waiting for application confirmation"), false);
             }
             // If external messages have been claimed, call context.appendMessage(...) here.
             return InterceptorResult.NONE;
@@ -271,10 +305,15 @@ The `pauseBeforeModel` attribute in the example is application-defined and must 
 | `onAfterModelInvoke` | After the model returns, before the assistant message is committed | Can inspect the response; when short-circuiting, this round's response is not yet written to the context |
 | `onBeforeToolCall` | When tool calls exist, before the whole batch executes | Can stop the entire batch of tool calls |
 | `onAfterToolCall` | After the whole batch returns, before Promise/compaction handling and checkpoint commit | Side effects may have occurred, but this round's results are not yet committed |
+| `onBeforeComplete` | After a response without tool calls is committed and checkpointed, before natural completion | `NONE` allows completion; an explicit `CONTINUE` starts another round; suspension keeps the committed reply |
 | `onLoopEnd` | When a round that has been entered exits | Triggered on failure, suspension, and normal exit; the return value does not change the loop result |
 | `onRunEnd` | When the runtime reaches `COMPLETED` / `CANCELLED` / `FAILED` | Not triggered on suspension; notification exceptions are only logged, and the return value does not change the terminal state |
 
-Control callbacks return `InterceptorResult.NONE` to continue; returning `InterceptorResult.of(LoopResult.suspended(...))`, `cancelled(...)`, or `completed()` stops this loop, and later interceptors in the same phase are not invoked. If `onAfterToolCall` wants to keep this round's results and suspend, prefer returning `NONE` so the tool's `PROMISE` follows the normal commit path; short-circuiting directly bypasses subsequent message commits.
+`InterceptorResult.next` controls delegation within the current interceptor chain. Return `InterceptorResult.NONE` to delegate without changing the phase outcome. Return `InterceptorResult.of(loopResult, false)` for an explicit decision that stops the chain: suspension, cancellation and completion stop the loop. In `onBeforeComplete`, `InterceptorResult.of(LoopResult.continueLoop(), false)` starts another model round without suspending; in earlier control callbacks, `CONTINUE` lets the current round proceed. `next=true` cannot accompany a terminal loop result. If `onAfterToolCall` wants to keep this round's results and suspend, prefer returning `NONE` so the tool's `PROMISE` follows the normal commit path; short-circuiting directly bypasses subsequent message commits.
+
+Use `onBeforeComplete` to postpone completion while waiting for application work such as child agents. Inspect the committed response through `context.getLoopMessages().getResponse()` and return `InterceptorResult.of(LoopResult.suspended("Waiting for child agents"), false)` when needed; do not commit it again. The execution is still `RUNNING` at this point. The runtime checks cancellation/suspension signals before and after this hook, with cancellation taking priority. The application owns delivery and scheduling a resume after the execution becomes `SUSPENDED`.
+
+Round response/tool data remains available through `onLoopEnd` and is then cleared on every exit, including compaction continuation, suspension and failure.
 
 `catchErr()` defaults to `true`: the dispatcher logs the exception and continues the chain. Override it to `false` when failures should propagate; exceptions in `onLoopEnd` may fail the execution, and are kept as suppressed exceptions when a primary exception already exists. The runtime's `onRunEnd` notification is always best-effort. The runtime budget is checked independently by `RuntimeBoundaryChecker` and cannot be bypassed by "interceptor continues".
 
@@ -320,7 +359,29 @@ AgentRequest request = AgentRequest.builder()
         .build();
 ```
 
-The default `SkillResolver` depends on CommonMark; when that parsing dependency is missing, ordinary requests can still start, while Skills requests need a custom resolver/loader or the dependency added. `read_skill` is enabled by default in the kernel tools module and can be disabled via `lingxi.agent.runtime.tool.read-skill.enabled`. The default reader accesses the Skills host directory, does not borrow the Docker workspace, and does not execute Skill scripts automatically.
+The default `SkillResolver` depends on CommonMark; when that parsing dependency is missing, ordinary requests can still start, while Skills requests need a custom resolver/loader or the dependency added. `read_skill` is enabled by default in the kernel tools module and can be disabled via `lingxi.agent.runtime.tool.read-skill.enabled`. The default reader accesses the Skills host directory independently of the request workspace and does not execute Skill scripts automatically.
+
+## Model HTTP Clients
+
+All built-in OpenAI and Anthropic chat, streaming, compaction, and image providers accept LangChain4j's `HttpClientBuilderFactory`. No-argument constructors and the default Spring configuration use the JDK client. Applications can replace the Spring factory bean without replacing model providers:
+
+```java
+import dev.langchain4j.http.client.HttpClientBuilderFactory;
+import dev.langchain4j.http.client.okhttp.OkHttpClientBuilder;
+import okhttp3.OkHttpClient;
+import org.springframework.context.annotation.Bean;
+
+@Bean
+HttpClientBuilderFactory modelHttpClientBuilderFactory() {
+    OkHttpClient sharedClient = new OkHttpClient.Builder().build();
+    return () -> new OkHttpClientBuilder()
+            .okHttpClientBuilder(sharedClient.newBuilder());
+}
+```
+
+Add the `langchain4j-http-client-okhttp` dependency matching the LangChain4j release (currently `1.22.0-beta32`). The factory must return a fresh mutable builder for every call: model construction applies per-model timeouts to it. Derived OkHttp builders can share the base client's connection pool and dispatcher; their lifecycle belongs to the application. Without Spring, pass the same factory to a provider constructor. Applications registering several factory beans must select one with `@Primary`.
+
+This factory configures built-in model HTTP traffic. MCP transports and application HTTP calls have separate configuration. Transport recovery does not replace the runtime's model retry budget, cancellation, or retry events.
 
 ## Context Compaction
 
@@ -398,8 +459,8 @@ All packages are prefixed with `com.summit.core`:
 | `compact.ContextCompacter` | Blocking compaction; current auto-configuration injects the concrete `DefaultManualCompacter` / `DefaultModelCompacter`, so registering only this interface bean does not replace both |
 | `compact.Tokenizer` | Token counting and truncation; replaceable by a same-type bean |
 | `adapter.TokenEstimator` | Low-level token estimation; replaceable by a same-type bean |
-| `workspace.WorkspaceManager` | Provider registration and workspace lifecycle coordination; replaceable by a same-type bean |
-| `workspace.WorkspaceStore` | Workspace record storage; replaceable by a same-type bean for the in-memory implementation |
+| `workspace.WorkspaceResolver` | Stateless provider selection; replaceable by a same-type bean |
+| `workspace.WorkspaceProvider` | Resolves a specification; resource lifecycle remains owned by the provider |
 | `runtime.workspace.Workspace` | Environment, path boundaries, and bridge; returned by the provider |
 | `runtime.workspace.WorkspaceBridge` | File and command environment adaptation layer; returned by the workspace |
 
@@ -426,7 +487,6 @@ These interfaces are parts of models/messages/events, usually passed in by a pro
 | --- | --- |
 | `com.summit.adapter.langchain4j.codec.MessageCodec<M,R>` | Converts between harness and LangChain4j messages/responses; for custom adapters, registering a standalone bean does not replace existing adapters |
 | `com.summit.adapter.langchain4j.codec.ToolCodec<T>` | Tool schema conversion; for custom adapters |
-| `com.summit.runtime.workspace.WorkspaceDestroyer` | Destroy/cleanup retry; default reaper implementation, constructed/configured by the consumer |
 | `com.summit.runtime.agent.ChatAgent` (abstract class) | Custom identity and workspace/model/MCP resolution hooks; when a bean of this type exists, the default agent stands down |
 | `com.summit.adapter.langchain4j.mcp.McpClientFactory` (class) | transport/client creation; replaceable by a same-type bean |
 

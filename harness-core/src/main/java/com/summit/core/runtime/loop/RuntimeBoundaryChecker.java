@@ -10,6 +10,9 @@ public interface RuntimeBoundaryChecker {
     /** Checks the next model attempt after all before-model callbacks have appended their input. */
     CheckPointResult before(Execution execution);
 
+    /** Checks each framework attempt without repeating round preparation or compaction. */
+    default void checkModelAttempt(Execution execution) { }
+
     /** Checks an appended ordinary tool round before its checkpoint is saved. */
     CheckPointResult after(Execution execution);
 }

@@ -3,20 +3,22 @@ package com.summit.runtime.conversation;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
-import com.summit.runtime.context.RuntimeContext;
+import com.summit.core.conversation.api.ResponseIdGenerator;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.mcp.McpToolScope;
-import com.summit.core.runtime.loop.*;
 import com.summit.core.model.ModelInvoker;
-import com.summit.core.runtime.*;
+import com.summit.core.runtime.ExecutionRuntime;
+import com.summit.core.runtime.RuntimeFactory;
+import com.summit.core.runtime.loop.*;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.ToolExecutionManager;
+import com.summit.runtime.agent.AgentConfig;
+import com.summit.runtime.compact.DefaultContextPruner;
+import com.summit.runtime.compact.DefaultModelCompacter;
+import com.summit.runtime.context.RuntimeContext;
 import com.summit.runtime.loop.BoundaryChecker;
 import com.summit.runtime.loop.RuntimeProcessorTemplate;
-import com.summit.runtime.agent.AgentConfig;
-import com.summit.runtime.compact.DefaultManualCompacter;
-import com.summit.runtime.compact.DefaultModelCompacter;
 import lombok.Builder;
 import lombok.RequiredArgsConstructor;
 
@@ -26,6 +28,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class DefaultRuntimeFactory implements RuntimeFactory {
     private final RuntimeEventPublisher runtimeEventPublisher;
+    private final ResponseIdGenerator responseIdGenerator;
     private final ToolExecutionManager toolExecutionManager;
     private final ConversationManager conversationManager;
     private final Tokenizer tokenizer;
@@ -36,9 +39,9 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
     private final ExecutionRepository executionRepository;
     private final ExecutionControl executionControl;
     private final LoopInterceptorProcessor loopInterceptorProcessor;
-    /** Manual per-round truncation compaction (shouldSqueeze band). */
-    private final DefaultManualCompacter manualCompacter;
-    /** Model deep compaction (expectAdvanceSqueeze band). */
+    /** Local history pruning (prune band). */
+    private final DefaultContextPruner contextPruner;
+    /** Model deep compaction (summarize band). */
     private final DefaultModelCompacter modelCompacter;
     /**
      * The per-execution boundary checker (budget limits, compaction bands, token exhaustion).
@@ -57,6 +60,7 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
                         .workspace(workspace)
                         .invoker(modelInvoker)
                         .runtimeEventPublisher(runtimeEventPublisher)
+                        .responseIdGenerator(responseIdGenerator)
                         .toolExecutionManager(toolExecutionManager)
                         .conversationManager(conversationManager)
                         .runtimeLifeStyleManager(runtimeLifeStyleManager)
@@ -79,6 +83,6 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
             return boundaryChecker;
         }
         return new BoundaryChecker(agentConfig, tokenizer, conversationManager,
-                manualCompacter, modelCompacter);
+                contextPruner, modelCompacter);
     }
 }

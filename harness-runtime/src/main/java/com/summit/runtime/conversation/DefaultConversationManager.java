@@ -3,6 +3,7 @@ package com.summit.runtime.conversation;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
+import com.summit.core.compact.Tokenizer;
 import com.summit.core.conf.SkillConfig;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ChatResponseEntity;
@@ -10,19 +11,20 @@ import com.summit.core.conversation.api.ConversationTranscriptSink;
 import com.summit.core.conversation.message.*;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.prompt.PromptAssembler;
+import com.summit.core.runtime.loop.LoopMessages;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.skill.SkillLoader;
 import com.summit.core.skill.SkillResume;
-import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolDefinition;
+import com.summit.core.tool.ToolExecuteResult;
 import com.summit.runtime.prompt.SystemPromptAssembler;
 import lombok.extern.slf4j.Slf4j;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
+
 
 /**
  * Stateless operations over the context owned by one execution.
@@ -31,10 +33,21 @@ import java.util.function.Supplier;
 public class DefaultConversationManager implements ConversationManager {
     private static final String CONTINUE_AFTER_COMPACTION_PROMPT = """
             The conversation history before this point has been compacted into the summary above.
+            you may can see all user messages of the history, after that, lastest turn message
             Continue the work from there: do not repeat steps that are already marked as completed.
             """;
 
+    /**
+     * Fraction of the context cap the trailing turn may occupy before {@link #retainableTail} shrinks
+     * it down to its last assistant message. Kept as a named policy constant instead of a literal
+     * buried in the method; a full Spring-configurable binding is tracked separately.
+     */
+    private static final double TAIL_COMPACT_THRESHOLD = 0.20;
 
+    private final Tokenizer tokenizer;
+    private final int maxTokens;
+    /** Fallback context cap for the convenience constructors; the Spring bean passes the real one. */
+    private static final int DEFAULT_MAX_TOKENS = 1_024_000;
     private final ContextAttachmentProvider contextAttachmentProvider;
     private final ConversationTranscriptSink conversationTranscriptSink;
     private final SkillLoader skillLoader;
@@ -50,20 +63,49 @@ public class DefaultConversationManager implements ConversationManager {
 
 
     public DefaultConversationManager(ContextAttachmentProvider contextAttachmentProvider) {
-        this(null, contextAttachmentProvider);
+        this(contextAttachmentProvider, new DefaultTokenizer());
+    }
+
+    public DefaultConversationManager(ContextAttachmentProvider contextAttachmentProvider, Tokenizer tokenizer) {
+        this(null, contextAttachmentProvider, tokenizer);
     }
 
     public DefaultConversationManager(ConversationTranscriptSink conversationTranscriptSink,
-                                      ContextAttachmentProvider contextAttachmentProvider
-    ) {
-        this(conversationTranscriptSink, contextAttachmentProvider, SystemPromptAssembler::new, null);
+                                      ContextAttachmentProvider contextAttachmentProvider) {
+        this(new DefaultTokenizer(), DEFAULT_MAX_TOKENS, conversationTranscriptSink, contextAttachmentProvider,
+                SystemPromptAssembler::new, null);
     }
 
     public DefaultConversationManager(ConversationTranscriptSink conversationTranscriptSink,
                                       ContextAttachmentProvider contextAttachmentProvider,
                                       Supplier<PromptAssembler> promptAssemblerFactory,
+                                      SkillLoader skillLoader) {
+        this(new DefaultTokenizer(), DEFAULT_MAX_TOKENS, conversationTranscriptSink, contextAttachmentProvider,
+                promptAssemblerFactory, skillLoader);
+    }
+
+    public DefaultConversationManager(Tokenizer tokenizer, ConversationTranscriptSink conversationTranscriptSink,
+                                      ContextAttachmentProvider contextAttachmentProvider,
+                                      Supplier<PromptAssembler> promptAssemblerFactory,
+                                      SkillLoader skillLoader) {
+        this(tokenizer, DEFAULT_MAX_TOKENS, conversationTranscriptSink, contextAttachmentProvider,
+                promptAssemblerFactory, skillLoader);
+    }
+
+    public DefaultConversationManager(ConversationTranscriptSink conversationTranscriptSink,
+                                      ContextAttachmentProvider contextAttachmentProvider, Tokenizer tokenizer
+    ) {
+        this(tokenizer, DEFAULT_MAX_TOKENS, conversationTranscriptSink, contextAttachmentProvider, SystemPromptAssembler::new, null);
+    }
+
+    public DefaultConversationManager(Tokenizer tokenizer, int maxTokens,
+                                      ConversationTranscriptSink conversationTranscriptSink,
+                                      ContextAttachmentProvider contextAttachmentProvider,
+                                      Supplier<PromptAssembler> promptAssemblerFactory,
                                       SkillLoader skillLoader
     ) {
+        this.tokenizer = tokenizer;
+        this.maxTokens = maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS;
 
         this.contextAttachmentProvider = contextAttachmentProvider == null
                 ? ContextAttachmentProvider.NONE : contextAttachmentProvider;
@@ -82,20 +124,25 @@ public class DefaultConversationManager implements ConversationManager {
     }
 
     @Override
-    public void addMessage(Execution execution, ChatResponseEntity response,
-                            List<ToolExecuteResult> toolResults) {
+    public void addMessage(LoopMessages loopMessages) {
+        Execution execution = loopMessages.getExecution();
+        ChatResponseEntity response = loopMessages.getResponse();
         List<Message> messages = execution.getMessages();
 
         AiMessageEntity aiMessage = response.getAiMessageEntity();
         List<ToolMessageEntity> toolMessages = new ArrayList<>();
 
-        if (toolResults != null) {
-            for (ToolExecuteResult result : toolResults) {
+        if (loopMessages.getToolExecuteResults() != null) {
+            for (ToolExecuteResult result : loopMessages.getToolExecuteResults()) {
                 ToolDefinition<?> definition = result.getToolSpecification();
                 toolMessages.add(ToolMessageEntity.builder()
                         .id(result.getId())
                         .name(definition == null ? "unknown tool" : definition.name())
-                        .text(result.getToolOutput())
+                        .toolOutput(result.getToolOutput())
+                        .isError(!result.isSuccess())
+                        // The tool's own exit status travels with its message so a pruned skeleton can
+                        // still tell a failed command from a successful one.
+                        .exitCode(result.getExitCode())
                         .build());
             }
         }
@@ -105,8 +152,6 @@ public class DefaultConversationManager implements ConversationManager {
         messages.addAll(toolMessages);
 
         execution.setAiMessage(aiMessage);
-
-        execution.getTokenUsage().add(response.getTokenUsage());
 
         if (conversationTranscriptSink != null) {
             conversationTranscriptSink.appendRound(execution.getId(), aiMessage, List.copyOf(toolMessages),
@@ -156,29 +201,51 @@ public class DefaultConversationManager implements ConversationManager {
 
 
     @Override
-    public void rebuildContext(String summary, Execution execution, boolean answeredTrailingUserTurn) {
+    public void rebuildContext(String summary, Execution execution) {
         if (summary == null || summary.isBlank()) return;
+
         List<Message> current = execution.getMessages();
+        List<Message> attachment = new ArrayList<>();
+        SystemMessageEntity summaryMessage = SystemMessageEntity.builder().text(processSummary(summary)).build();
+        List<Message> rebuilt = new ArrayList<>();
+
+        // protection policy ONE :  find the original system prompt (the protection policy)
         SystemMessageEntity leading = current.stream()
                 .filter(SystemMessageEntity.class::isInstance)
                 .map(SystemMessageEntity.class::cast)
                 .findFirst()
                 .orElseGet(() -> SystemMessageEntity.builder().text(businessPromptOf(execution)).build());
-        List<Message> tail = retainableTail(current, answeredTrailingUserTurn);
-        List<Message> rebuilt = new ArrayList<>();
-        rebuilt.add(leading);
+
+        List<Message> userMessageList = execution.getMessages().stream().filter(UserMessageEntity.class::isInstance).toList();
+
         contextAttachmentProvider.attachment(execution.getId())
                 .filter(value -> !value.isBlank())
-                .ifPresent(value -> rebuilt.add(SystemMessageEntity.builder().text(String.format("""
+                .ifPresent(value -> attachment.add(SystemMessageEntity.builder().text(String.format("""
                         The protected application state produced earlier is reproduced below. Keep following it:
-
+                      
                         %s
                         """, value)).build()));
-        rebuilt.add(SystemMessageEntity.builder().text(summary).build());
-        if (tail.isEmpty()) rebuilt.add(UserMessageEntity.from(CONTINUE_AFTER_COMPACTION_PROMPT));
-        else rebuilt.addAll(tail);
+
+        // protection policy TWO :  find the last user message and the turn belong to it
+        List<Message> tail = stripOldThinking(retainableTail(current));
+
+        // leading -- attachment -- summary(processed) -- userMessage list -- last turns
+        rebuilt.add(leading);
+        rebuilt.addAll(attachment);
+        rebuilt.add(summaryMessage);
+        rebuilt.addAll(userMessageList);
+        rebuilt.addAll(tail);
+
+
         execution.setMessages(rebuilt);
+
+        // Only the counters this class owns are written (§3.3.4): a rebuild advances the summary
+        // generation and invalidates any prune, but says nothing about the attempt budget or the
+        // "summarization is closed" latch — resetting those here is the P0-1 regression.
+        execution.setCompactionState(execution.getCompactionState().afterSummaryRebuild());
     }
+
+
 
     /**
      * Builds the leading system message: where the agent runs, who it is, the remote tools it may
@@ -193,7 +260,7 @@ public class DefaultConversationManager implements ConversationManager {
      * at a time through {@code search_tool}. See {@link McpToolScope}.</p>
      */
     private SystemMessageEntity buildSystemMessage(AgentRequest request, Workspace workspace,
-                                                  McpToolScope mcpToolScope) {
+                                                   McpToolScope mcpToolScope) {
         Objects.requireNonNull(request);
 
         McpToolScope scope = mcpToolScope == null ? McpToolScope.EMPTY : mcpToolScope;
@@ -231,42 +298,104 @@ public class DefaultConversationManager implements ConversationManager {
     }
 
 
-
     private void setLeadingSystemMessage(Execution execution, SystemMessageEntity systemMessage) {
         List<Message> messages = execution.getMessages();
+
         if (!messages.isEmpty() && messages.getFirst() instanceof SystemMessageEntity) messages.set(0, systemMessage);
         else messages.addFirst(systemMessage);
     }
 
-    private List<Message> retainableTail(List<Message> messages, boolean answeredTrailingUserTurn) {
-        List<Message> result = new ArrayList<>();
+    private List<Message> retainableTail(List<Message> messages) {
+        int lastUserMessageIndex = -1;
+
+
         for (int i = messages.size() - 1; i >= 0; i--) {
-            Message message = messages.get(i);
-            if (message instanceof ToolMessageEntity) {
-                result.addFirst(message);
-                continue;
-            }
-            if (message instanceof AiMessageEntity || message instanceof UserMessageEntity) {
-                result.addFirst(message);
+            if (messages.get(i) instanceof UserMessageEntity) {
+                lastUserMessageIndex = i;
                 break;
             }
         }
-        if (answeredTrailingUserTurn && result.stream().anyMatch(UserMessageEntity.class::isInstance)) return List.of();
-        boolean hasAssistant = result.stream().anyMatch(AiMessageEntity.class::isInstance);
-        if (!hasAssistant) return result.stream().noneMatch(ToolMessageEntity.class::isInstance) ? result : List.of();
-        return result.stream().allMatch(DefaultConversationManager::isThinkingSafe) ? result : List.of();
+
+        if (lastUserMessageIndex == -1) {
+            return List.of();
+        }
+
+        if (lastUserMessageIndex == messages.size() - 1) {
+            return List.of();
+        }
+
+        ArrayList<Message> result = new ArrayList<>(
+                messages.subList(lastUserMessageIndex + 1, messages.size())
+        );
+
+        // tokenizer needs to calc the result tokens, if it exceeds the acceptable limit, then the policy further needs to compact
+        double ratio = tokenizer.calcCurrentTokenRatio(result, maxTokens);
+
+        if (ratio >= TAIL_COMPACT_THRESHOLD) {
+            return furtherCompact(result);
+        }
+
+        return result;
     }
 
-    private static boolean isThinkingSafe(Message message) {
-        if (!(message instanceof AiMessageEntity ai)) return true;
-        return ai.getThinking() != null && !ai.getThinking().isBlank();
+    private List<Message> furtherCompact(ArrayList<Message> result) {
+        int lastAiMessageIndex = -1;
+
+        for (int i = result.size() - 1; i >= 0; i--) {
+            Message message = result.get(i);
+            if(message instanceof AiMessageEntity aiMessageEntity){
+                lastAiMessageIndex = i;
+                break;
+            }
+        }
+
+        if(lastAiMessageIndex == -1) {
+            return List.of();
+        }
+
+        return new ArrayList<>(
+                result.subList(lastAiMessageIndex, result.size())
+        );
     }
 
-    private List<SkillResume> loadSkill(SkillConfig skillConfig){
+    /**
+     * Removes thinking (and its provider signature attribute) from the retained trailing assistant
+     * messages.
+     *
+     * <p>A summary rebuild replaces the history prefix, which invalidates any thinking signature the
+     * trailing assistant turn still carries: replaying that signature under a changed prefix is what
+     * a prefix-bound preserved-thinking model rejects (signature mismatch). Only this rebuild path
+     * strips thinking; a plain snapshot restore keeps it, because only here does the prefix change.</p>
+     */
+    private static List<Message> stripOldThinking(List<Message> tail) {
+        List<Message> stripped = new ArrayList<>(tail.size());
+        for (Message message : tail) {
+            if (message instanceof AiMessageEntity ai) {
+                boolean thinkingFree = (ai.getThinking() == null || ai.getThinking().isBlank())
+                        && (ai.getAttributes() == null || ai.getAttributes().isEmpty());
+                stripped.add(thinkingFree ? ai : AiMessageEntity.builder()
+                        .text(ai.getText())
+                        .thinking(null)
+                        .attributes(java.util.Map.of())
+                        .toolCalls(ai.getToolCalls() == null ? List.of() : List.copyOf(ai.getToolCalls()))
+                        .build());
+            } else {
+                stripped.add(message);
+            }
+        }
+        return stripped;
+    }
+
+    private String processSummary(String summary){
+        return summary + "\n" + CONTINUE_AFTER_COMPACTION_PROMPT;
+    }
+
+
+    private List<SkillResume> loadSkill(SkillConfig skillConfig) {
         try {
             if (skillConfig == null) return List.of();
             return skillLoader.load(skillConfig);
-        }catch (Exception e){
+        } catch (Exception e) {
             log.error("Failed to load skill", e);
             throw e;
         }

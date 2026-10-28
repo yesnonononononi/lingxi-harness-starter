@@ -1,13 +1,13 @@
 package com.summit.core.conversation;
 
+import com.summit.core.agent.CompactionState;
 import com.summit.core.agent.Execution;
-import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.mcp.McpToolScope;
+import com.summit.core.runtime.loop.LoopMessages;
 import com.summit.core.runtime.workspace.Workspace;
-import com.summit.core.tool.ToolExecuteResult;
 
 import java.util.List;
 
@@ -25,7 +25,8 @@ public interface ConversationManager {
      */
     void startConversation(Execution execution, Workspace workspace, McpToolScope mcpToolScope);
 
-    void addMessage(Execution execution, ChatResponseEntity chatResponse, List<ToolExecuteResult> toolExecutionResultMessage);
+    /** Commits round messages; the runtime accounts for returned model usage before this call. */
+    void addMessage(LoopMessages loopMessages);
 
     List<Message> messages(Execution execution);
 
@@ -39,7 +40,22 @@ public interface ConversationManager {
      * the compaction strategy, so a session can be rebuilt from any source of one without this
      * contract adopting one summary layout.</p>
      */
-    void rebuildContext(String summary, Execution execution, boolean answeredTrailingUserTurn);
+    void rebuildContext(String summary, Execution execution);
+
+    /**
+     * Reads how far the context compaction of {@code execution} has progressed.
+     *
+     * <p>The state lives on the execution, not here: this manager is a singleton shared by every
+     * execution, so it must not hold per-run state. It <em>changes</em> the execution it is handed
+     * — {@link #rebuildContext} already replaces the execution's messages — and that is how "a
+     * summary generation happened" is expressed without the manager keeping any record.</p>
+     *
+     * @param execution the execution whose compaction state is read
+     * @return the current state, never {@code null}
+     */
+    default CompactionState compactionState(Execution execution) {
+        return execution.getCompactionState();
+    }
 
 
 

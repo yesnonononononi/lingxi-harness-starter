@@ -44,14 +44,22 @@ public class McpConfig {
     /**
      * A local child process reached over stdin/stdout, argv-style — e.g.
      * {@code ["npx", "shadcn@latest", "mcp"]}. {@code env} adds variables on top of the inherited
-     * process environment.
+     * process environment; {@code workDir} is the directory the child starts in (its parent's
+     * directory when absent), which decides how it resolves relative paths.
      */
     public record Stdio(
             List<String> command,
             Map<String, String> env,
+            String workDir,
             Duration initializationTimeout,
             Duration executionTimeout
-    ) implements Conf {}
+    ) implements Conf {
+        /** Keeps call sites written before the working directory existed on the same shape. */
+        public Stdio(List<String> command, Map<String, String> env, Duration initializationTimeout,
+                     Duration executionTimeout) {
+            this(command, env, null, initializationTimeout, executionTimeout);
+        }
+    }
 
     public record MCP(
             String name,

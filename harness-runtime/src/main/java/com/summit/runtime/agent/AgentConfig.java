@@ -2,14 +2,15 @@ package com.summit.runtime.agent;
 
 import lombok.Builder;
 
+/** Runtime input budget, loop limits and model-summary policy. */
 @Builder
 public record AgentConfig(
         ProgressiveSqueezePolicy squeezeThreshold,
         Integer maxTokens,
         Integer maxIterations,
-        Integer maxConsecutiveCompactions
+        Integer maxConsecutiveCompactions,
+        Integer maxSummaryAttempts
 ) {
-    /** Consecutive compaction rounds tolerated when the application configures no limit. */
     public static final int DEFAULT_MAX_CONSECUTIVE_COMPACTIONS = 3;
 
     public AgentConfig {
@@ -17,24 +18,33 @@ public record AgentConfig(
         maxIterations = maxIterations == null ? 500 : maxIterations;
         maxConsecutiveCompactions = maxConsecutiveCompactions == null
                 ? DEFAULT_MAX_CONSECUTIVE_COMPACTIONS : maxConsecutiveCompactions;
+
         if (maxTokens <= 0 || maxIterations <= 0 || maxConsecutiveCompactions <= 0) {
             throw new IllegalArgumentException("Runtime budgets must be positive");
         }
-    }
 
-    public record ProgressiveSqueezePolicy(
-            OriginalSqueeze truncateSqueeze,
-            ModelSqueeze modelSqueeze
-    ){}
-
-    public record OriginalSqueeze(Double threshold,int expectTruncateTurn){
-        public OriginalSqueeze defaultPolicy(){
-            return new OriginalSqueeze(0.7,5);
+        if (maxSummaryAttempts != null && maxSummaryAttempts <= 0) {
+            throw new IllegalArgumentException("maxSummaryAttempts must be positive when configured: "
+                    + maxSummaryAttempts);
         }
     }
-    public record ModelSqueeze(Double threshold){
-        public ModelSqueeze defaultPolicy(){
+
+    /** Null deliberately means one attempt; applications choose whether another attempt is allowed. */
+    public int summaryAttemptBudget() {
+        return maxSummaryAttempts == null ? 1 : maxSummaryAttempts;
+    }
+
+    /** The trigger is separate from the hard input budget checked after local pruning. */
+    public record ProgressiveSqueezePolicy(ModelSqueeze modelSqueeze) {
+    }
+
+    public record ModelSqueeze(Double threshold) {
+        public ModelSqueeze defaultPolicy() {
             return new ModelSqueeze(0.85);
         }
+    }
+
+    /** Published by the properties owner without introducing an upward module dependency. */
+    public record CompactionTuning(Integer maxSummaryAttempts) {
     }
 }

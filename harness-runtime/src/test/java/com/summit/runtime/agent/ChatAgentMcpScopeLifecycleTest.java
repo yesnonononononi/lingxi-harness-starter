@@ -5,21 +5,23 @@ import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
 import com.summit.core.conf.McpConfig;
 import com.summit.core.conf.McpTransport;
+import com.summit.core.conf.SensitiveDataSpec;
 import com.summit.core.conversation.event.ExecutionErrorEvent;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.conversation.message.UserMessageEntity;
-import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.core.mcp.McpSession;
 import com.summit.core.mcp.McpToolScope;
+import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.core.model.RequestModelInvokerFactory;
 import com.summit.core.runtime.RuntimeFactory;
 import com.summit.core.runtime.RuntimeListener;
-import com.summit.runtime.loop.DefaultExecutionController;
-import com.summit.runtime.loop.DefaultRuntimeLifeStyleManager;
 import com.summit.core.runtime.workspace.Workspace;
-import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
 import com.summit.core.tool.ToolDefinition;
 import com.summit.core.tool.ToolExecutor;
+import com.summit.runtime.loop.DefaultExecutionController;
+import com.summit.runtime.loop.DefaultRuntimeLifeStyleManager;
+import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
+import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -28,10 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * The MCP scope belongs to the execution, not to one attempt: a resume reuses the scope its
@@ -125,18 +124,35 @@ class ChatAgentMcpScopeLifecycleTest {
         assertEquals(0, closed.get());
     }
 
-    /**
-     * A request that declares servers but runs on an agent without a register must not fail the
-     * request, and must not silently pretend everything is fine either: the empty scope is a
-     * configuration fault worth warning about.
-     */
     @Test
-    void declaredServersWithoutARegisterDegradeToEmptyScope() {
+    void declaredServersWithoutARegisterFailInitialization() {
         TestAgent agent = agentWithoutRegister(ExecutionState.COMPLETED);
-
-        agent.execute(request("e-3"));
+        Execution execution = request("e-3");
+        assertThrows(IllegalStateException.class, () -> agent.execute(execution));
+        assertEquals(ExecutionState.FAILED, execution.getExecutionState());
 
         assertEquals(0, opened.get(), "no register means no session can be opened");
+        assertEquals(0, closed.get());
+    }
+
+    @Test
+    void resolvedWorkspaceReachesProviderAndSuspensionKeepsItsScope() {
+        java.util.concurrent.atomic.AtomicReference<Workspace> seen = new java.util.concurrent.atomic.AtomicReference<>();
+        ScopeMcpProvider provider = new ScopeMcpProvider() {
+            public McpToolScope openScope(@NonNull McpConfig config) { throw new AssertionError("missing workspace"); }
+            public McpToolScope openScope(@NonNull McpConfig config, Workspace workspace) {
+                opened.incrementAndGet(); seen.set(workspace);
+                return McpToolScope.of(List.of(session()));
+            }
+        };
+        TestAgent agent = new TestAgent(factory(ExecutionState.SUSPENDED), provider);
+        agent.workspace = new com.summit.runtime.workspace.LocalWorkspaceProvider().resolve(
+                new com.summit.core.workspace.BasicWorkspaceSpec("local", java.nio.file.Path.of(".").toAbsolutePath().toString(), Map.of()));
+        Execution execution = request("workspace-propagation");
+        agent.execute(execution);
+        assertSame(agent.workspace, seen.get());
+        agent.execute(execution);
+        assertEquals(1, opened.get());
         assertEquals(0, closed.get());
     }
 
@@ -176,7 +192,7 @@ class ChatAgentMcpScopeLifecycleTest {
                 .messages(new ArrayList<>(List.of(UserMessageEntity.from("task"))))
                 .agentRequest(AgentRequest.builder()
                         .messages(List.of(UserMessageEntity.from("task")))
-                        .mcpConfig(mcpConfig())
+                        .mcpConfigSpec(SensitiveDataSpec.builder().id(99L).version(3).build())
                         .build())
                 .build();
     }
@@ -192,14 +208,16 @@ class ChatAgentMcpScopeLifecycleTest {
 
     /** Minimal agent: no model, no workspace, only the MCP scope lifecycle under test. */
     private static final class TestAgent extends ChatAgent {
+        private Workspace workspace;
         private TestAgent(RuntimeFactory factory, ScopeMcpProvider register) {
             this(factory, register, new InMemoryActiveExecutionRegistry(), new RuntimeEventPublisher(List.of()));
         }
 
         private TestAgent(RuntimeFactory factory, ScopeMcpProvider register,
                           InMemoryActiveExecutionRegistry repository, RuntimeEventPublisher events) {
-            super(factory, null, null, null, register, repository,
-                    new DefaultExecutionController(() -> null, repository, events, new DefaultRuntimeLifeStyleManager(events)));
+            super(factory, null, null, register, null, repository,
+                    new DefaultExecutionController(() -> null, repository, events, new DefaultRuntimeLifeStyleManager(events)),
+                    (id, version) -> mcpConfig(), null);
         }
 
         @Override
@@ -209,7 +227,7 @@ class ChatAgentMcpScopeLifecycleTest {
 
         @Override
         protected Workspace resolveWorkspace(AgentRequest request) {
-            return null;
+            return workspace;
         }
 
         @Override
