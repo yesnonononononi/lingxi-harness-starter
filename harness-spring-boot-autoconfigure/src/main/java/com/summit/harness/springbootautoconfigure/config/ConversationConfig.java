@@ -33,6 +33,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.List;
+
 @AutoConfiguration
 public class ConversationConfig {
     /**
@@ -46,7 +48,7 @@ public class ConversationConfig {
      */
     @Bean
     @ConditionalOnMissingBean
-    public ConversationManager conversationManager(ContextAttachmentProvider contextAttachmentProvider,
+    public ConversationManager conversationManager(List<ContextAttachmentProvider> contextAttachmentProviders,
                                                    ObjectProvider<ConversationTranscriptSink> conversationTranscriptSink,
                                                    ObjectProvider<PromptAssembler> promptAssembler,
                                                    SkillLoader skillLoader,
@@ -54,7 +56,7 @@ public class ConversationConfig {
                                                    AgentConfig agentConfig) {
         return new DefaultConversationManager(
                 tokenizer, agentConfig.maxTokens(), conversationTranscriptSink.getIfAvailable(),
-                contextAttachmentProvider,
+                ContextAttachmentProvider.compose(contextAttachmentProviders),
                 () -> promptAssembler.getIfAvailable(SystemPromptAssembler::new),
                 skillLoader
         );
@@ -105,16 +107,17 @@ public class ConversationConfig {
     @Bean
     @ConditionalOnMissingBean(name = "contextPruner")
     public DefaultContextPruner contextPruner(AgentConfig config, ContextUsageReporter usage,
-                                             ContextAttachmentProvider attachments) {
-        return new DefaultContextPruner(config, usage, attachments);
+                                             List<ContextAttachmentProvider> attachments) {
+        return new DefaultContextPruner(config, usage, ContextAttachmentProvider.compose(attachments));
     }
 
     @Bean
     @ConditionalOnMissingBean(name = "modelCompacter")
     public DefaultModelCompacter modelCompacter(RequestCompactModelResolver models, ExecutionRepository executions,
-            ConversationManager conversations, ContextAttachmentProvider attachments,
+            ConversationManager conversations, List<ContextAttachmentProvider> attachments,
             ContextUsageReporter usage) {
-        return new DefaultModelCompacter(models::resolve, executions, conversations, attachments, usage);
+        return new DefaultModelCompacter(models::resolve, executions, conversations,
+                ContextAttachmentProvider.compose(attachments), usage);
     }
 
     @Bean
@@ -126,7 +129,7 @@ public class ConversationConfig {
     }
 
     @Bean
-    @ConditionalOnMissingBean(name = "contextAttachmentProvider")
+    @ConditionalOnMissingBean(ContextAttachmentProvider.class)
     public ContextAttachmentProvider contextAttachmentProvider() {
         return ContextAttachmentProvider.NONE;
     }
