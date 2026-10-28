@@ -105,7 +105,7 @@ class RequestCompactModelResolverTest {
             assertEquals(model.startsWith("claude") ? "anthropic-compact" : "default-compact", compact.getProvider());
             assertEquals(config.getTimeout(), compact.getTimeout());
             assertFalse(compact.isSendThinking());
-            assertEquals("none", compact.getReasoningEffort());
+            assertNull(compact.getReasoningEffort());
         }
     }
 

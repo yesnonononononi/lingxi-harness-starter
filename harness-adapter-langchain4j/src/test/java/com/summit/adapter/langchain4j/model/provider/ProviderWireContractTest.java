@@ -112,6 +112,24 @@ class ProviderWireContractTest {
         }
     }
 
+    @Test
+    void openAiCompactionOmitsUnspecifiedReasoningEffortAndRetainsExplicitValues() throws Exception {
+        try (Endpoint endpoint = new Endpoint()) {
+            ModelConfig config = config(endpoint, "gpt-test").sendThinking(false).returnThinking(false).build();
+            ChatRequestEntity request = ChatRequestEntity.builder()
+                    .messages(List.of(UserMessageEntity.from("summarize"))).build();
+            new OpenAiCompactContextModelProvider().create(config).chat(request);
+            JsonNode omitted = endpoint.requests.poll(10, TimeUnit.SECONDS);
+            assertNotNull(omitted);
+            assertFalse(omitted.has("reasoning_effort"));
+
+            new OpenAiCompactContextModelProvider().create(config.toBuilder().reasoningEffort("low").build()).chat(request);
+            JsonNode explicit = endpoint.requests.poll(10, TimeUnit.SECONDS);
+            assertNotNull(explicit);
+            assertEquals("low", explicit.path("reasoning_effort").asText());
+        }
+    }
+
     /**
      * Anthropic reports zero cache reads unless the request marks the reusable prefix with
      * {@code cache_control}; the flag has to reach the wire, not just sit in the config.
