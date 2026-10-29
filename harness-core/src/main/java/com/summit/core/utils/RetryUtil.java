@@ -45,8 +45,7 @@ public class RetryUtil {
                         || config.execRequireRetry() != null && !config.execRequireRetry().test(error)) {
                     throw error;
                 }
-                long limit = Math.min(ABSOLUTE_MAX_DELAY_MILLIS,
-                        Math.max(config.timeUnit().toMillis(config.maxDelay()), 0));
+                long limit = Math.clamp(config.timeUnit().toMillis(config.maxDelay()), 0, ABSOLUTE_MAX_DELAY_MILLIS);
                 long exponential = (long) (config.timeUnit().toMillis(Math.max(config.basicTimeout(), 0))
                         * Math.pow(Math.max(config.multiple(), 1), retryCount));
                 long delay = ThreadLocalRandom.current().nextLong(Math.min(exponential, limit) + 1);
