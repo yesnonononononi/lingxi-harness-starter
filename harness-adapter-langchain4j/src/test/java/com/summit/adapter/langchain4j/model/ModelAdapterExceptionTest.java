@@ -27,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.ProtocolException;
 import java.security.cert.CertificateException;
 import java.io.InterruptedIOException;
@@ -36,7 +37,9 @@ import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 import java.net.http.HttpTimeoutException;
 import java.nio.channels.ClosedChannelException;
+import java.nio.channels.ClosedByInterruptException;
 import javax.net.ssl.SSLHandshakeException;
+import javax.net.ssl.SSLException;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
@@ -77,11 +80,14 @@ class ModelAdapterExceptionTest {
     Stream<DynamicTest> unknownAndControlFailuresRemainUnchanged() {
         List<RuntimeException> failures = List.of(
                 new IllegalStateException("unexpected"),
-                new LangChain4jException(new SSLHandshakeException("certificate rejected")),
                 new LangChain4jException(new SSLHandshakeException("Remote host terminated the handshake")
                         .initCause(new CertificateException("certificate rejected"))),
-                new LangChain4jException(new ProtocolException("malformed HTTP status line")),
+                new LangChain4jException(new SSLException("certificate rejected",
+                        new CertificateException("certificate rejected"))),
                 new CompletionException(new InterruptedIOException("interrupted")),
+                new LangChain4jException(new ClosedByInterruptException()),
+                new LangChain4jException(new IOException("cancelled", new CancellationException("cancelled"))),
+                new LangChain4jException(new IOException("interrupted", new InterruptedException("interrupted"))),
                 new RuntimeException(new RateLimitException("not an asynchronous wrapper")),
                 new CancellationException("cancelled"),
                 new ExecutionInterruptedException(ExecutionInterruptedException.Kind.CANCEL, "cancelled"),
@@ -104,12 +110,18 @@ class ModelAdapterExceptionTest {
                 new HttpTimeoutException("request timed out"), new ClosedChannelException(),
                 new SSLHandshakeException("Remote host terminated the handshake"),
                 shutdown,
-                new ProtocolException("unexpected end of stream"));
-        return Stream.of(Boundary.values()).flatMap(boundary -> failures.stream().map(failure ->
-                DynamicTest.dynamicTest(boundary + " transport " + failure.getClass().getSimpleName(), () -> {
-                    RuntimeException wrapped = new CompletionException(new LangChain4jException(failure));
+                new ProtocolException("unexpected end of stream"),
+                new ProtocolException("malformed HTTP status line"),
+                new SSLHandshakeException("handshake failed"),
+                new SSLException("bad_record_mac"),
+                new IOException("unlisted transport failure") { });
+        return Stream.of(Boundary.values()).flatMap(boundary -> failures.stream().flatMap(failure ->
+                Stream.of(false, true).map(unchecked -> DynamicTest.dynamicTest(
+                        boundary + " transport " + failure.getClass().getSimpleName() + " unchecked=" + unchecked, () -> {
+                    RuntimeException wrapped = new CompletionException(new LangChain4jException(
+                            unchecked ? new UncheckedIOException(failure) : failure));
                     assertSame(wrapped, assertInstanceOf(RetriableModelException.class, invoke(boundary, wrapped)).getCause());
-                })));
+                }))));
     }
 
     @Test

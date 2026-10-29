@@ -8,18 +8,14 @@ import dev.langchain4j.exception.RetriableException;
 import dev.langchain4j.exception.LangChain4jException;
 
 import java.io.IOException;
-import java.io.EOFException;
+import java.io.InterruptedIOException;
 import java.io.UncheckedIOException;
-import java.net.SocketException;
-import java.net.ProtocolException;
 import java.net.SocketTimeoutException;
-import java.net.UnknownHostException;
-import java.net.http.HttpTimeoutException;
-import java.nio.channels.ClosedChannelException;
+import java.nio.channels.ClosedByInterruptException;
 import java.security.cert.CertificateException;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
-import javax.net.ssl.SSLHandshakeException;
 
 /** SDK classifications and transport failures cross into the framework's retry contract. */
 final class ModelExceptionMapper {
@@ -49,24 +45,20 @@ final class ModelExceptionMapper {
                 || transport instanceof UncheckedIOException) && transport.getCause() != null) {
             transport = transport.getCause();
         }
-        if (transport != null && (transport.getClass() == IOException.class || transport instanceof EOFException
-                || transport instanceof SocketException || transport instanceof SocketTimeoutException
-                || transport instanceof UnknownHostException || transport instanceof HttpTimeoutException
-                || transport instanceof ClosedChannelException || isTransientTlsShutdown(transport)
-                // OkHttp reports a truncated fixed-length response as a protocol error, not EOFException.
-                || transport instanceof ProtocolException && "unexpected end of stream".equals(transport.getMessage()))) {
+        // Transport implementations add IOException subtypes; enumerating them silently loses retry coverage.
+        if (transport instanceof IOException && !isNonRetryableTransport(transport)) {
             return new RetriableModelException(transport.getMessage(), error);
         }
         return error;
     }
 
-    private static boolean isTransientTlsShutdown(Throwable error) {
-        if (!(error instanceof SSLHandshakeException)) return false;
-        boolean remoteClosed = "Remote host terminated the handshake".equals(error.getMessage());
-        for (Throwable cause = error.getCause(); cause != null; cause = cause.getCause()) {
-            if (cause instanceof CertificateException) return false;
-            if (cause instanceof EOFException || cause instanceof SocketException) remoteClosed = true;
+    private static boolean isNonRetryableTransport(Throwable error) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            // Socket timeouts share InterruptedIOException's hierarchy but do not request cancellation.
+            if (cause instanceof InterruptedIOException && !(cause instanceof SocketTimeoutException)
+                    || cause instanceof ClosedByInterruptException || cause instanceof InterruptedException
+                    || cause instanceof CancellationException || cause instanceof CertificateException) return true;
         }
-        return remoteClosed;
+        return false;
     }
 }
