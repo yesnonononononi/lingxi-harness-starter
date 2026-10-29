@@ -119,9 +119,58 @@ class McpValidatorTest {
         assertThrows(IllegalArgumentException.class, () -> McpTransport.parse(null));
     }
 
+    @Test
+    void validClientTuningPasses() {
+        assertDoesNotThrow(() -> McpValidator.validate(httpTuned("github", "2025-11-25", true,
+                Duration.ofSeconds(30), Duration.ofSeconds(5))));
+        assertDoesNotThrow(() -> McpValidator.validate(new McpConfig.MCP("npx", null, McpTransport.STDIO,
+                new McpConfig.Stdio(List.of("npx"), Map.of(), null, INIT, EXEC,
+                        "2025-11-25", false, Duration.ofMillis(1), Duration.ofMillis(1)), 100)));
+    }
+
+    /** A pinned protocol version is what removes the failing version probe, so its shape is guarded. */
+    @Test
+    void protocolVersionMustLookLikeAYyyyMmDdDate() {
+        assertInvalid(httpTuned("a", "abc", null, null, null), "protocol-version");
+        assertInvalid(httpTuned("b", "   ", null, null, null), "protocol-version");
+        assertInvalid(httpTuned("c", "2025-11-25T00:00:00Z-extended-suffix", null, null, null),
+                "protocol-version");
+        assertInvalid(new McpConfig.MCP("npx", null, McpTransport.STDIO,
+                new McpConfig.Stdio(List.of("npx"), Map.of(), null, INIT, EXEC,
+                        "latest", null, null, null), 100), "protocol-version");
+    }
+
+    /** Intervals are matched to the library's own granularity: nothing below one millisecond. */
+    @Test
+    void tuningIntervalsMustBeAtLeastOneMillisecond() {
+        assertInvalid(httpTuned("a", null, null, Duration.ZERO, null), "health-check-interval");
+        assertInvalid(httpTuned("b", null, null, Duration.ofMillis(-1), null), "health-check-interval");
+        assertInvalid(httpTuned("c", null, null, null, Duration.ZERO), "reconnect-interval");
+        assertInvalid(new McpConfig.MCP("npx", null, McpTransport.STDIO,
+                new McpConfig.Stdio(List.of("npx"), Map.of(), null, INIT, EXEC,
+                        null, null, Duration.ZERO, null), 100), "health-check-interval");
+    }
+
+    /** Every tuning field is optional; leaving all four unset must stay valid for both transports. */
+    @Test
+    void absentClientTuningIsValid() {
+        assertDoesNotThrow(() -> McpValidator.validate(httpTuned("a", null, null, null, null)));
+        assertDoesNotThrow(() -> McpValidator.validate(new McpConfig.MCP("npx", null, McpTransport.STDIO,
+                new McpConfig.Stdio(List.of("npx"), Map.of(), null, INIT, EXEC, null, null, null, null),
+                100)));
+    }
+
     private static McpConfig.MCP http(String name, String url) {
         return new McpConfig.MCP(name, null, McpTransport.STREAMABLE_HTTP,
                 new McpConfig.StreamableHttp(url, Map.of(), INIT, EXEC), 100);
+    }
+
+    private static McpConfig.MCP httpTuned(String name, String protocolVersion, Boolean autoHealthCheck,
+                                           Duration healthCheckInterval, Duration reconnectInterval) {
+        return new McpConfig.MCP(name, null, McpTransport.STREAMABLE_HTTP,
+                new McpConfig.StreamableHttp("https://" + (name.isEmpty() ? "a" : name) + ".example/mcp",
+                        Map.of(), INIT, EXEC, protocolVersion, autoHealthCheck, healthCheckInterval,
+                        reconnectInterval), 100);
     }
 
     private static void assertInvalid(McpConfig.MCP server, String expectedFragment) {

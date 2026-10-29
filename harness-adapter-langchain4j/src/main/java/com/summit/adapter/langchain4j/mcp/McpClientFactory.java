@@ -11,6 +11,7 @@ import dev.langchain4j.mcp.client.transport.stdio.StdioMcpTransport;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
@@ -38,7 +39,7 @@ public class McpClientFactory {
 
     private McpClient createClient(String key, McpConfig.MCP server, McpTransport transport) {
         try {
-            return new DefaultMcpClient.Builder()
+            DefaultMcpClient.Builder builder = new DefaultMcpClient.Builder()
                     .key(key)
                     .transport(transport)
                     .initializationTimeout(server.initializationTimeout())
@@ -48,8 +49,9 @@ public class McpClientFactory {
                     // call that most servers answer with 404, logging a stack trace per server.
                     .subscribeToToolListChanges(false)
                     .subscribeToPromptListChanges(false)
-                    .subscribeToResourceListChanges(false)
-                    .build();
+                    .subscribeToResourceListChanges(false);
+            applyTuning(builder, server.conf());
+            return builder.build();
         } catch (RuntimeException | Error failure) {
             try {
                 transport.close();
@@ -57,6 +59,58 @@ public class McpClientFactory {
                 failure.addSuppressed(closeFailure);
             }
             throw failure;
+        }
+    }
+
+    /**
+     * Forwards the client-tuning settings carried by either connection record.
+     *
+     * <p>Both transports go through this single method: duplicating the four branches per record is
+     * exactly the kind of duplication that lets a field silently stop being forwarded.
+     *
+     * @param builder client builder to tune
+     * @param conf    connection settings of the server being created
+     */
+    void applyTuning(DefaultMcpClient.Builder builder, McpConfig.Conf conf) {
+        switch (conf) {
+            case McpConfig.StreamableHttp http -> applyTuning(builder, http.protocolVersion(),
+                    http.autoHealthCheck(), http.healthCheckInterval(), http.reconnectInterval());
+            case McpConfig.Stdio stdio -> applyTuning(builder, stdio.protocolVersion(),
+                    stdio.autoHealthCheck(), stdio.healthCheckInterval(), stdio.reconnectInterval());
+            // The bundled client library ships no SSE transport; the validator rejects it first.
+            case McpConfig.Sse ignored -> {
+            }
+        }
+    }
+
+    /**
+     * Applies the optional client-tuning settings shared by every transport.
+     *
+     * <p>Each value is set only when the configuration provides one: a {@code null} field means the
+     * client library default stays in force, which keeps configurations written before these
+     * fields existed on exactly their previous behaviour. Values are therefore never defaulted
+     * here — only forwarded.
+     *
+     * @param builder             client builder to tune
+     * @param protocolVersion     explicit protocol version; blank or null keeps library probing
+     * @param autoHealthCheck     health check switch; null keeps the library default
+     * @param healthCheckInterval health check interval; null keeps the library default
+     * @param reconnectInterval   reconnect interval; null keeps the library default
+     */
+    void applyTuning(DefaultMcpClient.Builder builder, String protocolVersion,
+                     Boolean autoHealthCheck, Duration healthCheckInterval,
+                     Duration reconnectInterval) {
+        if (protocolVersion != null && !protocolVersion.isBlank()) {
+            builder.protocolVersion(protocolVersion.trim());
+        }
+        if (autoHealthCheck != null) {
+            builder.autoHealthCheck(autoHealthCheck);
+        }
+        if (healthCheckInterval != null) {
+            builder.autoHealthCheckInterval(healthCheckInterval);
+        }
+        if (reconnectInterval != null) {
+            builder.reconnectInterval(reconnectInterval);
         }
     }
 

@@ -5,12 +5,17 @@ import com.summit.core.conf.McpTransport;
 
 import java.net.URI;
 import java.time.Duration;
+import java.util.regex.Pattern;
 
 /**
  * Validates one MCP server entry before a client is built. The {@code conf} type must match the
  * declared {@link McpTransport}; field rules are per transport.
  */
 public class McpValidator {
+
+    /** Shape of an explicitly pinned MCP protocol version, e.g. {@code 2025-11-25}. */
+    private static final Pattern PROTOCOL_VERSION = Pattern.compile("\\d{4}-\\d{2}-\\d{2}");
+
 
     public static void validate(McpConfig.MCP server) {
         String key = server.name();
@@ -51,6 +56,7 @@ public class McpValidator {
             throw invalid(key, "url must be an absolute HTTP(S) URL without user info or fragment");
         }
         validateTimeouts(key, conf.initializationTimeout(), conf.executionTimeout());
+        validateTuning(key, conf.protocolVersion(), conf.healthCheckInterval(), conf.reconnectInterval());
     }
 
     private static void validateStdio(String key, McpConfig.Stdio conf) {
@@ -62,6 +68,31 @@ public class McpValidator {
             throw invalid(key, "work-dir must not be blank when set");
         }
         validateTimeouts(key, conf.initializationTimeout(), conf.executionTimeout());
+        validateTuning(key, conf.protocolVersion(), conf.healthCheckInterval(), conf.reconnectInterval());
+    }
+
+    /**
+     * Guards the optional client-tuning fields. All three are nullable, and {@code null} means
+     * "keep the client library default", so only explicitly provided values are range-checked.
+     *
+     * @param protocolVersion     explicit protocol version, or null to keep the library probe
+     * @param healthCheckInterval health check interval, or null to keep the library default
+     * @param reconnectInterval   reconnect interval, or null to keep the library default
+     */
+    private static void validateTuning(String key, String protocolVersion, Duration healthCheckInterval,
+                                       Duration reconnectInterval) {
+        if (protocolVersion != null) {
+            String version = protocolVersion.trim();
+            if (version.isEmpty() || version.length() > 32 || !PROTOCOL_VERSION.matcher(version).matches()) {
+                throw invalid(key, "protocol-version must look like 2025-11-25");
+            }
+        }
+        if (healthCheckInterval != null && !positive(healthCheckInterval)) {
+            throw invalid(key, "health-check-interval must be at least 1ms");
+        }
+        if (reconnectInterval != null && !positive(reconnectInterval)) {
+            throw invalid(key, "reconnect-interval must be at least 1ms");
+        }
     }
 
     private static void validateTimeouts(String key, Duration initialization, Duration execution) {

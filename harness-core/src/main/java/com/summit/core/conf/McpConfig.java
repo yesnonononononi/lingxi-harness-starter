@@ -25,13 +25,37 @@ public class McpConfig {
     })
     public sealed interface Conf permits StreamableHttp, Sse, Stdio {}
 
-    /** An HTTP(S) endpoint reached with the streamable-http client transport. */
+    /**
+     * An HTTP(S) endpoint reached with the streamable-http client transport.
+     *
+     * <p>The four client-tuning components are nullable on purpose: {@code null} means "leave the
+     * client library default in place", which keeps every stored configuration written before
+     * these fields existed behaving exactly as it did. Never substitute a business default here —
+     * that would silently change the behaviour of the old entries.
+     *
+     * @param protocolVersion     explicit MCP protocol version, e.g. {@code 2025-11-25}; when null
+     *                            the library keeps probing for a version
+     * @param autoHealthCheck     enables the library's background health check; null keeps the
+     *                            library default (enabled)
+     * @param healthCheckInterval interval between health checks; null keeps the library default
+     * @param reconnectInterval   interval between reconnect attempts; null keeps the library default
+     */
     public record StreamableHttp(
             String url,
             Map<String, String> headers,
             Duration initializationTimeout,
-            Duration executionTimeout
-    ) implements Conf {}
+            Duration executionTimeout,
+            String protocolVersion,
+            Boolean autoHealthCheck,
+            Duration healthCheckInterval,
+            Duration reconnectInterval
+    ) implements Conf {
+        /** Keeps call sites written before the client-tuning fields existed on the same shape. */
+        public StreamableHttp(String url, Map<String, String> headers, Duration initializationTimeout,
+                              Duration executionTimeout) {
+            this(url, headers, initializationTimeout, executionTimeout, null, null, null, null);
+        }
+    }
 
     /** An SSE endpoint; the bundled client library has no SSE transport, so this is rejected. */
     public record Sse(
@@ -52,12 +76,22 @@ public class McpConfig {
             Map<String, String> env,
             String workDir,
             Duration initializationTimeout,
-            Duration executionTimeout
+            Duration executionTimeout,
+            String protocolVersion,
+            Boolean autoHealthCheck,
+            Duration healthCheckInterval,
+            Duration reconnectInterval
     ) implements Conf {
         /** Keeps call sites written before the working directory existed on the same shape. */
         public Stdio(List<String> command, Map<String, String> env, Duration initializationTimeout,
                      Duration executionTimeout) {
-            this(command, env, null, initializationTimeout, executionTimeout);
+            this(command, env, null, initializationTimeout, executionTimeout, null, null, null, null);
+        }
+
+        /** Keeps call sites written before the client-tuning fields existed on the same shape. */
+        public Stdio(List<String> command, Map<String, String> env, String workDir,
+                     Duration initializationTimeout, Duration executionTimeout) {
+            this(command, env, workDir, initializationTimeout, executionTimeout, null, null, null, null);
         }
     }
 
