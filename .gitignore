@@ -36,6 +36,8 @@ build/
 .tmp-build/
 .probe/
 /.lingxi/
+/.run/
+/docs
 .workbuddy/
 .workbuddy-ai/
 *.log
