@@ -7,7 +7,6 @@ import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.conversation.message.content.Content;
 import com.summit.core.conversation.message.content.TextContent;
 import dev.langchain4j.model.TokenCountEstimator;
-import dev.langchain4j.model.openai.OpenAiTokenCountEstimator;
 
 import java.util.List;
 
@@ -23,7 +22,7 @@ public class TokenEstimatorAdapter implements TokenEstimator {
     }
 
     public TokenEstimatorAdapter(String modelName) {
-        this(new OpenAiTokenCountEstimator(modelName));
+        this(new HistoryTokenCountEstimator(modelName));
     }
 
     @Override
