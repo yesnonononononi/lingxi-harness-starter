@@ -21,8 +21,10 @@ public record ToolDefinition<T extends ToolExecutor>(
         ConcurrentPolicy concurrentPolicy
 ) {
 
+    /** Only policies that explicitly declare concurrency may join a concurrent batch. */
     public boolean allowConcurrent(){
-        return concurrentPolicy != null && !concurrentPolicy.equals(ConcurrentPolicy.SERIAL_MUTATION);
+        return concurrentPolicy == ConcurrentPolicy.READ_ONLY
+                || concurrentPolicy == ConcurrentPolicy.ISOLATED_MUTATION;
     }
     public boolean readOnly(){
         return concurrentPolicy != null &&  concurrentPolicy.equals(ConcurrentPolicy.READ_ONLY);

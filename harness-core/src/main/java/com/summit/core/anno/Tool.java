@@ -21,5 +21,5 @@ public @interface Tool {
     String parametersJsonSchema() default "";
     int maxOutput() default 5000;
     long timeout() default 60_000L;
-    ConcurrentPolicy concurrentPolicy() default ConcurrentPolicy.READ_ONLY;
+    ConcurrentPolicy concurrentPolicy() default ConcurrentPolicy.SERIAL;
 }

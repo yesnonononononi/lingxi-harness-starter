@@ -42,9 +42,9 @@ class ToolRegisterTest {
                     () -> assertEquals("Default description", definition.description()),
                     () -> assertEquals(5000, definition.maxOutput()),
                     () -> assertEquals(60_000L, definition.timeout()),
-                    () -> assertEquals(ConcurrentPolicy.READ_ONLY, definition.concurrentPolicy()),
-                    () -> assertTrue(definition.readOnly()),
-                    () -> assertTrue(definition.allowConcurrent()),
+                    () -> assertEquals(ConcurrentPolicy.SERIAL, definition.concurrentPolicy()),
+                    () -> assertFalse(definition.readOnly()),
+                    () -> assertFalse(definition.allowConcurrent()),
                     () -> assertSame(executor, definition.executor()));
             assertEquals("injected dependency", definition.executor().execute(null).getToolOutput());
             assertEquals(objectMapper.readTree("""
