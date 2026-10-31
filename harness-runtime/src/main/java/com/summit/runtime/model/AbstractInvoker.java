@@ -24,12 +24,16 @@ public abstract class AbstractInvoker implements ModelInvoker {
 
         AtomicBoolean firstAttempt = new AtomicBoolean(true);
         AtomicReference<ModelChatCommand> currentAttempt = new AtomicReference<>(chatCommand);
+        // Extracted so the behaviour stays explicit: the first attempt reuses the command that was
+        // already resolved, later attempts resolve a brand new one from the supplier. The task is
+        // a Supplier of RetryUtil.Task, so every retry hands the retry loop its own task instance.
+        RetryUtil.Task<ChatResponseEntity> attempt = () -> {
+            ModelChatCommand command = firstAttempt.getAndSet(false) ? chatCommand : resolveCommand(chatCommandSupplier);
+            currentAttempt.set(command);
+            return invokeAttempt(command);
+        };
         RetryUtil.RetryConf<ChatResponseEntity> conf = ModelRequestFactory.buildRetryConfig(chatCommand,
-                () -> {
-                    ModelChatCommand command = firstAttempt.getAndSet(false) ? chatCommand : resolveCommand(chatCommandSupplier);
-                    currentAttempt.set(command);
-                    return invokeAttempt(command);
-                }, currentAttempt::get);
+                () -> attempt, currentAttempt::get);
         try {
             return RetryUtil.retry(conf);
         } catch (InterruptedException error) {

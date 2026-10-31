@@ -3,19 +3,52 @@ package com.summit.core.utils;
 import com.summit.core.exception.NonRetriableModelException;
 
 import java.util.Objects;
-import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import static com.summit.core.exception.CancellationException.create;
 
 public class RetryUtil {
     private static final long ABSOLUTE_MAX_DELAY_MILLIS = 60_000L;
 
+    /**
+     * The method body executed by one attempt of {@link #retry(RetryConf)}.
+     *
+     * <p>A dedicated interface instead of {@link java.util.concurrent.Callable}: {@code execute()}
+     * keeps the checked exception ({@code throws Exception}) that a retryable method body needs,
+     * and the name states the intent — the task <em>is</em> a method executor, not a value held
+     * somewhere. Because every attempt takes a fresh instance from
+     * {@link RetryConf#task()}, a task can be written as
+     * {@code () -> transactionTemplate.execute(status -> work())} so that each retry runs in its
+     * own transaction boundary.</p>
+     *
+     * @param <T> the result type of the method body
+     */
+    @FunctionalInterface
+    public interface Task<T> {
+        /**
+         * Runs the method body of this attempt.
+         *
+         * @return the result of the body
+         * @throws Exception any failure of the body; the retry policy decides whether to retry
+         */
+        T execute() throws Exception;
+    }
+
+    /**
+     * Retry configuration.
+     *
+     * <p>{@code task} is a {@link Supplier} of {@link Task} rather than a task instance itself:
+     * every attempt — the first one included — asks the supplier for a fresh task instance, so
+     * each retry can run in its own transaction boundary or use a brand new command object. A
+     * supplier returning {@code null} fails the attempt with a {@link NullPointerException}
+     * instead of silently skipping it.</p>
+     */
     public record RetryConf<T>(long basicTimeout, int maxRetry, int multiple, long maxDelay,
-                               TimeUnit timeUnit, Callable<T> task, ControlSignal signal,
+                               TimeUnit timeUnit, Supplier<Task<T>> task, ControlSignal signal,
                                Consumer<RetryContext> ifRetry, Predicate<Throwable> execRequireRetry) { }
 
     /** Retry notifications always describe the actual bounded delay in milliseconds. */
@@ -26,15 +59,35 @@ public class RetryUtil {
         boolean requireCancel(RetryContext retryContext);
     }
 
+    /**
+     * Runs {@code config.task()} under the retry policy of {@code config}.
+     *
+     * <p>{@code task} is a {@code Supplier<Task>}: it is consulted once before every attempt, so
+     * each retry receives its own {@link Task} instance and may therefore open an independent
+     * transaction boundary or a fresh command object.</p>
+     *
+     * @param config the retry configuration; its supplier and time unit must not be {@code null}.
+     * @param <T>    the result type of the task.
+     * @return the first successful result of the task.
+     * @throws NullPointerException    if the supplier is {@code null} or produces a {@code null} task.
+     * @throws InterruptedException    if the thread is interrupted before or during a backoff wait;
+     *                                 the interrupt flag is restored.
+     * @throws Exception               the last task failure once the retry budget is exhausted, or
+     *                                 any failure the retry predicate rejects.
+     */
     public static <T> T retry(RetryConf<T> config) throws Exception {
-        Objects.requireNonNull(config.task(), "Task cannot be null");
+        Objects.requireNonNull(config, "Retry config cannot be null");
+        Objects.requireNonNull(config.task(), "Task supplier cannot be null");
         Objects.requireNonNull(config.timeUnit(), "Time unit cannot be null");
         int retryCount = 0;
         RetryContext context = new RetryContext(0, 0, TimeUnit.MILLISECONDS);
         while (true) {
             checkSignal(config.signal(), context);
+            // Every attempt — including the first — takes a fresh task from the supplier and
+            // validates it before dispatch, so a retry never reuses an exhausted instance.
+            Task<T> task = Objects.requireNonNull(config.task().get(), "Task cannot be null");
             try {
-                return config.task().call();
+                return task.execute();
             } catch (CancellationException | NonRetriableModelException error) {
                 throw error;
             } catch (InterruptedException error) {

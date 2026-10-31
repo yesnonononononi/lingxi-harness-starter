@@ -22,7 +22,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -97,9 +96,14 @@ public class ModelRequestFactory {
 
     /**
      * The invoker supplies the task; request configuration can only select retry settings.
+     *
+     * @param command        the attempt whose settings and events are bound to the policy
+     * @param task           supplier of the task to run; consulted once per attempt so a retry can
+     *                       run in its own transaction boundary or with a brand new command object
+     * @param currentAttempt supplier of the attempt currently in flight, used for retry events
      */
     public static RetryUtil.RetryConf<ChatResponseEntity> buildRetryConfig(ModelChatCommand command,
-                                                                           Callable<ChatResponseEntity> task,
+                                                                           Supplier<RetryUtil.Task<ChatResponseEntity>> task,
                                                                            Supplier<ModelChatCommand> currentAttempt
     ) {
         ModelRetryConfig settings = Objects.requireNonNull(command.retryConfig(), "retryConfig");

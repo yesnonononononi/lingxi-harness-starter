@@ -160,10 +160,12 @@ class ModelInvocationAttemptTest {
         ModelChatCommand command = fixture.factory.build(fixture.execution, List.of(), "1",
                 new ExecutionControlSignal(fixture.execution.getId()));
         AtomicInteger calls = new AtomicInteger();
-        RetryUtil.RetryConf<ChatResponseEntity> assembled = ModelRequestFactory.buildRetryConfig(command, () -> {
+        RetryUtil.Task<ChatResponseEntity> attempt = () -> {
             calls.incrementAndGet();
             return response();
-        }, () -> command);
+        };
+        RetryUtil.RetryConf<ChatResponseEntity> assembled = ModelRequestFactory.buildRetryConfig(command,
+                () -> attempt, () -> command);
 
         assertEquals(37, assembled.basicTimeout());
         assertEquals(2, assembled.maxRetry());
