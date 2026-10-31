@@ -5,6 +5,7 @@ import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.ContextCompactRequest;
 import com.summit.core.compact.Tokenizer;
+import com.summit.core.conf.ModelBehavior;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ChatRequestEntity;
@@ -81,7 +82,8 @@ class ContextAttachmentAutoConfigurationTest {
         context.registerBean(AgentChatProperties.class, AgentChatProperties::new);
         context.registerBean(ExecutionRepository.class, SnapshotRepository::new);
         context.registerBean(RequestCompactModelResolver.class, () -> new RequestCompactModelResolver(
-                ModelConfig.builder().build(), null, null, request -> {
+                ModelConfig.builder().build(), ModelBehavior.of(ModelConfig.builder().maxTokens(1024).build()),
+                null, null, request -> {
                     compactRequest.set(request);
                     return ChatResponseEntity.builder().aiMessageEntity(AiMessageEntity.builder()
                             .text("A compact summary.").build()).build();

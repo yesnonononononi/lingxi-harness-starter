@@ -14,7 +14,7 @@ class ModelConfigurationTest {
     private final ModelConfiguration configuration = new ModelConfiguration();
 
     @Test
-    void compactModelReusesCompleteChatConfigurationWhenAbsent() {
+    void absentCompactModelReusesOnlyTheChatConnectionAndKeepsCompactBehavior() {
         AgentChatProperties chat = new AgentChatProperties();
         chat.setProvider("business-provider");
         chat.setBaseUrl("https://models.example/v1");
@@ -25,8 +25,8 @@ class ModelConfigurationTest {
         chat.setReasoningEffort("medium");
         chat.setThinkingType("enabled");
         chat.setThinkingBudgetTokens(1024);
-        chat.setSendThinking(false);
-        chat.setReturnThinking(false);
+        chat.setSendThinking(true);
+        chat.setReturnThinking(true);
         chat.setPromptCache(true);
         chat.setPromptCacheTtl("1h");
         chat.setPromptCacheConversation(true);
@@ -34,19 +34,19 @@ class ModelConfigurationTest {
         ModelConfig compact = configuration.compactContextModelConfig(
                 new CompactContextModelProperties(), chat);
 
+        // 连接回落到对话配置：摘要打的就是同一个端点、同一把凭据
         assertEquals(chat.getProvider(), compact.getProvider());
         assertEquals(chat.getBaseUrl(), compact.getBaseUrl());
         assertEquals(chat.getApiKey(), compact.getApiKey());
         assertEquals(chat.getModelName(), compact.getModelName());
         assertEquals(chat.getTimeout(), compact.getTimeout());
-        assertEquals(chat.getMaxTokens(), compact.getMaxTokens());
-        assertEquals(chat.getReasoningEffort(), compact.getReasoningEffort());
-        assertEquals(chat.getThinkingType(), compact.getAnthropicOptions().thinkingType());
-        assertEquals(chat.getThinkingBudgetTokens(), compact.getAnthropicOptions().thinkingBudgetTokens());
-        assertEquals(chat.isSendThinking(), compact.isSendThinking());
-        assertEquals(chat.isReturnThinking(), compact.isReturnThinking());
-        assertEquals(configuration.chatModelConfig(chat).getAnthropicOptions(), compact.getAnthropicOptions());
-        assertEquals(new ModelConfig.AnthropicOptions("enabled", 1024, true, "1h", true), compact.getAnthropicOptions());
+        // 调用语义不从对话继承：预算与思考开关归压缩属性，否则摘要会拿思考烧掉自己的输出
+        CompactContextModelProperties compactDefaults = new CompactContextModelProperties();
+        assertEquals(compactDefaults.getMaxTokens(), compact.getMaxTokens());
+        assertEquals("none", compact.getReasoningEffort());
+        assertEquals(compactDefaults.isSendThinking(), compact.isSendThinking());
+        assertEquals(compactDefaults.isReturnThinking(), compact.isReturnThinking());
+        assertEquals(new ModelConfig.AnthropicOptions(null, null, true, null, false), compact.getAnthropicOptions());
     }
 
     @Test

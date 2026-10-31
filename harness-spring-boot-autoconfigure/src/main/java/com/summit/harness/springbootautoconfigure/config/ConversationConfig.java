@@ -3,6 +3,7 @@ package com.summit.harness.springbootautoconfigure.config;
 import com.summit.core.adapter.TokenEstimator;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.Tokenizer;
+import com.summit.core.conf.ModelBehavior;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.conf.SensitiveDataProvider;
 import com.summit.core.conversation.ConversationManager;
@@ -123,9 +124,11 @@ public class ConversationConfig {
     @Bean
     @ConditionalOnMissingBean
     public RequestCompactModelResolver requestCompactModelResolver(@Qualifier("chatModelConfig") ModelConfig config,
+            @Qualifier("compactContextModelConfig") ModelConfig compactProfile,
             ObjectProvider<SensitiveDataProvider<ModelConfig>> configurations, ModelProviderRegistry<ChatModel> providers,
             @Qualifier("defaultContextCompactModel") ChatModel applicationCompactModel) {
-        return new RequestCompactModelResolver(config, configurations.getIfAvailable(), providers, applicationCompactModel);
+        return new RequestCompactModelResolver(config, ModelBehavior.of(compactProfile),
+                configurations.getIfAvailable(), providers, applicationCompactModel);
     }
 
     @Bean

@@ -48,28 +48,18 @@ public class ModelConfiguration {
     @ConditionalOnMissingBean(name = "compactContextModelConfig")
     public ModelConfig compactContextModelConfig(CompactContextModelProperties compact,
                                                  AgentChatProperties chat) {
-        if (!compact.isModelConfigured()) {
-            log.info("No dedicated compact model configured; reusing the chat model configuration");
-            return ModelConfig.builder()
-                    .baseUrl(chat.getBaseUrl())
-                    .apiKey(chat.getApiKey())
-                    .modelName(chat.getModelName())
-                    .timeout(chat.getTimeout())
-                    .sendThinking(chat.isSendThinking())
-                    .maxTokens(chat.getMaxTokens())
-                    .reasoningEffort(chat.getReasoningEffort())
-                    .returnThinking(chat.isReturnThinking())
-                    .anthropicOptions(new ModelConfig.AnthropicOptions(
-                            chat.getThinkingType(), chat.getThinkingBudgetTokens(),
-                            chat.isPromptCache(), chat.getPromptCacheTtl(), chat.isPromptCacheConversation()))
-                    .provider(ModelProviderRouting.compactProvider(chat.getProvider(), chat.getModelName()))
-                    .build();
+        // Connection may fall back to the chat model, call semantics never do: the compact profile owns
+        // the output budget and the no-thinking flags, otherwise summaries inherit chat reasoning effort
+        // and spend their budget thinking instead of summarizing.
+        boolean dedicated = compact.isModelConfigured();
+        if (!dedicated) {
+            log.info("No dedicated compact model configured; reusing the chat connection with compact behavior");
         }
         return ModelConfig.builder()
-                .baseUrl(compact.getBaseUrl())
-                .apiKey(compact.getApiKey())
-                .modelName(compact.getModelName())
-                .timeout(compact.getTimeout())
+                .baseUrl(dedicated ? compact.getBaseUrl() : chat.getBaseUrl())
+                .apiKey(dedicated ? compact.getApiKey() : chat.getApiKey())
+                .modelName(dedicated ? compact.getModelName() : chat.getModelName())
+                .timeout(dedicated ? compact.getTimeout() : chat.getTimeout())
                 .sendThinking(compact.isSendThinking())
                 .maxTokens(compact.getMaxTokens())
                 .reasoningEffort(compact.getReasoningEffort())
@@ -77,7 +67,9 @@ public class ModelConfiguration {
                 .anthropicOptions(new ModelConfig.AnthropicOptions(
                         compact.getThinkingType(), compact.getThinkingBudgetTokens(),
                         compact.isPromptCache(), compact.getPromptCacheTtl(), compact.isPromptCacheConversation()))
-                .provider(ModelProviderRouting.compactProvider(compact.getProvider(), compact.getModelName()))
+                .provider(ModelProviderRouting.compactProvider(
+                        dedicated ? compact.getProvider() : chat.getProvider(),
+                        dedicated ? compact.getModelName() : chat.getModelName()))
                 .build();
     }
 

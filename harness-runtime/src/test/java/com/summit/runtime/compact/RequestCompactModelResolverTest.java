@@ -4,6 +4,7 @@ import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.ContextCompactRequest;
+import com.summit.core.conf.ModelBehavior;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.conf.SensitiveDataProvider;
 import com.summit.core.conf.SensitiveDataSpec;
@@ -30,13 +31,17 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 class RequestCompactModelResolverTest {
+    /** Summarization profile: its own budget, no thinking — never the chat request's effort. */
+    private static final ModelBehavior COMPACT_BEHAVIOR = ModelBehavior.of(ModelConfig.builder()
+            .maxTokens(4096).reasoningEffort("none").returnThinking(false).sendThinking(false)
+            .anthropicOptions(new ModelConfig.AnthropicOptions("disabled", null, true, "5m", true)).build());
     private final List<ModelConfig> selected = new ArrayList<>();
     private final ModelProviderRegistry<ChatModel> providers = new ModelProviderRegistry<>();
     private final ChatModel fallback = request -> { throw new AssertionError("Application compact model must not be called"); };
 
     private RequestCompactModelResolver resolver(SensitiveDataProvider<ModelConfig> configurations) {
         return new RequestCompactModelResolver(ModelConfig.builder().modelName("application").build(),
-                configurations, providers, fallback);
+                COMPACT_BEHAVIOR, configurations, providers, fallback);
     }
 
     private void register(String provider) {
@@ -64,7 +69,7 @@ class RequestCompactModelResolverTest {
     }
 
     @Test
-    void reuseUsesTheExactRequestRevisionAndSynchronousProviderWithoutChangingTheSource() {
+    void reuseKeepsTheRequestConnectionAndTakesCallSemanticsFromTheCompactProfile() {
         register("default");
         ModelConfig config = current("request-model", "default-streaming");
         RequestCompactModelResolver resolver = resolver((id, version) -> {
@@ -73,7 +78,19 @@ class RequestCompactModelResolverTest {
             return config;
         });
         resolver.resolve(request(7, 3));
-        assertEquals(config.toBuilder().provider("default").build(), selected.getFirst());
+        ModelConfig summary = selected.getFirst();
+        // 连接、凭据、超时与重试仍来自这条请求的精确版本
+        assertEquals(config.toBuilder().provider("default").build().getBaseUrl(), summary.getBaseUrl());
+        assertEquals("request-model-key", summary.getApiKey());
+        assertEquals("request-model", summary.getModelName());
+        assertEquals(config.getTimeout(), summary.getTimeout());
+        assertEquals(config.getMaxRetries(), summary.getMaxRetries());
+        // 调用语义来自压缩档：对话的 high / returnThinking / 5000 上限一个都不许漏进来
+        assertEquals(4096, summary.getMaxTokens());
+        assertEquals("none", summary.getReasoningEffort());
+        assertFalse(summary.isReturnThinking());
+        assertFalse(summary.isSendThinking());
+        assertEquals(COMPACT_BEHAVIOR.anthropicOptions(), summary.getAnthropicOptions());
         assertEquals("default-streaming", config.getProvider());
     }
 
@@ -87,7 +104,11 @@ class RequestCompactModelResolverTest {
         ModelConfig custom = current("business-model", "business");
         resolver((id, version) -> custom).resolve(request(2, 1));
         assertEquals("anthropic", selected.getFirst().getProvider());
-        assertEquals(custom, selected.getLast());
+        assertEquals("claude-model", selected.getFirst().getModelName());
+        assertEquals(COMPACT_BEHAVIOR.maxTokens(), selected.getFirst().getMaxTokens());
+        assertEquals("business", selected.getLast().getProvider());
+        assertEquals("business-model", selected.getLast().getModelName());
+        assertEquals("none", selected.getLast().getReasoningEffort());
     }
 
     @Test
@@ -104,8 +125,9 @@ class RequestCompactModelResolverTest {
             assertEquals(model, compact.getModelName());
             assertEquals(model.startsWith("claude") ? "anthropic-compact" : "default-compact", compact.getProvider());
             assertEquals(config.getTimeout(), compact.getTimeout());
+            assertEquals(COMPACT_BEHAVIOR.maxTokens(), compact.getMaxTokens());
             assertFalse(compact.isSendThinking());
-            assertNull(compact.getReasoningEffort());
+            assertEquals("none", compact.getReasoningEffort());
         }
     }
 
@@ -127,7 +149,7 @@ class RequestCompactModelResolverTest {
     void applicationConfigAndLegacyRequestsRetainTheirSelectionRules() {
         register("default");
         RequestCompactModelResolver resolver = new RequestCompactModelResolver(current("main", "default-streaming"),
-                null, providers, fallback);
+                COMPACT_BEHAVIOR, null, providers, fallback);
         resolver.resolve(AgentRequest.builder().build());
         assertEquals("main", selected.getFirst().getModelName());
         assertSame(fallback, resolver((id, version) -> ModelConfig.builder().build()).resolve(request(1, 1)));

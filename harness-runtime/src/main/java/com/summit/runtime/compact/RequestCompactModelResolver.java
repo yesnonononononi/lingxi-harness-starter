@@ -1,6 +1,7 @@
 package com.summit.runtime.compact;
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.conf.ModelBehavior;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.conf.SensitiveDataProvider;
 import com.summit.core.conf.SensitiveDataSpec;
@@ -14,13 +15,17 @@ import java.util.Objects;
 /** Resolves exact request revisions without retaining credentials in executions or shared mutable state. */
 public final class RequestCompactModelResolver {
     private final ModelConfig applicationConfig;
+    /** Call semantics of summarization; never the chat request's effort or thinking flags. */
+    private final ModelBehavior compactBehavior;
     private final SensitiveDataProvider<ModelConfig> configurations;
     private final ModelProviderRegistry<ChatModel> providers;
     private final ChatModel applicationCompactModel;
 
-    public RequestCompactModelResolver(ModelConfig applicationConfig, SensitiveDataProvider<ModelConfig> configurations,
+    public RequestCompactModelResolver(ModelConfig applicationConfig, ModelBehavior compactBehavior,
+                                       SensitiveDataProvider<ModelConfig> configurations,
                                        ModelProviderRegistry<ChatModel> providers, ChatModel applicationCompactModel) {
         this.applicationConfig = applicationConfig;
+        this.compactBehavior = Objects.requireNonNull(compactBehavior, "compact behavior");
         this.configurations = configurations;
         this.providers = providers;
         this.applicationCompactModel = applicationCompactModel;
@@ -63,7 +68,9 @@ public final class RequestCompactModelResolver {
                 case DefaultModelProviderNames.ANTHROPIC_STREAMING -> DefaultModelProviderNames.ANTHROPIC;
                 default -> provider;
             };
-            selected = config.toBuilder().provider(provider).build();
+            // Connection from the request revision, call semantics from the compact profile: a summary
+            // that inherits chat effort or thinking spends its own output budget on reasoning.
+            selected = compactBehavior.applyTo(config.toBuilder().provider(provider).build());
 
         } else if (config.getCompactModel() != null) {
             ModelConfig.CompactModelConfig compact = config.getCompactModel();
@@ -74,15 +81,14 @@ public final class RequestCompactModelResolver {
                 throw new IllegalArgumentException("Compact model baseUrl, apiKey and modelName must all be non-blank");
             }
 
-            selected = ModelConfig.builder()
+            selected = compactBehavior.applyTo(ModelConfig.builder()
                     .baseUrl(compact.baseUrl())
                     .apiKey(compact.apiKey())
                     .modelName(compact.modelName())
                     .provider(ModelProviderRouting.compactProvider(null, compact.modelName()))
                     .timeout(config.getTimeout())
-                    .maxTokens(config.getMaxTokens())
                     .maxRetries(config.getMaxRetries())
-                    .build();
+                    .build());
 
         } else {
             return applicationCompactModel;

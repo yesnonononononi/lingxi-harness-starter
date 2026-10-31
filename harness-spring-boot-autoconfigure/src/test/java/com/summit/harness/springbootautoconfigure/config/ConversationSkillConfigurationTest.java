@@ -129,6 +129,9 @@ class ConversationSkillConfigurationTest {
         context.registerBean(AgentChatProperties.class, AgentChatProperties::new);
         context.registerBean("defaultContextCompactModel", ChatModel.class, () -> request -> null);
         context.registerBean("chatModelConfig", ModelConfig.class, () -> ModelConfig.builder().build());
+        // 压缩语义是独立的一档配置：装配 ConversationConfig 就得同时给它，不能拿对话配置顶。
+        context.registerBean("compactContextModelConfig", ModelConfig.class,
+                () -> ModelConfig.builder().maxTokens(32768).reasoningEffort("none").build());
         context.registerBean(ModelProviderRegistry.class, ModelProviderRegistry::new);
         context.registerBean(ExecutionRepository.class, () -> new InMemoryActiveExecutionRegistry());
         context.register(ConversationConfig.class);
