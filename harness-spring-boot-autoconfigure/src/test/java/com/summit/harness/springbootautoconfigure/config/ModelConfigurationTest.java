@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 class ModelConfigurationTest {
 
@@ -43,10 +44,10 @@ class ModelConfigurationTest {
         // 调用语义不从对话继承：预算与思考开关归压缩属性，否则摘要会拿思考烧掉自己的输出
         CompactContextModelProperties compactDefaults = new CompactContextModelProperties();
         assertEquals(compactDefaults.getMaxTokens(), compact.getMaxTokens());
-        assertEquals("none", compact.getReasoningEffort());
+        assertNull(compact.getReasoningEffort());
         assertEquals(compactDefaults.isSendThinking(), compact.isSendThinking());
         assertEquals(compactDefaults.isReturnThinking(), compact.isReturnThinking());
-        assertEquals(new ModelConfig.AnthropicOptions(null, null, true, null, false), compact.getAnthropicOptions());
+        assertEquals(new ModelConfig.AnthropicOptions("disabled", null, true, null, false), compact.getAnthropicOptions());
     }
 
     @Test

@@ -17,9 +17,10 @@ public class CompactContextModelProperties {
     private String apiKey;
     private String modelName;
     private int maxTokens = 32768;
-    /** none | minimal | low | medium | high | xhigh | max */
-    private String reasoningEffort = "none";
-    private String thinkingType;
+    /** Omit by default: compatible endpoints do not share a portable no-reasoning value. */
+    private String reasoningEffort;
+    /** Native Anthropic thinking can be disabled without an endpoint-specific effort value. */
+    private String thinkingType = "disabled";
     private Integer thinkingBudgetTokens;
     private boolean returnThinking = false;
     private boolean sendThinking = false;
