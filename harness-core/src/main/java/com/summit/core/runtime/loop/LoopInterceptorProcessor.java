@@ -18,7 +18,7 @@ public interface LoopInterceptorProcessor {
     }
 
     /**
-     * Called after tool execution, before Promise/compaction reconciliation and checkpoint persistence.
+     * Called after tool execution, before Promise/compaction reconciliation.
      */
     default InterceptorResult onAfterToolCall(LoopContext context, List<ToolExecuteResult> results) {
         return NONE;

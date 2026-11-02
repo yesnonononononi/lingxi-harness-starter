@@ -331,7 +331,6 @@ public class AgentLoopStepRunner {
 
         private void reportCompletedRound() {
             if (context.getUsage() != null) context.getUsage().afterRound(execution);
-            if (context.getExecutionRepository() != null) context.getExecutionRepository().save(execution);
         }
     }
 

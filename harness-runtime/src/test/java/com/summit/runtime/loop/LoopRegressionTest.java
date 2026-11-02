@@ -212,9 +212,9 @@ class LoopRegressionTest {
                 assertEquals(round, current.getTokenUsage().getOutputTokens().getReasoningTokens());
                 assertNull(messages.getToolExecuteResults());
                 Execution saved = repository.findById(current.getId()).orElseThrow();
-                assertEquals(current.getAiMessage().getText(), saved.getAiMessage().getText());
-                assertEquals(current.getTokenUsage().getTotalTokens(), saved.getTokenUsage().getTotalTokens());
-                assertEquals(TokenInfo.from(current.getTokenUsage()), TokenInfo.from(saved.getTokenUsage()));
+                assertNotSame(current, saved);
+                assertTrue(saved.getModelAttempts() < current.getModelAttempts(),
+                        "The live reply is committed before completion; its checkpoint is saved at suspension/end");
                 return round == 1 ? InterceptorResult.of(LoopResult.suspended("waiting for child"), false)
                         : InterceptorResult.NONE;
             }
@@ -617,7 +617,7 @@ class LoopRegressionTest {
                 assertEquals(ExecutionState.RUNNING, execution.getExecutionState());
                 assertEquals(round, transcripts.get());
                 assertEquals(round * 3, execution.getTokenUsage().getTotalTokens());
-                assertEquals(round, repository.findById("e").orElseThrow().getModelAttempts());
+                assertEquals(0, repository.findById("e").orElseThrow().getModelAttempts());
                 if (round == 1) {
                     context.appendMessage(List.of(UserMessageEntity.from("finish the checklist")));
                     return InterceptorResult.of(LoopResult.continueLoop(), false);
@@ -1085,8 +1085,7 @@ class LoopRegressionTest {
         runtime(command -> {
             if (calls.getAndIncrement() == 0) return response(true);
             phases.add("next model");
-            Execution saved = repository.findById(execution.getId()).orElseThrow();
-            assertTrue(saved.getMessages().stream().anyMatch(message -> message.text().equals("checked tool round")));
+            assertTrue(execution.getMessages().stream().anyMatch(message -> message.text().equals("checked tool round")));
             return response(false);
         }, List.of(ToolExecuteResult.success("written")),
                 new DefaultLoopInterceptorProcessor(List.of(observer)), new RuntimeListener() { }, null, checker)

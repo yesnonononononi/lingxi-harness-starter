@@ -41,7 +41,7 @@ public interface LoopInterceptor {
     }
 
     /**
-     * Called after tool execution, before Promise/compaction reconciliation and checkpoint persistence.
+     * Called after tool execution, before Promise/compaction reconciliation.
      */
     default InterceptorResult onAfterToolCall(LoopContext context, List<ToolExecuteResult> results) {
         return InterceptorResult.NONE;
@@ -52,8 +52,9 @@ public interface LoopInterceptor {
     }
 
     /**
-     * Called only for a response without tool calls, after its event, messages, token accounting,
-     * transcript and execution checkpoint have been recorded, but before natural completion.
+     * Called only for a response without tool calls, after its event, messages, token accounting
+     * and transcript have been recorded, but before natural completion. This does not imply that
+     * an execution checkpoint has been persisted.
      * The execution is still RUNNING. NONE allows completion; an explicit CONTINUE with next=false
      * starts another model round. Suspension/cancellation retain the committed round.
      * Do not commit the round again from this callback.
@@ -64,6 +65,8 @@ public interface LoopInterceptor {
 
     /**
      * Always paired with an entered round, including failure/suspension; failures follow catchErr().
+     * Applications may persist a checkpoint here; the runtime does not persist every round.
+     * This runs before lifecycle state transitions and before the round context is cleared.
      * A propagated failure becomes suppressed when the round already has a primary failure.
      */
     default InterceptorResult onLoopEnd(LoopContext context) {

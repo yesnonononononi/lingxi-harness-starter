@@ -51,7 +51,8 @@ public class DefaultLoopInterceptor implements LoopInterceptor {
 
     @Override
     public InterceptorResult onLoopEnd(@NonNull LoopContext context) {
-        return checkSignal(context.getSignal());
+        // The round-end result is not a control boundary; application cleanup must still run.
+        return InterceptorResult.NONE;
     }
 
     private InterceptorResult checkSignal(ExecutionControlSignal control) {
