@@ -10,13 +10,72 @@ import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.MapPropertySource;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sun.net.httpserver.HttpServer;
+
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class ModelProviderRegistrationTest {
+    @Test
+    void imagePropertiesConnectThroughTheRegistryToGenerationAndUsage() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        AtomicReference<String> request = new AtomicReference<>();
+        AtomicReference<String> authorization = new AtomicReference<>();
+        server.createContext("/v1/images/generations", exchange -> {
+            request.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            byte[] response = ("{\"created\":1,\"data\":[{\"b64_json\":\"aW1hZ2U=\"}],"
+                    + "\"usage\":{\"input_tokens\":15,\"output_tokens\":80,\"total_tokens\":95,"
+                    + "\"input_tokens_details\":{\"text_tokens\":5,\"image_tokens\":10},"
+                    + "\"output_tokens_details\":{\"image_tokens\":80}}}").getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            try (var output = exchange.getResponseBody()) { output.write(response); }
+        });
+        server.start();
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.getEnvironment().getPropertySources().addFirst(new MapPropertySource("image-test", Map.of(
+                    "lingxi.agent.model.conf.image.base-url", "http://127.0.0.1:" + server.getAddress().getPort() + "/v1",
+                    "lingxi.agent.model.conf.image.api-key", "image-key",
+                    "lingxi.agent.model.conf.image.model-name", "image-test",
+                    "lingxi.agent.model.conf.image.timeout", "7s",
+                    "lingxi.agent.model.conf.image.max-retries", "0",
+                    "lingxi.agent.model.conf.image.quality", "high",
+                    "lingxi.agent.model.conf.image.size", "1024x1024")));
+            context.register(ModelProviderConfig.class);
+            context.refresh();
+            var config = context.getBean("imageModelConfig", ModelConfig.class);
+            assertEquals(DefaultModelProviderNames.DEFAULT_IMAGE, config.getProvider());
+            assertEquals(Duration.ofSeconds(7), config.getTimeout());
+            assertEquals(0, config.getMaxRetries());
+            var registry = context.getBean("imageModelProviderRegistry", ModelProviderRegistry.class);
+            var result = ((ImageModel) registry.create(config)).generate("draw a tree");
+            var body = new ObjectMapper().readTree(request.get());
+            assertEquals("Bearer image-key", authorization.get());
+            assertEquals("image-test", body.path("model").asText());
+            assertEquals("high", body.path("quality").asText());
+            assertEquals("1024x1024", body.path("size").asText());
+            assertEquals("aW1hZ2U=", result.getMeta().getImages().getFirst().getBase64Data());
+            assertEquals(95, result.getTokenUsage().getTotalTokens());
+            assertEquals(80, result.getTokenUsage().getOutputTokens().getOutputTokens());
+            assertEquals(80, result.getTokenUsage().getOutputTokens().getImageTokens());
+            assertEquals(5, result.getTokenUsage().getInputTokens().getTextTokens());
+        } finally {
+            server.stop(0);
+        }
+    }
+
     @Test
     void registersBothProtocolsWithoutChatStreamingNameCollisions() {
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {

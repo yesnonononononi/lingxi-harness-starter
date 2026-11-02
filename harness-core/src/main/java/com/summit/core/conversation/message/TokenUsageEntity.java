@@ -1,9 +1,11 @@
 package com.summit.core.conversation.message;
 
 import lombok.*;
+import lombok.experimental.SuperBuilder;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 @ToString
-@Builder
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
 @Getter
@@ -22,6 +24,13 @@ public class TokenUsageEntity {
         private int inputTokens;
         private int cacheHitTokens;
         private int imageTokens;
+        /** Optional provider-reported text breakdown; already included in inputTokens. */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        private Integer textTokens;
+
+        public InputTokens(int inputTokens, int cacheHitTokens, int imageTokens) {
+            this(inputTokens, cacheHitTokens, imageTokens, null);
+        }
 
         public InputTokens(int inputTokens, int cacheHitTokens) {
             this(inputTokens, cacheHitTokens, 0);
@@ -36,6 +45,7 @@ public class TokenUsageEntity {
              this.inputTokens += inputTokens.getInputTokens();
              this.cacheHitTokens += inputTokens.getCacheHitTokens();
              this.imageTokens += inputTokens.getImageTokens();
+             this.textTokens = sumOptional(this.textTokens, inputTokens.getTextTokens());
         }
     }
 
@@ -47,6 +57,13 @@ public class TokenUsageEntity {
         private int outputTokens;
         private int reasoningTokens;
         private int imageTokens;
+        /** Optional provider-reported text breakdown; already included in outputTokens. */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        private Integer textTokens;
+
+        public OutputTokens(int outputTokens, int reasoningTokens, int imageTokens) {
+            this(outputTokens, reasoningTokens, imageTokens, null);
+        }
 
         public OutputTokens(int outputTokens, int reasoningTokens) {
             this(outputTokens, reasoningTokens, 0);
@@ -61,6 +78,7 @@ public class TokenUsageEntity {
              this.outputTokens += outputTokens.getOutputTokens();
              this.reasoningTokens += outputTokens.getReasoningTokens();
              this.imageTokens += outputTokens.getImageTokens();
+             this.textTokens = sumOptional(this.textTokens, outputTokens.getTextTokens());
         }
 
     }
@@ -71,6 +89,11 @@ public class TokenUsageEntity {
     }
     public static TokenUsageEntity empty(){
         return of(0, 0, 0);
+    }
+
+    private static Integer sumOptional(Integer first, Integer second) {
+        if (first == null) return second;
+        return second == null ? first : first + second;
     }
 
     /** Accumulates the given usage into this execution across model turns. */

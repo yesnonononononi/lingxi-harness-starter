@@ -1,6 +1,7 @@
 package com.summit.adapter.langchain4j.codec.message;
 
 import com.summit.core.conversation.message.TokenUsageEntity;
+import com.summit.core.conversation.token.TextTokenUsage;
 import dev.langchain4j.model.anthropic.AnthropicTokenUsage;
 import dev.langchain4j.model.output.TokenUsage;
 
@@ -19,9 +20,12 @@ public class AnthropicMessageCodecAdapter extends MessageCodecAdapter {
                 + orZero(usage.cacheCreationInputTokens()) + cacheHitTokens;
 
         int outputTokens = orZero(usage.outputTokenCount());
+
         // This SDK exposes no separate reasoning token count for Anthropic.
-        return new TokenUsageEntity(inputTokens + outputTokens,
-                new TokenUsageEntity.InputTokens(inputTokens, cacheHitTokens),
-                TokenUsageEntity.OutputTokens.of(outputTokens));
+        return TextTokenUsage.builder()
+                .totalTokens(inputTokens + outputTokens)
+                .inputTokens(new TokenUsageEntity.InputTokens(inputTokens, cacheHitTokens))
+                .outputTokens(TokenUsageEntity.OutputTokens.of(outputTokens))
+                .build();
     }
 }

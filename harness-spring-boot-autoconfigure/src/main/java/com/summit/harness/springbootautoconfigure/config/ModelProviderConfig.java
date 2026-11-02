@@ -2,12 +2,14 @@ package com.summit.harness.springbootautoconfigure.config;
 
 import com.summit.adapter.langchain4j.model.provider.*;
 import com.summit.core.model.ModelProvider;
+import com.summit.core.conf.ModelConfig;
 import com.summit.core.model.ModelProviderRegistry;
 import com.summit.core.model.chat.ChatModel;
 import com.summit.core.model.image.ImageModel;
 import com.summit.core.model.streaming.StreamingChatModel;
 import com.summit.harness.springbootautoconfigure.properties.CompactContextModelProperties;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
+import com.summit.harness.springbootautoconfigure.properties.agent.AgentImageProperties;
 import dev.langchain4j.http.client.HttpClientBuilderFactory;
 import dev.langchain4j.http.client.jdk.JdkHttpClient;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -27,7 +29,7 @@ import java.util.List;
  * the other. Named gating keeps each default independently replaceable.</p>
  */
 @AutoConfiguration
-@EnableConfigurationProperties({AgentChatProperties.class, CompactContextModelProperties.class})
+@EnableConfigurationProperties({AgentChatProperties.class, AgentImageProperties.class, CompactContextModelProperties.class})
 public class ModelProviderConfig {
 
     @Bean
@@ -77,6 +79,21 @@ public class ModelProviderConfig {
     @ConditionalOnMissingBean(name = "anthropicCompactContextModelProvider")
     public ModelProvider<ChatModel> anthropicCompactContextModelProvider(HttpClientBuilderFactory httpClientBuilderFactory) {
         return new AnthropicCompactContextModelProvider(httpClientBuilderFactory);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(name = "imageModelConfig")
+    public ModelConfig imageModelConfig(AgentImageProperties properties) {
+        return ModelConfig.builder()
+                .provider(properties.getProvider())
+                .baseUrl(properties.getBaseUrl())
+                .apiKey(properties.getApiKey())
+                .modelName(properties.getModelName())
+                .timeout(properties.getTimeout())
+                .maxRetries(properties.getMaxRetries())
+                .imageOptions(new ModelConfig.ImageOptions(properties.getQuality(), properties.getSize(),
+                        properties.getCustomHeaders()))
+                .build();
     }
 
     @Bean(name = "commonImageModelProvider")

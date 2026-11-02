@@ -1,13 +1,12 @@
 package com.summit.adapter.langchain4j.model;
 
 import com.summit.adapter.langchain4j.codec.media.ImageInfoAdapter;
+import com.summit.adapter.langchain4j.codec.message.OpenAiMessageCodecAdapter;
 import com.summit.core.agent.Image;
 import com.summit.core.conversation.api.ChatResponseEntity;
-import com.summit.core.conversation.message.TokenUsageEntity;
+import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.model.image.ImageModel;
-import dev.langchain4j.model.openai.OpenAiImageTokenUsage;
 import dev.langchain4j.model.output.Response;
-import dev.langchain4j.model.output.TokenUsage;
 
 import java.util.List;
 import java.util.Objects;
@@ -15,6 +14,7 @@ import java.util.Objects;
 /** Adapts image generation and editing without exposing SDK types to core. */
 public class ImageModelAdapter implements ImageModel {
     private final dev.langchain4j.model.image.ImageModel delegate;
+    private final OpenAiMessageCodecAdapter messageCodec = new OpenAiMessageCodecAdapter();
 
     public ImageModelAdapter(dev.langchain4j.model.image.ImageModel delegate) {
         this.delegate = Objects.requireNonNull(delegate, "image model");
@@ -47,33 +47,16 @@ public class ImageModelAdapter implements ImageModel {
     }
 
     private ChatResponseEntity toResponse(Response<?> response, List<dev.langchain4j.data.image.Image> images) {
+        List<Image> output = images.stream().map(ImageInfoAdapter::toFramework).toList();
         return ChatResponseEntity.builder()
+                .aiMessageEntity(AiMessageEntity.builder().images(output).toolCalls(List.of()).build())
                 .meta(ChatResponseEntity.Meta.builder()
-                        .images(images.stream().map(ImageInfoAdapter::toFramework).toList())
+                        .images(output)
                         .finishReason(response.finishReason() == null ? ChatResponseEntity.FinishReason.OTHER
                                 : ChatResponseEntity.FinishReason.valueOf(response.finishReason().name()))
                         .build())
-                .tokenUsage(toTokenUsage(response.tokenUsage()))
+                .tokenUsage(messageCodec.toTokenUsageEntity(response.tokenUsage()))
                 .build();
     }
 
-    private TokenUsageEntity toTokenUsage(TokenUsage usage) {
-        if (usage == null) return TokenUsageEntity.empty();
-        TokenUsageEntity result = TokenUsageEntity.of(orZero(usage.totalTokenCount()),
-                orZero(usage.inputTokenCount()), orZero(usage.outputTokenCount()));
-        // Aggregate counts include image tokens, just as chat counts include cached/reasoning tokens.
-        if (usage instanceof OpenAiImageTokenUsage imageUsage) {
-            if (imageUsage.inputTokensDetails() != null) {
-                result.getInputTokens().setImageTokens(orZero(imageUsage.inputTokensDetails().imageTokens()));
-            }
-            if (imageUsage.outputTokensDetails() != null) {
-                result.getOutputTokens().setImageTokens(orZero(imageUsage.outputTokensDetails().imageTokens()));
-            }
-        }
-        return result;
-    }
-
-    private static int orZero(Integer value) {
-        return value == null ? 0 : value;
-    }
 }

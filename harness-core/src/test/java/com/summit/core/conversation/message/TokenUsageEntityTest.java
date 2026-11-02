@@ -1,11 +1,42 @@
 package com.summit.core.conversation.message;
 
 import com.summit.core.conversation.event.TokenInfo;
+import com.summit.core.conversation.token.ImageTokenUsage;
+import com.summit.core.conversation.token.TextTokenUsage;
+import com.summit.core.json.ExecutionJson;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class TokenUsageEntityTest {
+    @Test
+    void mixedUsageKeepsAllDetailsAndRestoresThroughTheExistingBaseType() throws Exception {
+        var mapper = ExecutionJson.newObjectMapper();
+        TokenUsageEntity image = ImageTokenUsage.builder().totalTokens(95)
+                .inputTokens(new TokenUsageEntity.InputTokens(15, 0, 10, 5))
+                .outputTokens(new TokenUsageEntity.OutputTokens(80, 0, 78, 2)).build();
+        TokenUsageEntity text = TextTokenUsage.builder().totalTokens(130)
+                .inputTokens(new TokenUsageEntity.InputTokens(100, 60))
+                .outputTokens(new TokenUsageEntity.OutputTokens(30, 12)).build();
+        TokenUsageEntity total = TokenUsageEntity.empty();
+        total.add(image);
+        total.add(text);
+        total.add(null);
+        assertEquals(new TokenInfo(115, 110, 225, 12, 60), TokenInfo.from(total));
+        assertEquals(new TokenUsageEntity.InputTokens(115, 60, 10, 5), total.getInputTokens());
+        assertEquals(new TokenUsageEntity.OutputTokens(110, 12, 78, 2), total.getOutputTokens());
+        assertEquals(15, image.getInputTokens().getInputTokens());
+        assertEquals(80, image.getOutputTokens().getOutputTokens());
+        for (TokenUsageEntity usage : new TokenUsageEntity[]{image, text, total}) {
+            String json = mapper.writeValueAsString(usage);
+            TokenUsageEntity restored = mapper.readValue(json, TokenUsageEntity.class);
+            assertEquals(usage.getInputTokens(), restored.getInputTokens());
+            assertEquals(usage.getOutputTokens(), restored.getOutputTokens());
+            assertEquals(mapper.readTree(json), mapper.valueToTree(mapper.readValue(json, usage.getClass())));
+        }
+        assertFalse(mapper.valueToTree(text).path("inputTokens").has("textTokens"));
+    }
+
     @Test
     void imageCountsAccumulateWithoutChangingAggregateOrSourceCounts() {
         TokenUsageEntity usage = TokenUsageEntity.empty();

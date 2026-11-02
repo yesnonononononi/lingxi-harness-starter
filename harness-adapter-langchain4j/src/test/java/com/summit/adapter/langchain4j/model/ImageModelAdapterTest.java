@@ -2,6 +2,7 @@ package com.summit.adapter.langchain4j.model;
 
 import com.summit.core.agent.Image;
 import com.summit.core.conversation.api.ChatResponseEntity;
+import com.summit.core.conversation.token.ImageTokenUsage;
 import dev.langchain4j.model.openai.OpenAiImageTokenUsage;
 import dev.langchain4j.model.output.FinishReason;
 import dev.langchain4j.model.output.Response;
@@ -33,6 +34,7 @@ class ImageModelAdapterTest {
         assertEquals(Image.DetailLevel.AUTO, image.detailLevel());
         assertEquals(ChatResponseEntity.FinishReason.STOP, response.getMeta().getFinishReason());
         assertEquals(30, response.getTokenUsage().getTotalTokens());
+        assertEquals(response.getMeta().getImages(), response.getAiMessageEntity().getImages());
         assertEquals(10, response.getTokenUsage().getInputTokens().getInputTokens());
         assertEquals(20, response.getTokenUsage().getOutputTokens().getOutputTokens());
     }
@@ -83,9 +85,11 @@ class ImageModelAdapterTest {
                 .inputTokensDetails(OpenAiImageTokenUsage.TokensDetails.builder().textTokens(5).imageTokens(10).build())
                 .outputTokensDetails(OpenAiImageTokenUsage.TokensDetails.builder().imageTokens(80).build()).build();
         var result = new ImageModelAdapter(prompt -> Response.from(OUTPUT, usage)).generate("draw").getTokenUsage();
+        assertInstanceOf(ImageTokenUsage.class, result);
         assertEquals(95, result.getTotalTokens());
         assertEquals(15, result.getInputTokens().getInputTokens());
         assertEquals(10, result.getInputTokens().getImageTokens());
+        assertEquals(5, result.getInputTokens().getTextTokens());
         assertEquals(80, result.getOutputTokens().getOutputTokens());
         assertEquals(80, result.getOutputTokens().getImageTokens());
     }

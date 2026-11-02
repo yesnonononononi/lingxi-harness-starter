@@ -8,6 +8,7 @@ import com.summit.core.model.ModelProviderRouting;
 import com.summit.core.model.RequestModelInvokerFactory;
 import com.summit.core.model.chat.ChatModel;
 import com.summit.core.model.streaming.StreamingChatModel;
+import com.summit.core.model.image.ImageModel;
 import com.summit.harness.springbootautoconfigure.properties.CompactContextModelProperties;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
 import com.summit.runtime.model.DefaultRequestModelInvokerFactory;
@@ -102,8 +103,9 @@ public class ModelConfiguration {
             AgentChatProperties properties,
             @Qualifier("chatModelConfig") ModelConfig modelConfig,
             ModelProviderRegistry<ChatModel> chatProviders,
-            ModelProviderRegistry<StreamingChatModel> streamingProviders) {
+            ModelProviderRegistry<StreamingChatModel> streamingProviders,
+            ModelProviderRegistry<ImageModel> imageProviders) {
         return new DefaultRequestModelInvokerFactory(properties.getProvider(), modelConfig,
-                chatProviders, streamingProviders);
+                chatProviders, streamingProviders, imageProviders);
     }
 }

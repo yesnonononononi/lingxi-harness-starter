@@ -8,6 +8,7 @@ import com.summit.core.model.ModelProviderRegistry;
 import com.summit.core.model.RequestModelInvokerFactory;
 import com.summit.core.model.chat.ChatModel;
 import com.summit.core.model.streaming.StreamingChatModel;
+import com.summit.core.model.image.ImageModel;
 
 import java.util.Map;
 import java.util.Objects;
@@ -37,16 +38,25 @@ public final class DefaultRequestModelInvokerFactory implements RequestModelInvo
     private final ModelConfig modelConfig;
     private final ModelProviderRegistry<ChatModel> chatProviders;
     private final ModelProviderRegistry<StreamingChatModel> streamingProviders;
+    private final ModelProviderRegistry<ImageModel> imageProviders;
     private final Map<Object, Selection> selections = new ConcurrentHashMap<>();
 
     public DefaultRequestModelInvokerFactory(String defaultProvider, ModelConfig modelConfig,
                                              ModelProviderRegistry<ChatModel> chatProviders,
                                              ModelProviderRegistry<StreamingChatModel> streamingProviders) {
+        this(defaultProvider, modelConfig, chatProviders, streamingProviders, new ModelProviderRegistry<>());
+    }
+
+    public DefaultRequestModelInvokerFactory(String defaultProvider, ModelConfig modelConfig,
+                                             ModelProviderRegistry<ChatModel> chatProviders,
+                                             ModelProviderRegistry<StreamingChatModel> streamingProviders,
+                                             ModelProviderRegistry<ImageModel> imageProviders) {
         this.defaultProvider = defaultProvider == null || defaultProvider.isBlank()
                 ? "default" : defaultProvider.trim();
         this.modelConfig = modelConfig;
         this.chatProviders = chatProviders;
         this.streamingProviders = streamingProviders;
+        this.imageProviders = imageProviders;
     }
 
     @Override
@@ -76,9 +86,11 @@ public final class DefaultRequestModelInvokerFactory implements RequestModelInvo
     private RequestModelInvokerFactory.Selection getSelection(String name, ModelConfig modelConfig) {
         boolean chat = chatProviders.contains(name);
         boolean streaming = streamingProviders.contains(name);
-        if (chat && streaming) {
-            throw new IllegalArgumentException("Ambiguous model provider registered for chat and streaming: " + name);
+        boolean image = imageProviders.contains(name);
+        if ((chat ? 1 : 0) + (streaming ? 1 : 0) + (image ? 1 : 0) > 1) {
+            throw new IllegalArgumentException("Ambiguous model provider registered in multiple channels: " + name);
         }
+        if (image) return new Selection(name, new DefaultImageModelInvoker(imageProviders.create(modelConfig)), false);
         if (streaming) {
             StreamingChatModel model = streamingProviders.create(modelConfig);
             return new Selection(name, new DefaultStreamingModelInvoker(model), true);

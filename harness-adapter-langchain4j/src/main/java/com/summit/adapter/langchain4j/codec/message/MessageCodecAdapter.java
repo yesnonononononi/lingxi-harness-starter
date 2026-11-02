@@ -36,6 +36,12 @@ public class MessageCodecAdapter implements MessageCodec<ChatMessage, ChatRespon
             if (aiMessage.getText() != null) {
                 builder.text(aiMessage.getText());
             }
+            // This SDK has no assistant-image input. Retain the fact of generation without sending
+            // image bytes as text or inventing a user message when switching back to a chat model.
+            if ((aiMessage.getText() == null || aiMessage.getText().isBlank())
+                    && aiMessage.getImages() != null && !aiMessage.getImages().isEmpty()) {
+                builder.text("[Assistant generated " + aiMessage.getImages().size() + " image(s)]");
+            }
             if (aiMessage.getThinking() != null) {
                 builder.thinking(aiMessage.getThinking());
             }

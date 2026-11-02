@@ -361,6 +361,58 @@ AgentRequest request = AgentRequest.builder()
 
 The default `SkillResolver` depends on CommonMark; when that parsing dependency is missing, ordinary requests can still start, while Skills requests need a custom resolver/loader or the dependency added. `read_skill` is enabled by default in the kernel tools module and can be disabled via `lingxi.agent.runtime.tool.read-skill.enabled`. The default reader accesses the Skills host directory independently of the request workspace and does not execute Skill scripts automatically.
 
+## Image Models
+
+Configure image generation independently from chat:
+
+```yaml
+lingxi:
+  agent:
+    model:
+      conf:
+        image:
+          provider: default-image-model
+          base-url: ${IMAGE_BASE_URL}
+          api-key: ${IMAGE_API_KEY}
+          model-name: ${IMAGE_MODEL_NAME}
+          timeout: 5m
+          max-retries: 3
+          quality: high
+          size: 1024x1024
+```
+
+Spring exposes `imageModelConfig` and `imageModelProviderRegistry`. A business service or tool can
+receive them with qualifiers and create a model when needed:
+
+```java
+public ImageGenerationService(
+        @Qualifier("imageModelProviderRegistry") ModelProviderRegistry<ImageModel> providers,
+        @Qualifier("imageModelConfig") ModelConfig config) {
+    this.imageModel = providers.create(config);
+}
+
+public ChatResponseEntity generate(String prompt) {
+    return imageModel.generate(prompt);
+}
+```
+
+Use `com.summit.core.model.image.ImageModel`, `com.summit.core.model.ModelProviderRegistry`,
+`com.summit.core.conf.ModelConfig`, `com.summit.core.conversation.api.ChatResponseEntity`, and
+Spring's `Qualifier`. The service declares an `ImageModel imageModel` field. Without Spring,
+pass a `ModelConfig` with `imageOptions` to `CommonImageModelProvider.create(config)`.
+For per-request business configuration, pass that request's config to the registry instead.
+Applications may replace the named `imageModelConfig` bean or register their own image provider.
+No image model is constructed until a caller uses the registry, so applications without image
+configuration can still start. This exposes generation/editing to business code; tools and UI
+that trigger generation remain application responsibilities.
+
+Images are returned in `response.getMeta().getImages()`. Usage retains the existing
+`TokenUsageEntity` package, nested getters and JSON shape; `TextTokenUsage` and `ImageTokenUsage`
+share that base and accumulate all details even across mixed calls. Optional `textTokens` fields
+carry provider-reported text breakdowns. Image/text details are already included in the corresponding
+input/output totals and must not be added again. Snapshots can restore every count through the
+base type without needing a subtype discriminator.
+
 ## Model HTTP Clients
 
 All built-in OpenAI and Anthropic chat, streaming, compaction, and image providers accept LangChain4j's `HttpClientBuilderFactory`. No-argument constructors and the default Spring configuration use the JDK client. Applications can replace the Spring factory bean without replacing model providers:
