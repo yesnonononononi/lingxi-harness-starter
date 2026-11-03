@@ -30,7 +30,9 @@ public final class ProcessResult implements CommandHandler {
     void begin(Charset charset, byte[] stdin, long maxChars, long timeout, TimeUnit unit,
                long started, ProcessOutputListener listener, Runnable release) {
         outputThread = Thread.ofVirtual().start(() -> {
-            try (Reader reader = new InputStreamReader(child.getInputStream(), charset)) {
+            // A detached descendant may keep stdout open after the owned process exits. Never
+            // enter a native pipe read with no available bytes: closing it can block on Windows too.
+            try (Reader reader = new InputStreamReader(new ProcessOutputInputStream(child), charset)) {
                 char[] chars = new char[4096];
                 int count;
                 while ((count = reader.read(chars)) != -1) {

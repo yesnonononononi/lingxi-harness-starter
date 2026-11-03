@@ -45,6 +45,50 @@ class ProcessRunnerTest {
     }
 
     @Test
+    void detachedDescendantCannotHoldForegroundOutputCleanup() throws Exception {
+        assertDetachedOutputCompletes(false);
+    }
+
+    @Test
+    void detachedDescendantCannotHoldBackgroundCompletion() throws Exception {
+        assertDetachedOutputCompletes(true);
+    }
+
+    private void assertDetachedOutputCompletes(boolean background) throws Exception {
+        Path pid = temporary.resolve("detached-child.pid");
+        CancellableProcessRunner runner = new CancellableProcessRunner();
+        FutureTask<CommandResult> result = new FutureTask<>(() -> {
+            if (!background) return runner.run(command("detach", pid.toString()), 10, TimeUnit.SECONDS);
+            CommandHandler handle = runner.start(List.of(command("detach", pid.toString())), null,
+                    StandardCharsets.UTF_8, new byte[0], 10, TimeUnit.SECONDS, 4096);
+            CommandResult completed = handle.await();
+            assertTrue(handle.isDone());
+            assertSame(completed, handle.stop().result());
+            return completed;
+        });
+        Thread.ofVirtual().start(result);
+        try {
+            awaitFile(pid);
+            CommandResult completed = result.get(5, TimeUnit.SECONDS);
+            assertEquals(0, completed.exitCode(), completed.output());
+            assertEquals("launched", completed.output());
+            assertFalse(completed.timedOut());
+            assertTrue(ProcessHandle.of(Long.parseLong(Files.readString(pid))).orElseThrow().isAlive(),
+                    "a successfully detached child must remain running");
+            assertEquals("reused", runner.run(command("echo", "reused"), 5, TimeUnit.SECONDS).output());
+        } finally {
+            if (Files.exists(pid)) {
+                ProcessHandle child = ProcessHandle.of(Long.parseLong(Files.readString(pid))).orElse(null);
+                if (child != null && child.isAlive()) {
+                    child.destroyForcibly();
+                    child.onExit().get(5, TimeUnit.SECONDS);
+                }
+            }
+            result.cancel(true);
+        }
+    }
+
+    @Test
     void backgroundTimeoutSettlesWithoutAWaitingCaller() throws Exception {
         Path pid = temporary.resolve("autonomous-timeout.pid");
         CommandHandler handle = ProcessRunner.start(List.of(command("sleep", pid.toString())), null,
@@ -558,6 +602,19 @@ class ProcessRunnerTest {
                     Files.writeString(Path.of(arguments[1]), Long.toString(ProcessHandle.current().pid()));
                     new ProcessBuilder(command("sleep", arguments[2])).inheritIO().start();
                     Thread.sleep(60_000);
+                }
+                case "detach" -> {
+                    System.out.print("launched");
+                    System.out.flush();
+                    new ProcessBuilder(command("sleep", arguments[1])).inheritIO().start();
+                    Path marker = Path.of(arguments[1]);
+                    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                    while ((!Files.exists(marker) || Files.size(marker) == 0) && System.nanoTime() < deadline) {
+                        Thread.sleep(10);
+                    }
+                    if (!Files.exists(marker) || Files.size(marker) == 0) {
+                        throw new IllegalStateException("Detached child did not start");
+                    }
                 }
                 default -> throw new IllegalArgumentException("Unknown probe");
             }
