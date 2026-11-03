@@ -1,6 +1,7 @@
 package com.summit.adapter.langchain4j.model.provider;
 
 import com.summit.core.conf.ModelConfig;
+import com.summit.core.conf.ReasoningEffortPlan;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -16,9 +17,10 @@ record AnthropicModelSettings(String thinkingType, Integer budget, int maxTokens
         if (effort != null && !Set.of("none", "minimal", "low", "medium", "high", "xhigh", "max").contains(effort)) {
             throw new IllegalArgumentException("Unsupported Anthropic reasoning effort: " + effort);
         }
-        String model = config.getModelName().strip().toLowerCase(Locale.ROOT);
-        boolean manualModel = model.startsWith("claude-3")
-                || model.matches("claude-(opus|sonnet|haiku)-4(?:-(?:0|1|5)(?:-.*)?|-\\d{8})?");
+        // 档位语义（xhigh 折 high、manual 判定、预算表）只在 ReasoningEffortPlan 里有一份：
+        // 业务侧要按它做能力声明与配置校验，这里再抄一遍必然漂移。
+        String model = normalize(config.getModelName());
+        boolean manualModel = ReasoningEffortPlan.manualThinking(model);
         String type = normalize(options == null ? null : options.thinkingType());
         Integer budget = options == null ? null : options.thinkingBudgetTokens();
         if (type == null) {
@@ -31,12 +33,7 @@ record AnthropicModelSettings(String thinkingType, Integer budget, int maxTokens
         }
         if ("enabled".equals(type)) {
             if (budget == null) {
-                budget = switch (effort == null ? "low" : effort) {
-                    case "medium" -> 4096;
-                    case "high", "xhigh" -> 8192;
-                    case "max" -> 16384;
-                    default -> 1024;
-                };
+                budget = ReasoningEffortPlan.thinkingBudget(effort);
                 budget = Math.min(budget, maxTokens - 1);
             }
             if (budget < 1024 || budget >= maxTokens) {
@@ -47,14 +44,10 @@ record AnthropicModelSettings(String thinkingType, Integer budget, int maxTokens
         }
         // The pinned SDK has no typed effort field; customParameters emits the native output_config.
         // Older manual-thinking models accept a budget, but only Opus 4.5 also supports effort.
-        boolean supportsEffort = !manualModel || model.startsWith("claude-opus-4-5");
+        boolean supportsEffort = ReasoningEffortPlan.supportsNativeEffort(model);
         Map<String, Object> parameters = Map.of();
         if (supportsEffort && effort != null && !"none".equals(effort)) {
-            String mapped = switch (effort) {
-                case "minimal" -> "low";
-                case "xhigh" -> "high";
-                default -> effort;
-            };
+            String mapped = ReasoningEffortPlan.canonical("anthropic", model, effort);
             parameters = Map.of("output_config", Map.of("effort", mapped));
         }
         return new AnthropicModelSettings(type, budget, maxTokens, options != null && options.promptCache(),
