@@ -16,6 +16,9 @@ import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.FactoryBean;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
 
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -55,6 +58,33 @@ class LoopInterceptorHandlerTest {
 
             assertEquals(1, context.getBean(InterfaceListener.class).calls);
             assertTrue(factory.get().containsKey("interface"));
+        }
+    }
+
+    @Test
+    void interfaceExposedByBeanMethodDiscoversAnnotationAndInvokesTheImplementationOverride() {
+        try (AnnotationConfigApplicationContext context = context(InterfaceExposure.class)) {
+            assertSame(ListenerContract.class, context.getType("interfaceExposedListener"));
+            assertFalse(context.getBeanFactory().containsSingleton("interfaceExposedListener"));
+
+            LoopInterceptorFactory factory = scan(context);
+            assertTrue(factory.get().containsKey("interface"));
+            processor(factory).onLoopStart(null);
+
+            InterfaceListener target = (InterfaceListener) context.getBean("interfaceExposedListener");
+            assertEquals(1, target.calls);
+        }
+    }
+
+    @Test
+    void interfaceExposedByBeanMethodDoesNotDiscoverImplementationOnlyAnnotations() {
+        try (AnnotationConfigApplicationContext context = context(ImplementationOnlyExposure.class)) {
+            assertSame(UnannotatedContract.class, context.getType("implementationOnlyListener"));
+            assertFalse(context.getBeanFactory().containsSingleton("implementationOnlyListener"));
+
+            LoopInterceptorFactory factory = scan(context);
+            assertTrue(factory.get().isEmpty());
+            assertFalse(context.getBeanFactory().containsSingleton("implementationOnlyListener"));
         }
     }
 
@@ -112,7 +142,7 @@ class LoopInterceptorHandlerTest {
     }
 
     @Test
-    void jdkProxyDiscoversImplementationAnnotationsWhenTheMethodIsOnItsInterface() {
+    void jdkProxyDoesNotDiscoverAnnotationsHiddenByItsExposedInterface() {
         TargetAnnotatedListener target = new TargetAnnotatedListener();
         ProxyFactory proxyFactory = new ProxyFactory(target);
         proxyFactory.setInterfaces(UnannotatedContract.class);
@@ -121,10 +151,9 @@ class LoopInterceptorHandlerTest {
             assertTrue(AopUtils.isJdkDynamicProxy(context.getBean("listenerProxy")));
             LoopInterceptorFactory factory = scan(context);
 
-            assertTrue(factory.get().containsKey("target-annotation"),
-                    "An invocable listener annotation on the managed target must not disappear behind a JDK proxy");
+            assertFalse(factory.get().containsKey("target-annotation"));
             processor(factory).onLoopStart(null);
-            assertEquals(1, target.calls);
+            assertEquals(0, target.calls);
         }
     }
 
@@ -232,6 +261,7 @@ class LoopInterceptorHandlerTest {
 
     public static class InterfaceListener implements ListenerContract {
         int calls;
+        @Override
         public InterceptorResult listen(LoopContext context) {
             calls++;
             return InterceptorResult.NONE;
@@ -249,6 +279,20 @@ class LoopInterceptorHandlerTest {
 
     public interface UnannotatedContract {
         InterceptorResult listen(LoopContext context);
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    public static class InterfaceExposure {
+        @Bean
+        @Lazy
+        ListenerContract interfaceExposedListener() { return new InterfaceListener(); }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    public static class ImplementationOnlyExposure {
+        @Bean
+        @Lazy
+        UnannotatedContract implementationOnlyListener() { return new TargetAnnotatedListener(); }
     }
 
     public static class TargetAnnotatedListener implements UnannotatedContract {
