@@ -53,6 +53,12 @@ public interface ImageModel {
         throw new UnsupportedOperationException("Operation is not supported");
     }
 
+    /** Edits one image with per-call overrides; older providers must reject unsupported specifications. */
+    default ChatResponseEntity edit(Image image, String prompt, ImageGenerationOptions options) {
+        validateEditOptions(options);
+        return edit(image, prompt);
+    }
+
     /**
      * Given an existing image, edit this image following the given prompt and
      * apply the changes only to the part of the image specified by the given mask.
@@ -64,5 +70,18 @@ public interface ImageModel {
      */
     default ChatResponseEntity edit(Image image, Image mask, String prompt) {
         throw new UnsupportedOperationException("Operation is not supported");
+    }
+
+    /** Edits the masked area with the same per-call specification contract as unmasked edits. */
+    default ChatResponseEntity edit(Image image, Image mask, String prompt, ImageGenerationOptions options) {
+        validateEditOptions(options);
+        return edit(image, mask, prompt);
+    }
+
+    private static void validateEditOptions(ImageGenerationOptions options) {
+        if (options != null && (options.size() != null || options.quality() != null
+                || options.count() != null && options.count() != 1)) {
+            throw new UnsupportedOperationException("Per-call image editing specifications are not supported");
+        }
     }
 }

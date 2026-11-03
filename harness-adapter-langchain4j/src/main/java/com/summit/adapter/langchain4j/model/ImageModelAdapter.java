@@ -45,11 +45,7 @@ public class ImageModelAdapter implements ImageModel {
     @Override
     public ChatResponseEntity generate(String prompt, ImageGenerationOptions options) {
         ImageGenerationOptions effective = (options == null ? ImageGenerationOptions.EMPTY : options).withDefaults(defaults);
-        dev.langchain4j.model.image.ImageModel selected = delegate;
-        if (!Objects.equals(effective.size(), defaults.size()) || !Objects.equals(effective.quality(), defaults.quality())) {
-            if (delegateFactory == null) throw new UnsupportedOperationException("Per-call image specifications are not supported");
-            selected = delegateFactory.apply(effective);
-        }
+        dev.langchain4j.model.image.ImageModel selected = selectDelegate(effective);
         if (effective.count() == 1) {
             Response<dev.langchain4j.data.image.Image> response = selected.generate(prompt);
             return toResponse(response, List.of(response.content()));
@@ -60,15 +56,42 @@ public class ImageModelAdapter implements ImageModel {
 
     @Override
     public ChatResponseEntity edit(Image image, String prompt) {
-        Response<dev.langchain4j.data.image.Image> response = delegate.edit(ImageInfoAdapter.toLangchain4j(image), prompt);
+        return edit(image, prompt, null);
+    }
+
+    @Override
+    public ChatResponseEntity edit(Image image, String prompt, ImageGenerationOptions options) {
+        Response<dev.langchain4j.data.image.Image> response = resolveEditDelegate(options)
+                .edit(ImageInfoAdapter.toLangchain4j(image), prompt);
         return toResponse(response, List.of(response.content()));
     }
 
     @Override
     public ChatResponseEntity edit(Image image, Image mask, String prompt) {
-        Response<dev.langchain4j.data.image.Image> response = delegate.edit(
+        return edit(image, mask, prompt, null);
+    }
+
+    @Override
+    public ChatResponseEntity edit(Image image, Image mask, String prompt, ImageGenerationOptions options) {
+        Response<dev.langchain4j.data.image.Image> response = resolveEditDelegate(options).edit(
                 ImageInfoAdapter.toLangchain4j(image), ImageInfoAdapter.toLangchain4j(mask), prompt);
         return toResponse(response, List.of(response.content()));
+    }
+
+    private dev.langchain4j.model.image.ImageModel resolveEditDelegate(ImageGenerationOptions options) {
+        // The SDK edit API returns one image; generation batch defaults must not change legacy edits.
+        ImageGenerationOptions effective = (options == null ? ImageGenerationOptions.EMPTY : options)
+                .withDefaults(new ImageGenerationOptions(defaults.size(), defaults.quality(), 1));
+        if (effective.count() != 1) throw new UnsupportedOperationException("Image editing supports exactly one output image");
+        return selectDelegate(effective);
+    }
+
+    private dev.langchain4j.model.image.ImageModel selectDelegate(ImageGenerationOptions effective) {
+        if (!Objects.equals(effective.size(), defaults.size()) || !Objects.equals(effective.quality(), defaults.quality())) {
+            if (delegateFactory == null) throw new UnsupportedOperationException("Per-call image specifications are not supported");
+            return delegateFactory.apply(effective);
+        }
+        return delegate;
     }
 
     private ChatResponseEntity toResponse(Response<?> response, List<dev.langchain4j.data.image.Image> images) {

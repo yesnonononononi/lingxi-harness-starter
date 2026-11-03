@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.agent.Image;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.model.image.ImageGenerationOptions;
+import com.summit.core.model.image.ImageModel;
 import dev.langchain4j.http.client.jdk.JdkHttpClient;
 import dev.langchain4j.http.client.jdk.JdkHttpClientBuilder;
 import com.sun.net.httpserver.HttpServer;
@@ -175,6 +176,52 @@ class ImageProviderWireContractTest {
             }
             assertEquals(1, response.getMeta().getImages().size());
             assertEquals(95, response.getTokenUsage().getTotalTokens());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void editOverridesReachMultipartWithoutMutatingDefaultsOrRebuildingTransport(boolean masked) throws Exception {
+        AtomicInteger transports = new AtomicInteger();
+        CommonImageModelProvider provider = new CommonImageModelProvider(() -> new JdkHttpClientBuilder() {
+            @Override public JdkHttpClient build() {
+                transports.incrementAndGet();
+                return super.build();
+            }
+        });
+        try (Endpoint endpoint = new Endpoint()) {
+            ModelConfig configuration = config(endpoint).imageOptions(new ModelConfig.ImageOptions(
+                    "high", "1024x1024", Map.of("X-Route", "edits"), 2)).build();
+            ImageModel model = provider.create(configuration);
+            Image image = Image.from(Base64.getEncoder().encodeToString("original-image-bytes".getBytes(StandardCharsets.UTF_8)), "image/jpeg");
+            Image mask = Image.from("bWFzaw==");
+            ImageGenerationOptions options = new ImageGenerationOptions("1536x1024", "low", 1);
+            if (masked) model.edit(image, mask, "polish", options);
+            else model.edit(image, "polish", options);
+            Request request = endpoint.take();
+            assertEquals("/v1/images/edits", request.path());
+            assertTrue(request.contentType().startsWith("multipart/form-data;"));
+            assertEquals("edits", request.route());
+            assertTrue(request.body().contains("original-image-bytes"));
+            assertTrue(request.body().contains("1536x1024"));
+            assertTrue(request.body().contains("low"));
+            assertEquals(masked, request.body().contains("name=\"mask\""));
+            model.edit(image, "legacy defaults");
+            Request legacy = endpoint.take();
+            assertTrue(legacy.body().contains("1024x1024"));
+            assertTrue(legacy.body().contains("high"));
+            model.edit(image, "inherit quality", new ImageGenerationOptions("1024x1536", null, null));
+            Request inherited = endpoint.take();
+            assertTrue(inherited.body().contains("1024x1536"));
+            assertTrue(inherited.body().contains("high"));
+            assertEquals("1024x1024", configuration.getImageOptions().size());
+            assertEquals("high", configuration.getImageOptions().quality());
+            assertEquals(2, configuration.getImageOptions().count());
+            assertEquals(1, transports.get());
+            assertThrows(UnsupportedOperationException.class,
+                    () -> model.edit(image, "batch", new ImageGenerationOptions(null, null, 2)));
+            assertThrows(UnsupportedOperationException.class,
+                    () -> model.edit(image, mask, "batch", new ImageGenerationOptions(null, null, 2)));
         }
     }
 
