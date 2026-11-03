@@ -6,6 +6,7 @@ import com.summit.adapter.langchain4j.model.provider.AnthropicChatModelProvider;
 import com.summit.adapter.langchain4j.model.provider.OpenAiChatModelProvider;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
+import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.ContextCompactRequest;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.conversation.api.ChatRequestEntity;
@@ -18,9 +19,12 @@ import com.summit.core.conversation.message.ToolMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.runtime.loop.ContextUsageReporter;
 import com.summit.runtime.agent.AgentConfig;
+import com.summit.runtime.conversation.DefaultConversationManager;
 import com.summit.runtime.conversation.DefaultTokenizer;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -38,7 +42,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Checks pending prefixes, skeleton history, and text-only history through both real adapters.
+ * Checks pending prefixes, complete latest turns, and text-only history through both real adapters.
  *
  * <p>The providers ({@link AnthropicChatModelProvider},
  * {@link OpenAiChatModelProvider}) talking to a local endpoint, so the assertions read the exact JSON
@@ -99,9 +103,9 @@ class PrunedContextWireAcceptanceTest {
         }
     }
 
-    /** §8.4 ②: a historical segment without thinking still pairs tool_use with tool_result. */
+    /** Earlier calls within the latest user turn keep their complete arguments, outputs, and pairing. */
     @Test
-    void historicalSegmentWithoutThinkingKeepsToolPairing() throws Exception {
+    void completeLatestUserTurnKeepsEarlierToolPairingAndOutput() throws Exception {
         AiMessageEntity historical = AiMessageEntity.builder()
                 .thinking("old reasoning")
                 .attributes(Map.of("thinking_signature", "signed"))
@@ -132,6 +136,7 @@ class PrunedContextWireAcceptanceTest {
             assertNotNull(toolResult, "the result is still there: " + anthropic);
             assertEquals("call-1", toolResult.path("tool_use_id").asText(),
                     "the result still answers the call it belongs to: " + anthropic);
+            assertTrue(anthropic.toString().contains("x".repeat(3_000)));
 
             JsonNode openAi = wire(endpoint, pruned, false);
             assertNotNull(openAiToolCallAssistant(openAi).path("tool_calls").get(0),
@@ -141,6 +146,7 @@ class PrunedContextWireAcceptanceTest {
             JsonNode openAiTool = openAiMessage(openAi, "tool");
             assertNotNull(openAiTool, "OpenAI keeps the tool result: " + openAi);
             assertEquals("call-1", openAiTool.path("tool_call_id").asText());
+            assertEquals("x".repeat(3_000), openAiTool.path("content").asText());
         }
     }
 
@@ -176,9 +182,10 @@ class PrunedContextWireAcceptanceTest {
         }
     }
 
-    @Test
-    void textOnlyHistoryAndTheLatestToolPairReachBothProviders() throws Exception {
-        List<Message> original = List.of(
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void textOnlyHistoryAndTheLatestToolPairReachBothProviders(boolean newUserTurn) throws Exception {
+        List<Message> original = new ArrayList<>(List.of(
                 SystemMessageEntity.builder().text("system").build(),
                 UserMessageEntity.from("question"),
                 AiMessageEntity.builder().text("earlier finding").toolCalls(List.of(
@@ -187,7 +194,8 @@ class PrunedContextWireAcceptanceTest {
                 ToolMessageEntity.builder().id("discarded-call").name("read").toolOutput("old output").build(),
                 AiMessageEntity.builder().text("latest working group").toolCalls(List.of(
                         new ToolCallRequest("latest-call", "lookup", 0, "{}"))).build(),
-                ToolMessageEntity.builder().id("latest-call").name("lookup").toolOutput("complete latest result").build());
+                ToolMessageEntity.builder().id("latest-call").name("lookup").toolOutput("complete latest result").build()));
+        if (newUserTurn) original.add(4, UserMessageEntity.from("follow-up"));
 
         List<Message> pruned = prune(original);
 
@@ -207,7 +215,53 @@ class PrunedContextWireAcceptanceTest {
         }
     }
 
+    /**
+     * §8.4 ③：摘要压缩换掉历史前缀之后，回传的 Anthropic 请求里不得再出现任何 thinking 块。
+     *
+     * <p>thinking 是前缀绑定 + 带签名的：前缀被摘要取代，旧签名必然对不上，服务端会直接拒绝。
+     * 这里读的是真适配器发出的 JSON，所以验的是「服务器真正会判的那一层」，不是内存对象。</p>
+     */
+    @Test
+    void summaryRebuildSendsNoThinkingOrSignatureOnTheWire() throws Exception {
+        List<Message> original = List.of(
+                SystemMessageEntity.builder().text("system").build(),
+                UserMessageEntity.from("Q1"),
+                AiMessageEntity.builder().text("A1").thinking("OLD-THINK")
+                        .attributes(Map.of("thinking_signature", "sig-old")).toolCalls(List.of()).build(),
+                UserMessageEntity.from("Q2"),
+                AiMessageEntity.builder().text("A2").thinking("TAIL-THINK")
+                        .attributes(Map.of("thinking_signature", "sig-tail")).toolCalls(List.of()).build());
+
+        List<Message> rebuilt = rebuildWithSummary(original);
+
+        try (Endpoint endpoint = new Endpoint()) {
+            JsonNode anthropic = wire(endpoint, rebuilt, true);
+            assertNull(anthropicBlock(anthropic, "thinking"),
+                    "摘要换掉前缀后旧签名必然失效，思考块不许再上线缆: " + anthropic);
+            assertFalse(anthropic.toString().contains("TAIL-THINK"),
+                    "改动点之后保留的 assistant 消息仍残留思考文本: " + anthropic);
+            assertFalse(anthropic.toString().contains("sig-tail"),
+                    "只清文本不清签名，等于回传签名对不上的思考块: " + anthropic);
+
+            JsonNode openAi = wire(endpoint, rebuilt, false);
+            assertFalse(openAi.toString().contains("TAIL-THINK"),
+                    "OpenAI 侧同样不许带残留思考文本: " + openAi);
+            assertFalse(openAi.toString().contains("thinking_signature"),
+                    "OpenAI 协议没有 thinking 签名: " + openAi);
+        }
+    }
+
     // ------------------------------------------------------------------ fixtures
+
+    /** 用真实的摘要重建路径改写历史，返回重建后的消息（供线缆断言使用）。 */
+    private static List<Message> rebuildWithSummary(List<Message> messages) {
+        Execution execution = Execution.create(
+                AgentRequest.builder().systemPrompt("system").messages(messages).build(), "test");
+        execution.setMessages(new ArrayList<>(messages));
+        new DefaultConversationManager(ContextAttachmentProvider.NONE)
+                .rebuildContext("压缩后的摘要", execution);
+        return execution.getMessages();
+    }
 
     /** Runs the real pruner over the messages and returns its product. */
     private static List<Message> prune(List<Message> messages) {

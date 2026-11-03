@@ -30,7 +30,7 @@ public record ContextSqueezeRequest(SqueezeBand band) {
         NONE,
         /** Model summarization: the history is compressed into a summary and rebuilt from it. */
         SUMMARIZE,
-        /** Local pruning: historical skeletons, then text-only history if necessary. */
+        /** Local pruning: historical assistant text, then the latest turn's last tool group if necessary. */
         PRUNE
     }
 

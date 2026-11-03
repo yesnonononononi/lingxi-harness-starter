@@ -31,7 +31,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * The regressions that must survive the compaction redesign (§8.1).
  *
  * <p>The four cases of the old suite that used the deleted truncation band are rewritten against
- * the prune band: pruning keeps the skeleton and drops payloads, always emits a paired
+ * the prune band: pruning keeps historical assistant text and the latest user turn, always emits a paired
  * band-tagged squeeze event (also when it changes nothing), never rewrites system messages, and a
  * failing summary hands the checkpoint over to pruning instead of retrying the model.</p>
  */
@@ -69,6 +69,7 @@ class CompactionRegressionTest {
                 UserMessageEntity.from("history"),
                 AiMessageEntity.builder().toolCalls(List.of(new ToolCallRequest("c1", "read", 0, "{}"))).build(),
                 ToolMessageEntity.builder().id("c1").name("read").toolOutput("x".repeat(3_000)).build(),
+                UserMessageEntity.from("follow-up"),
                 AiMessageEntity.builder().text("latest work").build());
         assertTrue(pruner(MAX_TOKENS).compact(new ContextCompactRequest(rebuilt, null)));
         assertEquals(List.of("system", "summary"), rebuilt.getMessages().stream()
@@ -77,25 +78,24 @@ class CompactionRegressionTest {
     }
 
     @Test
-    void pruneKeepsSkeletonAndDropsToolOutputs() {
+    void pruneKeepsHistoricalTextAndDropsToolCallsAndOutputs() {
         Execution execution = executionWith(
                 SystemMessageEntity.builder().text("s".repeat(300)).build(),
                 UserMessageEntity.from("u".repeat(300)),
                 AiMessageEntity.builder().text("old turn")
                         .toolCalls(List.of(new ToolCallRequest("c1", "read", 0, "{}"))).build(),
                 ToolMessageEntity.builder().id("c1").name("read").toolOutput("x".repeat(9_000)).build(),
+                UserMessageEntity.from("follow-up"),
                 AiMessageEntity.builder().text("latest work").build());
 
         assertTrue(pruner(MAX_TOKENS).compact(new ContextCompactRequest(execution, null)));
 
         assertEquals(5, execution.getMessages().size(), "the historical segment and latest answer survive");
         AiMessageEntity ai = assertInstanceOf(AiMessageEntity.class, execution.getMessages().get(2));
-        assertEquals("old turn", ai.text(), "the skeleton keeps the assistant text");
-        assertEquals(1, ai.getToolCalls().size(), "the skeleton keeps the tool calls");
-        ToolMessageEntity tool = assertInstanceOf(ToolMessageEntity.class, execution.getMessages().get(3));
-        assertTrue(tool.text().startsWith("[output omitted:"), "the payload is replaced: " + tool.text());
-        assertTrue(tool.text().length() < 200, "the placeholder is one line, not the payload");
-        assertEquals("c1", tool.getId(), "the pairing to the assistant tool call survives");
+        assertEquals("old turn", ai.text(), "historical assistant text stays verbatim");
+        assertTrue(ai.getToolCalls().isEmpty());
+        assertTrue(execution.getMessages().stream().noneMatch(ToolMessageEntity.class::isInstance));
+        assertEquals("follow-up", execution.getMessages().get(3).text());
     }
 
     @Test
@@ -179,7 +179,7 @@ class CompactionRegressionTest {
         assertEquals(callsAfterFirstCheckpoint, modelCalls.size(),
                 "a failing summarize is never retried within the execution");
         assertTrue(execution.getCompactionState().summaryUnavailable());
-        assertEquals(1, execution.getCompactionState().pruneGeneration(), "skeleton history still fits the budget");
+        assertEquals(2, execution.getCompactionState().pruneGeneration(), "the dominant latest turn is reduced once");
         assertTrue(events.stream().anyMatch(event -> event.getBand() == ContextUpdateEvent.Band.PRUNE),
                 "the closed summarize band hands the checkpoint over to pruning");
     }

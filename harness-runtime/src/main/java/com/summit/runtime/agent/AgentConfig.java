@@ -34,7 +34,14 @@ public record AgentConfig(
         return maxSummaryAttempts == null ? 1 : maxSummaryAttempts;
     }
 
-    /** The trigger is separate from the hard input budget checked after local pruning. */
+    /** Both compaction bands must bring the context below this trigger. */
+    public double compactionThreshold() {
+        Double configured = squeezeThreshold == null || squeezeThreshold.modelSqueeze() == null
+                ? null : squeezeThreshold.modelSqueeze().threshold();
+        return configured == null ? 0.85 : configured;
+    }
+
+    /** Policy shared by model summarization and local pruning. */
     public record ProgressiveSqueezePolicy(ModelSqueeze modelSqueeze) {
     }
 

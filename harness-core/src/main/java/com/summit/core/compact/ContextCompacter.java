@@ -5,8 +5,8 @@ package com.summit.core.compact;
  *
  * <p>Two implementations exist, one per squeeze band:</p>
  * <ul>
- *   <li>{@code DefaultContextPruner}: local grading of the tool history — {@code FULL},
- *       {@code SKELETON} or {@code DROP} per segment, no model call — for the
+ *   <li>{@code DefaultContextPruner}: keeps historical assistant text and the complete latest user
+ *       turn, reducing that turn to its text and last tool group only when necessary — for the
  *       {@link ContextSqueezeRequest.SqueezeBand#PRUNE} band;</li>
  *   <li>{@code DefaultModelCompacter}: summarizes the session with a compact model and rebuilds it,
  *       for the {@link ContextSqueezeRequest.SqueezeBand#SUMMARIZE} band.</li>

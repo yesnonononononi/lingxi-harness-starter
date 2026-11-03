@@ -2,6 +2,7 @@ package com.summit.runtime.compact;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.CompactionState;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.ContextCompactRequest;
@@ -39,14 +40,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** The fallback keeps the working group and assistant findings before discarding tool history. */
+/** The fallback preserves user turns, assistant findings, and the latest complete user turn. */
 class DefaultContextPrunerTest {
 
     private final DefaultTokenizer tokenizer = new DefaultTokenizer();
     private final List<ContextUpdateEvent> events = new ArrayList<>();
 
     @Test
-    void keepsEveryAssistantTextAndSkeletonizesOnlyHistoricalToolResults() {
+    void keepsEveryAssistantTextAndDropsHistoricalToolArgumentsAndResults() {
         Execution execution = history("{}", "old payload".repeat(2_000), "latest payload".repeat(50));
         List<Message> original = new ArrayList<>(execution.getMessages());
 
@@ -56,21 +57,19 @@ class DefaultContextPrunerTest {
         assertEquals(1, execution.getCompactionState().pruneGeneration());
         assertEquals("{\"path\":\"file\"}", lastAi(execution).getToolCalls().getFirst().arguments());
         assertSame(original.getLast(), execution.getMessages().getLast());
-        ToolMessageEntity skeleton = findTool(execution, "old");
-        assertNotEquals(original.get(3).text(), skeleton.text());
-        assertTrue(skeleton.text().contains("exit=7"));
-        assertTrue(skeleton.isError());
-        assertEquals(7, skeleton.getExitCode());
-        assertEquals("read", skeleton.getName());
+        assertTrue(((AiMessageEntity) execution.getMessages().get(2)).getToolCalls().isEmpty());
+        assertFalse(hasTool(execution, "old"));
+        assertEquals(List.of("question", "follow-up"), execution.getMessages().stream()
+                .filter(UserMessageEntity.class::isInstance).map(Message::text).toList());
     }
 
     @Test
-    void dropsAllHistoricalCallsAndResultsButKeepsEveryAssistantTextAtSecondStage() {
+    void largeHistoricalArgumentsAreRemovedWithoutReducingTheLatestTurn() {
         Execution execution = history("x".repeat(10_000), "old output", "latest output");
 
         assertTrue(pruner(1_000).compact(new ContextCompactRequest(execution)));
 
-        assertEquals(2, execution.getCompactionState().pruneGeneration());
+        assertEquals(1, execution.getCompactionState().pruneGeneration());
         assertEquals(List.of("earlier finding", "latest reasoning"), assistantTexts(execution));
         AiMessageEntity earlier = (AiMessageEntity) execution.getMessages().get(2);
         assertTrue(earlier.getToolCalls() == null || earlier.getToolCalls().isEmpty());
@@ -88,7 +87,7 @@ class DefaultContextPrunerTest {
         pruner(1_000).compact(new ContextCompactRequest(execution));
 
         assertEquals(List.of("latest reasoning"), assistantTexts(execution));
-        assertEquals(4, execution.getMessages().size());
+        assertEquals(5, execution.getMessages().size());
     }
 
     @Test
@@ -138,7 +137,7 @@ class DefaultContextPrunerTest {
     }
 
     @Test
-    void keepsSystemAndUserObjectsAndNonSystemChronologyIncludingInterleavedResults() {
+    void keepsSystemAndUserObjectsAndChronologyWhileRemovingHistoricalPairs() {
         SystemMessageEntity leading = system("leading");
         SystemMessageEntity attachment = system("business state");
         UserMessageEntity first = user("first");
@@ -156,14 +155,14 @@ class DefaultContextPrunerTest {
         assertSame(leading, messages.get(0));
         assertSame(attachment, messages.get(1));
         assertSame(first, messages.get(2));
-        assertSame(interleaved, messages.get(5));
-        assertEquals("a", ((ToolMessageEntity) messages.get(4)).getId());
-        assertEquals("b", ((ToolMessageEntity) messages.get(6)).getId());
+        assertSame(interleaved, messages.get(4));
+        assertEquals(List.of("earlier finding", "latest answer"), assistantTexts(execution));
+        assertTrue(messages.stream().noneMatch(ToolMessageEntity.class::isInstance));
         assertEquals(1, execution.getCompactionState().pruneGeneration());
     }
 
     @Test
-    void isIdempotentAtBothStagesWithoutParsingPlaceholderText() {
+    void historicalProjectionIsIdempotentRegardlessOfArgumentSize() {
         for (String arguments : List.of("{}", "x".repeat(10_000))) {
             events.clear();
             Execution execution = history(arguments, "old output".repeat(1_000), "latest output");
@@ -181,16 +180,14 @@ class DefaultContextPrunerTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"[output omitted: example]\n", "[output omitted: ", "[output omitted: 1B / exit=0]"})
-    void arbitraryPlaceholderLookingOutputIsAlwaysSkeletonized(String prefix) {
+    void historicalOutputsAreDroppedRegardlessOfTheirSpelling(String prefix) {
         String payload = prefix + "9".repeat(30_000) + "]";
         Execution execution = history("{}", payload, "latest output");
 
         pruner(1_000).compact(new ContextCompactRequest(execution));
 
-        String skeleton = findTool(execution, "old").text();
-        assertTrue(skeleton.length() < 100);
-        assertFalse(skeleton.contains("\n"));
-        assertNotEquals(payload, skeleton);
+        assertFalse(hasTool(execution, "old"));
+        assertEquals("latest output", findTool(execution, "latest").text());
     }
 
     @Test
@@ -259,8 +256,9 @@ class DefaultContextPrunerTest {
         checker.before(execution);
 
         assertTrue(tokenizer.count(execution.getMessages()) <= 2_000);
-        assertTrue(findTool(execution, "latest").text().length() < 100);
+        assertFalse(hasTool(execution, "latest"));
         assertEquals("new latest", findTool(execution, "next").text());
+        assertEquals(2, execution.getCompactionState().pruneGeneration());
         assertTrue(execution.getCompactionState().summaryUnavailable());
     }
 
@@ -295,7 +293,7 @@ class DefaultContextPrunerTest {
         assertTrue(pruner.compact(new ContextCompactRequest(execution)));
         assertFalse(pruner.compact(new ContextCompactRequest(execution)));
 
-        assertEquals(2, execution.getCompactionState().pruneGeneration());
+        assertEquals(1, execution.getCompactionState().pruneGeneration());
         assertEquals(1, execution.getMessages().stream()
                 .filter(SystemMessageEntity.class::isInstance)
                 .filter(message -> message.text().contains("authoritative business plan")).count());
@@ -316,7 +314,7 @@ class DefaultContextPrunerTest {
     }
 
     @Test
-    void textOnlyStageStaysActiveWhenTheLatestGroupMovesForward() {
+    void anotherSmallGroupInTheLatestTurnIsKeptInFull() {
         Execution execution = history("x".repeat(10_000), "old output", "latest output");
         DefaultContextPruner pruner = pruner(1_000);
         pruner.compact(new ContextCompactRequest(execution));
@@ -325,11 +323,11 @@ class DefaultContextPrunerTest {
                 .toolCalls(List.of(call("next", "{}"))).build());
         execution.getMessages().add(tool("next", "new output", false, 0));
 
-        assertTrue(pruner.compact(new ContextCompactRequest(execution)));
+        assertFalse(pruner.compact(new ContextCompactRequest(execution)));
 
-        assertEquals(2, execution.getCompactionState().pruneGeneration());
+        assertEquals(1, execution.getCompactionState().pruneGeneration());
         assertEquals(List.of("earlier finding", "latest reasoning", "new finding"), assistantTexts(execution));
-        assertEquals(1, execution.getMessages().stream().filter(ToolMessageEntity.class::isInstance).count());
+        assertEquals(2, execution.getMessages().stream().filter(ToolMessageEntity.class::isInstance).count());
         assertEquals("new output", findTool(execution, "next").text());
     }
 
@@ -393,7 +391,7 @@ class DefaultContextPrunerTest {
     }
 
     @Test
-    void snapshotRestorationRetainsTheTextOnlyStageForTheNextWorkingGroup() throws Exception {
+    void snapshotRestorationKeepsTheCompleteLatestUserTurn() throws Exception {
         Execution execution = history("x".repeat(10_000), "old output", "latest output");
         DefaultContextPruner pruner = pruner(1_000);
         pruner.compact(new ContextCompactRequest(execution));
@@ -406,23 +404,143 @@ class DefaultContextPrunerTest {
 
         pruner.compact(new ContextCompactRequest(restored));
 
-        assertEquals(2, restored.getCompactionState().pruneGeneration());
+        assertEquals(1, restored.getCompactionState().pruneGeneration());
         assertEquals(List.of("earlier finding", "latest reasoning", "after restart"), assistantTexts(restored));
-        assertEquals(1, restored.getMessages().stream().filter(ToolMessageEntity.class::isInstance).count());
+        assertEquals(2, restored.getMessages().stream().filter(ToolMessageEntity.class::isInstance).count());
         assertEquals("restored output", findTool(restored, "resumed").text());
     }
 
     @Test
-    void skeletonsAreRetainedWhenTheyFitTheHardBudgetDespiteExceedingFortyPercent() {
-        Execution execution = history("x".repeat(1_300), "old output".repeat(1_000), "latest output");
+    void completeLatestTurnIsRetainedEvenWhenItOccupiesMostOfTheContextBelowThreshold() {
+        Execution execution = history("{}", "old output", "x".repeat(1_800));
+        AiMessageEntity another = AiMessageEntity.builder().text("next action")
+                .toolCalls(List.of(call("next", "{\"pid\":42}"))).build();
+        ToolMessageEntity result = tool("next", "complete result", false, 0);
+        execution.getMessages().add(another);
+        execution.getMessages().add(result);
 
         pruner(1_000).compact(new ContextCompactRequest(execution));
 
-        int tokens = tokenizer.count(execution.getMessages());
-        assertTrue(tokens > 400 && tokens <= 1_000, "fixture must exceed the old soft target");
         assertEquals(1, execution.getCompactionState().pruneGeneration());
-        assertFalse(((AiMessageEntity) execution.getMessages().get(2)).getToolCalls().isEmpty());
-        assertTrue(findTool(execution, "old").text().contains("output omitted"));
+        assertEquals("x".repeat(1_800), findTool(execution, "latest").text());
+        assertSame(another, lastAi(execution));
+        assertSame(result, findTool(execution, "next"));
+    }
+
+    @Test
+    void dominantLatestTurnKeepsAllAssistantTextAndTheLastCompleteParallelToolGroup() {
+        String arguments = "{\"content\":\"" + "x".repeat(6_000) + "\"}";
+        AiMessageEntity earlier = AiMessageEntity.builder().text("earlier action")
+                .toolCalls(List.of(call("discarded", arguments))).build();
+        AiMessageEntity latest = AiMessageEntity.builder().text("latest action")
+                .toolCalls(List.of(call("a", "{\"path\":\"file\"}"), call("b", "{\"pid\":42}"))).build();
+        ToolMessageEntity a = tool("a", "full file result", false, 0);
+        ToolMessageEntity b = tool("b", "full process result", true, 7);
+        Execution execution = execution(system("system"), user("question"), earlier, latest,
+                b, tool("discarded", "delayed old result", false, 0), a);
+        List<Message> original = new ArrayList<>(execution.getMessages());
+        DefaultContextPruner pruner = pruner(1_000);
+
+        assertTrue(pruner.compact(new ContextCompactRequest(execution)));
+
+        assertEquals(List.of("earlier action", "latest action"), assistantTexts(execution));
+        assertTrue(((AiMessageEntity) execution.getMessages().get(2)).getToolCalls().isEmpty());
+        assertSame(latest, lastAi(execution));
+        assertEquals(List.of(b, a), execution.getMessages().stream().filter(ToolMessageEntity.class::isInstance).toList());
+        assertEquals(2, execution.getCompactionState().pruneGeneration());
+        assertEquals(arguments, ((AiMessageEntity) original.get(2)).getToolCalls().getFirst().arguments());
+        assertFalse(pruner.compact(new ContextCompactRequest(execution)));
+        assertEquals(2, execution.getCompactionState().pruneGeneration());
+    }
+
+    @Test
+    void latestPlainAnswerIsKeptWhileEarlierCallsInThatTurnAreRemoved() {
+        Execution execution = execution(system("system"), user("question"),
+                AiMessageEntity.builder().toolCalls(List.of(call("old", "x".repeat(6_000)))).build(),
+                tool("old", "old result", false, 0), AiMessageEntity.builder().text("final finding").build());
+
+        pruner(1_000).compact(new ContextCompactRequest(execution));
+
+        assertEquals(List.of("final finding"), assistantTexts(execution));
+        assertEquals(3, execution.getMessages().size());
+        assertEquals(2, execution.getCompactionState().pruneGeneration());
+    }
+
+    @Test
+    void reachingConfiguredThresholdTriggersLatestTurnReductionEvenBelowTheHardBudget() {
+        Execution execution = execution(system("s".repeat(300)), user("question"),
+                AiMessageEntity.builder().text("first action").toolCalls(List.of(call("old", "{}"))).build(),
+                tool("old", "x".repeat(1_500), false, 0), AiMessageEntity.builder().text("latest finding").build());
+        int tokens = tokenizer.count(execution.getMessages());
+        AgentConfig config = AgentConfig.builder().maxTokens(1_000)
+                .squeezeThreshold(new AgentConfig.ProgressiveSqueezePolicy(
+                        new AgentConfig.ModelSqueeze(tokens / 1_000.0))).build();
+        assertTrue(tokens < 850, "the configured threshold must differ from the default and hard budget");
+
+        new DefaultContextPruner(config, reporter(1_000)).compact(new ContextCompactRequest(execution));
+
+        assertFalse(hasTool(execution, "old"));
+        assertEquals(List.of("first action", "latest finding"), assistantTexts(execution));
+        assertEquals(2, execution.getCompactionState().pruneGeneration());
+        assertTrue(tokenizer.count(execution.getMessages()) < tokens);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {450, 451})
+    void latestTurnAtOrBelowHalfCannotBeReducedDespiteReclaimableToolContent(int protectedTokens) {
+        // Latest turn: 10 user tokens + 10 assistant tokens + 1 tool-name token + 429 output tokens = 450.
+        Execution execution = execution(system("s".repeat(protectedTokens * 3)), user("u".repeat(30)),
+                AiMessageEntity.builder().text("a".repeat(30)).toolCalls(List.of(call("old", "{}"))).build(),
+                tool("old", "x".repeat(429 * 3), false, 0), AiMessageEntity.builder().text("").build());
+        List<Message> original = execution.getMessages();
+
+        TokenBudgetExceededException error = assertThrows(TokenBudgetExceededException.class,
+                () -> pruner(1_000).compact(new ContextCompactRequest(execution)));
+
+        assertTrue(error.getMessage().contains("does not occupy more than half"));
+        assertSame(original, execution.getMessages());
+        assertEquals(CompactionState.none(), execution.getCompactionState());
+        assertPairedEvents();
+    }
+
+    @Test
+    void overflowAfterReducingLatestTurnPreservesMessagesAndPersistedState() {
+        Execution execution = execution(system("system"), user("question"),
+                AiMessageEntity.builder().text("first action").toolCalls(List.of(call("old", "{}"))).build(),
+                tool("old", "x".repeat(6_000), false, 0),
+                AiMessageEntity.builder().text("latest action").toolCalls(List.of(call("latest", "{}"))).build(),
+                tool("latest", "y".repeat(2_550), false, 0));
+        CompactionState state = CompactionState.none().withSummaryGeneration(3).withPruneGeneration(1);
+        execution.setCompactionState(state);
+        List<Message> original = execution.getMessages();
+
+        assertThrows(TokenBudgetExceededException.class, () -> pruner(1_000).compact(new ContextCompactRequest(execution)));
+
+        assertSame(original, execution.getMessages());
+        assertSame(state, execution.getCompactionState());
+        assertEquals("x".repeat(6_000), findTool(execution, "old").text());
+        assertPairedEvents();
+    }
+
+    @Test
+    void priorSecondStageDoesNotForceRemovalOfToolsFromANewUserTurn() {
+        Execution execution = history("{}", "old output", "latest output");
+        execution.setCompactionState(CompactionState.none().withPruneGeneration(2));
+        execution.getMessages().add(user("new user turn"));
+        AiMessageEntity first = AiMessageEntity.builder().text("first action")
+                .toolCalls(List.of(call("first", "{}"))).build();
+        execution.getMessages().add(first);
+        execution.getMessages().add(tool("first", "full first result", false, 0));
+        execution.getMessages().add(AiMessageEntity.builder().text("second action")
+                .toolCalls(List.of(call("second", "{}"))).build());
+        execution.getMessages().add(tool("second", "full second result", false, 0));
+
+        pruner(1_000).compact(new ContextCompactRequest(execution));
+
+        assertFalse(hasTool(execution, "latest"));
+        assertEquals("full first result", findTool(execution, "first").text());
+        assertEquals("full second result", findTool(execution, "second").text());
+        assertSame(first, execution.getMessages().get(6));
     }
 
     @Test
@@ -474,6 +592,7 @@ class DefaultContextPrunerTest {
         return execution(system("system"), user("question"),
                 AiMessageEntity.builder().text("earlier finding").toolCalls(List.of(call("old", arguments))).build(),
                 tool("old", oldOutput, true, 7),
+                user("follow-up"),
                 AiMessageEntity.builder().text("latest reasoning")
                         .toolCalls(List.of(call("latest", "{\"path\":\"file\"}"))).build(),
                 tool("latest", latestOutput, false, 0));
@@ -504,6 +623,11 @@ class DefaultContextPrunerTest {
     private static ToolMessageEntity findTool(Execution execution, String id) {
         return execution.getMessages().stream().filter(ToolMessageEntity.class::isInstance)
                 .map(ToolMessageEntity.class::cast).filter(tool -> id.equals(tool.getId())).findFirst().orElseThrow();
+    }
+
+    private static boolean hasTool(Execution execution, String id) {
+        return execution.getMessages().stream().filter(ToolMessageEntity.class::isInstance)
+                .map(ToolMessageEntity.class::cast).anyMatch(tool -> id.equals(tool.getId()));
     }
 
     private static AiMessageEntity lastAi(Execution execution) {

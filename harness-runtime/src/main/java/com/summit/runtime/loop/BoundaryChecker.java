@@ -43,9 +43,6 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class BoundaryChecker implements RuntimeBoundaryChecker {
 
-    /** Fallback model-squeeze threshold when the policy is not configured. */
-    private static final double DEFAULT_MODEL_THRESHOLD = 0.85;
-
     private final AgentConfig agentConfig;
     private final Tokenizer tokenizer;
     private final ConversationManager conversationManager;
@@ -79,8 +76,8 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
      * Decides the compaction band for this checkpoint: none, summarize, or prune.
      *
      * <p>Summarization is attempted while it is still available and the attempt budget of the
-     * window has room; once it is closed, local pruning handles each oversized checkpoint. Its
-     * persisted stage controls how history is retained, rather than preventing further passes.</p>
+     * window has room; once it is closed, local pruning handles each oversized checkpoint and
+     * re-evaluates the latest user turn independently of the previously recorded stage.</p>
      *
      * @param conversationManager the manager holding the execution's context
      * @param execution            the execution being checked
@@ -235,10 +232,7 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
 
     /** Effective model threshold: the configured policy value, or the fallback. */
     private double modelThreshold() {
-        AgentConfig.ProgressiveSqueezePolicy policy = agentConfig.squeezeThreshold();
-        Double configured = policy == null || policy.modelSqueeze() == null
-                ? null : policy.modelSqueeze().threshold();
-        return configured == null ? DEFAULT_MODEL_THRESHOLD : configured;
+        return agentConfig.compactionThreshold();
     }
 
     /** Summarize attempts allowed per trigger window; a single attempt when unconfigured. */

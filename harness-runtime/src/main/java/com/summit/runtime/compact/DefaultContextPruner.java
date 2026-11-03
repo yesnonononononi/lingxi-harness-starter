@@ -7,32 +7,26 @@ import com.summit.core.compact.ContextCompacter;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.event.ContextUpdateEvent;
-import com.summit.core.conversation.message.AiMessageEntity;
-import com.summit.core.conversation.message.Message;
-import com.summit.core.conversation.message.SystemMessageEntity;
-import com.summit.core.conversation.message.ToolMessageEntity;
+import com.summit.core.conversation.message.*;
 import com.summit.core.exception.TokenBudgetExceededException;
 import com.summit.core.runtime.loop.ContextUsageReporter;
 import com.summit.runtime.agent.AgentConfig;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 
 /**
- * Retains assistant findings and the latest working group when summarization is unavailable.
- * Historical results become skeletons first; only their call structures are removed on overflow.
+ * Retains user messages and historical assistant text, followed by the complete latest user turn.
+ * Only an oversized latest turn occupying more than half the candidate may be reduced further,
+ * keeping its assistant text and the last assistant's complete tool group.
  */
 @Slf4j
 public class DefaultContextPruner implements ContextCompacter {
 
-    private record History(Map<String, Integer> owners, int latestAssistant, boolean pending) {
+    private record History(Map<String, Integer> owners, int latestUser, int latestAssistant, boolean pending) {
     }
+
+
 
     private final AgentConfig agentConfig;
     private final ContextUsageReporter usage;
@@ -89,11 +83,15 @@ public class DefaultContextPruner implements ContextCompacter {
                         message instanceof SystemMessageEntity && message.text().contains(value)))
                 .ifPresent(value -> input.add(SystemMessageEntity.builder().text(value).build()));
 
-        boolean dropHistory = execution.getCompactionState().pruneGeneration() >= 2;
-        List<Message> product = project(input, history, dropHistory);
-
-        if (!dropHistory && tokenizer.count(product) > agentConfig.maxTokens()) {
-            dropHistory = true;
+        boolean compactLatest = false;
+        List<Message> product = project(input, history, false);
+        int tokens = tokenizer.count(product);
+        if (atThreshold(tokens)) {
+            int latestTurnTokens = tokenizer.count(latestTurn(product));
+            if ((long) latestTurnTokens * 2 <= tokens) {
+                throw budgetExceeded(tokens, "The latest user turn does not occupy more than half the pruned context.");
+            }
+            compactLatest = true;
             product = project(input, history, true);
         }
 
@@ -106,19 +104,22 @@ public class DefaultContextPruner implements ContextCompacter {
         // Build and validate both candidates before changing either messages or the persisted stage.
         boolean changed = !source.equals(product);
         execution.setMessages(product);
-        execution.setCompactionState(execution.getCompactionState().withPruneGeneration(dropHistory ? 2 : 1));
+        execution.setCompactionState(execution.getCompactionState().withPruneGeneration(
+                Math.max(execution.getCompactionState().pruneGeneration(), compactLatest ? 2 : 1)));
 
         log.info("Context prune completed: executionId={}, stage={}, changed={}",
-                execution.getId(), dropHistory ? 2 : 1, changed);
+                execution.getId(), compactLatest ? 2 : 1, changed);
 
         return changed;
     }
 
     private History indexHistory(List<Message> messages) {
         Map<String, Integer> owners = new HashMap<>();
+        int latestUser = -1;
         int latestAssistant = -1;
 
         for (int index = 0; index < messages.size(); index++) {
+            if (messages.get(index) instanceof UserMessageEntity) latestUser = index;
             if (!(messages.get(index) instanceof AiMessageEntity ai)) continue;
 
             latestAssistant = index;
@@ -151,11 +152,14 @@ public class DefaultContextPruner implements ContextCompacter {
             }
         }
 
-        return new History(owners, latestAssistant, !answered.containsAll(owners.keySet()));
+        return new History(owners, latestUser, latestAssistant, !answered.containsAll(owners.keySet()));
     }
 
-    private List<Message> project(List<Message> input, History history, boolean dropHistory) {
+    private List<Message> project(List<Message> input, History history, boolean compactLatest) {
         List<Message> product = new ArrayList<>(input.size());
+        // With no user message, treat the entire non-system history as the current turn.
+        int keepFrom = Math.max(0, history.latestUser());
+        if (compactLatest) keepFrom = Math.max(keepFrom, history.latestAssistant());
 
         for (Message message : input) {
             if (message instanceof SystemMessageEntity) product.add(message);
@@ -167,7 +171,7 @@ public class DefaultContextPruner implements ContextCompacter {
             if (message instanceof SystemMessageEntity) continue;
 
             if (message instanceof AiMessageEntity ai) {
-                boolean keepCalls = !dropHistory || index == history.latestAssistant();
+                boolean keepCalls = index >= keepFrom;
                 List<ToolCallRequest> calls = keepCalls ? ai.getToolCalls() : List.of();
 
                 if ((ai.getText() == null || ai.getText().isBlank()) && (calls == null || calls.isEmpty())) {
@@ -179,11 +183,7 @@ public class DefaultContextPruner implements ContextCompacter {
                 Integer owner = history.owners().get(tool.getId() == null ? null : String.valueOf(tool.getId()));
                 if (owner == null) continue;
 
-                if (owner == history.latestAssistant()) {
-                    product.add(tool);
-                } else if (!dropHistory) {
-                    product.add(skeleton(tool));
-                }
+                if (owner >= keepFrom) product.add(tool);
             } else {
                 product.add(message);
             }
@@ -206,30 +206,31 @@ public class DefaultContextPruner implements ContextCompacter {
                 .build();
     }
 
-    private ToolMessageEntity skeleton(ToolMessageEntity source) {
-        // Derive the placeholder from execution metadata, never from the previous output's spelling.
-        String output = "[output omitted: status=" + (source.isError() ? "error" : "success")
-                + (source.getExitCode() == null ? "" : ", exit=" + source.getExitCode()) + "]";
 
-        if (output.equals(source.text())) return source;
-
-        return ToolMessageEntity.builder()
-                .id(source.getId())
-                .name(source.getName())
-                .isError(source.isError())
-                .exitCode(source.getExitCode())
-                .toolOutput(output)
-                .build();
+    private List<Message> latestTurn(List<Message> messages) {
+        for (int index = messages.size() - 1; index >= 0; index--) {
+            if (messages.get(index) instanceof UserMessageEntity) return messages.subList(index, messages.size());
+        }
+        return messages.stream().filter(message -> !(message instanceof SystemMessageEntity)).toList();
     }
 
     private void checkBudget(List<Message> messages) {
         int tokens = tokenizer.count(messages);
-        if (tokens <= agentConfig.maxTokens()) return;
+        if (!atThreshold(tokens)) return;
 
-        throw new TokenBudgetExceededException("Context compaction failed: model summarization is unavailable or "
-                + "could not meet the input budget. Protected messages, historical assistant text, and the latest "
-                + "tool results still use " + tokens + " tokens, exceeding the input budget of "
-                + agentConfig.maxTokens() + " tokens. Increase the context budget or reduce system prompts, "
-                + "protected application state, and historical input.");
+        throw budgetExceeded(tokens, "The retained context cannot be reduced below the compaction threshold.");
+    }
+
+    private boolean atThreshold(int tokens) {
+        return tokens / (double) agentConfig.maxTokens() >= agentConfig.compactionThreshold();
+    }
+
+    private TokenBudgetExceededException budgetExceeded(int tokens, String reason) {
+        return new TokenBudgetExceededException("Context compaction failed: " + reason
+                + " Protected messages, user messages, assistant text, and retained tool groups still use "
+                + tokens + " tokens; the compaction threshold is " + agentConfig.compactionThreshold()
+                + " of the input budget of " + agentConfig.maxTokens()
+                + " tokens. Increase the context budget or reduce system prompts, protected application state, "
+                + "and historical input.");
     }
 }

@@ -26,8 +26,9 @@ package com.summit.core.agent;
  *                           {@code N} = the context was rebuilt from the N-th summary
  * @param summaryAttempts    summarize attempts spent in the current trigger window
  * @param summaryUnavailable whether summarization is closed for this execution
- * @param pruneGeneration    fallback stage of this summary generation: 0 = untouched,
- *                           1 = historical tool skeletons, 2 = historical assistant text only
+ * @param pruneGeneration    highest fallback stage reached in this summary generation: 0 = untouched,
+ *                           1 = historical assistant text with the latest user turn intact,
+ *                           2 = the latest user turn also reduced to text and its last tool group
  */
 public record CompactionState(
         int summaryGeneration,
@@ -95,7 +96,7 @@ public record CompactionState(
     /**
      * Replaces the fallback stage inside the current summary generation.
      *
-     * @param value 0 for untouched, 1 for skeleton history, or 2 for text-only history
+     * @param value 0 for untouched, 1 for historical text, or 2 for a reduced latest user turn
      * @return a new state carrying that stage
      */
     public CompactionState withPruneGeneration(int value) {
@@ -150,7 +151,7 @@ public record CompactionState(
     /**
      * Advances the fallback stage inside the current context generation.
      *
-     * @return a new state at the next stage, capped at text-only history
+     * @return a new state at the next stage, capped at a reduced latest user turn
      */
     public CompactionState afterPrune() {
         return withPruneGeneration(Math.min(2, pruneGeneration + 1));
