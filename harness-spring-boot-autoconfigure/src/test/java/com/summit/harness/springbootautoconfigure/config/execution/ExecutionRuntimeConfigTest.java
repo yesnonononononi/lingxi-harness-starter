@@ -23,6 +23,7 @@ import com.summit.runtime.agent.DefaultChatAgent;
 import com.summit.runtime.conversation.DefaultRuntimeFactory;
 import com.summit.runtime.conversation.SnowflakeResponseIdGenerator;
 import com.summit.runtime.loop.DefaultExecutionController;
+import com.summit.runtime.loop.LoopInterceptorFactory;
 import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
@@ -66,6 +67,7 @@ class ExecutionRuntimeConfigTest {
 
     private AnnotationConfigApplicationContext responseGeneratorContext() {
         AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
+        context.registerBean(LoopInterceptorFactory.class, () -> new LoopInterceptorFactory(Map.of()));
         context.registerBean(ObjectMapper.class, () -> ExecutionJson.newObjectMapper());
         context.registerBean(RuntimeFactory.class, () -> DefaultRuntimeFactory.builder().build());
         context.registerBean(RuntimeBoundaryChecker.class, () -> (RuntimeBoundaryChecker) Proxy.newProxyInstance(
@@ -113,7 +115,8 @@ class ExecutionRuntimeConfigTest {
     void defaultInterceptorProcessorDispatchesEveryRegisteredBeanInOrder() {
         List<String> seen = new ArrayList<>();
         LoopInterceptorProcessor processor = configuration.defaultLoopInterceptorProcessor(
-                List.of(interceptor("late", 100, seen), interceptor("early", -1, seen)));
+                new LoopInterceptorFactory(Map.of("late", interceptor("late", 100, seen),
+                        "early", interceptor("early", -1, seen))));
 
         processor.onLoopStart(context());
 
@@ -124,7 +127,7 @@ class ExecutionRuntimeConfigTest {
     void processorAcceptsApplicationInterceptorsWithoutABoundaryOwner() {
         List<String> seen = new ArrayList<>();
         LoopInterceptorProcessor processor = configuration.defaultLoopInterceptorProcessor(
-                List.of(interceptor("business", -1, seen)));
+                new LoopInterceptorFactory(Map.of("business", interceptor("business", -1, seen))));
 
         assertEquals(InterceptorResult.NONE, processor.onLoopStart(context()));
         assertEquals(List.of("business"), seen);
@@ -132,7 +135,7 @@ class ExecutionRuntimeConfigTest {
 
     @Test
     void emptyInterceptorRegistryIsValid() {
-        LoopInterceptorProcessor processor = configuration.defaultLoopInterceptorProcessor(List.of());
+        LoopInterceptorProcessor processor = configuration.defaultLoopInterceptorProcessor(new LoopInterceptorFactory(Map.of()));
 
         assertEquals(InterceptorResult.NONE, processor.onLoopStart(context()));
     }

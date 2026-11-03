@@ -337,7 +337,8 @@ class DefaultLoopInterceptorProcessorTest {
 
     @Test
     void aNullRegistryIsRejectedAtConstruction() {
-        assertThrows(NullPointerException.class, () -> new DefaultLoopInterceptorProcessor(null));
+        assertThrows(NullPointerException.class, () -> new DefaultLoopInterceptorProcessor((LoopInterceptorFactory) null));
+        assertThrows(NullPointerException.class, () -> new DefaultLoopInterceptorProcessor((List<LoopInterceptor>) null));
     }
 
     /** {@link LoopInterceptor#NOOP} stays a lambda-compatible default with the lowest order. */

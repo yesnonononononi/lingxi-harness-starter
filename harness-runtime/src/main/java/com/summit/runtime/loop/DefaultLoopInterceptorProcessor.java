@@ -9,24 +9,34 @@ import com.summit.core.runtime.loop.LoopInterceptorProcessor;
 import com.summit.core.tool.ToolExecuteResult;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.Objects;
 
 @Slf4j
 public class DefaultLoopInterceptorProcessor implements LoopInterceptorProcessor {
-    private final List<LoopInterceptor> interceptors;
+    private final LoopInterceptorFactory loopInterceptorFactory;
 
+    public DefaultLoopInterceptorProcessor(LoopInterceptorFactory loopInterceptorFactory) {
+        this.loopInterceptorFactory = Objects.requireNonNull(loopInterceptorFactory);
+    }
+
+    /** Compatibility entry point for callers supplying an initial list. */
     public DefaultLoopInterceptorProcessor(List<LoopInterceptor> interceptors) {
         Objects.requireNonNull(interceptors);
-        this.interceptors = interceptors.stream().sorted(Comparator.comparingInt(LoopInterceptor::order)).toList();
+        Map<String, LoopInterceptor> initial = new LinkedHashMap<>();
+        for (int index = 0; index < interceptors.size(); index++) {
+            initial.put(Integer.toString(index), interceptors.get(index));
+        }
+        this.loopInterceptorFactory = new LoopInterceptorFactory(initial);
     }
 
     @Override
     public InterceptorResult onLoopStart(LoopContext context) {
         InterceptorResult result;
 
-        for (LoopInterceptor interceptor : interceptors) {
+        for (LoopInterceptor interceptor : loopInterceptorFactory.getInterceptors()) {
             try {
                 result = interceptor.onLoopStart(context);
                 if (result.next()) {
@@ -48,7 +58,7 @@ public class DefaultLoopInterceptorProcessor implements LoopInterceptorProcessor
     public InterceptorResult onBeforeModelInvoke(LoopContext context) {
         InterceptorResult result;
 
-        for (LoopInterceptor interceptor : interceptors) {
+        for (LoopInterceptor interceptor : loopInterceptorFactory.getInterceptors()) {
             try {
                 result = interceptor.onBeforeModelInvoke(context);
                 if (result.next()) {
@@ -70,7 +80,7 @@ public class DefaultLoopInterceptorProcessor implements LoopInterceptorProcessor
     public InterceptorResult onAfterModelInvoke(LoopContext context, ChatResponseEntity response) {
         InterceptorResult result;
 
-        for (LoopInterceptor interceptor : interceptors) {
+        for (LoopInterceptor interceptor : loopInterceptorFactory.getInterceptors()) {
             try {
                 result = interceptor.onAfterModelInvoke(context, response);
                 if (result.next()) {
@@ -92,7 +102,7 @@ public class DefaultLoopInterceptorProcessor implements LoopInterceptorProcessor
     public InterceptorResult onAfterToolCall(LoopContext context, List<ToolExecuteResult> results) {
         InterceptorResult result;
 
-        for (LoopInterceptor interceptor : interceptors) {
+        for (LoopInterceptor interceptor : loopInterceptorFactory.getInterceptors()) {
             try {
                 result = interceptor.onAfterToolCall(context, results);
                 if (result.next()) {
@@ -114,7 +124,7 @@ public class DefaultLoopInterceptorProcessor implements LoopInterceptorProcessor
     public InterceptorResult onBeforeToolCall(LoopContext context) {
         InterceptorResult result;
 
-        for (LoopInterceptor interceptor : interceptors) {
+        for (LoopInterceptor interceptor : loopInterceptorFactory.getInterceptors()) {
             try {
                 result = interceptor.onBeforeToolCall(context);
                 if (result.next()) {
@@ -134,7 +144,7 @@ public class DefaultLoopInterceptorProcessor implements LoopInterceptorProcessor
 
     @Override
     public InterceptorResult onBeforeComplete(LoopContext context) {
-        for (LoopInterceptor interceptor : interceptors) {
+        for (LoopInterceptor interceptor : loopInterceptorFactory.getInterceptors()) {
             try {
                 InterceptorResult result = interceptor.onBeforeComplete(context);
                 if (!result.next()) return result;
@@ -153,7 +163,7 @@ public class DefaultLoopInterceptorProcessor implements LoopInterceptorProcessor
     public InterceptorResult onLoopEnd(LoopContext context) {
         InterceptorResult result;
 
-        for (LoopInterceptor interceptor : interceptors) {
+        for (LoopInterceptor interceptor : loopInterceptorFactory.getInterceptors()) {
             try {
                 result = interceptor.onLoopEnd(context);
                 if (result.next()) {
@@ -175,7 +185,7 @@ public class DefaultLoopInterceptorProcessor implements LoopInterceptorProcessor
     public InterceptorResult onRunEnd(Execution execution) {
         InterceptorResult result;
 
-        for (LoopInterceptor interceptor : interceptors) {
+        for (LoopInterceptor interceptor : loopInterceptorFactory.getInterceptors()) {
             try {
                 result = interceptor.onRunEnd(execution);
                 if (result.next()) {

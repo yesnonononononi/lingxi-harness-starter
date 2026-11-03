@@ -18,6 +18,7 @@ import com.summit.runtime.conversation.SnowflakeResponseIdGenerator;
 import com.summit.runtime.loop.BoundaryChecker;
 import com.summit.runtime.loop.DefaultLoopInterceptorProcessor;
 import com.summit.runtime.loop.DefaultRuntimeLifeStyleManager;
+import com.summit.runtime.loop.LoopInterceptorFactory;
 import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -93,8 +94,8 @@ public class ExecutionRuntimeConfig {
     /** The dispatcher orders callbacks only; runtime limits are owned by the loop. */
     @Bean
     @ConditionalOnMissingBean
-    public LoopInterceptorProcessor defaultLoopInterceptorProcessor(List<LoopInterceptor> interceptors) {
-        return new DefaultLoopInterceptorProcessor(interceptors);
+    public LoopInterceptorProcessor defaultLoopInterceptorProcessor(LoopInterceptorFactory loopInterceptorFactory) {
+        return new DefaultLoopInterceptorProcessor(loopInterceptorFactory);
     }
 
     @Bean
