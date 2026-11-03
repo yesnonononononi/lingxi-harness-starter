@@ -5,17 +5,28 @@ import com.summit.core.interceptor.InterceptorProcessor;
 import com.summit.core.runtime.loop.LoopInterceptor;
 import com.summit.core.tool.ToolExecution;
 import com.summit.core.tool.ToolInterceptor;
+import com.summit.harness.springbootautoconfigure.loop.LoopInterceptorHandler;
 import com.summit.runtime.interceptor.DefaultInterceptorProcessor;
 import com.summit.runtime.loop.DefaultLoopInterceptor;
+import com.summit.runtime.loop.LoopInterceptorFactory;
 import com.summit.runtime.tool.DefaultToolInterceptor;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 
 import java.util.List;
+import java.util.Map;
 
 @AutoConfiguration
+@Import(LoopInterceptorHandler.class)
 public class InterceptorConfig {
+
+    @Bean
+    @ConditionalOnMissingBean
+    public LoopInterceptorFactory loopInterceptorFactory(Map<String, LoopInterceptor> interceptors) {
+        return new LoopInterceptorFactory(interceptors);
+    }
 
     /**
      * The default tool interceptor (result truncation by {@code ToolDefinition.maxOutput}).
