@@ -81,13 +81,14 @@ public class ImageModelAdapter implements ImageModel {
     private dev.langchain4j.model.image.ImageModel resolveEditDelegate(ImageGenerationOptions options) {
         // The SDK edit API returns one image; generation batch defaults must not change legacy edits.
         ImageGenerationOptions effective = (options == null ? ImageGenerationOptions.EMPTY : options)
-                .withDefaults(new ImageGenerationOptions(defaults.size(), defaults.quality(), 1));
+                .withDefaults(defaults.toBuilder().count(1).build());
         if (effective.count() != 1) throw new UnsupportedOperationException("Image editing supports exactly one output image");
         return selectDelegate(effective);
     }
 
     private dev.langchain4j.model.image.ImageModel selectDelegate(ImageGenerationOptions effective) {
-        if (!Objects.equals(effective.size(), defaults.size()) || !Objects.equals(effective.quality(), defaults.quality())) {
+        if (!Objects.equals(effective.size(), defaults.size()) || !Objects.equals(effective.quality(), defaults.quality())
+                || !Objects.equals(effective.background(), defaults.background()) || !Objects.equals(effective.outputFormat(), defaults.outputFormat())) {
             if (delegateFactory == null) throw new UnsupportedOperationException("Per-call image specifications are not supported");
             return delegateFactory.apply(effective);
         }

@@ -1,6 +1,7 @@
 package com.summit.adapter.langchain4j.model.provider;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.summit.core.agent.Image;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.model.image.ImageGenerationOptions;
@@ -236,6 +237,32 @@ class ImageProviderWireContractTest {
             else assertEquals(1, model.generate("draw", options).getMeta().getImages().size());
             assertEquals(retries + 1, endpoint.requests.size());
             for (Request request : endpoint.requests) assertEquals("1536x1024", mapper.readTree(request.body()).path("size").asText());
+        }
+    }
+
+    @Test
+    void outputOverridesReachGenerationAndBothEditRequestsWithoutLeaking() throws Exception {
+        try (Endpoint endpoint = new Endpoint()) {
+            ImageModel model = new CommonImageModelProvider().create(config(endpoint).build());
+            ImageGenerationOptions options = new ImageGenerationOptions(null, null, 1, "transparent", "png");
+            model.generate("draw", options);
+            JsonNode body = mapper.readTree(endpoint.take().body());
+            assertEquals("transparent", body.path("background").asText());
+            assertEquals("png", body.path("output_format").asText());
+            Image image = Image.from("aW1hZ2U=");
+            for (boolean masked : new boolean[]{false, true}) {
+                if (masked) model.edit(image, image, "edit", options);
+                else model.edit(image, "edit", options);
+                Request request = endpoint.take();
+                assertEquals("/v1/images/edits", request.path());
+                assertTrue(request.body().contains("name=\"background\"\r\n\r\ntransparent"), request.body());
+                assertTrue(request.body().contains("name=\"output_format\"\r\n\r\npng"), request.body());
+                assertEquals(masked, request.body().contains("name=\"mask\""));
+            }
+            model.generate("default");
+            JsonNode defaults = mapper.readTree(endpoint.take().body());
+            assertFalse(defaults.has("background"));
+            assertFalse(defaults.has("output_format"));
         }
     }
 

@@ -21,7 +21,7 @@ public interface ImageModel {
     /** Generates images with per-call overrides. Older providers must not silently drop specifications. */
     default ChatResponseEntity generate(String prompt, ImageGenerationOptions options) {
         if (options == null || ImageGenerationOptions.EMPTY.equals(options)) return generate(prompt);
-        if (options.size() != null || options.quality() != null) {
+        if (options.size() != null || options.quality() != null || options.background() != null || options.outputFormat() != null) {
             throw new UnsupportedOperationException("Per-call image specifications are not supported");
         }
         return options.count() == 1 ? generate(prompt) : generate(prompt, options.count());
@@ -79,7 +79,7 @@ public interface ImageModel {
     }
 
     private static void validateEditOptions(ImageGenerationOptions options) {
-        if (options != null && (options.size() != null || options.quality() != null
+        if (options != null && (options.size() != null || options.quality() != null || options.background() != null || options.outputFormat() != null
                 || options.count() != null && options.count() != 1)) {
             throw new UnsupportedOperationException("Per-call image editing specifications are not supported");
         }

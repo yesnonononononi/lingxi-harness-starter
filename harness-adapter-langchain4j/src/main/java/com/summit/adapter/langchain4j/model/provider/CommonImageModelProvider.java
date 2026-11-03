@@ -63,6 +63,8 @@ public class CommonImageModelProvider implements ImageModelProvider {
         }
         if (options.size() != null) toBuild.size(options.size());
         if (options.quality() != null) toBuild.quality(options.quality());
+        if (options.background() != null) toBuild.background(options.background());
+        if (options.outputFormat() != null) toBuild.outputFormat(options.outputFormat());
 
         return toBuild.build();
     }
