@@ -10,8 +10,24 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 class ChatAgentModelRoutingTest {
+    @Test
+    void configuredImageProviderUsesImageDefaultsButExplicitRevisionsRemainComplete() {
+        var chat = ModelConfig.builder().provider("chat").apiKey("chat-key").modelName("chat-model").build();
+        var images = ModelConfig.builder().provider("custom-images").apiKey("image-key").modelName("image-model")
+                .imageOptions(ModelConfig.ImageOptions.builder().size("1024x1024").quality("high").count(2).build()).build();
+        var explicit = ModelConfig.builder().provider("custom-images").apiKey("request-key").modelName("request-model").build();
+        ChatAgent agent = DefaultChatAgent.builder().modelConfig(chat).imageModelConfig(images)
+                .modelConfigSensitiveDataProvider((id, version) -> explicit).build();
+        assertSame(images, agent.resolveModelConfig(AgentRequest.builder().modelProvider(" custom-images ").build()));
+        assertSame(chat, agent.resolveModelConfig(AgentRequest.builder().build()));
+        assertSame(explicit, agent.resolveModelConfig(AgentRequest.builder().modelConfigSpec(spec()).modelProvider("chat").build()));
+        assertNull(explicit.getImageOptions());
+        assertEquals("chat-key", agent.resolveModelConfig(AgentRequest.builder().modelProvider("other-chat").build()).getApiKey());
+    }
+
     @Test
     void runtimeRetryOwnershipDisablesSdkRetriesWithoutChangingTheStoredConfig() {
         AtomicReference<ModelConfig> selected = new AtomicReference<>();

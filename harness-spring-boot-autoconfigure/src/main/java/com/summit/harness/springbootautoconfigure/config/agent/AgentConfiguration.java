@@ -33,6 +33,7 @@ public class AgentConfiguration {
             RequestModelInvokerFactory modelInvokerFactory,
             WorkspaceResolver workspaceResolver,
             @Qualifier("chatModelConfig") ModelConfig modelConfig,
+            @Qualifier("imageModelConfig") ObjectProvider<ModelConfig> imageModelConfig,
             ScopeMcpProvider scopeMcpProvider,
             ExecutionRepository executionRepository,
             ExecutionControl executionControl,
@@ -47,6 +48,7 @@ public class AgentConfiguration {
                 .mcpConfigSensitiveDataProvider(mcpConfigSensitiveDataProvider.getIfAvailable())
                 .modelConfigSensitiveDataProvider(modelConfigSensitiveDataProvider.getIfAvailable())
                 .modelConfig(modelConfig)
+                .imageModelConfig(imageModelConfig.getIfAvailable())
                 .scopeMcpProvider(scopeMcpProvider)
                 .modelInvokerFactory(modelInvokerFactory)
                 .build();

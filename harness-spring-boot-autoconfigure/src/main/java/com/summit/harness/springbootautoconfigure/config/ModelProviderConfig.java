@@ -92,7 +92,7 @@ public class ModelProviderConfig {
                 .timeout(properties.getTimeout())
                 .maxRetries(properties.getMaxRetries())
                 .imageOptions(new ModelConfig.ImageOptions(properties.getQuality(), properties.getSize(),
-                        properties.getCustomHeaders()))
+                        properties.getCustomHeaders(), properties.getCount()))
                 .build();
     }
 

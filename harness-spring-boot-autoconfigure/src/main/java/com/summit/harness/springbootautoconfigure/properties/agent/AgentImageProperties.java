@@ -19,5 +19,6 @@ public class AgentImageProperties {
     private int maxRetries = 3;
     private String quality;
     private String size;
+    private Integer count;
     private Map<String, String> customHeaders = Map.of();
 }

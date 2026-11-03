@@ -104,8 +104,9 @@ public class ModelConfiguration {
             @Qualifier("chatModelConfig") ModelConfig modelConfig,
             ModelProviderRegistry<ChatModel> chatProviders,
             ModelProviderRegistry<StreamingChatModel> streamingProviders,
-            ModelProviderRegistry<ImageModel> imageProviders) {
+            ModelProviderRegistry<ImageModel> imageProviders,
+            @Qualifier("imageModelConfig") ModelConfig imageModelConfig) {
         return new DefaultRequestModelInvokerFactory(properties.getProvider(), modelConfig,
-                chatProviders, streamingProviders, imageProviders);
+                chatProviders, streamingProviders, imageProviders, imageModelConfig);
     }
 }

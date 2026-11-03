@@ -2,6 +2,7 @@ package com.summit.core.conversation.api;
 
 import com.summit.core.conversation.message.Message;
 import com.summit.core.tool.ToolDefinition;
+import com.summit.core.model.image.ImageGenerationOptions;
 import lombok.Builder;
 import lombok.Data;
 
@@ -12,4 +13,5 @@ import java.util.List;
 public class ChatRequestEntity {
     private List<Message> messages;
     private List<ToolDefinition<?>> tools;
+    private ImageGenerationOptions imageGenerationOptions;
 }

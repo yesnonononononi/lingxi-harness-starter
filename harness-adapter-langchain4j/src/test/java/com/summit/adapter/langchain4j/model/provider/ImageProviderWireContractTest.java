@@ -3,6 +3,9 @@ package com.summit.adapter.langchain4j.model.provider;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.agent.Image;
 import com.summit.core.conf.ModelConfig;
+import com.summit.core.model.image.ImageGenerationOptions;
+import dev.langchain4j.http.client.jdk.JdkHttpClient;
+import dev.langchain4j.http.client.jdk.JdkHttpClientBuilder;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -13,6 +16,10 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -22,6 +29,79 @@ import static org.junit.jupiter.api.Assertions.*;
 /** Uses the real SDK against a local server, including multipart uploads and retries. */
 class ImageProviderWireContractTest {
     private final ObjectMapper mapper = new ObjectMapper();
+
+    @Test
+    void perCallSpecificationsInheritDefaultsAndReuseOneTransportWithoutMutatingConfiguration() throws Exception {
+        AtomicInteger transports = new AtomicInteger();
+        var provider = new CommonImageModelProvider(() -> new JdkHttpClientBuilder() {
+            @Override
+            public JdkHttpClient build() {
+                transports.incrementAndGet();
+                return super.build();
+            }
+        });
+        try (Endpoint endpoint = new Endpoint()) {
+            var config = config(endpoint).imageOptions(new ModelConfig.ImageOptions("high", "1024x1024",
+                    Map.of("X-Route", "images"), 2)).build();
+            var model = provider.create(config);
+            assertEquals(2, model.generate("default").getMeta().getImages().size());
+            assertSpecification(endpoint.take(), "1024x1024", "high", 2);
+            assertEquals(2, model.generate("wide", new ImageGenerationOptions("1536x1024", null, null))
+                    .getMeta().getImages().size());
+            assertSpecification(endpoint.take(), "1536x1024", "high", 2);
+            assertEquals(1, model.generate("one", new ImageGenerationOptions(null, "low", 1))
+                    .getMeta().getImages().size());
+            assertSpecification(endpoint.take(), "1024x1024", "low", 1);
+            model.generate("legacy explicit count", 1);
+            assertSpecification(endpoint.take(), "1024x1024", "high", 1);
+            assertEquals("1024x1024", config.getImageOptions().size());
+            assertEquals(2, config.getImageOptions().count());
+            // Callers retain their mutable config, but already-created models keep a private snapshot.
+            config.setModelName("changed");
+            config.setImageOptions(null);
+            model.generate("default again", ImageGenerationOptions.EMPTY);
+            assertSpecification(endpoint.take(), "1024x1024", "high", 2);
+            assertEquals(1, transports.get());
+        }
+    }
+
+    @Test
+    void concurrentOverridesAreIsolatedAndLeaveTheDefaultModelIntact() throws Exception {
+        try (Endpoint endpoint = new Endpoint(); var workers = Executors.newVirtualThreadPerTaskExecutor()) {
+            var model = new CommonImageModelProvider().create(config(endpoint)
+                    .imageOptions(new ModelConfig.ImageOptions("high", "1024x1024", null)).build());
+            CountDownLatch start = new CountDownLatch(1);
+            var futures = new ArrayList<Future<?>>();
+            for (int i = 0; i < 8; i++) {
+                String size = i % 2 == 0 ? "1536x1024" : "1024x1536";
+                futures.add(workers.submit(() -> {
+                    start.await();
+                    model.generate(size, new ImageGenerationOptions(size, null, 1));
+                    return null;
+                }));
+            }
+            start.countDown();
+            for (Future<?> future : futures) future.get(10, TimeUnit.SECONDS);
+            for (int i = 0; i < 8; i++) {
+                var body = mapper.readTree(endpoint.take().body());
+                assertEquals(body.path("prompt").asText(), body.path("size").asText());
+                assertEquals("high", body.path("quality").asText());
+            }
+            model.generate("default");
+            var body = mapper.readTree(endpoint.take().body());
+            assertEquals("1024x1024", body.path("size").asText());
+        }
+    }
+
+    private void assertSpecification(Request request, String size, String quality, int count) throws Exception {
+        var body = mapper.readTree(request.body());
+        assertEquals("image-test", body.path("model").asText());
+        assertEquals(size, body.path("size").asText());
+        assertEquals(quality, body.path("quality").asText());
+        assertEquals(count, body.path("n").asInt());
+        assertEquals("images", request.route());
+        assertEquals("Bearer test-key", request.authorization());
+    }
 
     @Test
     void singleAndBatchGenerationCarryOptionsAndParseImagesAndUsage() throws Exception {
@@ -104,9 +184,11 @@ class ImageProviderWireContractTest {
         try (Endpoint endpoint = new Endpoint()) {
             endpoint.failures.set(1);
             var model = new CommonImageModelProvider().create(config(endpoint).maxRetries(retries).build());
-            if (retries == 0) assertThrows(RuntimeException.class, () -> model.generate("draw"));
-            else assertEquals(1, model.generate("draw").getMeta().getImages().size());
+            var options = new ImageGenerationOptions("1536x1024", null, null);
+            if (retries == 0) assertThrows(RuntimeException.class, () -> model.generate("draw", options));
+            else assertEquals(1, model.generate("draw", options).getMeta().getImages().size());
             assertEquals(retries + 1, endpoint.requests.size());
+            for (Request request : endpoint.requests) assertEquals("1536x1024", mapper.readTree(request.body()).path("size").asText());
         }
     }
 

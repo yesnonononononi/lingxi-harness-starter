@@ -36,6 +36,7 @@ public final class DefaultRequestModelInvokerFactory implements RequestModelInvo
 
     private final String defaultProvider;
     private final ModelConfig modelConfig;
+    private final ModelConfig imageModelConfig;
     private final ModelProviderRegistry<ChatModel> chatProviders;
     private final ModelProviderRegistry<StreamingChatModel> streamingProviders;
     private final ModelProviderRegistry<ImageModel> imageProviders;
@@ -51,9 +52,17 @@ public final class DefaultRequestModelInvokerFactory implements RequestModelInvo
                                              ModelProviderRegistry<ChatModel> chatProviders,
                                              ModelProviderRegistry<StreamingChatModel> streamingProviders,
                                              ModelProviderRegistry<ImageModel> imageProviders) {
+        this(defaultProvider, modelConfig, chatProviders, streamingProviders, imageProviders, null);
+    }
+
+    public DefaultRequestModelInvokerFactory(String defaultProvider, ModelConfig modelConfig,
+                                             ModelProviderRegistry<ChatModel> chatProviders,
+                                             ModelProviderRegistry<StreamingChatModel> streamingProviders,
+                                             ModelProviderRegistry<ImageModel> imageProviders, ModelConfig imageModelConfig) {
         this.defaultProvider = defaultProvider == null || defaultProvider.isBlank()
                 ? "default" : defaultProvider.trim();
         this.modelConfig = modelConfig;
+        this.imageModelConfig = imageModelConfig;
         this.chatProviders = chatProviders;
         this.streamingProviders = streamingProviders;
         this.imageProviders = imageProviders;
@@ -75,7 +84,9 @@ public final class DefaultRequestModelInvokerFactory implements RequestModelInvo
     }
 
     private Selection createSelection(String name) {
-        return getSelection(name, this.modelConfig.toBuilder().provider(name).build());
+        ModelConfig defaults = imageModelConfig != null && name.equals(imageModelConfig.getProvider())
+                ? imageModelConfig : modelConfig;
+        return getSelection(name, defaults.toBuilder().provider(name).build());
     }
 
     private String name(String providerName) {

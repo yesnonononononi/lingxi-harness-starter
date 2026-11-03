@@ -59,9 +59,16 @@ public class ModelConfig {
     public record ImageOptions(
             String quality,
             String size,
-            Map<String, String> customHeaders
+            Map<String, String> customHeaders,
+            Integer count
     ) {
+        /** Compatibility constructor for existing model configurations. */
+        public ImageOptions(String quality, String size, Map<String, String> customHeaders) {
+            this(quality, size, customHeaders, null);
+        }
+
         public ImageOptions {
+            if (count != null && count <= 0) throw new IllegalArgumentException("Image count must be positive");
             customHeaders = customHeaders == null ? Map.of() : Map.copyOf(customHeaders);
         }
     }

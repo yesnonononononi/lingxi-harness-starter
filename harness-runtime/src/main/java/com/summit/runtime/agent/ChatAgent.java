@@ -48,6 +48,17 @@ public abstract class ChatAgent implements Agent {
     private final ExecutionControl executionControl;
     private final SensitiveDataProvider<McpConfig> mcpConfigSensitiveDataProvider;
     private final SensitiveDataProvider<ModelConfig> modelConfigSensitiveDataProvider;
+    private final ModelConfig imageModelConfig;
+
+    /** Retains the constructor used by existing agent subclasses. */
+    public ChatAgent(RuntimeFactory defaultRuntimeFactory, RequestModelInvokerFactory modelInvokerFactory,
+                     WorkspaceResolver workspaceResolver, ScopeMcpProvider scopeMcpProvider, ModelConfig modelConfig,
+                     ExecutionRepository executionRepository, ExecutionControl executionControl,
+                     SensitiveDataProvider<McpConfig> mcpConfigSensitiveDataProvider,
+                     SensitiveDataProvider<ModelConfig> modelConfigSensitiveDataProvider) {
+        this(defaultRuntimeFactory, modelInvokerFactory, workspaceResolver, scopeMcpProvider, modelConfig,
+                executionRepository, executionControl, mcpConfigSensitiveDataProvider, modelConfigSensitiveDataProvider, null);
+    }
 
     /**
      * MCP scopes of the executions currently in flight, so a resumed execution reuses the scope its
@@ -139,7 +150,8 @@ public abstract class ChatAgent implements Agent {
      * <ol>
      *   <li>{@code modelConfigSpec} is set — its exact revision is required and used as is when it names a provider; otherwise it is
      *       completed by {@link #completeRequestConfig(ModelConfig)} and {@code modelProvider} is ignored.</li>
-     *   <li>{@code modelProvider} is set — the application configuration with that provider.</li>
+     *   <li>{@code modelProvider} names the configured image provider — the independent image configuration.</li>
+     *   <li>another {@code modelProvider} is set — the application configuration with that provider.</li>
      *   <li>neither is set — the application configuration as is.</li>
      * </ol>
      */
@@ -157,10 +169,14 @@ public abstract class ChatAgent implements Agent {
             return completeRequestConfig(requestConfig);
         }
 
+        String provider = agentRequest.getModelProvider();
+        if (provider != null && !provider.isBlank() && imageModelConfig != null
+                && provider.trim().equals(imageModelConfig.getProvider())) {
+            return imageModelConfig;
+        }
         if (this.modelConfig == null) {
             throw new IllegalStateException("A request without a model configuration reference requires an application model configuration");
         }
-        String provider = agentRequest.getModelProvider();
         return provider == null || provider.isBlank() ? this.modelConfig
                 : this.modelConfig.toBuilder().provider(provider.trim()).build();
     }

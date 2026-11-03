@@ -12,6 +12,8 @@ import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.model.ModelChatCommand;
 import com.summit.core.model.ModelInvocationUsage;
+import com.summit.core.model.image.ImageGenerationOptions;
+import com.summit.core.model.image.ImageModel;
 import com.summit.core.exception.RetriableModelException;
 import com.summit.runtime.loop.BoundaryChecker;
 import com.summit.runtime.agent.AgentConfig;
@@ -46,6 +48,33 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ModelInvocationAttemptTest {
+    @Test
+    void imageAttemptsKeepTheOriginalSpecificationsThroughRetriesAndRequestMutation() throws Exception {
+        Fixture fixture = new Fixture(false, retrySettings(1));
+        var original = new ImageGenerationOptions("1536x1024", "high", 2);
+        fixture.execution.getAgentRequest().setImageGenerationOptions(original);
+        List<ModelChatCommand> commands = new ArrayList<>();
+        AtomicInteger calls = new AtomicInteger();
+        DefaultImageModelInvoker invoker = new DefaultImageModelInvoker(new ImageModel() {
+            public ChatResponseEntity generate(String prompt) { throw new AssertionError("specifications required"); }
+            public ChatResponseEntity generate(String prompt, ImageGenerationOptions options) {
+                assertEquals("original input", prompt);
+                assertEquals(original, options);
+                if (calls.incrementAndGet() == 1) {
+                    fixture.execution.getAgentRequest().setImageGenerationOptions(new ImageGenerationOptions("1024x1024", null, 1));
+                    throw new RetriableModelException("temporary", null);
+                }
+                return response();
+            }
+        });
+        assertEquals("2", invoker.invoke(fixture.attempts(commands)).getResponseId());
+        assertEquals(2, calls.get());
+        for (ModelChatCommand command : commands) assertEquals(original, command.chatRequest().getImageGenerationOptions());
+        // The next round sees the changed request; retries of the previous round did not.
+        var next = fixture.factory.build(fixture.execution, List.of(), "3", null);
+        assertEquals("1024x1024", next.chatRequest().getImageGenerationOptions().size());
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void successfulCallConsumesExactlyOneCommand(boolean streaming) throws Exception {

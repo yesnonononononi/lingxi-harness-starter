@@ -18,6 +18,15 @@ public interface ImageModel {
      */
     ChatResponseEntity generate(String prompt);
 
+    /** Generates images with per-call overrides. Older providers must not silently drop specifications. */
+    default ChatResponseEntity generate(String prompt, ImageGenerationOptions options) {
+        if (options == null || ImageGenerationOptions.EMPTY.equals(options)) return generate(prompt);
+        if (options.size() != null || options.quality() != null) {
+            throw new UnsupportedOperationException("Per-call image specifications are not supported");
+        }
+        return options.count() == 1 ? generate(prompt) : generate(prompt, options.count());
+    }
+
     /**
      * Given a prompt, generate n images.
      *

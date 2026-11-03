@@ -6,6 +6,7 @@ import com.summit.core.conf.SensitiveDataSpec;
 import com.summit.core.conf.SkillConfig;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.memory.MemoryConfig;
+import com.summit.core.model.image.ImageGenerationOptions;
 import com.summit.core.workspace.WorkspaceSpec;
 import lombok.Builder;
 import lombok.Data;
@@ -50,11 +51,14 @@ public class AgentRequest {
     @Builder.Default
     private AgentRuntimeParameters runtimeParameters = AgentRuntimeParameters.builder().build();
 
-    /** Request-level model provider override. Only the provider implementation is swapped; every other attribute keeps the application value. Ignored when {@link #modelConfigSpec} is set. */
+    /** Request-level provider selection; the configured image provider uses its independent image defaults. Ignored when {@link #modelConfigSpec} is set. */
     private String modelProvider;
 
     /** Required model configuration revision when present; unresolved references never fall back to application defaults. */
     private SensitiveDataSpec modelConfigSpec;
+
+    /** Per-call image specifications, inherited by each image invocation in this execution. */
+    private ImageGenerationOptions imageGenerationOptions;
 
     /** Absent or disabled settings leave framework retries off. */
     private ModelRetryConfig retryConfig;

@@ -6,30 +6,55 @@ import com.summit.core.agent.Image;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.model.image.ImageModel;
+import com.summit.core.model.image.ImageGenerationOptions;
 import dev.langchain4j.model.output.Response;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Function;
 
 /** Adapts image generation and editing without exposing SDK types to core. */
 public class ImageModelAdapter implements ImageModel {
     private final dev.langchain4j.model.image.ImageModel delegate;
+    private final ImageGenerationOptions defaults;
+    private final Function<ImageGenerationOptions, dev.langchain4j.model.image.ImageModel> delegateFactory;
     private final OpenAiMessageCodecAdapter messageCodec = new OpenAiMessageCodecAdapter();
 
     public ImageModelAdapter(dev.langchain4j.model.image.ImageModel delegate) {
+        this(delegate, ImageGenerationOptions.EMPTY, null);
+    }
+
+    /** The factory creates isolated SDK wrappers while sharing the provider's HTTP transport. */
+    public ImageModelAdapter(dev.langchain4j.model.image.ImageModel delegate, ImageGenerationOptions defaults,
+                             Function<ImageGenerationOptions, dev.langchain4j.model.image.ImageModel> delegateFactory) {
         this.delegate = Objects.requireNonNull(delegate, "image model");
+        this.defaults = (defaults == null ? ImageGenerationOptions.EMPTY : defaults).withDefaults(null);
+        this.delegateFactory = delegateFactory;
     }
 
     @Override
     public ChatResponseEntity generate(String prompt) {
-        Response<dev.langchain4j.data.image.Image> response = delegate.generate(prompt);
-        return toResponse(response, List.of(response.content()));
+        return generate(prompt, (ImageGenerationOptions) null);
     }
 
     @Override
     public ChatResponseEntity generate(String prompt, int n) {
-        if (n <= 0) throw new IllegalArgumentException("Image count must be positive");
-        Response<List<dev.langchain4j.data.image.Image>> response = delegate.generate(prompt, n);
+        return generate(prompt, new ImageGenerationOptions(null, null, n));
+    }
+
+    @Override
+    public ChatResponseEntity generate(String prompt, ImageGenerationOptions options) {
+        ImageGenerationOptions effective = (options == null ? ImageGenerationOptions.EMPTY : options).withDefaults(defaults);
+        dev.langchain4j.model.image.ImageModel selected = delegate;
+        if (!Objects.equals(effective.size(), defaults.size()) || !Objects.equals(effective.quality(), defaults.quality())) {
+            if (delegateFactory == null) throw new UnsupportedOperationException("Per-call image specifications are not supported");
+            selected = delegateFactory.apply(effective);
+        }
+        if (effective.count() == 1) {
+            Response<dev.langchain4j.data.image.Image> response = selected.generate(prompt);
+            return toResponse(response, List.of(response.content()));
+        }
+        Response<List<dev.langchain4j.data.image.Image>> response = selected.generate(prompt, effective.count());
         return toResponse(response, response.content());
     }
 

@@ -62,6 +62,7 @@ public class ModelRequestFactory {
 
     private ChatRequestEntity snapshotRequest(Execution execution, List<String> allowedTools) {
         return ChatRequestEntity.builder()
+                .imageGenerationOptions(execution.getAgentRequest().getImageGenerationOptions())
                 .messages(List.copyOf(context.getConversationManager().messages(execution)))
                 .tools(List.copyOf(availableTools(allowedTools))).build();
     }
@@ -80,6 +81,7 @@ public class ModelRequestFactory {
                     execution.incrementModelAttempts();
                 })
                 .chatRequest(ChatRequestEntity.builder()
+                        .imageGenerationOptions(snapshot.getImageGenerationOptions())
                         .messages(snapshot.getMessages())
                         .tools(snapshot.getTools())
                         .build())

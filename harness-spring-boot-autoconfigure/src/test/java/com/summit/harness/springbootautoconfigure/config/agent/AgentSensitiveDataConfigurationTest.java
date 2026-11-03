@@ -40,10 +40,14 @@ class AgentSensitiveDataConfigurationTest {
             context.registerBean(RuntimeFactory.class, () -> (invoker, workspace, scope) -> execution -> execution);
             context.registerBean("chatModelConfig", ModelConfig.class,
                     () -> ModelConfig.builder().provider("application").build());
+            ModelConfig imageDefaults = ModelConfig.builder().provider("image-provider").apiKey("image-key")
+                    .imageOptions(ModelConfig.ImageOptions.builder().size("1024x1024").count(2).build()).build();
+            context.registerBean("imageModelConfig", ModelConfig.class, () -> imageDefaults);
             context.registerBean(RequestModelInvokerFactory.class, () -> new RequestModelInvokerFactory() {
                 public Selection select(String provider) { throw new AssertionError("configuration is required"); }
                 public Selection select(ModelConfig config) {
-                    assertEquals("resolved-model", config.getProvider());
+                    if ("image-provider".equals(config.getProvider())) assertSame(imageDefaults, config);
+                    else assertEquals("resolved-model", config.getProvider());
                     return new Selection("test", command -> null, false);
                 }
             });
@@ -61,6 +65,9 @@ class AgentSensitiveDataConfigurationTest {
             Providers providers = context.getBean(Providers.class);
             assertTrue(providers.modelResolved);
             assertTrue(providers.mcpResolved);
+            Execution imageExecution = Execution.builder().id("spring-image").executionState(ExecutionState.SUSPENDED)
+                    .agentRequest(AgentRequest.builder().modelProvider("image-provider").build()).build();
+            assertSame(imageExecution, context.getBean(ChatAgent.class).execute(imageExecution));
         }
     }
 

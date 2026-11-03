@@ -379,6 +379,7 @@ lingxi:
           max-retries: 3
           quality: high
           size: 1024x1024
+          count: 1
 ```
 
 Spring exposes `imageModelConfig` and `imageModelProviderRegistry`. A business service or tool can
@@ -394,13 +395,49 @@ public ImageGenerationService(
 public ChatResponseEntity generate(String prompt) {
     return imageModel.generate(prompt);
 }
+
+public ChatResponseEntity generateWide(String prompt) {
+    return imageModel.generate(prompt, ImageGenerationOptions.builder()
+            .size("1536x1024")
+            .count(2)
+            .build());
+}
 ```
 
 Use `com.summit.core.model.image.ImageModel`, `com.summit.core.model.ModelProviderRegistry`,
+`com.summit.core.model.image.ImageGenerationOptions`,
 `com.summit.core.conf.ModelConfig`, `com.summit.core.conversation.api.ChatResponseEntity`, and
 Spring's `Qualifier`. The service declares an `ImageModel imageModel` field. Without Spring,
 pass a `ModelConfig` with `imageOptions` to `CommonImageModelProvider.create(config)`.
-For per-request business configuration, pass that request's config to the registry instead.
+Each call may override `size`, `quality`, and `count` through `ImageGenerationOptions`. Fields are
+resolved independently: a non-null request field wins over `ModelConfig.imageOptions`; absent
+size/quality retain the SDK/server default, and absent count ultimately means one image. Blank
+request strings and non-positive counts are rejected. The existing `generate(prompt, n)` overrides
+only the count; `generate(prompt)` uses all configured defaults. Connection headers remain in
+`ModelConfig.ImageOptions.customHeaders` and are not generation specifications.
+
+Agent requests carry the same options explicitly:
+
+```java
+AgentRequest request = AgentRequest.builder()
+        .modelProvider("default-image-model")
+        .messages(List.of(UserMessageEntity.from("Draw a forest")))
+        .imageGenerationOptions(ImageGenerationOptions.builder().size("1536x1024").build())
+        .build();
+```
+
+Selecting the configured image provider uses the independent `imageModelConfig` connection and
+generation defaults. An explicit `modelConfigSpec` still resolves that exact configuration revision
+without merging application credentials or image defaults. Options are snapshotted with the round's
+input, so retries keep the same specifications. Direct business callers may instead pass a complete
+per-request connection configuration to the registry.
+
+Per-call overrides do not change model-selection cache keys or mutate shared defaults. The built-in
+provider reuses one HTTP transport per model and creates isolated SDK wrappers only when size or
+quality differs; it does not cache every requested specification. Custom image providers keep the
+old interface and must implement the new overload to support size/quality overrides; unsupported
+overrides fail explicitly.
+
 Applications may replace the named `imageModelConfig` bean or register their own image provider.
 No image model is constructed until a caller uses the registry, so applications without image
 configuration can still start. This exposes generation/editing to business code; tools and UI

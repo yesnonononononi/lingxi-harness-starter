@@ -23,7 +23,7 @@ public class DefaultImageModelInvoker extends AbstractInvoker {
         if (user.getContent().stream().anyMatch(ImageContent.class::isInstance)) {
             throw new IllegalArgumentException("This invocation supports text-to-image generation; image editing is not supported yet");
         }
-        ChatResponseEntity response = imageModel.generate(prompt);
+        ChatResponseEntity response = imageModel.generate(prompt, command.chatRequest().getImageGenerationOptions());
         if (command.invocationUsage() != null) {
             command.invocationUsage().recordUsage(command.responseId(), response.getTokenUsage());
         }
