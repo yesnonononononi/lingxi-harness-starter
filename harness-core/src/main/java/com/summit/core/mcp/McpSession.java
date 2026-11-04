@@ -41,6 +41,18 @@ public interface McpSession extends AutoCloseable {
     List<ToolDefinition<? extends ToolExecutor>> tools();
 
     /**
+     * Names of the tools as the server itself published them, without any local prefix, sorted
+     * ascending. Callers that report "what the server offers" — a connection test, for instance —
+     * need this instead of {@link #tools()}, whose names carry the caller's prefix.
+     *
+     * <p>Defaulted to the sorted {@link ToolDefinition#name()} values so that an implementation
+     * which publishes unprefixed names needs no boilerplate.</p>
+     */
+    default List<String> serverToolNames() {
+        return tools().stream().map(ToolDefinition::name).sorted().toList();
+    }
+
+    /**
      * Probes the connection without listing tools. Like {@link #tools()}, an implementation
      * reports an unreachable or broken server by throwing an unchecked exception; a session
      * that cannot probe its health should stay silent instead of failing the probe.

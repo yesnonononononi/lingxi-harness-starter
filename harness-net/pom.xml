@@ -15,6 +15,8 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <pitest.version>1.21.1</pitest.version>
+        <pitest.junit5.version>1.2.3</pitest.junit5.version>
     </properties>
     <dependencies>
         <dependency>
@@ -27,10 +29,69 @@
             <artifactId>harness-core</artifactId>
         </dependency>
         <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp-core</artifactId>
+        </dependency>
+        <!-- Declared explicitly rather than relied on transitively: the tool schemas of the MCP
+             SDK are plain Maps that this module serializes with the application's Jackson 2
+             mapper (never Jackson 3, which the aggregate mcp artifact would bring in). -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.knuddels</groupId>
+            <artifactId>jtokkit</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Mutation testing: never bound to a lifecycle phase, it only runs on an explicit
+                 `mvn pitest:mutationCoverage`. The targets are the pure logic classes of the MCP
+                 package; transports and the real-connection tests are excluded because they need
+                 a live server or child process. -->
+            <plugin>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-maven</artifactId>
+                <version>${pitest.version}</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.pitest</groupId>
+                        <artifactId>pitest-junit5-plugin</artifactId>
+                        <version>${pitest.junit5.version}</version>
+                    </dependency>
+                </dependencies>
+                <configuration>
+                    <targetClasses>
+                        <param>mcp.McpBackoff</param>
+                        <param>mcp.McpToolOptions</param>
+                        <param>mcp.McpToolConverter</param>
+                        <param>mcp.McpServerValidator</param>
+                        <param>mcp.McpToolInvoker</param>
+                        <param>mcp.transport.WindowsCommandResolver</param>
+                    </targetClasses>
+                    <excludedClasses>
+                        <param>mcp.transport.*</param>
+                    </excludedClasses>
+                    <excludedTestClasses>
+                        <param>mcp.McpHttpEndToEndTest</param>
+                        <param>mcp.McpStdioEndToEndTest</param>
+                    </excludedTestClasses>
+                    <timeoutConstant>10000</timeoutConstant>
+                    <outputFormats>
+                        <param>HTML</param>
+                        <param>XML</param>
+                    </outputFormats>
+                    <timestampedReports>false</timestampedReports>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 
 </project>

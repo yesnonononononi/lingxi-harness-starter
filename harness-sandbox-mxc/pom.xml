@@ -10,9 +10,10 @@
     <artifactId>harness-sandbox-mxc</artifactId>
     <name>LingXi Harness MXC Sandbox</name>
     <dependencies>
+        <!-- The MCP client implementation the integration test drives lives in harness-net. -->
         <dependency>
             <groupId>io.github.yesnonononononi</groupId>
-            <artifactId>harness-adapter-langchain4j</artifactId>
+            <artifactId>harness-net</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

@@ -16,6 +16,7 @@ import com.summit.core.runtime.loop.ContextUsageReporter;
 import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.skill.SkillLoader;
 import com.summit.core.skill.SkillResolver;
+import com.summit.core.tool.ToolRegistry;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.compact.DefaultContextPruner;
@@ -89,13 +90,24 @@ public class ConversationConfig {
         return new DefaultTokenizer(tokenEstimator);
     }
 
+    /**
+     * Tracks how much of the model input budget an execution has consumed.
+     *
+     * <p>The tool registry is passed as an {@link ObjectProvider} and only its resolver is handed to
+     * the reporter: an injection point alone does not defer resolution, and calling
+     * {@code getIfAvailable()} here would build the registry during the creation of this bean. The
+     * registry is assembled from the tool definitions, one of which is the context-compaction tool
+     * whose compacter needs this reporter, so an eager lookup closes a construction cycle and the
+     * application context cannot start. The provider is dereferenced per usage report instead, when
+     * every bean already exists.</p>
+     */
     @Bean
     @ConditionalOnMissingBean
     public ContextUsageReporter contextUsageReporter(
             Tokenizer tokenizer, AgentConfig config, RuntimeEventPublisher publisher,
-            AgentChatProperties agentChatProperties) {
+            AgentChatProperties agentChatProperties, ObjectProvider<ToolRegistry> toolRegistry) {
         return new ContextUsageReporter(tokenizer, config.maxTokens(), publisher,
-                agentChatProperties.getUsageReportInterval());
+                agentChatProperties.getUsageReportInterval(), toolRegistry::getIfAvailable);
     }
 
     /**

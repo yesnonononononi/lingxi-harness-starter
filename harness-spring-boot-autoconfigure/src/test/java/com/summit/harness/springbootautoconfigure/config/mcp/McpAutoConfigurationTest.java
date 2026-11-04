@@ -1,60 +1,73 @@
 package com.summit.harness.springbootautoconfigure.config.mcp;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.adapter.langchain4j.mcp.AgentScopeMcpProvider;
-import com.summit.adapter.langchain4j.mcp.McpClientFactory;
 import com.summit.core.conf.McpConfig;
-import com.summit.core.conf.McpTransport;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.mcp.ScopeMcpProvider;
+import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.ToolDefinition;
-import com.summit.core.tool.ToolExecuteResult;
-import com.summit.core.tool.ToolExecution;
 import com.summit.core.tool.ToolExecutor;
 import com.summit.core.tool.ToolRegistry;
-import com.sun.net.httpserver.HttpServer;
-import dev.langchain4j.mcp.client.McpClient;
+import com.summit.harness.springbootautoconfigure.config.json.JsonConfig;
+import io.modelcontextprotocol.spec.McpClientTransport;
+import mcp.AgentScopeMcpProvider;
+import mcp.McpClientSettings;
+import mcp.McpClientTransportBuilder;
+import mcp.McpSessionFactory;
+import mcp.transport.McpHttpTransportBuilder;
+import mcp.transport.McpStdioTransportBuilder;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.MapPropertySource;
 
-import java.net.InetSocketAddress;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.ScheduledExecutorService;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/** The MCP infrastructure must be wired without ever opening a connection at start-up. */
 class McpAutoConfigurationTest {
+
     @Test
-    void registersInfrastructureByDefaultWithoutExposingGlobalTools() {
-        try (AnnotationConfigApplicationContext context = context(Map.of("lingxi.mcp.servers.github.url", "invalid"))) {
+    void registersInfrastructureWithoutExposingGlobalTools() {
+        try (AnnotationConfigApplicationContext context = context(Map.of())) {
             context.refresh();
-            assertEquals(1, context.getBeansOfType(McpClientFactory.class).size());
+            assertNotNull(context.getBean(McpClientSettings.class));
+            assertNotNull(context.getBean(McpSessionFactory.class));
             assertInstanceOf(AgentScopeMcpProvider.class, context.getBean(ScopeMcpProvider.class));
+            assertEquals(1, context.getBeansOfType(ScopeMcpProvider.class).size());
             assertTrue(context.getBean(RecordingToolRegistry.class).registrations.isEmpty());
+            assertFalse(context.getBean(McpSessionFactory.class).isClosed());
         }
     }
 
+    /** The transports are published as one replaceable list, HTTP first so it wins for HTTP entries. */
     @Test
-    void legacyDisabledFlagDoesNotDisableInfrastructureOrOpenConnections() {
-        try (AnnotationConfigApplicationContext context = context(Map.of(
-                "lingxi.mcp.enabled", false, "lingxi.mcp.servers.github.url", "invalid"))) {
-            context.registerBean(McpClientFactory.class, () -> new McpClientFactory() {
-                @Override
-                public McpClient create(String key, McpConfig.MCP server) {
-                    throw new AssertionError("Auto-configuration must not open request connections");
-                }
-            });
+    void defaultTransportsCoverHttpAndStdio() {
+        try (AnnotationConfigApplicationContext context = context(Map.of())) {
             context.refresh();
+            List<McpClientTransportBuilder> builders = context.getBean("mcpTransportBuilders", List.class);
+            assertEquals(2, builders.size());
+            assertInstanceOf(McpHttpTransportBuilder.class, builders.get(0));
+            assertInstanceOf(McpStdioTransportBuilder.class, builders.get(1));
+        }
+    }
+
+    /** The retired flag must keep not switching anything off: there is no connection to switch. */
+    @Test
+    void legacyDisabledFlagDoesNotDisableInfrastructure() {
+        try (AnnotationConfigApplicationContext context = context(Map.of("lingxi.mcp.enabled", "false"))) {
+            context.refresh();
+            assertNotNull(context.getBean(McpSessionFactory.class));
             assertInstanceOf(AgentScopeMcpProvider.class, context.getBean(ScopeMcpProvider.class));
-            assertEquals(1, context.getBeansOfType(ScopeMcpProvider.class).size());
             assertTrue(context.getBean(RecordingToolRegistry.class).registrations.isEmpty());
         }
     }
@@ -67,135 +80,85 @@ class McpAutoConfigurationTest {
             context.refresh();
             assertSame(custom, context.getBean(ScopeMcpProvider.class));
             assertEquals(1, context.getBeansOfType(ScopeMcpProvider.class).size());
+            // The infrastructure the custom provider may use stays available.
+            assertNotNull(context.getBean(McpSessionFactory.class));
         }
     }
 
+    /** A list published by the application replaces the defaults instead of adding to them. */
     @Test
-    void applicationFactoryIsUsedByDefaultProvider() {
-        AtomicInteger created = new AtomicInteger();
-        McpClientFactory custom = new McpClientFactory() {
-            @Override
-            public McpClient create(String key, McpConfig.MCP server) {
-                created.incrementAndGet();
-                throw new IllegalStateException("test connection failure");
-            }
-        };
-        try (AnnotationConfigApplicationContext context = context(Map.of())) {
-            context.registerBean("customFactory", McpClientFactory.class, () -> custom);
+    void applicationTransportListReplacesDefaults() {
+        try (AnnotationConfigApplicationContext context =
+                     context(Map.of(), UnsupportedTransportsConfiguration.class)) {
             context.refresh();
-            assertSame(custom, context.getBean(McpClientFactory.class));
-            assertEquals(1, context.getBeansOfType(McpClientFactory.class).size());
-            assertEquals(0, created.get());
-            assertTrue(context.getBean(ScopeMcpProvider.class).openScope(config(server("test"))).isEmpty());
-            assertEquals(1, created.get());
+
+            assertFalse(context.containsBean("mcpTransportBuilders"),
+                    "the default list must be skipped when the application publishes its own");
+            assertSame(CUSTOM_TRANSPORTS, context.getBean("customTransportBuilders", List.class));
+            // The factory is created over the application list: a second List bean of the same
+            // element type makes that injection ambiguous, so a refreshed context proves the choice.
+            assertNotNull(context.getBean(McpSessionFactory.class));
         }
     }
 
+    /** Stands in for an application that publishes its own transports as a bean. */
+    @Configuration(proxyBeanMethods = false)
+    static class UnsupportedTransportsConfiguration {
+
+        @Bean
+        List<McpClientTransportBuilder> customTransportBuilders() {
+            return CUSTOM_TRANSPORTS;
+        }
+    }
+
+    /** The application list under test: it refuses every configuration, so its use is unmistakable. */
+    private static final List<McpClientTransportBuilder> CUSTOM_TRANSPORTS =
+            List.of(new McpClientTransportBuilder() {
+                @Override
+                public boolean supports(McpConfig.Conf conf) {
+                    return false;
+                }
+
+                @Override
+                public McpClientTransport build(McpConfig.MCP server, Workspace workspace) {
+                    throw new AssertionError("the custom list must be the one in use");
+                }
+            });
+
+    /** Session factory first, scheduler second: the context must not leave a live daemon behind. */
     @Test
-    @Timeout(30)
-    void connectsDiscoversRegistersAndCallsThroughRealHttpTransport() throws Exception {
-        ObjectMapper mapper = new ObjectMapper();
-        AtomicReference<JsonNode> call = new AtomicReference<>();
-        List<String> authorization = new CopyOnWriteArrayList<>();
-        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/mcp", exchange -> {
-            try (exchange) {
-                if (exchange.getRequestMethod().equals("DELETE")) {
-                    exchange.sendResponseHeaders(204, -1);
-                    return;
-                }
-                if (!exchange.getRequestMethod().equals("POST")) {
-                    exchange.sendResponseHeaders(405, -1);
-                    return;
-                }
-                authorization.add(exchange.getRequestHeaders().getFirst("Authorization"));
-                JsonNode request = mapper.readTree(exchange.getRequestBody());
-                if (!request.has("id")) {
-                    exchange.sendResponseHeaders(202, -1);
-                    return;
-                }
-                Object result = switch (request.path("method").asText()) {
-                    case "initialize" -> Map.of(
-                            "protocolVersion", request.path("params").path("protocolVersion").asText(),
-                            "capabilities", Map.of("tools", Map.of()),
-                            "serverInfo", Map.of("name", "test-server", "version", "1.0"));
-                    case "tools/list" -> Map.of("tools", List.of(Map.of(
-                            "name", "get_file_contents", "description", "Read a file",
-                            "inputSchema", Map.of("type", "object", "properties", Map.of(
-                                    "path", Map.of("type", "string")), "required", List.of("path")))));
-                    case "tools/call" -> {
-                        call.set(request.path("params"));
-                        yield Map.of("content", List.of(Map.of("type", "text", "text", "file contents")),
-                                "isError", false);
-                    }
-                    default -> Map.of();
-                };
-                byte[] body = mapper.writeValueAsBytes(Map.of("jsonrpc", "2.0",
-                        "id", request.get("id"), "result", result));
-                exchange.getResponseHeaders().set("Content-Type", "application/json");
-                exchange.getResponseHeaders().set("Mcp-Session-Id", "test-session");
-                exchange.sendResponseHeaders(200, body.length);
-                exchange.getResponseBody().write(body);
-            }
-        });
-        server.start();
-        try {
-            try (AnnotationConfigApplicationContext context = context(Map.of())) {
-                context.refresh();
-                String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/mcp";
-                McpConfig.MCP github = new McpConfig.MCP("github", null, McpTransport.STREAMABLE_HTTP,
-                        new McpConfig.StreamableHttp(url, Map.of("Authorization", "Bearer test-token"),
-                                Duration.ofSeconds(3), Duration.ofSeconds(4)),
-                        321);
+    void closingTheContextClosesTheFactoryAndStopsTheScheduler() {
+        AnnotationConfigApplicationContext context = context(Map.of());
+        context.refresh();
+        McpSessionFactory factory = context.getBean(McpSessionFactory.class);
+        ScheduledExecutorService scheduler = context.getBean(McpAutoConfiguration.HEALTH_SCHEDULER_BEAN,
+                ScheduledExecutorService.class);
+        assertFalse(factory.isClosed());
+        assertFalse(scheduler.isShutdown());
 
-                McpToolScope scope = context.getBean(ScopeMcpProvider.class)
-                        .openScope(config(github));
-                ToolDefinition<?> tool = scope.getTool("mcp_get_file_contents");
-                assertNotNull(tool);
-                assertEquals(9L, tool.timeout());
-                assertEquals(321, tool.maxOutput());
-                assertTrue(tool.parametersJsonSchema().contains("path"));
-                ToolExecuteResult result = tool.executor().execute(ToolExecution.builder()
-                        .id("call-1").toolDefinition(tool).args("{\"path\":\"README.md\"}").build());
-                assertTrue(result.isSuccess(), result.getToolOutput());
-                assertEquals("file contents", result.getToolOutput());
-                assertEquals("get_file_contents", call.get().path("name").asText());
-                assertEquals("README.md", call.get().path("arguments").path("path").asText());
-                assertFalse(authorization.isEmpty());
-                assertTrue(authorization.stream().allMatch("Bearer test-token"::equals));
+        context.close();
 
-                scope.close();
-                assertNull(scope.getTool("mcp_get_file_contents"));
-            }
-            // This SDK closes the HTTP transport without sending a session DELETE request.
-
-        } finally {
-            server.stop(0);
-        }
+        assertTrue(factory.isClosed(), "the factory must be closed with its context");
+        assertTrue(scheduler.isShutdown(), "the daemon scheduler must stop with its context");
     }
 
-    private static McpConfig config(McpConfig.MCP... servers) {
-        McpConfig config = new McpConfig();
-        config.setMcp(List.of(servers));
-        return config;
-    }
-
-    private static McpConfig.MCP server(String name) {
-        return new McpConfig.MCP(name, null, McpTransport.STREAMABLE_HTTP,
-                new McpConfig.StreamableHttp("https://" + name + ".example/mcp", Map.of(),
-                        Duration.ofSeconds(3), Duration.ofSeconds(4)),
-                100);
-    }
-
-    private static AnnotationConfigApplicationContext context(Map<String, Object> properties) {
+    private static AnnotationConfigApplicationContext context(Map<String, Object> properties,
+                                                             Class<?>... leadingConfigurations) {
         AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
         context.getEnvironment().getPropertySources().addFirst(new MapPropertySource("test", properties));
+        // Registered first: a configuration that replaces a default must exist when the default is
+        // conditionally skipped, and conditions are evaluated in registration order.
+        if (leadingConfigurations.length > 0) {
+            context.register(leadingConfigurations);
+        }
         context.registerBean(RecordingToolRegistry.class, () -> new RecordingToolRegistry());
+        context.register(JsonConfig.class);
         context.register(McpAutoConfiguration.class);
         return context;
     }
 
     static class RecordingToolRegistry extends ToolRegistry {
+
         private final List<ToolDefinition<? extends ToolExecutor>> registrations = new ArrayList<>();
 
         RecordingToolRegistry() {
@@ -208,5 +171,4 @@ class McpAutoConfigurationTest {
             super.register(definition);
         }
     }
-
 }
