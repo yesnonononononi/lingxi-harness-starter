@@ -3,6 +3,7 @@ package com.summit.runtime.compact;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.CompactionState;
 import com.summit.core.agent.Execution;
+import com.summit.core.agent.Image;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.conversation.api.ChatRequestEntity;
 import com.summit.core.conversation.api.ChatResponseEntity;
@@ -12,6 +13,7 @@ import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.conversation.message.ToolMessageEntity;
+import com.summit.core.conversation.message.content.ImageContent;
 import com.summit.core.model.chat.ChatModel;
 import com.summit.core.runtime.loop.ContextUsageReporter;
 import com.summit.runtime.agent.AgentConfig;
@@ -19,12 +21,15 @@ import com.summit.runtime.conversation.DefaultConversationManager;
 import com.summit.runtime.loop.BoundaryChecker;
 import org.junit.jupiter.api.Test;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -51,6 +56,65 @@ class CompactionStateMachineTest {
     private StubContextTokenizer tokenizer = new StubContextTokenizer(OVER_THRESHOLD);
     private DefaultConversationManager conversations =
             new DefaultConversationManager(ContextAttachmentProvider.NONE);
+
+    @Test
+    void imageWindowTrimsInOneBatchAndLeavesHeadroomBeforeRewritingAgain() {
+        tokenizer = new StubContextTokenizer(SAFE_RATIO);
+        BoundaryChecker checker = checker(answeringModel(), 2);
+        Execution execution = execution();
+        List<Image> images = IntStream.range(0, 16)
+                .mapToObj(index -> Image.from(URI.create("https://example.test/image-" + index))).toList();
+        UserMessageEntity early = UserMessageEntity.from("older images", images.subList(1, 12))
+                .markPendingCompaction();
+        execution.getMessages().add(UserMessageEntity.from(images.getFirst()));
+        execution.getMessages().add(early);
+        execution.getMessages().add(UserMessageEntity.from("newer images", images.subList(12, 15)));
+        List<Message> original = execution.getMessages();
+
+        checker.before(execution);
+        assertSame(original, execution.getMessages(), "the high watermark itself must leave the prefix intact");
+
+        execution.getMessages().add(UserMessageEntity.from(images.getLast()));
+        checker.before(execution);
+
+        assertEquals(images.subList(9, 16), contextImages(execution));
+        UserMessageEntity retained = (UserMessageEntity) execution.getMessages().get(4);
+        assertEquals("older images", retained.text());
+        assertEquals(early.getAttrs(), retained.getAttrs());
+        assertEquals(12, early.getContent().size(), "the request's original message must remain intact");
+        assertTrue(requests.isEmpty(), "images must be trimmed even below the text compaction threshold");
+
+        List<Message> trimmed = execution.getMessages();
+        trimmed.add(UserMessageEntity.from(Image.from(URI.create("https://example.test/next"))));
+        checker.before(execution);
+        assertSame(trimmed, execution.getMessages(), "the next image must fit without another prefix rewrite");
+        assertEquals(8, contextImages(execution).size());
+    }
+
+    @Test
+    void imageBytesTriggerTrimmingEvenBelowTheImageCountLimit() {
+        tokenizer = new StubContextTokenizer(SAFE_RATIO);
+        BoundaryChecker checker = checker(answeringModel(), 2);
+        Execution execution = execution();
+        Image older = Image.from("A".repeat(12 * 1024 * 1024));
+        Image newest = Image.from("B".repeat(13 * 1024 * 1024));
+        execution.getMessages().add(UserMessageEntity.from("image references", List.of(older, newest)));
+
+        checker.before(execution);
+
+        List<Image> retained = contextImages(execution);
+        assertEquals(1, retained.size());
+        assertSame(newest, retained.getFirst());
+        assertEquals("image references", execution.getMessages().getLast().text());
+        assertTrue(requests.isEmpty());
+    }
+
+    private static List<Image> contextImages(Execution execution) {
+        return execution.getMessages().stream().filter(UserMessageEntity.class::isInstance)
+                .map(UserMessageEntity.class::cast).flatMap(user -> user.getContent().stream())
+                .filter(ImageContent.class::isInstance).map(ImageContent.class::cast).map(ImageContent::getImage)
+                .toList();
+    }
 
     // ---------------------------------------------------------------- Summary cases 1-9
 

@@ -55,6 +55,7 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
     @Override
     public CheckPointResult before(Execution execution) {
         checkModelAttempt(execution);
+        ImageWindowTrimmer.trim(execution);
         compactIfNeeded(execution);
         return CheckPointResult.continueWith();
     }
