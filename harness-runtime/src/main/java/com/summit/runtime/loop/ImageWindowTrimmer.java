@@ -5,25 +5,24 @@ import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.conversation.message.content.Content;
 import com.summit.core.conversation.message.content.ImageContent;
+import com.summit.runtime.agent.AgentConfig.ImageWindow;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /** Bounds inline image payload independently of the text token budget. */
 final class ImageWindowTrimmer {
-    private static final int MAX_IMAGES = 15;
     private static final long MAX_INLINE_BYTES = 24L * 1024 * 1024;
-    private static final int TARGET_IMAGES = 7;
     private static final long TARGET_INLINE_BYTES = 12L * 1024 * 1024;
 
     private ImageWindowTrimmer() {
     }
 
-    static void trim(Execution execution) {
+    static void trim(Execution execution, ImageWindow window) {
         List<Message> messages = execution.getMessages();
-        if (messages == null || !exceedsWindow(messages)) return;
+        if (messages == null || !exceedsWindow(messages, window.maxImages())) return;
 
-        int remainingImages = TARGET_IMAGES;
+        int remainingImages = window.retainImages();
         long remainingBytes = TARGET_INLINE_BYTES;
         List<Message> retained = new ArrayList<>(messages.size());
         for (Message message : messages.reversed()) {
@@ -38,7 +37,7 @@ final class ImageWindowTrimmer {
                 if (content instanceof ImageContent image) {
                     int inlineBytes = inlineBytes(image);
                     // Preserve a fresh image that fits the hard budget even if it exceeds the target.
-                    long allowedBytes = remainingImages == TARGET_IMAGES ? MAX_INLINE_BYTES : remainingBytes;
+                    long allowedBytes = remainingImages == window.retainImages() ? MAX_INLINE_BYTES : remainingBytes;
                     if (remainingImages == 0 || inlineBytes > allowedBytes) {
                         // Keep a contiguous window of the newest images.
                         remainingImages = 0;
@@ -60,7 +59,7 @@ final class ImageWindowTrimmer {
         execution.setMessages(new ArrayList<>(retained.reversed()));
     }
 
-    private static boolean exceedsWindow(List<Message> messages) {
+    private static boolean exceedsWindow(List<Message> messages, int maxImages) {
         int imageCount = 0;
         long bytes = 0;
         for (Message message : messages.reversed()) {
@@ -69,7 +68,7 @@ final class ImageWindowTrimmer {
                 if (content instanceof ImageContent image) {
                     imageCount++;
                     bytes += inlineBytes(image);
-                    if (imageCount > MAX_IMAGES || bytes > MAX_INLINE_BYTES) return true;
+                    if (imageCount > maxImages || bytes > MAX_INLINE_BYTES) return true;
                 }
             }
         }

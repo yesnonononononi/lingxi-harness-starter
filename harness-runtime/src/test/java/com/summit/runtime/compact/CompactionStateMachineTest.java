@@ -30,6 +30,7 @@ import java.util.stream.IntStream;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -56,6 +57,33 @@ class CompactionStateMachineTest {
     private StubContextTokenizer tokenizer = new StubContextTokenizer(OVER_THRESHOLD);
     private DefaultConversationManager conversations =
             new DefaultConversationManager(ContextAttachmentProvider.NONE);
+
+    @Test
+    void imageWindowHonorsConfiguredHighAndLowWatermarks() {
+        tokenizer = new StubContextTokenizer(SAFE_RATIO);
+        AgentConfig config = AgentConfig.builder().imageWindow(new AgentConfig.ImageWindow(4, 2)).build();
+        BoundaryChecker checker = new BoundaryChecker(config, tokenizer, conversations, null, null);
+        Execution execution = execution();
+        List<Image> images = IntStream.range(0, 5)
+                .mapToObj(index -> Image.from(URI.create("https://example.test/configured-" + index))).toList();
+        execution.getMessages().add(UserMessageEntity.from("images", images.subList(0, 4)));
+        List<Message> original = execution.getMessages();
+
+        checker.before(execution);
+        assertSame(original, execution.getMessages());
+        execution.getMessages().add(UserMessageEntity.from(images.getLast()));
+
+        checker.before(execution);
+        assertEquals(images.subList(3, 5), contextImages(execution));
+    }
+
+    @Test
+    void imageWindowDerivesHeadroomAndRejectsInvalidLimits() {
+        assertEquals(3, new AgentConfig.ImageWindow(6, null).retainImages());
+        assertEquals(1, new AgentConfig.ImageWindow(1, null).retainImages());
+        assertThrows(IllegalArgumentException.class, () -> new AgentConfig.ImageWindow(0, null));
+        assertThrows(IllegalArgumentException.class, () -> new AgentConfig.ImageWindow(4, 5));
+    }
 
     @Test
     void imageWindowTrimsInOneBatchAndLeavesHeadroomBeforeRewritingAgain() {

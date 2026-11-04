@@ -12,6 +12,7 @@ import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.workspace.WorkspaceResolver;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
+import com.summit.harness.springbootautoconfigure.properties.agent.AgentImageWindowProperties;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.agent.ChatAgent;
 import com.summit.runtime.agent.DefaultChatAgent;
@@ -24,7 +25,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 
 @AutoConfiguration
-@EnableConfigurationProperties({AgentChatProperties.class})
+@EnableConfigurationProperties({AgentChatProperties.class, AgentImageWindowProperties.class})
 public class AgentConfiguration {
     @Bean
     @ConditionalOnMissingBean(ChatAgent.class)
@@ -76,6 +77,7 @@ public class AgentConfiguration {
     @Bean
     @ConditionalOnMissingBean(AgentConfig.class)
     public AgentConfig agentConfig(AgentChatProperties agentProperties,
+                                   AgentImageWindowProperties imageWindow,
                                    ObjectProvider<AgentConfig.ProgressiveSqueezePolicy> squeezePolicy,
                                    ObjectProvider<AgentConfig.CompactionTuning> compactionTuning) {
         AgentConfig.CompactionTuning tuning = compactionTuning.getIfAvailable();
@@ -85,6 +87,7 @@ public class AgentConfiguration {
                 .maxIterations(agentProperties.getMaxIterations())
                 .maxConsecutiveCompactions(agentProperties.getMaxConsecutiveCompactions())
                 .maxSummaryAttempts(tuning == null ? null : tuning.maxSummaryAttempts())
+                .imageWindow(new AgentConfig.ImageWindow(imageWindow.maxImages(), imageWindow.retainImages()))
                 .build();
     }
 }
