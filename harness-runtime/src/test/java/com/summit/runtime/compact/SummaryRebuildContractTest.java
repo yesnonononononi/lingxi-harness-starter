@@ -38,6 +38,33 @@ class SummaryRebuildContractTest {
     private static final double OVER_THRESHOLD = 0.95;
     private static final String SUMMARY_JSON = "{\"summary\":\"SUMMARY-PREVIOUS\",\"goal\":\"goal\"}";
 
+    @Test
+    void consecutiveRebuildsPreservePendingInputUntilALaterReply() {
+        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        AiMessageEntity earlierReply = AiMessageEntity.builder().text("earlier reply").build();
+        UserMessageEntity notification = UserMessageEntity.from("incoming mail").markPendingCompaction();
+        Execution execution = execution(SystemMessageEntity.builder().text("system").build(),
+                UserMessageEntity.from("question"), earlierReply, notification);
+
+        conversations.rebuildContext("first summary", execution);
+        conversations.rebuildContext("second summary before delivery", execution);
+
+        assertEquals(List.of("question", "incoming mail"), userTexts(execution));
+        assertEquals(List.of(earlierReply, notification), execution.getMessages().subList(3, 5));
+        assertEquals(false, notification.getAttrs().get(UserMessageEntity.COMPACT));
+
+        execution.getMessages().add(AiMessageEntity.builder().text("mail received").build());
+        conversations.rebuildContext("summary after delivery", execution);
+
+        UserMessageEntity delivered = execution.getMessages().stream().filter(message -> message.text().equals("incoming mail"))
+                .map(UserMessageEntity.class::cast).findFirst().orElseThrow();
+        assertEquals(true, delivered.getAttrs().get(UserMessageEntity.COMPACT));
+        assertEquals(false, notification.getAttrs().get(UserMessageEntity.COMPACT));
+
+        conversations.rebuildContext("summary of processed mail", execution);
+        assertEquals(List.of("question"), userTexts(execution));
+    }
+
     /** Case 10 (P0-2 regression): every user message survives the rebuild, in original order. */
     @Test
     void summaryRebuildKeepsAllUserMessages() {

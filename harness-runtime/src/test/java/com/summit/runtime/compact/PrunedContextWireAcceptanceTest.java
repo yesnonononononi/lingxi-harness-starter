@@ -60,6 +60,18 @@ class PrunedContextWireAcceptanceTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final int MAX_TOKENS = 10_000;
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void localCompactionMarkerDoesNotChangeProviderInput(boolean anthropic) throws Exception {
+        UserMessageEntity plain = UserMessageEntity.from("notification");
+        UserMessageEntity pending = UserMessageEntity.from("notification").markPendingCompaction();
+        try (Endpoint endpoint = new Endpoint()) {
+            JsonNode expected = wire(endpoint, List.of(plain), anthropic);
+            assertEquals(expected, wire(endpoint, List.of(pending), anthropic));
+            assertEquals(expected, wire(endpoint, List.of(pending.retainForCompaction(true)), anthropic));
+        }
+    }
+
     /**
      * §8.4 ①: an active group is kept verbatim, and the resulting request is identical to the one the
      * unpruned context already produces today — pruning introduces no new wire shape for it.

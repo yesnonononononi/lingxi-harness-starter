@@ -9,15 +9,22 @@ public record AgentConfig(
         Integer maxTokens,
         Integer maxIterations,
         Integer maxConsecutiveCompactions,
-        Integer maxSummaryAttempts
+        Integer maxSummaryAttempts,
+        ImageWindow imageWindow
 ) {
     public static final int DEFAULT_MAX_CONSECUTIVE_COMPACTIONS = 3;
+
+    public AgentConfig(ProgressiveSqueezePolicy squeezeThreshold, Integer maxTokens, Integer maxIterations,
+                       Integer maxConsecutiveCompactions, Integer maxSummaryAttempts) {
+        this(squeezeThreshold, maxTokens, maxIterations, maxConsecutiveCompactions, maxSummaryAttempts, null);
+    }
 
     public AgentConfig {
         maxTokens = maxTokens == null ? 1_024_000 : maxTokens;
         maxIterations = maxIterations == null ? 500 : maxIterations;
         maxConsecutiveCompactions = maxConsecutiveCompactions == null
                 ? DEFAULT_MAX_CONSECUTIVE_COMPACTIONS : maxConsecutiveCompactions;
+        imageWindow = imageWindow == null ? new ImageWindow(null, null) : imageWindow;
 
         if (maxTokens <= 0 || maxIterations <= 0 || maxConsecutiveCompactions <= 0) {
             throw new IllegalArgumentException("Runtime budgets must be positive");
@@ -53,5 +60,16 @@ public record AgentConfig(
 
     /** Published by the properties owner without introducing an upward module dependency. */
     public record CompactionTuning(Integer maxSummaryAttempts) {
+    }
+
+    /** Keep headroom after trimming so adding one image rarely rewrites the cached prefix again. */
+    public record ImageWindow(Integer maxImages, Integer retainImages) {
+        public ImageWindow {
+            maxImages = maxImages == null ? 15 : maxImages;
+            retainImages = retainImages == null ? Math.max(1, maxImages / 2) : retainImages;
+            if (maxImages <= 0 || retainImages <= 0 || retainImages > maxImages) {
+                throw new IllegalArgumentException("Image window requires 1 <= retainImages <= maxImages");
+            }
+        }
     }
 }

@@ -18,6 +18,7 @@ import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.workspace.WorkspaceResolver;
 import com.summit.harness.springbootautoconfigure.config.InterceptorConfig;
 import com.summit.harness.springbootautoconfigure.config.agent.AgentConfiguration;
+import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.agent.ChatAgent;
 import com.summit.runtime.agent.DefaultChatAgent;
 import com.summit.runtime.conversation.DefaultRuntimeFactory;
@@ -80,6 +81,9 @@ class ExecutionRuntimeConfigTest {
     @Test
     void defaultAgentAndRuntimeFactoryShareTheControllerWithoutACircularDependency() {
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.getEnvironment().getPropertySources().addFirst(new MapPropertySource("imageWindow",
+                    Map.of("lingxi.agent.runtime.image-window.max-images", "9",
+                            "lingxi.agent.runtime.image-window.retain-images", "4")));
             context.registerBean(ExecutionRepository.class, () -> new InMemoryActiveExecutionRegistry());
             context.registerBean(RuntimeEventPublisher.class, () -> new RuntimeEventPublisher(List.of()));
             context.registerBean(RuntimeLifeStyleManager.class,
@@ -102,6 +106,7 @@ class ExecutionRuntimeConfigTest {
 
             assertInstanceOf(DefaultChatAgent.class, context.getBean(ChatAgent.class));
             assertInstanceOf(DefaultExecutionController.class, context.getBean(ExecutionControl.class));
+            assertEquals(new AgentConfig.ImageWindow(9, 4), context.getBean(AgentConfig.class).imageWindow());
         }
     }
 

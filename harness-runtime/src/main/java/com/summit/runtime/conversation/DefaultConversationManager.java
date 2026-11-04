@@ -216,8 +216,6 @@ public class DefaultConversationManager implements ConversationManager {
                 .findFirst()
                 .orElseGet(() -> SystemMessageEntity.builder().text(businessPromptOf(execution)).build());
 
-        List<Message> userMessageList = execution.getMessages().stream().filter(UserMessageEntity.class::isInstance).toList();
-
         contextAttachmentProvider.attachment(execution.getId())
                 .filter(value -> !value.isBlank())
                 .ifPresent(value -> attachment.add(SystemMessageEntity.builder().text(String.format("""
@@ -226,15 +224,16 @@ public class DefaultConversationManager implements ConversationManager {
                         %s
                         """, value)).build()));
 
-        // protection policy TWO :  find the last user message and the turn belong to it
-        List<Message> tail = stripOldThinking(retainableTail(current));
+        List<Message> retained = retainCompactionInputs(current);
+        List<Message> tail = retainableTail(retained);
+        List<Message> earlierUsers = retained.subList(0, retained.size() - tail.size()).stream()
+                .filter(UserMessageEntity.class::isInstance).toList();
 
-        // leading -- attachment -- summary(processed) -- userMessage list -- last turns
         rebuilt.add(leading);
         rebuilt.addAll(attachment);
         rebuilt.add(summaryMessage);
-        rebuilt.addAll(userMessageList);
-        rebuilt.addAll(tail);
+        rebuilt.addAll(earlierUsers);
+        rebuilt.addAll(stripOldThinking(tail));
 
 
         execution.setMessages(rebuilt);
@@ -305,12 +304,25 @@ public class DefaultConversationManager implements ConversationManager {
         else messages.addFirst(systemMessage);
     }
 
+    private List<Message> retainCompactionInputs(List<Message> current) {
+        List<Message> retained = new ArrayList<>(current.size());
+        boolean hasLaterAssistantReply = false;
+        // Use the original order so a prior reply cannot confirm a newly injected input.
+        for (Message message : current.reversed()) {
+            if (message instanceof AiMessageEntity) hasLaterAssistantReply = true;
+            Message candidate = message instanceof UserMessageEntity user
+                    ? user.retainForCompaction(hasLaterAssistantReply) : message;
+            if (candidate != null) retained.add(candidate);
+        }
+        return retained.reversed();
+    }
+
     private List<Message> retainableTail(List<Message> messages) {
         int lastUserMessageIndex = -1;
 
 
         for (int i = messages.size() - 1; i >= 0; i--) {
-            if (messages.get(i) instanceof UserMessageEntity) {
+            if (messages.get(i) instanceof UserMessageEntity user && !user.hasCompactionMarker()) {
                 lastUserMessageIndex = i;
                 break;
             }

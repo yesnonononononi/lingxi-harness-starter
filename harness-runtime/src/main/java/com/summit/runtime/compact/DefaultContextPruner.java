@@ -119,7 +119,7 @@ public class DefaultContextPruner implements ContextCompacter {
         int latestAssistant = -1;
 
         for (int index = 0; index < messages.size(); index++) {
-            if (messages.get(index) instanceof UserMessageEntity) latestUser = index;
+            if (messages.get(index) instanceof UserMessageEntity user && !user.hasCompactionMarker()) latestUser = index;
             if (!(messages.get(index) instanceof AiMessageEntity ai)) continue;
 
             latestAssistant = index;
@@ -184,6 +184,9 @@ public class DefaultContextPruner implements ContextCompacter {
                 if (owner == null) continue;
 
                 if (owner >= keepFrom) product.add(tool);
+            } else if (message instanceof UserMessageEntity user) {
+                Message retained = user.retainForCompaction(index < history.latestAssistant());
+                if (retained != null) product.add(retained);
             } else {
                 product.add(message);
             }
@@ -209,7 +212,9 @@ public class DefaultContextPruner implements ContextCompacter {
 
     private List<Message> latestTurn(List<Message> messages) {
         for (int index = messages.size() - 1; index >= 0; index--) {
-            if (messages.get(index) instanceof UserMessageEntity) return messages.subList(index, messages.size());
+            if (messages.get(index) instanceof UserMessageEntity user && !user.hasCompactionMarker()) {
+                return messages.subList(index, messages.size());
+            }
         }
         return messages.stream().filter(message -> !(message instanceof SystemMessageEntity)).toList();
     }

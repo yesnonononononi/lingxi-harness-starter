@@ -47,6 +47,31 @@ class DefaultContextPrunerTest {
     private final List<ContextUpdateEvent> events = new ArrayList<>();
 
     @Test
+    void pruningKeepsPendingInputUntilAReplyAndPreservesTheRealUserTurn() {
+        UserMessageEntity notification = user("new receipt").markPendingCompaction();
+        Execution execution = execution(system("system"), user("question"),
+                AiMessageEntity.builder().text("earlier reply").toolCalls(List.of(call("lookup", "{}"))).build(),
+                tool("lookup", "result", false, 0), notification);
+        DefaultContextPruner pruner = pruner(2_000);
+        ContextCompactRequest request = new ContextCompactRequest(execution);
+
+        pruner.compact(request);
+        pruner.compact(request);
+
+        assertSame(notification, execution.getMessages().getLast());
+        assertTrue(hasTool(execution, "lookup"));
+        assertEquals(false, notification.getAttrs().get(UserMessageEntity.COMPACT));
+
+        execution.getMessages().add(AiMessageEntity.builder().text("receipt read").build());
+        assertTrue(pruner.compact(request));
+        assertEquals(true, ((UserMessageEntity) execution.getMessages().get(4)).getAttrs().get(UserMessageEntity.COMPACT));
+        assertEquals(false, notification.getAttrs().get(UserMessageEntity.COMPACT));
+        assertTrue(pruner.compact(request));
+        assertEquals(List.of("question"), execution.getMessages().stream()
+                .filter(UserMessageEntity.class::isInstance).map(Message::text).toList());
+    }
+
+    @Test
     void keepsEveryAssistantTextAndDropsHistoricalToolArgumentsAndResults() {
         Execution execution = history("{}", "old payload".repeat(2_000), "latest payload".repeat(50));
         List<Message> original = new ArrayList<>(execution.getMessages());
