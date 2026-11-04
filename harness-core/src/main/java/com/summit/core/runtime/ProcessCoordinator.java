@@ -39,13 +39,47 @@ public final class ProcessCoordinator {
         return new CommandResult(completed ? child.exitValue() : -1, result.output.toString(), result.truncated.get(), !completed);
     }
 
+    /**
+     * Requests termination of the owned process and its descendants.
+     *
+     * <p>The owned process is killed through its {@link ProcessHandle} rather than through
+     * {@link Process#destroyForcibly()}: on Linux, macOS and AIX the latter also closes the Java-side
+     * stdin/stdout/stderr pipes of the child (JDK {@code ProcessImpl.destroy}), which discards output
+     * the reader has not drained yet and turns an orderly shutdown into
+     * {@code IOException("Stream closed")} for a reader that is still polling. Killing through the
+     * handle only signals the process: the pipes stay readable, the JDK reaper hands over the bytes
+     * written before the exit, and {@link #cleanup(ProcessResult)} closes the pipes afterwards, once
+     * the reader is finished.
+     *
+     * @param child process to terminate, may be {@code null}
+     * @return handles of the killed descendants, followed by the owned process when its handle is known
+     */
     public static List<ProcessHandle> requestTermination(Process child) {
         if (child == null) return List.of();
         List<ProcessHandle> handles = new ArrayList<>(child.descendants().toList());
         for (int index = handles.size() - 1; index >= 0; index--) handles.get(index).destroyForcibly();
-        handles.add(child.toHandle());
-        child.destroyForcibly();
+        ProcessHandle owned = ownedHandle(child);
+        if (owned == null) {
+            child.destroyForcibly();
+            return handles;
+        }
+        handles.add(owned);
+        owned.destroyForcibly();
         return handles;
+    }
+
+    /**
+     * Resolves the handle of the owned process without closing its pipe streams.
+     *
+     * @param child process to resolve
+     * @return the process handle, or {@code null} when the implementation does not expose one
+     */
+    private static ProcessHandle ownedHandle(Process child) {
+        try {
+            return child.toHandle();
+        } catch (UnsupportedOperationException | SecurityException unsupported) {
+            return null;
+        }
     }
 
     public static void terminateTree(Process child) throws IOException, InterruptedException {

@@ -298,6 +298,8 @@ class ProcessRunnerTest {
         assertFalse(result.isSuccess());
         assertFalse(result.timedOut(), "an input failure must not leave the child waiting for the execution timeout");
         assertTrue(result.output().contains("input rejected"), result.output());
+        // 关闭即 EOF 之后输出不能被截断：子进程在拒收 stdin 之前写出的诊断必须完整保留。
+        assertEquals("input rejected", result.output());
         assertProcessGone(pidFile);
         assertTrue(runner.run(command("echo", "again"), 10, TimeUnit.SECONDS).isSuccess());
     }
