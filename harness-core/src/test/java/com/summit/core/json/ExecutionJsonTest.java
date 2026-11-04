@@ -157,25 +157,6 @@ class ExecutionJsonTest {
                 "{\"messages\":[{\"type\":\"java.lang.Runtime\"}]}", Execution.class));
     }
 
-    @Test
-    void restoresSuspendedExecutionWithMemoryConfiguration() throws Exception {
-        MemoryConfig memory = MemoryConfig.builder().credential(".agent/MEMORY.md")
-                .mode(MemoryManagerMode.ALLOW_WRITE).maxChars(4096).build();
-        Execution original = Execution.builder().id("memory-execution")
-                .executionState(ExecutionState.SUSPENDED)
-                .messages(List.of(SystemMessageEntity.builder().text("Loaded memory snapshot").build()))
-                .agentRequest(AgentRequest.builder().memoryConfig(memory)
-                        .messages(List.of(UserMessageEntity.from("Continue the task"))).build())
-                .build();
-
-        String json = mapper.writeValueAsString(original);
-        Execution restored = mapper.readValue(json, Execution.class);
-
-        assertEquals(memory, restored.getAgentRequest().getMemoryConfig());
-        assertEquals(ExecutionState.SUSPENDED, restored.getExecutionState());
-        assertEquals("Loaded memory snapshot", restored.getMessages().getFirst().text());
-        assertEquals(mapper.readTree(json), mapper.readTree(mapper.writeValueAsString(restored)));
-    }
 
     public record TestWorkspace(String provider, String workDir, String extra) implements WorkspaceSpec {}
 }

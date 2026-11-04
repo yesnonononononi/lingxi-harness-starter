@@ -3,9 +3,9 @@ package com.summit.core.agent;
 
 import com.summit.core.runtime.loop.ActiveExecutionRegistry;
 
-public interface Agent {
+public interface Agent<T extends AgentRequest> {
     String id();
-    Execution execute(AgentRequest agentRequest);
+    Execution execute(T agentRequest);
     Execution execute(Execution execution);
 
     /**
@@ -13,5 +13,5 @@ public interface Agent {
      * @param agentRequest The request for the execution
      * @return The raw execution
      */
-    Execution createExecution(AgentRequest agentRequest);
+    Execution createExecution(T agentRequest);
 }

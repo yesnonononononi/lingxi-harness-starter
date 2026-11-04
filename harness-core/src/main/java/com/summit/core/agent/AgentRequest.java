@@ -5,17 +5,16 @@ import com.summit.core.conf.ModelRetryConfig;
 import com.summit.core.conf.SensitiveDataSpec;
 import com.summit.core.conf.SkillConfig;
 import com.summit.core.conversation.message.Message;
-import com.summit.core.memory.MemoryConfig;
 import com.summit.core.model.image.ImageGenerationOptions;
 import com.summit.core.workspace.WorkspaceSpec;
 import lombok.Builder;
 import lombok.Data;
+import lombok.experimental.SuperBuilder;
 import lombok.extern.jackson.Jacksonized;
-
 import java.util.List;
 
 @Data
-@Builder
+@SuperBuilder
 @Jacksonized
 public class AgentRequest {
     /** Optional caller-provided identifier for this single execution. */
@@ -41,8 +40,6 @@ public class AgentRequest {
     /** Optional managed workspace specification. When absent, the runtime uses the local process working directory. */
     private final WorkspaceSpec workspaceSpec;
 
-    /** Optional per-execution memory access configuration; absent means no memory integration. */
-    private MemoryConfig memoryConfig;
     /** Only the reference is persisted; the application resolves the exact MCP configuration revision. */
     private SensitiveDataSpec mcpConfigSpec;
 
