@@ -15,8 +15,16 @@ public final class ModelProviderRouting {
     }
 
     public static String compactProvider(String provider, String modelName) {
-        if (provider != null && !provider.isBlank()) return provider.trim();
-        return isAnthropic(modelName) ? DefaultModelProviderNames.ANTHROPIC_COMPACT : "default-compact";
+        if (provider != null && !provider.isBlank()) {
+            return switch (provider.trim()) {
+                case DefaultModelProviderNames.DEFAULT, DefaultModelProviderNames.DEFAULT_STREAMING ->
+                        DefaultModelProviderNames.DEFAULT_COMPACT;
+                case DefaultModelProviderNames.NET_STREAMING -> DefaultModelProviderNames.NET_CHAT;
+                case DefaultModelProviderNames.ANTHROPIC_STREAMING -> DefaultModelProviderNames.ANTHROPIC_COMPACT;
+                default -> provider.trim();
+            };
+        }
+        return isAnthropic(modelName) ? DefaultModelProviderNames.ANTHROPIC_COMPACT : DefaultModelProviderNames.DEFAULT_COMPACT;
     }
 
     private static boolean isAnthropic(String modelName) {

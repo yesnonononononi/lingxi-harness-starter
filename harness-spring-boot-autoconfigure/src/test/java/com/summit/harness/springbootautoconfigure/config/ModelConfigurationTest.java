@@ -69,6 +69,20 @@ class ModelConfigurationTest {
     }
 
     @Test
+    void applicationCompactionSelectsSynchronousProvidersForChatAliases() {
+        AgentChatProperties chat = new AgentChatProperties();
+        chat.setProvider("default-streaming");
+        assertEquals("default-compact", configuration.compactContextModelConfig(
+                new CompactContextModelProperties(), chat).getProvider());
+        chat.setProvider("net-streaming");
+        assertEquals("net-chat", configuration.compactContextModelConfig(
+                new CompactContextModelProperties(), chat).getProvider());
+        chat.setProvider("anthropic-streaming");
+        assertEquals("anthropic-compact", configuration.compactContextModelConfig(
+                new CompactContextModelProperties(), chat).getProvider());
+    }
+
+    @Test
     void explicitCompactModelRemainsIndependent() {
         AgentChatProperties chat = new AgentChatProperties();
         chat.setModelName("main-model");

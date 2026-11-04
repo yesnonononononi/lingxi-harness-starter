@@ -2,8 +2,13 @@ package com.summit.runtime.compact;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.summit.adapter.langchain4j.model.provider.AnthropicChatModelProvider;
-import com.summit.adapter.langchain4j.model.provider.OpenAiChatModelProvider;
+import anthropic.AnthropicChatModel;
+import openAi.DefaultChatModel;
+import openAi.MessageSerializer;
+import openAi.ModelChatResolver;
+import openAi.RequestBodyFactory;
+import openAi.ResponseSerializer;
+import java.net.http.HttpClient;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
@@ -44,8 +49,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Checks pending prefixes, complete latest turns, and text-only history through both real adapters.
  *
- * <p>The providers ({@link AnthropicChatModelProvider},
- * {@link OpenAiChatModelProvider}) talking to a local endpoint, so the assertions read the exact JSON
+ * <p>The providers ({@link AnthropicChatModel},
+ * {@link DefaultChatModel}) talking to a local endpoint, so the assertions read the exact JSON
  * both SDKs put on the wire. What this cannot prove offline is the remote server's own validation: no
  * test in this repository can call Anthropic or OpenAI. The check therefore pins the wire shape — the
  * part a server actually judges — instead of pretending to have reached it.</p>
@@ -331,10 +336,15 @@ class PrunedContextWireAcceptanceTest {
                 .timeout(Duration.ofSeconds(10)).maxTokens(4096)
                 .sendThinking(true).returnThinking(true).build();
         ChatRequestEntity request = ChatRequestEntity.builder().messages(messages).build();
-        if (anthropic) {
-            new AnthropicChatModelProvider().create(config).chat(request);
-        } else {
-            new OpenAiChatModelProvider().create(config).chat(request);
+        try (HttpClient client = HttpClient.newHttpClient()) {
+            ObjectMapper mapper = new ObjectMapper();
+            if (anthropic) {
+                new AnthropicChatModel(config, client, mapper).chat(request);
+            } else {
+                ModelChatResolver resolver = new ModelChatResolver(new RequestBodyFactory(new MessageSerializer(mapper), mapper),
+                        mapper, new ResponseSerializer());
+                new DefaultChatModel(config, resolver, client).chat(request);
+            }
         }
         JsonNode body = endpoint.requests.poll(10, TimeUnit.SECONDS);
         assertNotNull(body, "the provider must have sent a request");

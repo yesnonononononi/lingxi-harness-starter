@@ -11,6 +11,7 @@ import com.summit.core.model.streaming.StreamingChatModel;
 import com.summit.core.model.image.ImageModel;
 import com.summit.harness.springbootautoconfigure.properties.CompactContextModelProperties;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
+import com.summit.runtime.compact.RequestCompactModelResolver;
 import com.summit.runtime.model.DefaultRequestModelInvokerFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -94,7 +95,7 @@ public class ModelConfiguration {
     public ChatModel defaultContextCompactModel(
             ModelProviderRegistry<ChatModel> chatModelProviderRegistry,
             @Qualifier("compactContextModelConfig") ModelConfig compactContextModelConfig) {
-        return chatModelProviderRegistry.create(compactContextModelConfig);
+        return RequestCompactModelResolver.createCompactModel(chatModelProviderRegistry, compactContextModelConfig);
     }
 
     @Bean

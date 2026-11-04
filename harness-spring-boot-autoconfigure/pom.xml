@@ -29,6 +29,10 @@
             <artifactId>harness-adapter-langchain4j</artifactId>
         </dependency>
         <dependency>
+            <groupId>io.github.yesnonononononi</groupId>
+            <artifactId>harness-net</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-autoconfigure</artifactId>
         </dependency>
