@@ -25,6 +25,21 @@ class ExecutionJsonTest {
     private final ObjectMapper mapper = ExecutionJson.newObjectMapper();
 
     @Test
+    void restoresCompactionMarkersAndLegacyUserMessages() throws Exception {
+        UserMessageEntity pending = UserMessageEntity.from("pending").markPendingCompaction();
+        Execution original = Execution.builder().agentRequest(AgentRequest.builder().build()).messages(List.of(
+                pending, pending.retainForCompaction(true), UserMessageEntity.from("ordinary"))).build();
+
+        Execution restored = mapper.readValue(mapper.writeValueAsString(original), Execution.class);
+
+        assertEquals(Map.of(UserMessageEntity.COMPACT, false),
+                assertInstanceOf(UserMessageEntity.class, restored.getMessages().get(0)).getAttrs());
+        assertEquals(Map.of(UserMessageEntity.COMPACT, true),
+                assertInstanceOf(UserMessageEntity.class, restored.getMessages().get(1)).getAttrs());
+        assertFalse(assertInstanceOf(UserMessageEntity.class, restored.getMessages().get(2)).hasCompactionMarker());
+    }
+
+    @Test
     void ignoresRetiredWriteTrackingInLegacySnapshots() throws Exception {
         Execution restored = mapper.readValue(
                 "{\"id\":\"legacy\",\"agentRequest\":{},\"writeToolExecuted\":true}", Execution.class);
