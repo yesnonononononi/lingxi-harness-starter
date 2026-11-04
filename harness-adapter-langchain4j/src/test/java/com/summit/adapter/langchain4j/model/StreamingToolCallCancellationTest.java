@@ -79,7 +79,7 @@ class StreamingToolCallCancellationTest {
             }
 
             @Override
-            public void onPartialToolCall(String partialArguments, StreamingHandler streamingHandler) {
+            public void onPartialToolCall(int index, String id, String name, String partialArguments, StreamingHandler streamingHandler) {
                 coreReceivedDelta.set(true);
                 streamingHandler.cancel();
             }

@@ -84,6 +84,8 @@ public class ModelConfig {
     private String provider;
     private Duration timeout;
     private Integer maxTokens;
+    @Builder.Default
+    private boolean stream = false;
     private String reasoningEffort;
     private boolean returnThinking;
     private boolean sendThinking;

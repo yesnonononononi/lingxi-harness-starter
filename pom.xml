@@ -40,6 +40,7 @@
         <module>harness-runtime</module>
         <module>harness-kernel-tools</module>
         <module>harness-sandbox-mxc</module>
+        <module>harness-net</module>
     </modules>
 
 
@@ -86,6 +87,12 @@
                 <artifactId>harness-core</artifactId>
                 <version>${lingxi-harness.version}</version>
             </dependency>
+            <dependency>
+                <groupId>io.github.yesnonononononi</groupId>
+                <artifactId>harness-net</artifactId>
+                <version>1.1.8-SNAPSHOT</version>
+            </dependency>
+
             <dependency>
                 <groupId>io.github.yesnonononononi</groupId>
                 <artifactId>harness-adapter-langchain4j</artifactId>

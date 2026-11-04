@@ -80,7 +80,8 @@ public class StreamingChatModelAdapter implements StreamingChatModel {
 
         @Override
         public void onPartialToolCall(PartialToolCall partialToolCall, PartialToolCallContext context) {
-            target.onPartialToolCall(partialToolCall.partialArguments(), handle(context.streamingHandle()));
+            target.onPartialToolCall(partialToolCall.index(), partialToolCall.id(), partialToolCall.name(),
+                    partialToolCall.partialArguments(), handle(context.streamingHandle()));
         }
 
         /** Exposes langchain4j's cancellation handle under the core's own handle interface. */

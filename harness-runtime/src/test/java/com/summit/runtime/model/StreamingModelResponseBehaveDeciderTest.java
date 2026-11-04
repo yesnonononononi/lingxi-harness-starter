@@ -241,7 +241,7 @@ class StreamingModelResponseBehaveDeciderTest {
         RecordingTransport transport = new RecordingTransport();
 
         control.requireCancel();
-        handler.onPartialToolCall("{\"city\"", transport);
+        handler.onPartialToolCall(0, "call_1", "get_weather", "{\"city\"", transport);
 
         assertTrue(future.isCompletedExceptionally());
         ExecutionException thrown = assertThrows(ExecutionException.class, future::get);
@@ -258,7 +258,7 @@ class StreamingModelResponseBehaveDeciderTest {
         StreamingModelResponseBehaveDecider handler = decider(future, control);
         RecordingTransport transport = new RecordingTransport();
 
-        handler.onPartialToolCall("{\"city\"", transport);
+        handler.onPartialToolCall(0, "call_1", "get_weather", "{\"city\"", transport);
 
         assertFalse(future.isDone());
         assertEquals(0, transport.cancelCount());

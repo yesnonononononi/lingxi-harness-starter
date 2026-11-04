@@ -59,6 +59,11 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
     private final ExecutionControlSignal control;
 
     @Override
+    public void onStreamStart(StreamingHandler streamingHandler) {
+        rejectDelta(streamingHandler);
+    }
+
+    @Override
     public void onPartialResponse(String partialResponse, StreamingHandler streamingHandler) {
         if (rejectDelta(streamingHandler)) return;
 
@@ -104,7 +109,7 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
      * round's final response.
      */
     @Override
-    public void onPartialToolCall(String partialArguments, StreamingHandler streamingHandler) {
+    public void onPartialToolCall(int index, String id, String name, String partialArguments, StreamingHandler streamingHandler) {
         rejectDelta(streamingHandler);
     }
 

@@ -211,7 +211,7 @@ class StreamingModelResponseTerminalTest {
         switch (kind) {
             case "text" -> handler.onPartialResponse("delta", transport);
             case "thinking" -> handler.onPartialThinking("delta", transport);
-            case "tool" -> handler.onPartialToolCall("{}", transport);
+            case "tool" -> handler.onPartialToolCall(0, "call_1", "tool", "{}", transport);
             default -> throw new IllegalArgumentException(kind);
         }
     }
