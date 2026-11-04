@@ -1,6 +1,5 @@
 package com.summit.adapter.langchain4j.codec.token;
 
-import com.summit.adapter.langchain4j.codec.message.MessageCodecAdapter;
 import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.Message;
@@ -23,7 +22,6 @@ class TokenEstimatorAdapterTest {
 
     private final TokenEstimatorAdapter estimator = new TokenEstimatorAdapter("gpt-3.5-turbo");
     private final OpenAiTokenCountEstimator upstream = new OpenAiTokenCountEstimator("gpt-3.5-turbo");
-    private final MessageCodecAdapter codec = new MessageCodecAdapter();
 
     @Test
     void preservesUpstreamCountsForOrdinaryAndValidParallelMessages() {
@@ -31,7 +29,7 @@ class TokenEstimatorAdapterTest {
                 UserMessageEntity.from("Inspect the repository"),
                 assistant("{\"command\":\"git status\"}"));
 
-        assertEquals(upstream.estimateTokenCountInMessages(codec.toFramework(history)),
+        assertEquals(upstream.estimateTokenCountInMessages(history.stream().map(TokenEstimatorAdapter::toTokenMessage).toList()),
                 estimator.estimateMessages(history));
         assertEquals(upstream.estimateTokenCountInText("工具参数"), estimator.estimateText("工具参数"));
     }
@@ -42,7 +40,7 @@ class TokenEstimatorAdapterTest {
         AiMessageEntity assistant = assistant(arguments);
         List<Message> history = new ArrayList<>(List.of(UserMessageEntity.from("Inspect the repository"), assistant));
         assertThrows(RuntimeException.class,
-                () -> upstream.estimateTokenCountInMessages(codec.toFramework(history)));
+                () -> upstream.estimateTokenCountInMessages(history.stream().map(TokenEstimatorAdapter::toTokenMessage).toList()));
 
         int initial = assertDoesNotThrow(() -> estimator.estimateMessages(history));
         history.add(SystemMessageEntity.builder().text("Previous execution interrupted; preserve all progress").build());

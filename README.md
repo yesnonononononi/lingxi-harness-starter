@@ -376,7 +376,6 @@ lingxi:
           api-key: ${IMAGE_API_KEY}
           model-name: ${IMAGE_MODEL_NAME}
           timeout: 5m
-          max-retries: 3
           quality: high
           size: 1024x1024
           count: 1
@@ -408,7 +407,7 @@ Use `com.summit.core.model.image.ImageModel`, `com.summit.core.model.ModelProvid
 `com.summit.core.model.image.ImageGenerationOptions`,
 `com.summit.core.conf.ModelConfig`, `com.summit.core.conversation.api.ChatResponseEntity`, and
 Spring's `Qualifier`. The service declares an `ImageModel imageModel` field. Without Spring,
-pass a `ModelConfig` with `imageOptions` to `CommonImageModelProvider.create(config)`.
+construct `openAi.image.DefaultImageModel` with a JDK `HttpClient`, Jackson mapper, and `ModelConfig`.
 Each call may override `size`, `quality`, and `count` through `ImageGenerationOptions`. Fields are
 resolved independently: a non-null request field wins over `ModelConfig.imageOptions`; absent
 size/quality retain the SDK/server default, and absent count ultimately means one image. Blank
@@ -432,11 +431,8 @@ without merging application credentials or image defaults. Options are snapshott
 input, so retries keep the same specifications. Direct business callers may instead pass a complete
 per-request connection configuration to the registry.
 
-Per-call overrides do not change model-selection cache keys or mutate shared defaults. The built-in
-provider reuses one HTTP transport per model and creates isolated SDK wrappers only when size or
-quality differs; it does not cache every requested specification. Custom image providers keep the
-old interface and must implement the new overload to support size/quality overrides; unsupported
-overrides fail explicitly.
+The built-in provider uses a shared HTTP client and resolves the options independently for every call.
+Custom image providers implement the corresponding overloads to support per-call overrides.
 
 Applications may replace the named `imageModelConfig` bean or register their own image provider.
 No image model is constructed until a caller uses the registry, so applications without image
@@ -452,25 +448,18 @@ base type without needing a subtype discriminator.
 
 ## Model HTTP Clients
 
-All built-in OpenAI and Anthropic chat, streaming, compaction, and image providers accept LangChain4j's `HttpClientBuilderFactory`. No-argument constructors and the default Spring configuration use the JDK client. Applications can replace the Spring factory bean without replacing model providers:
+The built-in model providers share a JDK HTTP client. Applications can supply their own client
+as the Spring bean named `netModelHttpClient`.
 
 ```java
-import dev.langchain4j.http.client.HttpClientBuilderFactory;
-import dev.langchain4j.http.client.okhttp.OkHttpClientBuilder;
-import okhttp3.OkHttpClient;
-import org.springframework.context.annotation.Bean;
-
-@Bean
-HttpClientBuilderFactory modelHttpClientBuilderFactory() {
-    OkHttpClient sharedClient = new OkHttpClient.Builder().build();
-    return () -> new OkHttpClientBuilder()
-            .okHttpClientBuilder(sharedClient.newBuilder());
+@Bean(name = "netModelHttpClient", destroyMethod = "close")
+HttpClient netModelHttpClient() {
+    return HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
 }
 ```
 
-Add the `langchain4j-http-client-okhttp` dependency matching the LangChain4j release (currently `1.22.0-beta32`). The factory must return a fresh mutable builder for every call: model construction applies per-model timeouts to it. Derived OkHttp builders can share the base client's connection pool and dispatcher; their lifecycle belongs to the application. Without Spring, pass the same factory to a provider constructor. Applications registering several factory beans must select one with `@Primary`.
-
-This factory configures built-in model HTTP traffic. MCP transports and application HTTP calls have separate configuration. Transport recovery does not replace the runtime's model retry budget, cancellation, or retry events.
+Each model performs one HTTP attempt per call. The runtime invoker applies the request retry
+budget. MCP transports have their own HTTP configuration.
 
 ## Context Compaction
 

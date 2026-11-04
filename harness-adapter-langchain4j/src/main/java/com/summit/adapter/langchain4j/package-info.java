@@ -1,18 +1,2 @@
-/**
- * langchain4j framework adapter module (the ONLY module in the project allowed to reference langchain4j).
- *
- * <p>Package layout:</p>
- * <ul>
- *   <li>{@code codec.message} - core message/content to langchain4j message conversion,
- *       including the per-protocol message codecs</li>
- *   <li>{@code codec.tool}    - tool specification and JSON-schema conversion</li>
- *   <li>{@code codec.media}   - image content conversion</li>
- *   <li>{@code codec.token}   - the core {@link com.summit.core.adapter.TokenEstimator} implementation</li>
- *   <li>{@code model}    - adapters for core {@code ChatModel} / {@code StreamingChatModel} (accept any langchain4j model instance)</li>
- *   <li>{@code provider} - model factories per protocol (OpenAI protocol, wired to the core Provider SPI and configuration)</li>
- * </ul>
- *
- * <p>To support another model framework, create a sibling module (e.g. harness-adapter-spring-ai) following the same pattern;
- * core / runtime need no changes.</p>
- */
+/** LangChain4j integration for MCP and context token estimation. */
 package com.summit.adapter.langchain4j;

@@ -1,10 +1,17 @@
 package com.summit.adapter.langchain4j.codec.token;
 
-import com.summit.adapter.langchain4j.codec.message.MessageCodecAdapter;
+import com.summit.core.conversation.message.AiMessageEntity;
+import com.summit.core.conversation.message.SystemMessageEntity;
+import com.summit.core.conversation.message.ToolMessageEntity;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
+import dev.langchain4j.data.message.UserMessage;
 import com.summit.core.adapter.TokenEstimator;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.UserMessageEntity;
-import com.summit.core.conversation.message.content.Content;
 import com.summit.core.conversation.message.content.TextContent;
 import dev.langchain4j.model.TokenCountEstimator;
 
@@ -38,24 +45,35 @@ public class TokenEstimatorAdapter implements TokenEstimator {
         if (messages == null || messages.isEmpty()) {
             return 0;
         }
-        messages = filterUnSupportedMessage(messages);
-        List<dev.langchain4j.data.message.ChatMessage> chatMessages = new MessageCodecAdapter().toFramework(messages);
-        if (chatMessages.isEmpty()) {
-            return 0;
-        }
-
-
-
-        return delegate.estimateTokenCountInMessages(chatMessages);
+        return delegate.estimateTokenCountInMessages(messages.stream().map(TokenEstimatorAdapter::toTokenMessage).toList());
     }
 
-    private List<Message> filterUnSupportedMessage(List<Message> messages) {
-        return messages.stream().map(m -> {
-            if (m instanceof UserMessageEntity um) {
-                List<Content> newContent = um.getContent().stream().filter(c -> c instanceof TextContent).toList();
-                return new UserMessageEntity(newContent);
+    static ChatMessage toTokenMessage(Message message) {
+        if (message instanceof SystemMessageEntity system) return SystemMessage.from(system.getText());
+        if (message instanceof UserMessageEntity user) {
+            List<dev.langchain4j.data.message.Content> text = user.getContent().stream()
+                    .filter(TextContent.class::isInstance).map(TextContent.class::cast)
+                    .map(part -> (dev.langchain4j.data.message.Content) dev.langchain4j.data.message.TextContent.from(part.getText()))
+                    .toList();
+            return UserMessage.from(text);
+        }
+        if (message instanceof AiMessageEntity assistant) {
+            String text = assistant.getText();
+            if ((text == null || text.isBlank()) && assistant.getImages() != null && !assistant.getImages().isEmpty()) {
+                text = "[Assistant generated " + assistant.getImages().size() + " image(s)]";
             }
-            return m;
-        }).toList();
+            AiMessage.Builder builder = AiMessage.builder().text(text).thinking(assistant.getThinking());
+            if (assistant.getToolCalls() != null && !assistant.getToolCalls().isEmpty()) {
+                builder.toolExecutionRequests(assistant.getToolCalls().stream()
+                        .map(call -> ToolExecutionRequest.builder().id(call.id()).name(call.name()).arguments(call.arguments()).build())
+                        .toList());
+            }
+            return builder.build();
+        }
+        if (message instanceof ToolMessageEntity tool) {
+            return ToolExecutionResultMessage.builder().id(String.valueOf(tool.getId())).toolName(tool.getName())
+                    .isError(tool.isError()).text(tool.text()).build();
+        }
+        throw new IllegalArgumentException("Unsupported token estimation message type: " + message.getClass().getName());
     }
 }

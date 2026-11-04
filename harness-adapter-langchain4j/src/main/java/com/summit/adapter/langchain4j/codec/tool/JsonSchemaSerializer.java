@@ -10,7 +10,7 @@ import dev.langchain4j.model.chat.request.json.*;
  * Converts a langchain4j {@link JsonSchemaElement} back into a standard JSON Schema string, the
  * neutral form core keeps in {@code ToolDefinition#parametersJsonSchema}.
  *
- * <p>Counterpart of {@link JsonSchemaConverter} and covers the same subset of types. It is needed
+ * <p>The conversion is needed
  * whenever a schema does not originate from a JSON string on the core side — MCP tool specifications
  * arrive as langchain4j schemas and have no other way back into the core representation.</p>
  */
