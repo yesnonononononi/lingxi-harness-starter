@@ -1,6 +1,7 @@
 package openAi.image;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.agent.Image;
 import com.summit.core.conf.ModelConfig;
@@ -30,6 +31,15 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class DefaultImageModel implements ImageModel {
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(60);
+    /**
+     * Longest server-provided error text echoed into an exception message.
+     *
+     * <p>The provider's {@code error.message} is what tells an operator whether a request was
+     * rejected for its size, its prompt or its account; dropping it turned every failure into a
+     * bare status code. It is truncated all the same, because a misconfigured base URL can answer
+     * with an HTML page whose text has no place in a log line or in a retry decision.</p>
+     */
+    private static final int MAX_ERROR_DETAIL_LENGTH = 300;
 
     private final HttpClient httpClient;
     private final ObjectMapper mapper;
@@ -137,11 +147,39 @@ public class DefaultImageModel implements ImageModel {
         int status = response.statusCode();
         if (status >= 200 && status < 300) return response.body();
 
-        String message = "Image " + operation + " failed with HTTP " + status;
+        String message = "Image " + operation + " failed with HTTP " + status + errorDetailOf(response.body());
         if (status == 408 || status == 429 || status >= 500) {
             throw new RetriableModelException(message, null);
         }
         throw new NonRetriableModelException(message, null);
+    }
+
+    /**
+     * Renders the provider's own error text as an exception-message suffix.
+     *
+     * @param body raw response body of a failed request, may be null
+     * @return {@code ": <error.message>"} when the body carries one, otherwise an empty string so
+     *         that an unparseable or unexpected body still produces the status-only message
+     */
+    private String errorDetailOf(String body) {
+        String detail = errorMessageOf(body);
+        return detail == null ? "" : ": " + detail;
+    }
+
+    private String errorMessageOf(String body) {
+        if (nonBlank(body) == null) return null;
+        try {
+            JsonNode root = mapper.readTree(body);
+            if (root == null) return null;
+            String message = nonBlank(root.path("error").path("message").asText(null));
+            if (message == null) return null;
+            String stripped = message.strip();
+            return stripped.length() <= MAX_ERROR_DETAIL_LENGTH
+                    ? stripped : stripped.substring(0, MAX_ERROR_DETAIL_LENGTH) + "...";
+        } catch (JsonProcessingException unparseable) {
+            // A gateway page or a truncated body: the status code is all that is left to report.
+            return null;
+        }
     }
 
     private ChatResponseEntity toResponse(ImageResponse response) {

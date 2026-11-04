@@ -2,6 +2,8 @@ package openAi;
 
 
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.conversation.api.ChatRequestEntity;
@@ -27,13 +29,27 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 
 @RequiredArgsConstructor
 public class ModelChatResolver {
+
+    /**
+     * Provider error codes that mean "the account cannot spend anymore".
+     *
+     * <p>They arrive on a 429 next to genuine rate limits, so the status alone cannot separate them.
+     * The retired {@code ProviderErrorMapper} carried the same list; losing it made a quota
+     * exhaustion look retriable and charged the account for a second attempt.</p>
+     */
+    private static final Set<String> QUOTA_ERROR_CODES = Set.of("insufficient_quota",
+            "billing_hard_limit_reached", "billing_error", "organization_usage_limit_exceeded",
+            "usage_limit_exceeded");
+
     private final RequestBodyFactory requestBodyFactory;
     private final ObjectMapper JSON;
     private final ResponseSerializer responseSerializer;
@@ -239,12 +255,44 @@ public class ModelChatResolver {
         end(completionResponse, text, thinking, toolCallBuffer, finishReason, streamingModelResponseHandler);
     }
 
-    private static RuntimeException statusError(int status, String body) {
+    /**
+     * Classifies a failed HTTP response.
+     *
+     * <p>A 429 is normally a rate limit, which a retry can ride out. It is also how OpenAI reports a
+     * spent quota ({@code insufficient_quota}, {@code billing_*}), and that is a terminal state: the
+     * account is out of budget, so retrying spends money on a request that cannot succeed. The
+     * provider's own error code therefore wins over the status class.</p>
+     */
+    private RuntimeException statusError(int status, String body) {
         String message = "Model request failed with HTTP " + status + ": " + body;
+        if (status == 429 && quotaExhausted(body)) {
+            return new NonRetriableModelException(message, null);
+        }
         if (status == 408 || status == 429 || status >= 500) {
             return new RetriableModelException(message, null);
         }
         return new NonRetriableModelException(message, null);
+    }
+
+    /** @return whether the error body names an exhausted quota or a billing limit */
+    private boolean quotaExhausted(String body) {
+        if (body == null || body.isBlank()) return false;
+        JsonNode root;
+        try {
+            root = JSON.readTree(body);
+        } catch (JsonProcessingException malformed) {
+            // Not a provider error document: fall back to classifying by status alone.
+            return false;
+        }
+        if (root == null) return false;
+        JsonNode error = root.path("error");
+        return isQuotaCode(error.path("type").asText(null)) || isQuotaCode(error.path("code").asText(null));
+    }
+
+    private static boolean isQuotaCode(String candidate) {
+        if (candidate == null || candidate.isBlank()) return false;
+        String code = candidate.strip().toLowerCase(Locale.ROOT);
+        return QUOTA_ERROR_CODES.contains(code) || code.startsWith("billing_");
     }
 
     private static URI resolveEndpoint(String baseUrl) {

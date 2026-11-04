@@ -75,7 +75,12 @@ final class AnthropicStreaming implements StreamingHandler {
             try (InputStream input = response.body()) {
                 body.set(input);
                 if (isCancelled()) return;
-                AnthropicChatModel.checkStatus(response.statusCode());
+                if (response.statusCode() != 200) {
+                    // Read the error document: a 429 carrying a billing code is terminal, and that
+                    // decision cannot be made from the status alone.
+                    String errorBody = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+                    AnthropicChatModel.checkStatus(response.statusCode(), errorBody, mapper);
+                }
                 result = read(input);
             } finally {
                 body.set(null);
