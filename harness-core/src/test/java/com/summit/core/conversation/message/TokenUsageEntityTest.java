@@ -1,5 +1,6 @@
 package com.summit.core.conversation.message;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.conversation.event.TokenInfo;
 import com.summit.core.conversation.token.ImageTokenUsage;
 import com.summit.core.conversation.token.TextTokenUsage;
@@ -81,5 +82,28 @@ class TokenUsageEntityTest {
         assertEquals(new TokenInfo(null, null, 0, null, null), TokenInfo.from(usage));
         usage.add(new TokenUsageEntity(5, null, new TokenUsageEntity.OutputTokens(5, 2)));
         assertEquals(new TokenInfo(0, 5, 5, 2, 0), TokenInfo.from(usage));
+    }
+
+    @Test
+    void retainsReportedCacheMissesAcrossAccumulationAndJsonRestore() throws Exception {
+        ObjectMapper mapper = ExecutionJson.newObjectMapper();
+        TokenUsageEntity legacy = mapper.readValue("""
+                {"totalTokens":12,"inputTokens":{"inputTokens":10,"cacheHitTokens":3},
+                 "outputTokens":{"outputTokens":2}}
+                """, TokenUsageEntity.class);
+        assertNull(legacy.getInputTokens().getCacheMissTokens());
+
+        TokenUsageEntity reported = new TokenUsageEntity(26,
+                new TokenUsageEntity.InputTokens(20, 7, 0, null, 13), TokenUsageEntity.OutputTokens.of(6));
+        legacy.add(reported);
+        legacy.add(reported);
+        TokenUsageEntity restored = mapper.readValue(mapper.writeValueAsString(legacy), TokenUsageEntity.class);
+
+        assertEquals(64, restored.getTotalTokens());
+        assertEquals(50, restored.getInputTokens().getInputTokens());
+        assertEquals(17, restored.getInputTokens().getCacheHitTokens());
+        assertEquals(26, restored.getInputTokens().getCacheMissTokens());
+        assertEquals(13, reported.getInputTokens().getCacheMissTokens());
+        assertFalse(mapper.valueToTree(TokenUsageEntity.empty()).path("inputTokens").has("cacheMissTokens"));
     }
 }

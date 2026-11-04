@@ -28,6 +28,14 @@ public class TokenUsageEntity {
         @JsonInclude(JsonInclude.Include.NON_NULL)
         private Integer textTokens;
 
+        /** Provider-reported uncached input tokens, when available. */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        private Integer cacheMissTokens;
+
+        public InputTokens(int inputTokens, int cacheHitTokens, int imageTokens, Integer textTokens) {
+            this(inputTokens, cacheHitTokens, imageTokens, textTokens, null);
+        }
+
         public InputTokens(int inputTokens, int cacheHitTokens, int imageTokens) {
             this(inputTokens, cacheHitTokens, imageTokens, null);
         }
@@ -44,6 +52,7 @@ public class TokenUsageEntity {
              if (inputTokens == null) return;
              this.inputTokens += inputTokens.getInputTokens();
              this.cacheHitTokens += inputTokens.getCacheHitTokens();
+             this.cacheMissTokens = sumOptional(this.cacheMissTokens, inputTokens.getCacheMissTokens());
              this.imageTokens += inputTokens.getImageTokens();
              this.textTokens = sumOptional(this.textTokens, inputTokens.getTextTokens());
         }
