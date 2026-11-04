@@ -1,11 +1,16 @@
 package com.summit.core.compact;
 
 import com.summit.core.conversation.message.Message;
+import com.summit.core.tool.ToolDefinition;
 
 import java.util.List;
 
 public interface Tokenizer {
      int count(List<Message> messages);
+
+     default int count(List<Message> messages, List<ToolDefinition<?>> tools) {
+          return count(messages);
+     }
 
      default int count(Message chatMessage){
           return count(List.of(chatMessage));

@@ -1,18 +1,69 @@
 package com.summit.harness.springbootautoconfigure.config;
 
+import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.Execution;
+import com.summit.core.compact.ContextAttachmentProvider;
+import com.summit.core.compact.ContextSqueezeRequest;
 import com.summit.core.conf.ModelConfig;
+import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.UserMessageEntity;
+import com.summit.core.tool.ToolDefinition;
+import com.summit.core.tool.ToolExecuteResult;
+import com.summit.core.tool.ToolRegistry;
 import com.summit.harness.springbootautoconfigure.properties.CompactContextModelProperties;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
+import com.summit.runtime.agent.AgentConfig;
+import com.summit.runtime.conversation.DefaultConversationManager;
+import com.summit.runtime.loop.BoundaryChecker;
+import openAi.OpenAiTokenizer;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 
 import java.time.Duration;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ModelConfigurationTest {
 
     private final ModelConfiguration configuration = new ModelConfiguration();
+
+    @Test
+    void tokenizerCountsOnlyWhitelistedRegisteredToolsInTheContextBudget() {
+        var estimator = assertInstanceOf(OpenAiTokenizer.class, configuration.tokenEstimator());
+        var conversations = new ConversationConfig();
+        var tokenizer = conversations.tokenizer(estimator);
+        var allowed = tool("lookup", "Search the workspace for a matching project file.");
+        var hidden = tool("hidden", "A different private capability.");
+        var beans = new DefaultListableBeanFactory();
+        beans.registerSingleton("toolRegistry", new ToolRegistry(List.of(allowed, hidden)));
+        List<Message> messages = List.of(UserMessageEntity.from("Find the config"));
+        int messagesOnly = tokenizer.count(messages);
+        int withLookup = tokenizer.count(messages, List.of(allowed));
+        assertTrue(withLookup > messagesOnly);
+        assertTrue(tokenizer.count(messages, List.of(allowed, hidden)) > withLookup);
+        var config = AgentConfig.builder().maxTokens(withLookup).build();
+        var reporter = conversations.contextUsageReporter(tokenizer, config, new RuntimeEventPublisher(List.of()),
+                new AgentChatProperties(), beans.getBeanProvider(ToolRegistry.class));
+        var visibleExecution = Execution.create(AgentRequest.builder().messages(messages).toolList(List.of("lookup")).build(), "test");
+        var hiddenExecution = Execution.create(AgentRequest.builder().messages(messages).build(), "test");
+        assertEquals(withLookup, reporter.report(visibleExecution).tokenCount());
+        assertEquals(messagesOnly, reporter.report(hiddenExecution).tokenCount());
+        var manager = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        var checker = new BoundaryChecker(config, tokenizer, manager, null, null, reporter);
+        assertEquals(ContextSqueezeRequest.prune(), checker.shouldSqueezeContext(manager, visibleExecution));
+        assertEquals(ContextSqueezeRequest.none(), checker.shouldSqueezeContext(manager, hiddenExecution));
+    }
+
+    private ToolDefinition<?> tool(String name, String description) {
+        return ToolDefinition.builder().id(name).name(name).description(description).maxOutput(64).timeout(5L)
+                .parametersJsonSchema("{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}}}")
+                .executor(ignored -> ToolExecuteResult.success("ok")).build();
+    }
 
     @Test
     void absentCompactModelReusesOnlyTheChatConnectionAndKeepsCompactBehavior() {

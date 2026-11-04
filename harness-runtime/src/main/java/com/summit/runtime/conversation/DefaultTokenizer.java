@@ -4,6 +4,7 @@ import com.summit.core.adapter.TokenEstimator;
 import com.summit.core.compact.ContextUsageMetric;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.message.*;
+import com.summit.core.tool.ToolDefinition;
 
 import java.util.List;
 
@@ -25,12 +26,17 @@ public class DefaultTokenizer implements Tokenizer {
 
     @Override
     public int count(List<Message> messages) {
-        if (messages == null || messages.isEmpty()) {
-            return 0;
-        }
+        return count(messages, List.of());
+    }
+
+    @Override
+    public int count(List<Message> messages, List<ToolDefinition<?>> tools) {
+        boolean emptyHistory = messages == null || messages.isEmpty();
+        if (emptyHistory && (tools == null || tools.isEmpty())) return 0;
         if (tokenEstimator != null) {
-            return tokenEstimator.estimateMessages(messages);
+            return tokenEstimator.estimateMessages(emptyHistory ? List.of() : messages, tools);
         }
+        if (emptyHistory) return 0;
         int res = 0;
         for (Message message : messages) {
             res += estimateTokenCountFallback(message);

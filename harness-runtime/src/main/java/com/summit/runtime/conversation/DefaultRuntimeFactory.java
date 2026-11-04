@@ -83,6 +83,6 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
             return boundaryChecker;
         }
         return new BoundaryChecker(agentConfig, tokenizer, conversationManager,
-                contextPruner, modelCompacter);
+                contextPruner, modelCompacter, usage);
     }
 }

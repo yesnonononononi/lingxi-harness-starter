@@ -7,14 +7,18 @@ import com.summit.core.compact.ContextCompacter;
 import com.summit.core.compact.ContextSqueezeRequest;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
+import com.summit.core.conversation.message.Message;
 import com.summit.core.exception.MaxStepsExceededException;
 import com.summit.core.runtime.loop.CheckPointResult;
+import com.summit.core.runtime.loop.ContextUsageReporter;
 import com.summit.core.runtime.loop.RuntimeBoundaryChecker;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.compact.DefaultContextPruner;
 import com.summit.runtime.compact.DefaultModelCompacter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
+import java.util.List;
 
 
 /**
@@ -50,6 +54,12 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
     private final DefaultContextPruner contextPruner;
     /** Model deep compaction (summarize band). */
     private final DefaultModelCompacter modelCompacter;
+    private final ContextUsageReporter usage;
+
+    public BoundaryChecker(AgentConfig agentConfig, Tokenizer tokenizer, ConversationManager conversationManager,
+                           DefaultContextPruner contextPruner, DefaultModelCompacter modelCompacter) {
+        this(agentConfig, tokenizer, conversationManager, contextPruner, modelCompacter, null);
+    }
 
 
     @Override
@@ -115,7 +125,9 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
             }
             case SUMMARIZE -> {
                 while (compactBySummary(execution, request)) {
-                    if (tokenizer.count(conversationManager.messages(execution)) <= agentConfig.maxTokens()) {
+                    List<Message> messages = conversationManager.messages(execution);
+                    int input = usage == null ? tokenizer.count(messages) : usage.countInput(execution, messages);
+                    if (input <= agentConfig.maxTokens()) {
                         return;
                     }
                 }
@@ -228,7 +240,9 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
 
     /** Token ratio of the current context against the configured cap. */
     private double tokenRatio(Execution execution) {
-        return tokenizer.calcCurrentTokenRatio(conversationManager.messages(execution), agentConfig.maxTokens());
+        List<Message> messages = conversationManager.messages(execution);
+        return usage == null ? tokenizer.calcCurrentTokenRatio(messages, agentConfig.maxTokens())
+                : usage.inputRatio(execution, messages, agentConfig.maxTokens());
     }
 
     /** Effective model threshold: the configured policy value, or the fallback. */

@@ -86,9 +86,10 @@ public class ExecutionRuntimeConfig {
     public RuntimeBoundaryChecker boundaryChecker(AgentConfig agentConfig, Tokenizer tokenizer,
                                                   ConversationManager conversationManager,
                                                   DefaultContextPruner contextPruner,
-                                                  DefaultModelCompacter modelCompacter) {
+                                                  DefaultModelCompacter modelCompacter,
+                                                  ContextUsageReporter usage) {
         return new BoundaryChecker(agentConfig, tokenizer, conversationManager,
-                contextPruner, modelCompacter);
+                contextPruner, modelCompacter, usage);
     }
 
     /** The dispatcher orders callbacks only; runtime limits are owned by the loop. */

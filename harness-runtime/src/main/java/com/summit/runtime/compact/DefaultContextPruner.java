@@ -72,7 +72,7 @@ public class DefaultContextPruner implements ContextCompacter {
 
         // A pending tool continuation must keep its entire signed prefix, not just its last group.
         if (history.pending()) {
-            checkBudget(source);
+            checkBudget(execution, source);
             return false;
         }
 
@@ -85,17 +85,18 @@ public class DefaultContextPruner implements ContextCompacter {
 
         boolean compactLatest = false;
         List<Message> product = project(input, history, false);
-        int tokens = tokenizer.count(product);
+        int tokens = usage.countInput(execution, product);
         if (atThreshold(tokens)) {
             int latestTurnTokens = tokenizer.count(latestTurn(product));
-            if ((long) latestTurnTokens * 2 <= tokens) {
+            // Tool definitions consume the request budget but cannot be pruned with a user turn.
+            if ((long) latestTurnTokens * 2 <= tokenizer.count(product)) {
                 throw budgetExceeded(tokens, "The latest user turn does not occupy more than half the pruned context.");
             }
             compactLatest = true;
             product = project(input, history, true);
         }
 
-        checkBudget(product);
+        checkBudget(execution, product);
 
         if (indexHistory(product).pending()) {
             throw new IllegalStateException("Context pruning left an unanswered tool call");
@@ -219,8 +220,8 @@ public class DefaultContextPruner implements ContextCompacter {
         return messages.stream().filter(message -> !(message instanceof SystemMessageEntity)).toList();
     }
 
-    private void checkBudget(List<Message> messages) {
-        int tokens = tokenizer.count(messages);
+    private void checkBudget(Execution execution, List<Message> messages) {
+        int tokens = usage.countInput(execution, messages);
         if (!atThreshold(tokens)) return;
 
         throw budgetExceeded(tokens, "The retained context cannot be reduced below the compaction threshold.");
@@ -232,7 +233,7 @@ public class DefaultContextPruner implements ContextCompacter {
 
     private TokenBudgetExceededException budgetExceeded(int tokens, String reason) {
         return new TokenBudgetExceededException("Context compaction failed: " + reason
-                + " Protected messages, user messages, assistant text, and retained tool groups still use "
+                + " Protected messages, user messages, assistant text, retained tool groups, and exposed tool definitions still use "
                 + tokens + " tokens; the compaction threshold is " + agentConfig.compactionThreshold()
                 + " of the input budget of " + agentConfig.maxTokens()
                 + " tokens. Increase the context budget or reduce system prompts, protected application state, "

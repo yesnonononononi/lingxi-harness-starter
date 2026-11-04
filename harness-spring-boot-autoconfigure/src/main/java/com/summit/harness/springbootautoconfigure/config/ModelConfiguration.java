@@ -1,6 +1,6 @@
 package com.summit.harness.springbootautoconfigure.config;
 
-import com.summit.adapter.langchain4j.codec.token.TokenEstimatorAdapter;
+import openAi.OpenAiTokenizer;
 import com.summit.core.adapter.TokenEstimator;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.model.ModelProviderRegistry;
@@ -77,17 +77,8 @@ public class ModelConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public TokenEstimator tokenEstimator(AgentChatProperties agentChatProperties) {
-        String modelName = agentChatProperties.getModelName();
-        if (modelName == null || modelName.isBlank()) {
-            modelName = "gpt-3.5-turbo"; // default cl100k_base
-        }
-        try {
-            return new TokenEstimatorAdapter(modelName);
-        } catch (Exception e) {
-            log.warn("Error creating token count estimator for model {} {}", modelName, e.getMessage());
-            return new TokenEstimatorAdapter("gpt-3.5-turbo");
-        }
+    public TokenEstimator tokenEstimator() {
+        return new OpenAiTokenizer();
     }
 
     @Bean
