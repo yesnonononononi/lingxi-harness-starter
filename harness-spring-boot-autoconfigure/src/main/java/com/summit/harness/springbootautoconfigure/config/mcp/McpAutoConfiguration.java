@@ -36,6 +36,9 @@ public class McpAutoConfiguration {
     /** Name of the health-check scheduler bean, so applications can replace or inspect it. */
     public static final String HEALTH_SCHEDULER_BEAN = "mcpHealthScheduler";
 
+    // Application serializers for identifiers must not change the types of MCP protocol values.
+    private final ObjectMapper mcpJson = new ObjectMapper();
+
     @Bean
     @ConditionalOnMissingBean
     public McpClientSettings mcpClientSettings() {
@@ -64,17 +67,16 @@ public class McpAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    public List<McpClientTransportBuilder> mcpTransportBuilders(ObjectMapper objectMapper) {
-        return List.of(new McpHttpTransportBuilder(objectMapper), new McpStdioTransportBuilder(objectMapper));
+    public List<McpClientTransportBuilder> mcpTransportBuilders() {
+        return List.of(new McpHttpTransportBuilder(mcpJson), new McpStdioTransportBuilder(mcpJson));
     }
 
     @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean
     public McpSessionFactory mcpSessionFactory(McpClientSettings mcpClientSettings,
                                               List<McpClientTransportBuilder> mcpTransportBuilders,
-                                              ScheduledExecutorService mcpHealthScheduler,
-                                              ObjectMapper objectMapper) {
-        return new McpSessionFactory(mcpClientSettings, mcpTransportBuilders, mcpHealthScheduler, objectMapper);
+                                              ScheduledExecutorService mcpHealthScheduler) {
+        return new McpSessionFactory(mcpClientSettings, mcpTransportBuilders, mcpHealthScheduler, mcpJson);
     }
 
     @Bean
