@@ -3,6 +3,8 @@ package com.summit.core.model.image;
 import com.summit.core.agent.Image;
 import com.summit.core.conversation.api.ChatResponseEntity;
 
+import java.util.List;
+
 /**
  * Text to Image generator model.
  */
@@ -76,6 +78,11 @@ public interface ImageModel {
     default ChatResponseEntity edit(Image image, Image mask, String prompt, ImageGenerationOptions options) {
         validateEditOptions(options);
         return edit(image, mask, prompt);
+    }
+
+    /** Edits using ordered reference images. An optional mask applies to the first image. */
+    default ChatResponseEntity editWithReferences(List<Image> images, Image mask, String prompt, ImageGenerationOptions options) {
+        throw new UnsupportedOperationException("Multiple reference images are not supported");
     }
 
     private static void validateEditOptions(ImageGenerationOptions options) {

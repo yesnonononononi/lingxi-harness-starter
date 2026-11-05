@@ -17,6 +17,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
 import java.util.concurrent.Executors;
@@ -168,6 +169,31 @@ class ImageProviderWireContractTest {
             }
             assertEquals(1, response.getMeta().getImages().size());
             assertEquals(95, response.getTokenUsage().getTotalTokens());
+        }
+    }
+
+    @Test
+    void editsSendOrderedReferencesAndMaskInOneMultipartRequest() throws Exception {
+        try (Endpoint endpoint = new Endpoint()) {
+            ImageModel model = endpoint.create(config(endpoint).build());
+            Image first = Image.from("Zmlyc3Q=", "image/png");
+            Image second = Image.from("c2Vjb25k", "image/jpeg");
+            Image mask = Image.from("bWFzaw==", "image/png");
+
+            model.editWithReferences(List.of(first, second), mask, "combine references", ImageGenerationOptions.EMPTY);
+
+            Request request = endpoint.take();
+            assertEquals("/v1/images/edits", request.path());
+            String body = request.body();
+            String firstPart = "name=\"image[]\"; filename=\"image[].png\"\r\nContent-Type: image/png\r\n\r\nfirst\r\n";
+            String secondPart = "name=\"image[]\"; filename=\"image[].jpg\"\r\nContent-Type: image/jpeg\r\n\r\nsecond\r\n";
+            String maskPart = "name=\"mask\"; filename=\"mask.png\"\r\nContent-Type: image/png\r\n\r\nmask\r\n";
+            assertTrue(body.contains(firstPart), body);
+            assertTrue(body.contains(secondPart), body);
+            assertTrue(body.contains(maskPart), body);
+            assertTrue(body.indexOf(firstPart) < body.indexOf(secondPart), body);
+            assertEquals(2, body.split("name=\"image\\[\\]\"", -1).length - 1, body);
+            assertTrue(endpoint.requests.isEmpty());
         }
     }
 

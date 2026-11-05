@@ -23,6 +23,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -83,6 +84,14 @@ public class DefaultImageModel implements ImageModel {
 
     @Override
     public ChatResponseEntity edit(Image image, Image mask, String prompt, ImageGenerationOptions options) {
+        return editWithReferences(Collections.singletonList(image), mask, prompt, options);
+    }
+
+    @Override
+    public ChatResponseEntity editWithReferences(List<Image> images, Image mask, String prompt, ImageGenerationOptions options) {
+        if (images == null || images.isEmpty()) {
+            throw new NonRetriableModelException("Image editing requires at least one reference image", null);
+        }
         ImageRequest request = requestOf(prompt, options, true);
         String boundary = UUID.randomUUID().toString();
         List<HttpRequest.BodyPublisher> parts = new ArrayList<>();
@@ -92,7 +101,10 @@ public class DefaultImageModel implements ImageModel {
         addField(parts, boundary, "quality", request.getQuality());
         addField(parts, boundary, "background", request.getBackground());
         addField(parts, boundary, "output_format", request.getOutputFormat());
-        addImagePart(parts, boundary, "image", image);
+        String field = images.size() == 1 ? "image" : "image[]";
+        for (Image image : images) {
+            addImagePart(parts, boundary, field, image);
+        }
         if (mask != null) addImagePart(parts, boundary, "mask", mask);
         parts.add(HttpRequest.BodyPublishers.ofString("--" + boundary + "--\r\n"));
         return send("edits", "multipart/form-data; boundary=" + boundary,
