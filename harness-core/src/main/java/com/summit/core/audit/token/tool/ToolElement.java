@@ -1,8 +1,8 @@
 package com.summit.core.audit.token.tool;
 
 /**
- * Text token estimates for a tool group. Total includes arguments and framed result messages,
- * while outputTokens counts the output text alone.
+ * Token estimates for a tool group. Total counts framed result messages, while outputTokens
+ * counts the output text alone. Arguments are attribution only and are excluded from totalTokens.
  */
 public record ToolElement(
         int argumentTokens,

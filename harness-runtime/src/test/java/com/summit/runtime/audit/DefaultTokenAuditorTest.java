@@ -1,6 +1,9 @@
 package com.summit.runtime.audit;
 
 import com.summit.core.audit.AuditStatus;
+import com.summit.core.audit.DocumentElement;
+import com.summit.core.audit.token.TokenAuditDocument;
+import com.summit.core.audit.token.tool.ToolAuditDocument;
 import com.summit.core.audit.token.tool.ToolElement;
 import com.summit.core.compact.ContextUsageMetric;
 import com.summit.core.conversation.api.ToolCallRequest;
@@ -40,7 +43,7 @@ class DefaultTokenAuditorTest {
                 AiMessageEntity.builder().text("done").build());
         int localArgumentTokens = tokenizer.countText(localArguments);
         int skillArgumentTokens = tokenizer.countText(skillArguments);
-        int total = tokenizer.count(List.of(skill, local, remote)) + localArgumentTokens + skillArgumentTokens;
+        int total = tokenizer.count(List.of(skill, local, remote));
 
         var toolAudit = auditor.analysis(messages).toolTokens();
 
@@ -48,14 +51,14 @@ class DefaultTokenAuditorTest {
         assertEquals(total, toolAudit.getTokenMeta().toolTokens());
         assertEquals(total / 1000.0, toolAudit.getRatio());
         assertEquals(Map.of("MCP", new ToolElement(localArgumentTokens,
-                tokenizer.countText(local.getToolOutput()), tokenizer.count(local) + localArgumentTokens)),
+                tokenizer.countText(local.getToolOutput()), tokenizer.count(local))),
                 toolAudit.getTokenMeta().tokenDetails());
         assertEquals(new ToolElement(0, tokenizer.countText(remote.getToolOutput()), tokenizer.count(remote)),
                 toolAudit.getTokenMeta().mcpDetail().getTokenMeta());
         assertEquals(new ToolElement(skillArgumentTokens, tokenizer.countText(skill.getToolOutput()),
-                tokenizer.count(skill) + skillArgumentTokens), toolAudit.getTokenMeta().skillDetail().getTokenMeta());
+                tokenizer.count(skill)), toolAudit.getTokenMeta().skillDetail().getTokenMeta());
         assertEquals(tokenizer.count(remote) / 1000.0, toolAudit.getTokenMeta().mcpDetail().getRatio());
-        assertEquals((tokenizer.count(skill) + skillArgumentTokens) / 1000.0,
+        assertEquals(tokenizer.count(skill) / 1000.0,
                 toolAudit.getTokenMeta().skillDetail().getRatio());
     }
 
@@ -66,13 +69,16 @@ class DefaultTokenAuditorTest {
                 new ToolCallRequest("same", "read", 0, "abc"))).build();
         var second = AiMessageEntity.builder().toolCalls(List.of(
                 new ToolCallRequest("same", "read", 0, "abcdef"))).build();
-        var result = auditor.analysis(List.of(first,
+        TokenAuditDocument audit = auditor.analysis(List.of(first,
                 ToolMessageEntity.builder().id("same").name("read").toolOutput("one").build(), second,
-                ToolMessageEntity.builder().id("same").name("read").toolOutput("two").build())).toolTokens();
+                ToolMessageEntity.builder().id("same").name("read").toolOutput("two").build()));
+        DocumentElement<ToolAuditDocument> result = audit.toolTokens();
 
         assertEquals(AuditStatus.SUCCESS, result.getStatus());
-        assertEquals(new ToolElement(3, 2, 5), result.getTokenMeta().tokenDetails().get("read"));
-        assertEquals(5, result.getTokenMeta().toolTokens());
+        assertEquals(new ToolElement(3, 2, 2), result.getTokenMeta().tokenDetails().get("read"));
+        assertEquals(2, result.getTokenMeta().toolTokens());
+        assertEquals(5, audit.assistantTokens().getTokenMeta());
+        assertEquals(7, audit.assistantTokens().getTokenMeta() + result.getTokenMeta().toolTokens());
     }
 
     @Test

@@ -68,7 +68,6 @@ public class DefaultTokenAuditor implements TokenAuditor {
         final List<Message> skillList = new ArrayList<>();
         final List<ToolMessageEntity> toolList = new ArrayList<>();
 
-        int totalArgumentTokens = 0;
         for (Message message : messages) {
             if (message instanceof AiMessageEntity ai && ai.getToolCalls() != null) {
                 for (ToolCallRequest call : ai.getToolCalls()) {
@@ -83,7 +82,6 @@ public class DefaultTokenAuditor implements TokenAuditor {
                 }
                 toolList.add(tool);
                 argumentTokensByMessage.put(tool, argumentTokens);
-                totalArgumentTokens += argumentTokens;
             }
         }
 
@@ -108,7 +106,8 @@ public class DefaultTokenAuditor implements TokenAuditor {
                     this.tokenizer.count(entry.getValue())));
         }
 
-        int totalTokens = this.tokenizer.count(new ArrayList<>(toolList)) + totalArgumentTokens;
+        // Arguments belong to assistant messages and must not be added to tool-result totals.
+        int totalTokens = this.tokenizer.count(new ArrayList<>(toolList));
 
         double ratio = totalTokens / (double) this.agentConfig.maxTokens();
 
@@ -155,7 +154,7 @@ public class DefaultTokenAuditor implements TokenAuditor {
             }
         }
 
-        return new ToolElement(argumentTokens, outputTokens, resultMessageTokens + argumentTokens);
+        return new ToolElement(argumentTokens, outputTokens, resultMessageTokens);
     }
 
     private <T> DocumentElement<T> runIgnoreErr(MessageType messageType, List<Message> messages,

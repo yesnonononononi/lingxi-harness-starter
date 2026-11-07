@@ -4,8 +4,9 @@ import com.summit.core.audit.DocumentElement;
 import com.summit.core.audit.token.tool.ToolAuditDocument;
 
 /**
- * Message-role estimates and tool attribution for the retained context. Tool arguments also
- * contribute to assistantTokens, so these two views overlap on the argument text.
+ * Message-role estimates for the retained context. Tool arguments contribute to assistantTokens;
+ * tool totals exclude them, while tool details retain argument counts for attribution only.
+ * Independently estimated role totals can differ from an estimate of the complete message batch.
  */
 public record TokenAuditDocument(
         DocumentElement<Integer> assistantTokens,
