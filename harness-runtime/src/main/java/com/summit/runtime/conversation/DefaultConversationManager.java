@@ -9,20 +9,20 @@ import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.api.ConversationTranscriptSink;
 import com.summit.core.conversation.message.*;
+import com.summit.core.mcp.McpToolExecutor;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.prompt.PromptAssembler;
 import com.summit.core.runtime.loop.LoopMessages;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.skill.SkillLoader;
 import com.summit.core.skill.SkillResume;
+import com.summit.core.skill.SkillToolExecutor;
 import com.summit.core.tool.ToolDefinition;
 import com.summit.core.tool.ToolExecuteResult;
+import com.summit.core.tool.ToolExecutor;
 import com.summit.runtime.prompt.SystemPromptAssembler;
 import lombok.extern.slf4j.Slf4j;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.function.Supplier;
 
 
@@ -46,7 +46,9 @@ public class DefaultConversationManager implements ConversationManager {
 
     private final Tokenizer tokenizer;
     private final int maxTokens;
-    /** Fallback context cap for the convenience constructors; the Spring bean passes the real one. */
+    /**
+     * Fallback context cap for the convenience constructors; the Spring bean passes the real one.
+     */
     private static final int DEFAULT_MAX_TOKENS = 1_024_000;
     private final ContextAttachmentProvider contextAttachmentProvider;
     private final ConversationTranscriptSink conversationTranscriptSink;
@@ -126,35 +128,23 @@ public class DefaultConversationManager implements ConversationManager {
     @Override
     public void addMessage(LoopMessages loopMessages) {
         Execution execution = loopMessages.getExecution();
+
         ChatResponseEntity response = loopMessages.getResponse();
-        List<Message> messages = execution.getMessages();
+
+        final List<Message> messages = execution.getMessages();
 
         AiMessageEntity aiMessage = response.getAiMessageEntity();
-        List<ToolMessageEntity> toolMessages = new ArrayList<>();
 
-        if (loopMessages.getToolExecuteResults() != null) {
-            for (ToolExecuteResult result : loopMessages.getToolExecuteResults()) {
-                ToolDefinition<?> definition = result.getToolSpecification();
-                toolMessages.add(ToolMessageEntity.builder()
-                        .id(result.getId())
-                        .name(definition == null ? "unknown tool" : definition.name())
-                        .toolOutput(result.getToolOutput())
-                        .isError(!result.isSuccess())
-                        // The tool's own exit status travels with its message so a pruned skeleton can
-                        // still tell a failed command from a successful one.
-                        .exitCode(result.getExitCode())
-                        .build());
-            }
-        }
 
         messages.add(aiMessage);
 
-        messages.addAll(toolMessages);
+        List<ToolMessageEntity> convertedMessages = loopMessages.convert();
+        messages.addAll(convertedMessages);
 
         execution.setAiMessage(aiMessage);
 
         if (conversationTranscriptSink != null) {
-            conversationTranscriptSink.appendRound(execution.getId(), aiMessage, List.copyOf(toolMessages),
+            conversationTranscriptSink.appendRound(execution.getId(), aiMessage, List.copyOf(convertedMessages),
                     response.getResponseId(), execution.eventMetaData());
         }
     }
@@ -220,7 +210,7 @@ public class DefaultConversationManager implements ConversationManager {
                 .filter(value -> !value.isBlank())
                 .ifPresent(value -> attachment.add(SystemMessageEntity.builder().text(String.format("""
                         The protected application state produced earlier is reproduced below. Keep following it:
-                      
+                        
                         %s
                         """, value)).build()));
 
@@ -243,7 +233,6 @@ public class DefaultConversationManager implements ConversationManager {
         // "summarization is closed" latch — resetting those here is the P0-1 regression.
         execution.setCompactionState(execution.getCompactionState().afterSummaryRebuild());
     }
-
 
 
     /**
@@ -355,13 +344,13 @@ public class DefaultConversationManager implements ConversationManager {
 
         for (int i = result.size() - 1; i >= 0; i--) {
             Message message = result.get(i);
-            if(message instanceof AiMessageEntity aiMessageEntity){
+            if (message instanceof AiMessageEntity aiMessageEntity) {
                 lastAiMessageIndex = i;
                 break;
             }
         }
 
-        if(lastAiMessageIndex == -1) {
+        if (lastAiMessageIndex == -1) {
             return List.of();
         }
 
@@ -398,7 +387,7 @@ public class DefaultConversationManager implements ConversationManager {
         return stripped;
     }
 
-    private String processSummary(String summary){
+    private String processSummary(String summary) {
         return summary + "\n" + CONTINUE_AFTER_COMPACTION_PROMPT;
     }
 

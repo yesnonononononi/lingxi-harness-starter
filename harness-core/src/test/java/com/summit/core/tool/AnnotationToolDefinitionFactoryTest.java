@@ -8,6 +8,7 @@ import com.summit.core.anno.type.OptionalBoolean;
 import com.summit.core.anno.type.ToolProperty;
 import com.summit.core.anno.type.Value;
 import com.summit.core.anno.type.ValueType;
+import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -152,7 +153,7 @@ class AnnotationToolDefinitionFactoryTest {
 
     public static class TestExecutor implements ToolExecutor {
         @Override
-        public ToolExecuteResult execute(ToolExecution execution) {
+        public @NonNull ToolExecuteResult execute(ToolExecution execution) {
             return ToolExecuteResult.success("managed executor");
         }
     }

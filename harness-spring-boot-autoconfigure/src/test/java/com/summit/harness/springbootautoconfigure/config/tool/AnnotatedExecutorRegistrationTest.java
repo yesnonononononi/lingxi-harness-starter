@@ -11,6 +11,7 @@ import com.summit.core.tool.ToolExecution;
 import com.summit.core.tool.ToolExecutor;
 import com.summit.core.tool.ToolRegistry;
 import com.summit.harness.springbootautoconfigure.toolHelper.ToolRegister;
+import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -184,7 +185,7 @@ class AnnotatedExecutorRegistrationTest {
         }
 
         @Override
-        public ToolExecuteResult execute(ToolExecution execution) {
+        public @NonNull ToolExecuteResult execute(ToolExecution execution) {
             return ToolExecuteResult.success(dependency.value());
         }
     }
@@ -211,7 +212,7 @@ class AnnotatedExecutorRegistrationTest {
 
     public static class MissingExecutor implements ToolExecutor {
         @Override
-        public ToolExecuteResult execute(ToolExecution execution) {
+        public @NonNull ToolExecuteResult execute(ToolExecution execution) {
             return ToolExecuteResult.success("unused");
         }
     }

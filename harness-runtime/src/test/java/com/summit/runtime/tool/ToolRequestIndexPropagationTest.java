@@ -8,6 +8,7 @@ import com.summit.core.conversation.event.ToolCallStartEvent;
 import com.summit.core.json.ExecutionJson;
 import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.tool.*;
+import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -144,7 +145,7 @@ class ToolRequestIndexPropagationTest {
     private static ToolDefinition<?> tool(long timeout, ToolExecutor executor) {
         ToolExecutor hostExecutor = new ToolExecutor() {
             @Override
-            public ToolExecuteResult execute(ToolExecution execution) { return executor.execute(execution); }
+            public @NonNull ToolExecuteResult execute(ToolExecution execution) { return executor.execute(execution); }
 
             @Override
             public boolean requiresWorkspace() { return false; }

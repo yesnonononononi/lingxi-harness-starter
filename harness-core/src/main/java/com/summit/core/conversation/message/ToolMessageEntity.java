@@ -14,18 +14,21 @@ import java.io.Serializable;
 @AllArgsConstructor
 @Getter
 @Setter
-@JsonIgnoreProperties(value = "type", allowGetters = true)
+@JsonIgnoreProperties(value = {"type", "executorClazz"}, allowGetters = true)
 public class ToolMessageEntity implements Message{
     private Serializable id;
     private String name;
     @Builder.Default
     private boolean isError = false;
+
     /**
      * Persisted snapshots wrote this as {@code text} before the rename. The alias keeps stored
      * executions and session messages restorable instead of failing on an unknown property.
      */
     @JsonAlias("text")
     private String toolOutput;
+    private boolean isMcpTool;
+    private boolean isSkillTool;
 
     /**
      * The tool's own exit status when the tool reports one (a shell command's exit code, say), or

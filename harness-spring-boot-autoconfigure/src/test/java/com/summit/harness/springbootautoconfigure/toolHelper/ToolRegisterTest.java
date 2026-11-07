@@ -14,6 +14,7 @@ import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolExecution;
 import com.summit.core.tool.ToolExecutor;
 import com.summit.core.tool.ToolRegistry;
+import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.aop.support.AopUtils;
@@ -306,7 +307,7 @@ class ToolRegisterTest {
         }
 
         @Override
-        public ToolExecuteResult execute(ToolExecution execution) {
+        public @NonNull ToolExecuteResult execute(ToolExecution execution) {
             return ToolExecuteResult.success(dependency);
         }
     }
