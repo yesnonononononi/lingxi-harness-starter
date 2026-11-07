@@ -239,7 +239,7 @@ class ModelInvocationAttemptTest {
                     .conversationManager(new DefaultConversationManager(ContextAttachmentProvider.NONE))
                     .toolExecutionManager(tools).runtimeEventPublisher(new RuntimeEventPublisher(List.of()))
                     .runtimeBoundaryChecker(new BoundaryChecker(AgentConfig.builder().maxIterations(10).build(),
-                            new DefaultTokenizer(), new DefaultConversationManager(ContextAttachmentProvider.NONE), null, null))
+                            new DefaultTokenizer(), new DefaultConversationManager(ContextAttachmentProvider.NONE), null, null, null, null))
                     .responseIdGenerator(previous -> Integer.toString(ids.incrementAndGet())).build());
         }
 

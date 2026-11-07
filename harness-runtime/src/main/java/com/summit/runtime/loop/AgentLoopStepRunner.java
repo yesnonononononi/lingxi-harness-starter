@@ -9,6 +9,7 @@ import com.summit.core.conversation.event.AgentMessageEvent;
 import com.summit.core.conversation.event.ContextUpdateEvent;
 import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.model.ModelInvocationUsage;
 import com.summit.core.runtime.loop.*;
 import com.summit.core.runtime.loop.suspension.ExecutionInterruptedException;
@@ -40,11 +41,16 @@ public class AgentLoopStepRunner {
     private final RuntimeContext context;
     private final ModelRequestFactory modelRequests;
     private final LoopBoundaryGuard boundaryGuard;
+    private final ContextUsageReporter usage;
 
     public AgentLoopStepRunner(RuntimeContext context) {
         this.context = context;
         this.modelRequests = new ModelRequestFactory(context);
-        this.boundaryGuard = new LoopBoundaryGuard(context.getRuntimeBoundaryChecker());
+        this.usage = context.getUsage() == null
+                ? new ContextUsageReporter(context.getTokenizer(), 0, null, 1,
+                        () -> context.getToolExecutionManager() == null ? null
+                                : context.getToolExecutionManager().toolRegistry()) : context.getUsage();
+        this.boundaryGuard = new LoopBoundaryGuard(context.getRuntimeBoundaryChecker(), usage);
     }
 
     public LoopResult run(Execution execution, ExecutionControlSignal control) throws Exception {
@@ -85,11 +91,13 @@ public class AgentLoopStepRunner {
         private final LoopInterceptorProcessor interceptor;
         private final LoopContext loopContext;
         private int consecutiveCompactRounds;
+        private TokenUsageEntity tokenUsageBaseLine;
 
         private Run(Execution execution, ExecutionControlSignal control) {
             this.execution = execution;
             this.control = control;
             this.messages = LoopMessages.builder().execution(execution).build();
+            this.tokenUsageBaseLine = usage.baseline(execution);
             this.interceptor = context.getLoopInterceptorProcessor();
             this.loopContext = LoopContext.withCompactionCounter(
                     messages,
@@ -132,6 +140,7 @@ public class AgentLoopStepRunner {
             } catch (ExecutionInterruptedException e) {
                 return RoundOutcome.resolveResult(toLoopResult(e));
             }
+            AiMessageEntity aiMessage = response.getAiMessageEntity();
             messages.response(response);
 
             halt = interceptor.onAfterModelInvoke(loopContext, response).loopResult();
@@ -139,7 +148,7 @@ public class AgentLoopStepRunner {
 
             publishAiMessage(response);
 
-            AiMessageEntity aiMessage = response.getAiMessageEntity();
+
             if (hasNoToolCall(aiMessage)) return RoundOutcome.resolveResult(completeWithoutToolCalls());
 
             halt = interceptor.onBeforeToolCall(loopContext).loopResult();
@@ -162,14 +171,16 @@ public class AgentLoopStepRunner {
             appendMessages();
             consecutiveCompactRounds = 0;
 
-            halt = boundaryGuard.afterTools(execution, control);
+            halt = boundaryGuard.afterTools(tokenUsageBaseLine,messages,execution, control);
             if (!halt.shouldContinue()) return RoundOutcome.resolveResult(halt);
 
             reportCompletedRound();
             return RoundOutcome.NEXT;
         }
 
-        /** External input callbacks run before budget checks so the model sees only validated input. */
+        /**
+         * External input callbacks run before budget checks so the model sees only validated input.
+         */
         private LoopResult beforeModel() {
             LoopResult halt = interceptor.onLoopStart(loopContext).loopResult();
             if (!halt.shouldContinue()) return halt;
@@ -178,10 +189,12 @@ public class AgentLoopStepRunner {
             if (!halt.shouldContinue()) return halt;
 
             // External input must be present before compaction and budget checks run.
-            return boundaryGuard.beforeModel(execution, control);
+            return boundaryGuard.beforeModel(tokenUsageBaseLine,execution, control);
         }
 
-        /** Commit before the completion decision so an explicit continuation retains this reply. */
+        /**
+         * Commit before the completion decision so an explicit continuation retains this reply.
+         */
         private LoopResult completeWithoutToolCalls() {
             appendMessages();
             consecutiveCompactRounds = 0;
@@ -199,7 +212,9 @@ public class AgentLoopStepRunner {
             return beforeComplete.next() ? LoopResult.completed() : beforeComplete.loopResult();
         }
 
-        /** A tool asked to suspend: commit the round, then suspend. Only a pending cancellation overrides that. */
+        /**
+         * A tool asked to suspend: commit the round, then suspend. Only a pending cancellation overrides that.
+         */
         private LoopResult suspendForPromise() {
             appendMessages();
             consecutiveCompactRounds = 0;
@@ -247,7 +262,7 @@ public class AgentLoopStepRunner {
         // Tools
         // -----------------------------------------------------------------------------------
 
-        private List<ToolExecuteResult> executeTools(@NonNull AiMessageEntity aiMessage, String responseId,ExecutionControlSignal signal) {
+        private List<ToolExecuteResult> executeTools(@NonNull AiMessageEntity aiMessage, String responseId, ExecutionControlSignal signal) {
             AgentRequest request = execution.getAgentRequest();
             AgentRuntimeParameters params = request.runtimeParametersOrDefault();
 
@@ -315,10 +330,8 @@ public class AgentLoopStepRunner {
         }
 
         private void publishCompactionCompleted() {
-            if (context.getUsage() != null) {
-                context.getUsage().publish(execution,
-                        ContextUpdateEvent.Phase.SQUEEZE_COMPLETED, "Tool compaction completed");
-            }
+            usage.publish(execution,
+                    ContextUpdateEvent.Phase.SQUEEZE_COMPLETED, "Tool compaction completed");
         }
 
         // -----------------------------------------------------------------------------------

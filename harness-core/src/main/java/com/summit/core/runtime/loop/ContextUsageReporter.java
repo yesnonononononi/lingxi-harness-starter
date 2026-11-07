@@ -6,6 +6,7 @@ import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.event.ContextUpdateEvent;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.tool.ToolDefinition;
 import com.summit.core.tool.ToolRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -35,8 +36,8 @@ public class ContextUsageReporter {
     /**
      * Rounds between two notifications, floored at one.
      *
-     * <p>Usage is telemetry for a progress display, and producing it counts the tokens of the whole
-     * conversation. A caller that passes zero or a negative number means "no preference", not
+     * <p>Usage is telemetry for a progress display. A caller that passes zero or a negative number
+     * means "no preference", not
      * "never report" — a silent reporter is indistinguishable from a broken one, so the floor keeps
      * it publishing every round.</p>
      */
@@ -77,34 +78,67 @@ public class ContextUsageReporter {
     }
 
     public ContextUsageMetric report(Execution execution) {
-        List<ToolDefinition<?>> tools = registeredTools(execution);
-        if (tools.isEmpty()) return tokenizer.usage(execution.getMessages(), maxTokens);
         if (maxTokens <= 0) return null;
-        return ContextUsageMetric.of(tokenizer.count(execution.getMessages(), tools), maxTokens);
+        return ContextUsageMetric.of(baseline(execution).getTotalTokens(), maxTokens);
+    }
+
+    /** Synchronizes appended messages, including input injected by before-model callbacks. */
+    public TokenUsageEntity baseline(Execution execution) {
+        Execution.ContextTokenBaseline counted = execution.getContextTokenBaseline();
+        List<Message> messages = execution.getMessages() == null ? List.of() : execution.getMessages();
+        List<ToolDefinition<?>> tools = registeredTools(execution);
+        if (counted == null || counted.messages() != messages || counted.messageCount() > messages.size()
+                || (counted.messageCount() == 0 && !messages.isEmpty())
+                || !counted.tools().equals(tools)) {
+            return rebuildBaseline(execution, messages, tools);
+        }
+        if (counted.messageCount() < messages.size()) {
+            // Recount the boundary message with the suffix: this cancels request framing and
+            // preserves the tokenizer's join with the preceding message instead of adding a primer per round.
+            int from = Math.max(0, counted.messageCount() - 1);
+            int increment = tokenizer.count(messages.subList(from, messages.size()));
+            if (counted.messageCount() > 0) {
+                increment -= counted.lastMessageTokens();
+            }
+            int lastMessageTokens = tokenizer.count(messages.getLast());
+            counted.usage().setTotalTokens(Math.max(0, counted.usage().getTotalTokens() + increment));
+            execution.setContextTokenBaseline(new Execution.ContextTokenBaseline(
+                    counted.usage(), messages, messages.size(), lastMessageTokens, tools));
+        }
+        return counted.usage();
+    }
+
+    /** Rebuilds once after compaction, before optional event delivery and its exception isolation. */
+    public TokenUsageEntity rebuildBaseline(Execution execution) {
+        return rebuildBaseline(execution, execution.getMessages() == null ? List.of() : execution.getMessages(),
+                registeredTools(execution));
+    }
+
+    private TokenUsageEntity rebuildBaseline(Execution execution, List<Message> messages,
+                                            List<ToolDefinition<?>> tools) {
+        int tokens = tokenizer.count(messages, tools);
+        int lastMessageTokens = messages.isEmpty() ? 0 : tokenizer.count(messages.getLast());
+        Execution.ContextTokenBaseline counted = execution.getContextTokenBaseline();
+        TokenUsageEntity baseline = counted == null ? TokenUsageEntity.empty() : counted.usage();
+        baseline.setTotalTokens(tokens);
+        execution.setContextTokenBaseline(new Execution.ContextTokenBaseline(baseline, messages, messages.size(),
+                lastMessageTokens, tools));
+        return baseline;
     }
 
     public int countInput(Execution execution, List<Message> messages) {
         return tokenizer.count(messages, registeredTools(execution));
     }
 
-    public double inputRatio(Execution execution, List<Message> messages, int tokenBudget) {
-        List<ToolDefinition<?>> tools = registeredTools(execution);
-        return tools.isEmpty() ? tokenizer.calcCurrentTokenRatio(messages, tokenBudget)
-                : tokenizer.count(messages, tools) / (double) tokenBudget;
-    }
 
     /** Tools of the executed request, resolved at call time; empty when the context has no registry. */
     private List<ToolDefinition<?>> registeredTools(Execution execution) {
-        if (execution == null || execution.getAgentRequest() == null) {
-            return List.of();
-        }
-        List<String> allowed = execution.getAgentRequest().getToolList();
         ToolRegistry registry = toolRegistry.get();
-        if (registry == null || allowed == null || allowed.isEmpty()) {
+
+        if (execution == null || registry == null) {
             return List.of();
         }
-        return List.copyOf(registry.getToolDefinitionList().stream()
-                .filter(tool -> tool.allowedFor(allowed)).toList());
+       return registry.registeredTools(execution);
     }
 
     public void publish(Execution execution) {
@@ -118,7 +152,9 @@ public class ContextUsageReporter {
     /** Compaction events name the band that produced them so consumers can decide per band. */
     public void publish(Execution execution, ContextUpdateEvent.Phase phase,
                         ContextUpdateEvent.Band band, String message) {
+        if (phase == ContextUpdateEvent.Phase.SQUEEZE_COMPLETED) rebuildBaseline(execution);
         try {
+            if (publisher == null) return;
             publisher.onContextUpdate(new ContextUpdateEvent(
                     execution.getId(),
                     phase,

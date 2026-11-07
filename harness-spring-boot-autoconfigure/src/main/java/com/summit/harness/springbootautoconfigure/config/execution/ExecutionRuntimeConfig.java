@@ -91,9 +91,9 @@ public class ExecutionRuntimeConfig {
                                                   ConversationManager conversationManager,
                                                   DefaultContextPruner contextPruner,
                                                   DefaultModelCompacter modelCompacter,
-                                                  ContextUsageReporter usage) {
+                                                  ContextUsageReporter usage, com.summit.core.tool.ToolRegistry toolRegistry) {
         return new BoundaryChecker(agentConfig, tokenizer, conversationManager,
-                contextPruner, modelCompacter, usage);
+                contextPruner, modelCompacter, usage, toolRegistry);
     }
 
     /** The dispatcher orders callbacks only; runtime limits are owned by the loop. */

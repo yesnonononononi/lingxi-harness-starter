@@ -193,7 +193,7 @@ class LoopCheckpointPolicyTest {
                 .runtimeLifeStyleManager(lifecycle).runtimeEventPublisher(events)
                 .loopInterceptorProcessor(new DefaultLoopInterceptorProcessor(
                         List.of(new DefaultLoopInterceptor(), application)))
-                .runtimeBoundaryChecker(new BoundaryChecker(config, tokenizer, conversations, null, null))
+                .runtimeBoundaryChecker(new BoundaryChecker(config, tokenizer, conversations, null, null, null, null))
                 .toolExecutionManager(tools).invoker(new DefaultChatModelInvoker(model))
                 .usage(new ContextUsageReporter(tokenizer, 100_000, events, 1)).build());
     }

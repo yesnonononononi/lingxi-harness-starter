@@ -133,7 +133,7 @@ public class DefaultTokenAuditor implements TokenAuditor {
     }
 
     private <T> DocumentElement<T> estimateUsage(String type, List<Message> messages, Function<ContextUsageMetric, T> resolveElement) {
-        ContextUsageMetric usage = this.tokenizer.usage(messages, agentConfig.maxTokens());
+        ContextUsageMetric usage = this.tokenizer.usage(messages, List.of(), agentConfig.maxTokens());
         DocumentElement.DocumentElementBuilder<T> element = DocumentElement.<T>builder().type(type);
         if (usage == null) {
             return element.status(AuditStatus.NO_DATA).build();

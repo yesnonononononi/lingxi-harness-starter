@@ -1,5 +1,7 @@
 package com.summit.harness.springbootautoconfigure.config;
 
+import com.summit.core.conversation.message.TokenUsageEntity;
+
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
@@ -54,9 +56,9 @@ class ModelConfigurationTest {
         assertEquals(withLookup, reporter.report(visibleExecution).tokenCount());
         assertEquals(messagesOnly, reporter.report(hiddenExecution).tokenCount());
         var manager = new DefaultConversationManager(ContextAttachmentProvider.NONE);
-        var checker = new BoundaryChecker(config, tokenizer, manager, null, null, reporter);
-        assertEquals(ContextSqueezeRequest.prune(), checker.shouldSqueezeContext(manager, visibleExecution));
-        assertEquals(ContextSqueezeRequest.none(), checker.shouldSqueezeContext(manager, hiddenExecution));
+        var checker = new BoundaryChecker(config, tokenizer, manager, null, null, reporter, null);
+        assertEquals(ContextSqueezeRequest.prune(), checker.shouldSqueezeContext(TokenUsageEntity.empty(), visibleExecution, true));
+        assertEquals(ContextSqueezeRequest.none(), checker.shouldSqueezeContext(TokenUsageEntity.empty(), hiddenExecution, true));
     }
 
     private ToolDefinition<?> tool(String name, String description) {

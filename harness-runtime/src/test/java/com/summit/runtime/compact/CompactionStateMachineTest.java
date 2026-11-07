@@ -1,5 +1,7 @@
 package com.summit.runtime.compact;
 
+import com.summit.core.conversation.message.TokenUsageEntity;
+
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.CompactionState;
 import com.summit.core.agent.Execution;
@@ -62,18 +64,18 @@ class CompactionStateMachineTest {
     void imageWindowHonorsConfiguredHighAndLowWatermarks() {
         tokenizer = new StubContextTokenizer(SAFE_RATIO);
         AgentConfig config = AgentConfig.builder().imageWindow(new AgentConfig.ImageWindow(4, 2)).build();
-        BoundaryChecker checker = new BoundaryChecker(config, tokenizer, conversations, null, null);
+        BoundaryChecker checker = new BoundaryChecker(config, tokenizer, conversations, null, null, null, null);
         Execution execution = execution();
         List<Image> images = IntStream.range(0, 5)
                 .mapToObj(index -> Image.from(URI.create("https://example.test/configured-" + index))).toList();
         execution.getMessages().add(UserMessageEntity.from("images", images.subList(0, 4)));
         List<Message> original = execution.getMessages();
 
-        checker.before(execution);
+        checker.before(TokenUsageEntity.empty(), execution);
         assertSame(original, execution.getMessages());
         execution.getMessages().add(UserMessageEntity.from(images.getLast()));
 
-        checker.before(execution);
+        checker.before(TokenUsageEntity.empty(), execution);
         assertEquals(images.subList(3, 5), contextImages(execution));
     }
 
@@ -99,11 +101,11 @@ class CompactionStateMachineTest {
         execution.getMessages().add(UserMessageEntity.from("newer images", images.subList(12, 15)));
         List<Message> original = execution.getMessages();
 
-        checker.before(execution);
+        checker.before(TokenUsageEntity.empty(), execution);
         assertSame(original, execution.getMessages(), "the high watermark itself must leave the prefix intact");
 
         execution.getMessages().add(UserMessageEntity.from(images.getLast()));
-        checker.before(execution);
+        checker.before(TokenUsageEntity.empty(), execution);
 
         assertEquals(images.subList(9, 16), contextImages(execution));
         UserMessageEntity retained = (UserMessageEntity) execution.getMessages().get(4);
@@ -114,7 +116,7 @@ class CompactionStateMachineTest {
 
         List<Message> trimmed = execution.getMessages();
         trimmed.add(UserMessageEntity.from(Image.from(URI.create("https://example.test/next"))));
-        checker.before(execution);
+        checker.before(TokenUsageEntity.empty(), execution);
         assertSame(trimmed, execution.getMessages(), "the next image must fit without another prefix rewrite");
         assertEquals(8, contextImages(execution).size());
     }
@@ -128,7 +130,7 @@ class CompactionStateMachineTest {
         Image newest = Image.from("B".repeat(13 * 1024 * 1024));
         execution.getMessages().add(UserMessageEntity.from("image references", List.of(older, newest)));
 
-        checker.before(execution);
+        checker.before(TokenUsageEntity.empty(), execution);
 
         List<Image> retained = contextImages(execution);
         assertEquals(1, retained.size());
@@ -153,8 +155,8 @@ class CompactionStateMachineTest {
         BoundaryChecker checker = checker(failingModel(), 2);
 
         for (int round = 0; round < 5; round++) {
-            checker.before(execution);
-            checker.after(execution);
+            checker.before(TokenUsageEntity.empty(), execution);
+            checker.after(TokenUsageEntity.empty(), execution);
         }
 
         assertEquals(1, requests.size(),
@@ -170,8 +172,8 @@ class CompactionStateMachineTest {
         Execution execution = execution();
         BoundaryChecker checker = checker(answeringModel(), 3);
 
-        checker.before(execution);
-        checker.before(execution);
+        checker.before(TokenUsageEntity.empty(), execution);
+        checker.before(TokenUsageEntity.empty(), execution);
 
         assertEquals(2, requests.size());
         String firstInput = payloadOf(requests.get(0));
@@ -192,7 +194,7 @@ class CompactionStateMachineTest {
         Execution execution = execution();
         BoundaryChecker checker = checker(answeringModel(), 4);
 
-        checker.before(execution); // first generation: summarize the history and rebuild
+        checker.before(TokenUsageEntity.empty(), execution); // first generation: summarize the history and rebuild
 
         // Work done after the rebuild: it must reach the next summary instead of being dropped.
         execution.getMessages().add(AiMessageEntity.builder().text("NEW-ASSISTANT-WORK").build());
@@ -200,7 +202,7 @@ class CompactionStateMachineTest {
                 .id("new-tool-call").name("manage_command").toolOutput("NEW-TOOL-RESULT-MARKER")
                 .isError(false).build());
 
-        checker.before(execution); // second generation must fold the appended work in
+        checker.before(TokenUsageEntity.empty(), execution); // second generation must fold the appended work in
 
         assertEquals(2, requests.size());
         String secondInput = payloadOf(requests.get(1));
@@ -217,7 +219,7 @@ class CompactionStateMachineTest {
         BoundaryChecker checker = checker(answeringModel(), 2);
 
         for (int round = 0; round < 4; round++) {
-            checker.before(execution);
+            checker.before(TokenUsageEntity.empty(), execution);
         }
 
         assertEquals(2, requests.size(), "the attempt budget caps how often the model is called");
@@ -235,7 +237,7 @@ class CompactionStateMachineTest {
         BoundaryChecker checker = checker(answeringModel(), null);
 
         for (int round = 0; round < 3; round++) {
-            checker.before(execution);
+            checker.before(TokenUsageEntity.empty(), execution);
         }
 
         assertEquals(1, requests.size(), "without a configured budget only one attempt is allowed");
@@ -249,7 +251,7 @@ class CompactionStateMachineTest {
         Execution execution = execution();
         BoundaryChecker checker = checker(answeringModel(), 2);
 
-        checker.before(execution);
+        checker.before(TokenUsageEntity.empty(), execution);
 
         CompactionState afterSafeRebuild = execution.getCompactionState();
         assertEquals(1, afterSafeRebuild.summaryGeneration());
@@ -258,7 +260,8 @@ class CompactionStateMachineTest {
         assertFalse(afterSafeRebuild.summaryUnavailable());
 
         tokenizer.ratio(OVER_THRESHOLD);
-        checker.before(execution);
+        execution.setContextTokenBaseline(null); // The scripted estimator changed independently of the messages.
+        checker.before(TokenUsageEntity.empty(), execution);
 
         assertEquals(2, requests.size(), "a new window may summarize again");
         assertEquals(2, execution.getCompactionState().summaryGeneration());
@@ -269,7 +272,7 @@ class CompactionStateMachineTest {
     void summaryUnavailableStaysTrueForWholeExecution() {
         Execution execution = execution();
         BoundaryChecker checker = checker(failingModel(), 2);
-        checker.before(execution);
+        checker.before(TokenUsageEntity.empty(), execution);
         assertTrue(execution.getCompactionState().summaryUnavailable());
 
         conversations.rebuildContext("a summary produced by another path", execution);
@@ -279,7 +282,7 @@ class CompactionStateMachineTest {
         assertEquals(1, execution.getCompactionState().summaryAttempts());
 
         tokenizer.ratio(SAFE_RATIO);
-        checker.before(execution);
+        checker.before(TokenUsageEntity.empty(), execution);
         assertTrue(execution.getCompactionState().summaryUnavailable());
         assertEquals(1, requests.size(), "no further model call happens once summarization is closed");
     }
@@ -327,7 +330,7 @@ class CompactionStateMachineTest {
         };
         BoundaryChecker checker = checker(model, 2);
 
-        checker.before(execution);
+        checker.before(TokenUsageEntity.empty(), execution);
 
         assertEquals(List.of(1), attemptsSeenByModel,
                 "the attempt must already be counted when the compact model is invoked");
@@ -342,7 +345,11 @@ class CompactionStateMachineTest {
     private BoundaryChecker checker(ChatModel model, Integer maxSummaryAttempts) {
         conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
         ContextUsageReporter usage = new ContextUsageReporter(tokenizer, 100_000,
-                new RuntimeEventPublisher(List.of()), 1);
+                new RuntimeEventPublisher(List.of()), 1) {
+            @Override public int countInput(Execution execution, List<Message> messages) {
+                return 0; // These state-machine cases script the trigger; pruning size is tested separately.
+            }
+        };
         DefaultModelCompacter modelCompacter = new DefaultModelCompacter(model, conversations,
                 id -> Optional.empty(), usage);
         AgentConfig agentConfig = AgentConfig.builder()
@@ -354,7 +361,7 @@ class CompactionStateMachineTest {
         // The prune band backs the summarize band up: once summarization is closed the checkpoint
         // prunes, which these cases exercise indirectly through the execution state.
         DefaultContextPruner contextPruner = new DefaultContextPruner(agentConfig, usage);
-        return new BoundaryChecker(agentConfig, tokenizer, conversations, contextPruner, modelCompacter);
+        return new BoundaryChecker(agentConfig, tokenizer, conversations, contextPruner, modelCompacter, usage, null);
     }
 
     /** Compact model that always answers with an acceptable summary and records every request. */

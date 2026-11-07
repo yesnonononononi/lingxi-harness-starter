@@ -28,8 +28,8 @@ public interface Tokenizer {
      */
     String truncate(String output, int maxOutput);
 
-    double calcCurrentTokenRatio(List<Message> messages, int maxTokens);
+    double calcCurrentTokenRatio(List<Message> messages,List<ToolDefinition<?>> tools, int maxTokens);
 
 
-    ContextUsageMetric usage(List<Message> messages, Integer maxTokens);
+    ContextUsageMetric usage(List<Message> messages,List<ToolDefinition<?>> tools, Integer maxTokens);
 }

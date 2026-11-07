@@ -151,7 +151,7 @@ class LoopRegressionTest {
 
     private BoundaryChecker boundaryChecker(int maxSteps) {
         return new BoundaryChecker(AgentConfig.builder().maxIterations(maxSteps).build(),
-                tokenizer, conversations, null, null);
+                tokenizer, conversations, null, null, null, null);
     }
 
     private RuntimeProcessorTemplate runtime(ChatModel model, List<ToolExecuteResult> results,
@@ -745,6 +745,9 @@ class LoopRegressionTest {
         Execution execution = execution();
         ChatModel model = command -> {
             served.set(command.getMessages());
+            assertEquals(tokenizer.count(command.getMessages()),
+                    execution.getContextTokenBaseline().usage().getTotalTokens(),
+                    "the next request must use the baseline of the rebuilt live context");
             return response(calls.getAndIncrement() == 0);
         };
         runtime(model,
@@ -851,7 +854,7 @@ class LoopRegressionTest {
             }
         };
         AgentLoopStepRunner runner = new AgentLoopStepRunner(RuntimeContext.builder()
-                .conversationManager(conversations).toolExecutionManager(tools)
+                .conversationManager(conversations).toolExecutionManager(tools).tokenizer(tokenizer)
                 .runtimeEventPublisher(new RuntimeEventPublisher(List.of()))
                 .loopInterceptorProcessor(new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor(), observer)))
                 .runtimeBoundaryChecker(boundaryChecker(10)).maxConsecutiveCompactions(2)
@@ -916,7 +919,7 @@ class LoopRegressionTest {
         LoopInterceptor first = inputAppender("first", -800, phases);
         LoopInterceptor last = inputAppender("last", Integer.MAX_VALUE, phases);
         RuntimeBoundaryChecker checker = new RuntimeBoundaryChecker() {
-            public CheckPointResult before(Execution current) {
+            public CheckPointResult before(TokenUsageEntity baseline, Execution current) {
                 phases.add("boundary");
                 assertEquals(0, current.getModelAttempts());
                 assertTrue(current.getMessages().stream().anyMatch(message -> message.text().equals("first")));
@@ -925,7 +928,7 @@ class LoopRegressionTest {
                 return CheckPointResult.continueWith();
             }
 
-            public CheckPointResult after(Execution current) {
+            public CheckPointResult after(TokenUsageEntity baseline, Execution current) {
                 fail("A final plain-text response does not take the ordinary tool boundary");
                 return CheckPointResult.continueWith();
             }
@@ -949,12 +952,12 @@ class LoopRegressionTest {
         Execution execution = execution();
         AtomicInteger calls = new AtomicInteger();
         RuntimeBoundaryChecker checker = new RuntimeBoundaryChecker() {
-            public CheckPointResult before(Execution current) {
+            public CheckPointResult before(TokenUsageEntity baseline, Execution current) {
                 assertTrue(current.getMessages().stream().anyMatch(message -> message.text().equals("large input")));
                 return CheckPointResult.cancelWith("input exceeds context budget");
             }
 
-            public CheckPointResult after(Execution current) {
+            public CheckPointResult after(TokenUsageEntity baseline, Execution current) {
                 fail("No tool round should be entered");
                 return CheckPointResult.continueWith();
             }
@@ -1006,12 +1009,12 @@ class LoopRegressionTest {
             }
         };
         RuntimeBoundaryChecker checker = new RuntimeBoundaryChecker() {
-            public CheckPointResult before(Execution current) {
+            public CheckPointResult before(TokenUsageEntity baseline, Execution current) {
                 fail("Stopped executions must not enter blocking compaction");
                 return CheckPointResult.continueWith();
             }
 
-            public CheckPointResult after(Execution current) {
+            public CheckPointResult after(TokenUsageEntity baseline, Execution current) {
                 fail("No tool round should be entered");
                 return CheckPointResult.continueWith();
             }
@@ -1033,12 +1036,12 @@ class LoopRegressionTest {
         Execution execution = execution();
         AtomicInteger calls = new AtomicInteger();
         RuntimeBoundaryChecker checker = new RuntimeBoundaryChecker() {
-            public CheckPointResult before(Execution current) {
+            public CheckPointResult before(TokenUsageEntity baseline, Execution current) {
                 repository.requireSuspend(current.getId());
                 return CheckPointResult.cancelWith("boundary cancellation");
             }
 
-            public CheckPointResult after(Execution current) {
+            public CheckPointResult after(TokenUsageEntity baseline, Execution current) {
                 fail("No tool round should be entered");
                 return CheckPointResult.continueWith();
             }
@@ -1061,11 +1064,11 @@ class LoopRegressionTest {
         AtomicInteger calls = new AtomicInteger();
         List<String> phases = new ArrayList<>();
         RuntimeBoundaryChecker checker = new RuntimeBoundaryChecker() {
-            public CheckPointResult before(Execution current) {
+            public CheckPointResult before(TokenUsageEntity baseline, Execution current) {
                 return CheckPointResult.continueWith();
             }
 
-            public CheckPointResult after(Execution current) {
+            public CheckPointResult after(TokenUsageEntity baseline, Execution current) {
                 phases.add("boundary");
                 assertEquals(1, current.getModelAttempts());
                 assertTrue(current.getMessages().stream().anyMatch(ToolMessageEntity.class::isInstance));
@@ -1100,11 +1103,11 @@ class LoopRegressionTest {
     void promiseRoundKeepsItsCheckpointWithoutOrdinaryPostToolCompaction() {
         Execution execution = execution();
         RuntimeBoundaryChecker checker = new RuntimeBoundaryChecker() {
-            public CheckPointResult before(Execution current) {
+            public CheckPointResult before(TokenUsageEntity baseline, Execution current) {
                 return CheckPointResult.continueWith();
             }
 
-            public CheckPointResult after(Execution current) {
+            public CheckPointResult after(TokenUsageEntity baseline, Execution current) {
                 fail("A promise placeholder must remain available to the resuming application");
                 return CheckPointResult.continueWith();
             }
@@ -1151,11 +1154,11 @@ class LoopRegressionTest {
         AtomicInteger calls = new AtomicInteger();
         IllegalStateException failure = new IllegalStateException("tool round exceeds context budget");
         RuntimeBoundaryChecker checker = new RuntimeBoundaryChecker() {
-            public CheckPointResult before(Execution current) {
+            public CheckPointResult before(TokenUsageEntity baseline, Execution current) {
                 return CheckPointResult.continueWith();
             }
 
-            public CheckPointResult after(Execution current) {
+            public CheckPointResult after(TokenUsageEntity baseline, Execution current) {
                 throw failure;
             }
         };

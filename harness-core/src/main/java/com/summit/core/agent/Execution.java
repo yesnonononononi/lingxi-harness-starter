@@ -64,6 +64,15 @@ public class Execution {
     /** The token usage for the execution. */
     private TokenUsageEntity tokenUsage;
 
+    /** Runtime-only context estimate; provider-reported cumulative usage remains in tokenUsage. */
+    @JsonIgnore
+    @ToString.Exclude
+    private transient ContextTokenBaseline contextTokenBaseline;
+
+    /** The counted append-only prefix and tool snapshot; message lists are referenced, never copied. */
+    public record ContextTokenBaseline(TokenUsageEntity usage, List<Message> messages,
+                                       int messageCount, int lastMessageTokens, List<?> tools) { }
+
     /**
      * Retired copy of {@code agentRequest.mcpConfig}.
      *

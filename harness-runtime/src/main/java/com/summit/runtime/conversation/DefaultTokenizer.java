@@ -80,17 +80,17 @@ public class DefaultTokenizer implements Tokenizer {
     }
 
     @Override
-    public double calcCurrentTokenRatio(List<Message> messages, int maxTokens) {
-        int currentTokens = this.count(messages);
+    public double calcCurrentTokenRatio(List<Message> messages,List<ToolDefinition<?>> tools, int maxTokens) {
+        int currentTokens = this.count(messages,tools);
         return currentTokens / (double) maxTokens;
     }
 
     @Override
-    public ContextUsageMetric usage(List<Message> messages, Integer maxTokens) {
+    public ContextUsageMetric usage(List<Message> messages,List<ToolDefinition<?>> tools, Integer maxTokens) {
         if (maxTokens == null || maxTokens <= 0) {
             return null;
         }
-        int tokenCount = count(messages);
+        int tokenCount = count(messages,tools);
         return new ContextUsageMetric(
                 tokenCount,
                 maxTokens,

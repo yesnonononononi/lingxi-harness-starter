@@ -90,11 +90,11 @@ class DefaultTokenAuditorTest {
     void distinguishesZeroMissingDataAndFailedEstimates() {
         var tokenizer = new DefaultTokenizer() {
             @Override
-            public ContextUsageMetric usage(List<Message> messages, Integer maxTokens) {
+            public ContextUsageMetric usage(List<Message> messages, List<com.summit.core.tool.ToolDefinition<?>> tools, Integer maxTokens) {
                 if (!messages.isEmpty() && messages.getFirst() instanceof UserMessageEntity) {
                     throw new IllegalStateException("estimate failed");
                 }
-                return super.usage(messages, maxTokens);
+                return super.usage(messages, tools, maxTokens);
             }
         };
         var auditor = new DefaultTokenAuditor(tokenizer, AgentConfig.builder().maxTokens(1000).build());

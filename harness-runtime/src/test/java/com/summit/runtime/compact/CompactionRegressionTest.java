@@ -159,22 +159,22 @@ class CompactionRegressionTest {
 
         // The next checkpoints must not call the failing model again: the summarize gate is closed,
         // so the checkpoint prunes instead.
-        StubContextTokenizer ratioTokenizer = new StubContextTokenizer(0.95);
         AgentConfig config = AgentConfig.builder().maxTokens(MAX_TOKENS)
                 .squeezeThreshold(new AgentConfig.ProgressiveSqueezePolicy(
                         new AgentConfig.ModelSqueeze(0.85)))
                 .build();
-        BoundaryChecker checker = new BoundaryChecker(config, ratioTokenizer, conversations,
-                new DefaultContextPruner(config, capturingReporter(events)), compacter);
+        ContextUsageReporter boundaryUsage = capturingReporter(events);
+        BoundaryChecker checker = new BoundaryChecker(config, tokenizer, conversations,
+                new DefaultContextPruner(config, boundaryUsage), compacter, boundaryUsage, null);
         events.clear();
 
-        checker.before(execution);
+        checker.before(TokenUsageEntity.empty(), execution);
         int callsAfterFirstCheckpoint = modelCalls.size();
         assertEquals(2, callsAfterFirstCheckpoint,
                 "the direct call plus one checkpoint attempt, and no more");
-        checker.before(execution);
-        checker.before(execution);
-        checker.before(execution);
+        checker.before(TokenUsageEntity.empty(), execution);
+        checker.before(TokenUsageEntity.empty(), execution);
+        checker.before(TokenUsageEntity.empty(), execution);
 
         assertEquals(callsAfterFirstCheckpoint, modelCalls.size(),
                 "a failing summarize is never retried within the execution");

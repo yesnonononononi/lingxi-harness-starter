@@ -1,5 +1,7 @@
 package com.summit.core.conversation.message;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -8,7 +10,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 @SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
-@Getter
+@Data
 public class TokenUsageEntity {
     private int totalTokens;
     @Builder.Default
@@ -93,6 +95,7 @@ public class TokenUsageEntity {
     }
 
 
+
     public static TokenUsageEntity of(int totalTokens, int inputTokens, int outputTokens) {
         return new TokenUsageEntity(totalTokens, InputTokens.of(inputTokens), OutputTokens.of(outputTokens));
     }
@@ -115,5 +118,10 @@ public class TokenUsageEntity {
         if (this.outputTokens == null) this.outputTokens = OutputTokens.of(0);
         this.inputTokens.plus(other.inputTokens);
         this.outputTokens.plus(other.outputTokens);
+    }
+
+    @JsonIgnore
+    public boolean isEmpty(){
+        return this.getTotalTokens() <= 0;
     }
 }

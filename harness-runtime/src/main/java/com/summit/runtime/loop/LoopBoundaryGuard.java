@@ -1,33 +1,35 @@
 package com.summit.runtime.loop;
 
 import com.summit.core.agent.Execution;
-import com.summit.core.runtime.loop.CheckPointResult;
-import com.summit.core.runtime.loop.ExecutionControlSignal;
-import com.summit.core.runtime.loop.LoopResult;
-import com.summit.core.runtime.loop.RuntimeBoundaryChecker;
+import com.summit.core.conversation.message.TokenUsageEntity;
+import com.summit.core.runtime.loop.*;
+import lombok.AllArgsConstructor;
 import org.jspecify.annotations.NonNull;
 
-import java.util.Objects;
-
 /** Applies runtime limits outside the interceptor chain, with control intent taking priority. */
+@AllArgsConstructor
 final class LoopBoundaryGuard {
     private final RuntimeBoundaryChecker checker;
+    private final ContextUsageReporter usage;
 
-    LoopBoundaryGuard(RuntimeBoundaryChecker checker) {
-        this.checker = Objects.requireNonNull(checker, "runtimeBoundaryChecker");
-    }
 
-    @NonNull LoopResult beforeModel(Execution execution, ExecutionControlSignal control) {
+
+    @NonNull LoopResult beforeModel(TokenUsageEntity tokenUsageBaseLine, Execution execution, ExecutionControlSignal control) {
         LoopResult signal = resolveControlResult(control);
         if (!signal.shouldContinue()) return signal;
 
-        return resolveBoundaryResult(checker.before(execution), control);
+        tokenUsageBaseLine.setTotalTokens(usage.baseline(execution).getTotalTokens());
+
+        return resolveBoundaryResult(checker.before(tokenUsageBaseLine,execution), control);
     }
 
-    @NonNull LoopResult afterTools(Execution execution, ExecutionControlSignal control) {
+    @NonNull LoopResult afterTools(TokenUsageEntity tokenUsageBaseLine, LoopMessages incrementMessages, Execution execution, ExecutionControlSignal control) {
         LoopResult signal = resolveControlResult(control);
         if (!signal.shouldContinue()) return signal;
-        return resolveBoundaryResult(checker.after(execution), control);
+
+        tokenUsageBaseLine.setTotalTokens(usage.baseline(execution).getTotalTokens());
+
+        return resolveBoundaryResult(checker.after(tokenUsageBaseLine, execution), control);
     }
 
     private @NonNull LoopResult resolveBoundaryResult(CheckPointResult boundary, ExecutionControlSignal control) {

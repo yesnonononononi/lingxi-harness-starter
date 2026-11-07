@@ -48,19 +48,30 @@ final class StubContextTokenizer implements Tokenizer {
     }
 
     @Override
+    public int count(List<Message> messages, List<com.summit.core.tool.ToolDefinition<?>> tools) {
+        double value = scripted.get(Math.min(reads++, scripted.size() - 1));
+        return (int) Math.round(value * 100_000);
+    }
+
+    @Override
+    public int countText(String text) {
+        return 0;
+    }
+
+    @Override
     public String truncate(String output, int maxOutput) {
         return output;
     }
 
     @Override
-    public double calcCurrentTokenRatio(List<Message> messages, int maxTokens) {
+    public double calcCurrentTokenRatio(List<Message> messages, List<com.summit.core.tool.ToolDefinition<?>> tools, int maxTokens) {
         double value = scripted.get(Math.min(reads, scripted.size() - 1));
         reads++;
         return value;
     }
 
     @Override
-    public ContextUsageMetric usage(List<Message> messages, Integer maxTokens) {
+    public ContextUsageMetric usage(List<Message> messages, List<com.summit.core.tool.ToolDefinition<?>> tools, Integer maxTokens) {
         return ContextUsageMetric.of(0, maxTokens == null ? 0 : maxTokens);
     }
 }

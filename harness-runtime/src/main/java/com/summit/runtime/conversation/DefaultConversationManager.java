@@ -330,7 +330,7 @@ public class DefaultConversationManager implements ConversationManager {
         );
 
         // tokenizer needs to calc the result tokens, if it exceeds the acceptable limit, then the policy further needs to compact
-        double ratio = tokenizer.calcCurrentTokenRatio(result, maxTokens);
+        double ratio = tokenizer.calcCurrentTokenRatio(result, List.of(), maxTokens);
 
         if (ratio >= TAIL_COMPACT_THRESHOLD) {
             return furtherCompact(result);

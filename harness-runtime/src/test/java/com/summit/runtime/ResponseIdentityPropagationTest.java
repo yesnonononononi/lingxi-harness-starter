@@ -294,11 +294,12 @@ class ResponseIdentityPropagationTest {
             DefaultChatModelInvoker invoker = new DefaultChatModelInvoker(
                     modelRequest -> response(calls.getAndIncrement() == 0));
             context = RuntimeContext.builder().conversationManager(conversations).workspace(workspace())
+                    .tokenizer(new DefaultTokenizer())
                     .responseIdGenerator(generator)
                     .runtimeEventPublisher(publisher).toolExecutionManager(tools)
                     .loopInterceptorProcessor(new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor())))
                     .runtimeBoundaryChecker(new BoundaryChecker(AgentConfig.builder().maxIterations(4).build(),
-                            new DefaultTokenizer(), conversations, null, null))
+                            new DefaultTokenizer(), conversations, null, null, null, null))
                     .invoker(commands -> {
                         assertEquals(completedResponseId.get(), execution.getLastResponseId(),
                                 "The loop must not allocate an attempt before the invoker consumes its command");

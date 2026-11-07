@@ -1,5 +1,7 @@
 package com.summit.runtime.compact;
 
+import com.summit.core.conversation.message.TokenUsageEntity;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.CompactionState;
@@ -268,17 +270,17 @@ class DefaultContextPrunerTest {
         AgentConfig config = AgentConfig.builder().maxTokens(2_000).build();
         DefaultContextPruner pruner = new DefaultContextPruner(config, reporter(2_000));
         BoundaryChecker checker = new BoundaryChecker(config, tokenizer,
-                new DefaultConversationManager(id -> Optional.empty()), pruner, null);
+                new DefaultConversationManager(id -> Optional.empty()), pruner, null, null, null);
         Execution execution = history("{}", "old output".repeat(2_000), "tiny latest result");
 
-        checker.before(execution);
+        checker.before(TokenUsageEntity.empty(), execution);
         assertEquals(1, execution.getCompactionState().pruneGeneration());
         findTool(execution, "latest").setToolOutput("large former latest result".repeat(1_000));
         execution.getMessages().add(AiMessageEntity.builder().text("next finding")
                 .toolCalls(List.of(call("next", "{}"))).build());
         execution.getMessages().add(tool("next", "new latest", false, 0));
 
-        checker.before(execution);
+        checker.before(TokenUsageEntity.empty(), execution);
 
         assertTrue(tokenizer.count(execution.getMessages()) <= 2_000);
         assertFalse(hasTool(execution, "latest"));
@@ -298,10 +300,10 @@ class DefaultContextPrunerTest {
             throw new IllegalStateException("offline model failure");
         }, conversations, id -> Optional.empty(), usage);
         BoundaryChecker checker = new BoundaryChecker(config, tokenizer, conversations,
-                new DefaultContextPruner(config, usage), compacter);
+                new DefaultContextPruner(config, usage), compacter, null, null);
         Execution execution = history("{}", "old output", "latest output".repeat(1_000));
 
-        assertThrows(TokenBudgetExceededException.class, () -> checker.before(execution));
+        assertThrows(TokenBudgetExceededException.class, () -> checker.before(TokenUsageEntity.empty(), execution));
 
         assertEquals(1, modelCalls.get());
         assertTrue(execution.getCompactionState().summaryUnavailable());
@@ -394,10 +396,11 @@ class DefaultContextPrunerTest {
         AgentConfig config = AgentConfig.builder().maxTokens(1_000).build();
         DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
         BoundaryChecker checker = new BoundaryChecker(config, tokenizer, conversations,
-                new DefaultContextPruner(config, reporter(1_000)), null);
+                new DefaultContextPruner(config, reporter(1_000)), null, null, null);
 
         RuntimeContext context = RuntimeContext.builder()
                 .conversationManager(conversations)
+                .tokenizer(tokenizer).usage(reporter(1_000))
                 .runtimeBoundaryChecker(checker)
                 .loopInterceptorProcessor(new DefaultLoopInterceptorProcessor(List.of()))
                 .invoker(new DefaultChatModelInvoker(request -> {
@@ -581,11 +584,11 @@ class DefaultContextPrunerTest {
         }, conversations, ContextAttachmentProvider.NONE, usage);
 
         BoundaryChecker checker = new BoundaryChecker(config, tokenizer, conversations,
-                new DefaultContextPruner(config, usage), summaries);
+                new DefaultContextPruner(config, usage), summaries, null, null);
         Execution execution = execution(system("system"), user("protected input".repeat(1_000)),
                 AiMessageEntity.builder().text("latest finding").build());
 
-        assertThrows(TokenBudgetExceededException.class, () -> checker.before(execution));
+        assertThrows(TokenBudgetExceededException.class, () -> checker.before(TokenUsageEntity.empty(), execution));
 
         assertEquals(2, summaryCalls.get());
         assertEquals(2, execution.getCompactionState().summaryAttempts());

@@ -89,7 +89,7 @@ class ExecutionRuntimeConfigTest {
             context.registerBean(AgentConfig.class, () -> AgentConfig.builder().maxTokens(100).build());
             context.registerBean(Tokenizer.class, () -> new DefaultTokenizer() {
                 @Override
-                public int count(List<Message> messages) {
+                public int count(List<Message> messages, List<com.summit.core.tool.ToolDefinition<?>> tools) {
                     return messages.isEmpty() ? 0 : 17;
                 }
             });

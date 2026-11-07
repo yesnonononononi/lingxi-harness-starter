@@ -2,23 +2,21 @@ package com.summit.runtime.loop;
 
 import com.summit.core.agent.CompactionState;
 import com.summit.core.agent.Execution;
-import com.summit.core.compact.ContextCompactRequest;
-import com.summit.core.compact.ContextCompacter;
-import com.summit.core.compact.ContextSqueezeRequest;
-import com.summit.core.compact.Tokenizer;
+import com.summit.core.compact.*;
 import com.summit.core.conversation.ConversationManager;
-import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.exception.MaxStepsExceededException;
 import com.summit.core.runtime.loop.CheckPointResult;
 import com.summit.core.runtime.loop.ContextUsageReporter;
 import com.summit.core.runtime.loop.RuntimeBoundaryChecker;
+import com.summit.core.tool.ToolRegistry;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.compact.DefaultContextPruner;
 import com.summit.runtime.compact.DefaultModelCompacter;
+import lombok.Builder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.List;
 
 
 /**
@@ -45,28 +43,30 @@ import java.util.List;
  */
 @RequiredArgsConstructor
 @Slf4j
+@Builder
 public class BoundaryChecker implements RuntimeBoundaryChecker {
 
     private final AgentConfig agentConfig;
     private final Tokenizer tokenizer;
     private final ConversationManager conversationManager;
-    /** Local history pruning (prune band). */
+    /**
+     * Local history pruning (prune band).
+     */
     private final DefaultContextPruner contextPruner;
-    /** Model deep compaction (summarize band). */
+    /**
+     * Model deep compaction (summarize band).
+     */
     private final DefaultModelCompacter modelCompacter;
     private final ContextUsageReporter usage;
-
-    public BoundaryChecker(AgentConfig agentConfig, Tokenizer tokenizer, ConversationManager conversationManager,
-                           DefaultContextPruner contextPruner, DefaultModelCompacter modelCompacter) {
-        this(agentConfig, tokenizer, conversationManager, contextPruner, modelCompacter, null);
-    }
+    private final ToolRegistry toolRegistry;
 
 
     @Override
-    public CheckPointResult before(Execution execution) {
+    public CheckPointResult before(TokenUsageEntity baseLine, Execution execution) {
         checkModelAttempt(execution);
         ImageWindowTrimmer.trim(execution, agentConfig.imageWindow());
-        compactIfNeeded(execution);
+        baseLine.setTotalTokens(usageReporter().baseline(execution).getTotalTokens());
+        compactIfNeeded(baseLine, execution, false);
         return CheckPointResult.continueWith();
     }
 
@@ -78,9 +78,38 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
     }
 
     @Override
-    public CheckPointResult after(Execution execution) {
-        compactIfNeeded(execution);
+    public CheckPointResult after(TokenUsageEntity baseLine, Execution execution) {
+        baseLine.setTotalTokens(usageReporter().baseline(execution).getTotalTokens());
+        compactIfNeeded(baseLine, execution, false);
         return CheckPointResult.continueWith();
+    }
+
+
+    /**
+     * Runs the band this checkpoint decided on.
+     *
+     * <p>A summarize attempt that leaves summarization closed — because it failed, or because it
+     * spent the last attempt without getting under the threshold — hands the checkpoint over to the
+     * prune band immediately: waiting for the next checkpoint would leave the oversized context in
+     * place for another full model round.</p>
+     */
+    private void compactIfNeeded(TokenUsageEntity tokenUsageBaseLine, Execution execution, boolean reCalculate) {
+        ContextSqueezeRequest request = shouldSqueezeContext(tokenUsageBaseLine, execution, reCalculate);
+        switch (request.band()) {
+            case NONE -> {
+                return;
+            }
+            case SUMMARIZE -> {
+                boolean summarized;
+                do {
+                    summarized = compactBySummary(tokenUsageBaseLine, execution, request);
+                    // A usable summary may still exceed the next model request's hard input cap.
+                } while (summarized && usageReporter().baseline(execution).getTotalTokens() > agentConfig.maxTokens());
+                if (!summarized)
+                    compactByPrune(execution, request);
+            }
+            case PRUNE -> compactByPrune(execution, request);
+        }
     }
 
     /**
@@ -90,12 +119,18 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
      * window has room; once it is closed, local pruning handles each oversized checkpoint and
      * re-evaluates the latest user turn independently of the previously recorded stage.</p>
      *
-     * @param conversationManager the manager holding the execution's context
-     * @param execution            the execution being checked
+     * @param tokenUsageBaseLine the  volumes of the execution's context
+     * @param execution          the execution being checked
      * @return the band to run; never {@code null}
      */
-    public ContextSqueezeRequest shouldSqueezeContext(ConversationManager conversationManager, Execution execution) {
-        double ratio = tokenRatio(execution);
+    public ContextSqueezeRequest shouldSqueezeContext(TokenUsageEntity tokenUsageBaseLine, Execution execution, boolean reCalculate) {
+        double ratio;
+
+        if (reCalculate) {
+            ratio = usageReporter().rebuildBaseline(execution).getTotalTokens() / (double) agentConfig.maxTokens();
+        } else {
+            ratio = (tokenUsageBaseLine.getTotalTokens()) / (double) agentConfig.maxTokens();
+        }
         if (ratio < modelThreshold()) {
             return ContextSqueezeRequest.none(); // under the threshold: back in the safe zone
         }
@@ -110,35 +145,6 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
     }
 
     /**
-     * Runs the band this checkpoint decided on.
-     *
-     * <p>A summarize attempt that leaves summarization closed — because it failed, or because it
-     * spent the last attempt without getting under the threshold — hands the checkpoint over to the
-     * prune band immediately: waiting for the next checkpoint would leave the oversized context in
-     * place for another full model round.</p>
-     */
-    private void compactIfNeeded(Execution execution) {
-        ContextSqueezeRequest request = shouldSqueezeContext(conversationManager, execution);
-        switch (request.band()) {
-            case NONE -> {
-                return;
-            }
-            case SUMMARIZE -> {
-                while (compactBySummary(execution, request)) {
-                    List<Message> messages = conversationManager.messages(execution);
-                    int input = usage == null ? tokenizer.count(messages) : usage.countInput(execution, messages);
-                    if (input <= agentConfig.maxTokens()) {
-                        return;
-                    }
-                }
-
-                compactByPrune(execution, request);
-            }
-            case PRUNE -> compactByPrune(execution, request);
-        }
-    }
-
-    /**
      * Runs the summarize band under the attempt gate.
      *
      * <p>Every exit path leaves the execution's compaction state consistent: exactly one attempt is
@@ -147,9 +153,9 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
      * execution so no further checkpoint pays for the same failing call.</p>
      *
      * @return {@code true} when the checkpoint is done; {@code false} when summarization just became
-     *         unavailable and the prune band should take over in this same checkpoint
+     * unavailable and the prune band should take over in this same checkpoint
      */
-    private boolean compactBySummary(Execution execution, ContextSqueezeRequest request) {
+    private boolean compactBySummary(TokenUsageEntity baseLine, Execution execution, ContextSqueezeRequest request) {
         CompactionState state = conversationManager.compactionState(execution);
         if (state.summaryUnavailable()) {
             log.info("[context-compact] summarization is closed for this execution, model compaction "
@@ -186,11 +192,16 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
         // Re-read the state: the rebuild just advanced the summary generation, and that write must
         // not be lost by overwriting it with the pre-call snapshot.
         CompactionState afterRebuild = conversationManager.compactionState(execution);
-        double ratio = tokenRatio(execution);
-        if (ratio < modelThreshold()) {
+
+        ContextUsageMetric usageMetric = ContextUsageMetric.of(
+                usageReporter().baseline(execution).getTotalTokens(), agentConfig.maxTokens());
+
+        double ratio = usageMetric.ratio();
+
+        if (ratio < modelThreshold() && usageMetric.tokenCount() <= agentConfig.maxTokens()) {
             execution.setCompactionState(afterRebuild.summaryWindowReset());
             log.info("[context-compact] model compaction brought the context back under the threshold, "
-                    + "attempts reset: ratio={}, attempts={}, executionId={}",
+                            + "attempts reset: ratio={}, attempts={}, executionId={}",
                     ratio, afterRebuild.summaryAttempts(), execution.getId());
             return true;
         }
@@ -199,8 +210,7 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
                     + ") is spent and the rebuilt context is still at ratio=" + ratio);
             return false;
         }
-        log.info("[context-compact] chained summary accepted, the next checkpoint compresses this "
-                        + "summary again: ratio={}, attempts={}/{}, executionId={}",
+        log.info("[context-compact] further summarization is available: ratio={}, attempts={}/{}, executionId={}",
                 ratio, afterRebuild.summaryAttempts(), attemptBudget, execution.getId());
         return true;
     }
@@ -238,19 +248,22 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
                 + "checkpoints will not call the compact model: executionId={}", reason, execution.getId());
     }
 
-    /** Token ratio of the current context against the configured cap. */
-    private double tokenRatio(Execution execution) {
-        List<Message> messages = conversationManager.messages(execution);
-        return usage == null ? tokenizer.calcCurrentTokenRatio(messages, agentConfig.maxTokens())
-                : usage.inputRatio(execution, messages, agentConfig.maxTokens());
-    }
 
-    /** Effective model threshold: the configured policy value, or the fallback. */
+    /**
+     * Effective model threshold: the configured policy value, or the fallback.
+     */
     private double modelThreshold() {
         return agentConfig.compactionThreshold();
     }
 
-    /** Summarize attempts allowed per trigger window; a single attempt when unconfigured. */
+    private ContextUsageReporter usageReporter() {
+        return usage == null ? new ContextUsageReporter(tokenizer, agentConfig.maxTokens(), null, 1,
+                () -> toolRegistry) : usage;
+    }
+
+    /**
+     * Summarize attempts allowed per trigger window; a single attempt when unconfigured.
+     */
     private int maxSummaryAttempts() {
         return agentConfig.summaryAttemptBudget();
     }
@@ -267,4 +280,6 @@ public class BoundaryChecker implements RuntimeBoundaryChecker {
         Integer maxIterations = agentConfig.maxIterations();
         return maxIterations == null ? Integer.MAX_VALUE : Math.max(maxIterations, 1);
     }
+
+
 }

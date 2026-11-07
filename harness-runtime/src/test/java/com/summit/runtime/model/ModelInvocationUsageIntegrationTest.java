@@ -477,7 +477,7 @@ class ModelInvocationUsageIntegrationTest {
                     .loopInterceptorProcessor(new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor())))
                     .runtimeLifeStyleManager(lifecycle)
                     .runtimeBoundaryChecker(new BoundaryChecker(AgentConfig.builder().maxIterations(4).build(),
-                            tokenizer, conversations, null, null))
+                            tokenizer, conversations, null, null, null, null))
                     .usage(new ContextUsageReporter(tokenizer, 1_024_000, events, 1))
                     .runtimeEventPublisher(events).toolExecutionManager(tools)
                     .responseIdGenerator(previous -> Integer.toString(previous == null ? 1 : Integer.parseInt(previous) + 1))

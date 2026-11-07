@@ -1,5 +1,6 @@
 package com.summit.core.tool;
 
+import com.summit.core.agent.Execution;
 import lombok.ToString;
 
 import java.io.Serializable;
@@ -84,5 +85,18 @@ public class ToolRegistry {
         }
         tools.put(definition.name(), definition);
         toolDefinitionList.add(definition);
+    }
+
+
+    public List<ToolDefinition<?>> registeredTools(Execution execution){
+        if (execution == null) {
+            return List.of();
+        }
+        List<String> allowed = execution.getAgentRequest().getToolList();
+        if (allowed == null || allowed.isEmpty()) {
+            return List.of();
+        }
+        return List.copyOf(this.getToolDefinitionList().stream()
+                .filter(tool -> tool.allowedFor(allowed)).toList());
     }
 }
