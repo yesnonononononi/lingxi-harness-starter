@@ -4,6 +4,7 @@ import com.summit.core.agent.Agent;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
+import com.summit.core.conversation.event.AgentAuditRecordedEvent;
 import com.summit.core.conversation.event.ExecutionCancelledEvent;
 import com.summit.core.conversation.event.ExecutionErrorEvent;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
@@ -13,6 +14,7 @@ import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.runtime.loop.ApprovalOutcome;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.loop.ExecutionRepository;
+import com.summit.runtime.audit.ExecutionTokenAuditRecorder;
 import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
 import org.junit.jupiter.api.Test;
 
@@ -177,9 +179,15 @@ class DefaultExecutionControllerTest {
             public void onExecutionError(ExecutionErrorEvent event) {
                 notifications.add("failed:" + event.executionId());
             }
+
+            @Override
+            public void onAuditRecorded(AgentAuditRecordedEvent event) {
+                notifications.add("audit:" + event.executionId());
+            }
         }));
         DefaultExecutionController controller = new DefaultExecutionController(
-                () -> agentThatExecutes(new AtomicInteger()), repository, events, new DefaultRuntimeLifeStyleManager(events));
+                () -> agentThatExecutes(new AtomicInteger()), repository, events,
+                new DefaultRuntimeLifeStyleManager(events, new ExecutionTokenAuditRecorder(messages -> null, events)));
 
         Execution cancelled = Execution.builder().agentRequest(AgentRequest.builder().build()).id("cancelled")
                 .executionState(ExecutionState.SUSPENDED).build();
@@ -187,22 +195,22 @@ class DefaultExecutionControllerTest {
         controller.finishApproval(cancelled, ApprovalOutcome.CANCELLED);
         assertTrue(notifications.isEmpty());
         repository.commit();
-        assertEquals(List.of("cancel:cancelled"), notifications);
+        assertEquals(List.of("cancel:cancelled", "audit:cancelled"), notifications);
 
         Execution rolledBack = Execution.builder().agentRequest(AgentRequest.builder().build()).id("rolled-back")
                 .executionState(ExecutionState.SUSPENDED).build();
         controller.beginApproval(rolledBack);
         controller.failApproval(rolledBack, "failed");
         repository.rollback();
-        assertEquals(List.of("cancel:cancelled"), notifications);
+        assertEquals(List.of("cancel:cancelled", "audit:cancelled"), notifications);
 
         Execution failed = Execution.builder().agentRequest(AgentRequest.builder().build()).id("failed")
                 .executionState(ExecutionState.SUSPENDED).build();
         controller.beginApproval(failed);
         controller.failApproval(failed, "command result uncertain");
-        assertEquals(List.of("cancel:cancelled"), notifications);
+        assertEquals(List.of("cancel:cancelled", "audit:cancelled"), notifications);
         repository.commit();
-        assertEquals(List.of("cancel:cancelled", "failed:failed"), notifications);
+        assertEquals(List.of("cancel:cancelled", "audit:cancelled", "failed:failed", "audit:failed"), notifications);
     }
 
     @Test

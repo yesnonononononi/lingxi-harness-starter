@@ -11,6 +11,8 @@ import com.summit.core.runtime.loop.*;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.tool.ToolExecutionManager;
 import com.summit.runtime.agent.AgentConfig;
+import com.summit.runtime.audit.DefaultTokenAuditor;
+import com.summit.runtime.audit.ExecutionTokenAuditRecorder;
 import com.summit.runtime.compact.DefaultContextPruner;
 import com.summit.runtime.compact.DefaultModelCompacter;
 import com.summit.runtime.conversation.DefaultRuntimeFactory;
@@ -20,9 +22,11 @@ import com.summit.runtime.loop.DefaultLoopInterceptorProcessor;
 import com.summit.runtime.loop.DefaultRuntimeLifeStyleManager;
 import com.summit.runtime.loop.LoopInterceptorFactory;
 import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 
 import java.util.List;
@@ -101,8 +105,16 @@ public class ExecutionRuntimeConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    public RuntimeLifeStyleManager runtimeLifeStyleListener(RuntimeEventPublisher runtimeEventPublisher) {
-        return new DefaultRuntimeLifeStyleManager(runtimeEventPublisher);
+    public RuntimeLifeStyleManager runtimeLifeStyleListener(RuntimeEventPublisher runtimeEventPublisher,
+                                                           ObjectProvider<ExecutionTokenAuditRecorder> tokenAuditRecorder) {
+        return new DefaultRuntimeLifeStyleManager(runtimeEventPublisher, tokenAuditRecorder.getIfAvailable());
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "lingxi.agent.runtime.token-audit", name = "enabled", havingValue = "true")
+    public ExecutionTokenAuditRecorder executionTokenAuditRecorder(Tokenizer tokenizer, AgentConfig agentConfig,
+                                                                   RuntimeEventPublisher runtimeEventPublisher) {
+        return new ExecutionTokenAuditRecorder(new DefaultTokenAuditor(tokenizer, agentConfig), runtimeEventPublisher);
     }
 
     @Bean

@@ -75,5 +75,7 @@ public interface RuntimeListener {
 
     default  void onInvokeRetry(InvokeRetryEvent event){};
 
+    default void onAuditRecorded(AgentAuditRecordedEvent event) {
+    }
 
 }

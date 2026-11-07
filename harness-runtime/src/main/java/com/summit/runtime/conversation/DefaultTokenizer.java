@@ -30,6 +30,12 @@ public class DefaultTokenizer implements Tokenizer {
     }
 
     @Override
+    public int countText(String text) {
+        if(text == null || text.isEmpty())return 0;
+        return this.tokenEstimator == null ? this.estimateTokenCountFallbackOfText(text) : this.tokenEstimator.estimateText(text);
+    }
+
+    @Override
     public int count(List<Message> messages, List<ToolDefinition<?>> tools) {
         boolean emptyHistory = messages == null || messages.isEmpty();
         if (emptyHistory && (tools == null || tools.isEmpty())) return 0;
@@ -44,27 +50,7 @@ public class DefaultTokenizer implements Tokenizer {
         return res;
     }
 
-    private int estimateTokenCountFallback(Message message) {
-        if (message instanceof SystemMessageEntity systemMessage) {
-            return systemMessage.text().length() / 3;
-        } else if (message instanceof UserMessageEntity userMessage) {
-            return userMessage.text().length() / 3;
-        } else if (message instanceof AiMessageEntity aiMessage) {
-            int res = 0;
-            if (aiMessage.getToolCalls() != null) {
-                for (var toolCallRequest : aiMessage.getToolCalls()) {
-                    res += (toolCallRequest.arguments() == null ? 0 : toolCallRequest.arguments().length()) / 3;
-                    res += (toolCallRequest.name() == null ? 0 : toolCallRequest.name().length()) / 3;
-                }
-            }
-            res += (aiMessage.text() == null ? 0 : aiMessage.text().length()) / 3;
-            res += (aiMessage.getThinking() == null ? 0 : aiMessage.getThinking().length()) / 3;
-            return res;
-        } else if (message instanceof ToolMessageEntity toolMessage) {
-            return toolMessage.text().length() / 3;
-        }
-        return 0;
-    }
+
 
     @Override
     public String truncate(String output, int maxOutput) {
@@ -104,11 +90,39 @@ public class DefaultTokenizer implements Tokenizer {
         if (maxTokens == null || maxTokens <= 0) {
             return null;
         }
+        int tokenCount = count(messages);
         return new ContextUsageMetric(
-                count(messages),
+                tokenCount,
                 maxTokens,
-                calcCurrentTokenRatio(messages, maxTokens));
+                tokenCount / (double) maxTokens);
     }
 
+
+    private int estimateTokenCountFallback(Message message) {
+        if (message instanceof SystemMessageEntity systemMessage) {
+            return systemMessage.text().length() / 3;
+        } else if (message instanceof UserMessageEntity userMessage) {
+            return userMessage.text().length() / 3;
+        } else if (message instanceof AiMessageEntity aiMessage) {
+            int res = 0;
+            if (aiMessage.getToolCalls() != null) {
+                for (var toolCallRequest : aiMessage.getToolCalls()) {
+                    res += (toolCallRequest.arguments() == null ? 0 : toolCallRequest.arguments().length()) / 3;
+                    res += (toolCallRequest.name() == null ? 0 : toolCallRequest.name().length()) / 3;
+                }
+            }
+            res += (aiMessage.text() == null ? 0 : aiMessage.text().length()) / 3;
+            res += (aiMessage.getThinking() == null ? 0 : aiMessage.getThinking().length()) / 3;
+            return res;
+        } else if (message instanceof ToolMessageEntity toolMessage) {
+            return toolMessage.text().length() / 3;
+        }
+        return 0;
+    }
+
+    private int estimateTokenCountFallbackOfText(String text){
+        if(text == null || text.isEmpty())return 0;
+        return text.length() / 3;
+    }
 
 }

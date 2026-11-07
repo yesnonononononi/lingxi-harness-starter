@@ -69,9 +69,11 @@ public class DefaultExecutionController implements ExecutionControl {
         if (outcome == ApprovalOutcome.CANCELLED) {
             String executionId = execution.getId();
             TokenInfo tokenInfo = TokenInfo.from(execution.getTokenUsage());
-            executionRepository.afterCommit(() -> runtimeEvents.onExecutionCancelled(
-                    new ExecutionCancelledEvent(executionId, tokenInfo,
-                            execution.eventMetaData())));
+            executionRepository.afterCommit(() -> {
+                runtimeEvents.onExecutionCancelled(new ExecutionCancelledEvent(executionId, tokenInfo,
+                        execution.eventMetaData()));
+                runtimeLifeStyleManager.recordTokenAudit(execution);
+            });
         }
     }
 

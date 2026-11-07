@@ -167,5 +167,14 @@ public class RuntimeEventPublisher {
         });
     }
 
+    public void onAuditRecorded(AgentAuditRecordedEvent event) {
+        listeners.forEach(listener -> {
+            try {
+                listener.onAuditRecorded(event);
+            } catch (Exception e) {
+                log.error("Error occurred while publishing audit recorded event, listenerId:{}", listener.id(), e);
+            }
+        });
+    }
 
 }

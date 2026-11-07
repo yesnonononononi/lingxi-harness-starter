@@ -8,6 +8,9 @@ import java.util.List;
 public interface Tokenizer {
      int count(List<Message> messages);
 
+     default int countText(String text) {
+          return text == null ? 0 : text.length() / 3;
+     }
      default int count(List<Message> messages, List<ToolDefinition<?>> tools) {
           return count(messages);
      }

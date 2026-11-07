@@ -6,12 +6,16 @@ import com.summit.core.agent.ExecutionState;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.api.ToolCallRequest;
+import com.summit.core.conversation.event.AgentAuditRecordedEvent;
+import com.summit.core.conversation.event.AgentTokenAuditRecordedEvent;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.conversation.event.TokenInfo;
 import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.model.chat.ChatModel;
+import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.runtime.loop.ContextUsageReporter;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.loop.ExecutionRepository;
@@ -23,6 +27,8 @@ import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolExecutionManager;
 import com.summit.core.tool.ToolRegistry;
 import com.summit.runtime.agent.AgentConfig;
+import com.summit.runtime.audit.DefaultTokenAuditor;
+import com.summit.runtime.audit.ExecutionTokenAuditRecorder;
 import com.summit.runtime.context.RuntimeContext;
 import com.summit.runtime.conversation.DefaultConversationManager;
 import com.summit.runtime.conversation.DefaultTokenizer;
@@ -42,6 +48,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class LoopCheckpointPolicyTest {
     private final RecordingRepository repository = new RecordingRepository();
+    private final List<AgentTokenAuditRecordedEvent> audits = new ArrayList<>();
 
     @Test
     void ordinaryRoundsDoNotPersistIntermediateSnapshots() {
@@ -55,6 +62,13 @@ class LoopCheckpointPolicyTest {
                 "Ordinary committed rounds must not force snapshot writes");
         assertEquals(3, repository.attempts.getLast());
         assertEquals(ExecutionState.COMPLETED, repository.states.getLast());
+        assertNotNull(result.getContextUsageMetric());
+        assertEquals(1, audits.size());
+        var audit = audits.getFirst();
+        assertEquals(result.getId(), audit.executionId());
+        assertEquals(ExecutionState.COMPLETED, audit.executionState());
+        assertEquals(TokenInfo.from(result.getTokenUsage()), audit.tokenInfo());
+        assertNotNull(audit.contextAudit());
     }
 
     @Test
@@ -111,6 +125,10 @@ class LoopCheckpointPolicyTest {
         assertEquals(expected, repository.states.getLast());
         if (expected == ExecutionState.SUSPENDED) {
             assertEquals(expected, repository.findById(result.getId()).orElseThrow().getExecutionState());
+            assertTrue(audits.isEmpty());
+        } else {
+            assertEquals(1, audits.size());
+            assertEquals(expected, audits.getFirst().executionState());
         }
     }
 
@@ -127,6 +145,8 @@ class LoopCheckpointPolicyTest {
         assertEquals(1, calls.get());
         assertEquals(ExecutionState.FAILED, current.getExecutionState());
         assertEquals(ExecutionState.FAILED, repository.states.getLast());
+        assertEquals(1, audits.size());
+        assertEquals(ExecutionState.FAILED, audits.getFirst().executionState());
     }
 
     @Test
@@ -150,9 +170,16 @@ class LoopCheckpointPolicyTest {
     }
 
     private RuntimeProcessorTemplate runtime(ChatModel model, LoopInterceptor application) {
-        RuntimeEventPublisher events = new RuntimeEventPublisher(List.of());
-        DefaultRuntimeLifeStyleManager lifecycle = new DefaultRuntimeLifeStyleManager(events);
+        RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(new RuntimeListener() {
+            @Override
+            public void onAuditRecorded(AgentAuditRecordedEvent event) {
+                audits.add(assertInstanceOf(AgentTokenAuditRecordedEvent.class, event));
+            }
+        }));
         DefaultTokenizer tokenizer = new DefaultTokenizer();
+        AgentConfig config = AgentConfig.builder().maxIterations(5).build();
+        DefaultRuntimeLifeStyleManager lifecycle = new DefaultRuntimeLifeStyleManager(events,
+                new ExecutionTokenAuditRecorder(new DefaultTokenAuditor(tokenizer, config), events));
         DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
         ToolExecutionManager tools = new ToolExecutionManager() {
             public List<ToolExecuteResult> execute(ToolExecuteCommand command) {
@@ -166,8 +193,7 @@ class LoopCheckpointPolicyTest {
                 .runtimeLifeStyleManager(lifecycle).runtimeEventPublisher(events)
                 .loopInterceptorProcessor(new DefaultLoopInterceptorProcessor(
                         List.of(new DefaultLoopInterceptor(), application)))
-                .runtimeBoundaryChecker(new BoundaryChecker(AgentConfig.builder().maxIterations(5).build(),
-                        tokenizer, conversations, null, null))
+                .runtimeBoundaryChecker(new BoundaryChecker(config, tokenizer, conversations, null, null))
                 .toolExecutionManager(tools).invoker(new DefaultChatModelInvoker(model))
                 .usage(new ContextUsageReporter(tokenizer, 100_000, events, 1)).build());
     }

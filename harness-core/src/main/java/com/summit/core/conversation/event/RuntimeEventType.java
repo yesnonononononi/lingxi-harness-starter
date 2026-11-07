@@ -121,7 +121,9 @@ public enum RuntimeEventType {
         public String type() {
             return "INVOKE_RETRY";
         }
-    };
+    },
+
+    AGENT_TOKEN_AUDIT_RECORDED;
 
 
 

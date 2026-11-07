@@ -4,15 +4,20 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
+import com.summit.core.compact.Tokenizer;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.conversation.api.ResponseIdGenerator;
+import com.summit.core.conversation.event.AgentAuditRecordedEvent;
+import com.summit.core.conversation.event.AgentTokenAuditRecordedEvent;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.json.ExecutionJson;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.core.model.RequestModelInvokerFactory;
 import com.summit.core.runtime.RuntimeFactory;
+import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.runtime.loop.*;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.workspace.WorkspaceResolver;
@@ -21,7 +26,9 @@ import com.summit.harness.springbootautoconfigure.config.agent.AgentConfiguratio
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.agent.ChatAgent;
 import com.summit.runtime.agent.DefaultChatAgent;
+import com.summit.runtime.audit.ExecutionTokenAuditRecorder;
 import com.summit.runtime.conversation.DefaultRuntimeFactory;
+import com.summit.runtime.conversation.DefaultTokenizer;
 import com.summit.runtime.conversation.SnowflakeResponseIdGenerator;
 import com.summit.runtime.loop.DefaultExecutionController;
 import com.summit.runtime.loop.LoopInterceptorFactory;
@@ -66,6 +73,48 @@ class ExecutionRuntimeConfigTest {
         }
     }
 
+    @Test
+    void tokenAuditRecorderIsDisabledByDefault() {
+        try (AnnotationConfigApplicationContext context = responseGeneratorContext()) {
+            context.refresh();
+            assertTrue(context.getBeansOfType(ExecutionTokenAuditRecorder.class).isEmpty());
+        }
+    }
+
+    @Test
+    void enablingTokenAuditUsesTheConfiguredTokenizerAndPublishesAnAudit() {
+        try (AnnotationConfigApplicationContext context = responseGeneratorContext()) {
+            context.getEnvironment().getPropertySources().addFirst(new MapPropertySource("audit",
+                    Map.of("lingxi.agent.runtime.token-audit.enabled", "true")));
+            context.registerBean(AgentConfig.class, () -> AgentConfig.builder().maxTokens(100).build());
+            context.registerBean(Tokenizer.class, () -> new DefaultTokenizer() {
+                @Override
+                public int count(List<Message> messages) {
+                    return messages.isEmpty() ? 0 : 17;
+                }
+            });
+            List<AgentAuditRecordedEvent> events = new ArrayList<>();
+            context.registerBean(RuntimeListener.class, () -> new RuntimeListener() {
+                @Override
+                public void onAuditRecorded(AgentAuditRecordedEvent event) {
+                    events.add(event);
+                }
+            });
+            context.refresh();
+
+            Execution execution = Execution.create(AgentRequest.builder()
+                    .messages(List.of(UserMessageEntity.from("task"))).build(), "a-1");
+            execution.startChecked();
+            execution.completeChecked();
+            context.getBean(RuntimeLifeStyleManager.class).onComplete(execution);
+
+            var event = assertInstanceOf(AgentTokenAuditRecordedEvent.class, events.getFirst());
+            assertEquals(1, events.size());
+            assertEquals(17, event.contextAudit().userTokens().getTokenMeta());
+            assertEquals(0.17, event.contextAudit().userTokens().getRatio());
+        }
+    }
+
     private AnnotationConfigApplicationContext responseGeneratorContext() {
         AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
         context.registerBean(LoopInterceptorFactory.class, () -> new LoopInterceptorFactory(Map.of()));
@@ -87,7 +136,8 @@ class ExecutionRuntimeConfigTest {
             context.registerBean(ExecutionRepository.class, () -> new InMemoryActiveExecutionRegistry());
             context.registerBean(RuntimeEventPublisher.class, () -> new RuntimeEventPublisher(List.of()));
             context.registerBean(RuntimeLifeStyleManager.class,
-                    () -> configuration.runtimeLifeStyleListener(context.getBean(RuntimeEventPublisher.class)));
+                    () -> configuration.runtimeLifeStyleListener(context.getBean(RuntimeEventPublisher.class),
+                            context.getBeanProvider(ExecutionTokenAuditRecorder.class)));
             context.registerBean(RuntimeFactory.class, () -> DefaultRuntimeFactory.builder()
                     .executionControl(context.getBean(ExecutionControl.class)).build());
             context.registerBean("chatModelConfig", ModelConfig.class,

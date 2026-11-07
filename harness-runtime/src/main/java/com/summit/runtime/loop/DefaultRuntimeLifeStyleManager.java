@@ -3,6 +3,7 @@ package com.summit.runtime.loop;
 import com.summit.core.agent.Execution;
 import com.summit.core.conversation.event.*;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
+import com.summit.runtime.audit.ExecutionTokenAuditRecorder;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -10,6 +11,11 @@ import lombok.extern.slf4j.Slf4j;
 @AllArgsConstructor
 public class DefaultRuntimeLifeStyleManager implements RuntimeLifeStyleManager {
     private final RuntimeEventPublisher runtimeEventPublisher;
+    private final ExecutionTokenAuditRecorder tokenAuditRecorder;
+
+    public DefaultRuntimeLifeStyleManager(RuntimeEventPublisher runtimeEventPublisher) {
+        this(runtimeEventPublisher, null);
+    }
 
     @Override
     public void onStart(Execution execution) {
@@ -22,6 +28,7 @@ public class DefaultRuntimeLifeStyleManager implements RuntimeLifeStyleManager {
         this.runtimeEventPublisher.onExecutionCancelled(
                 new ExecutionCancelledEvent(execution.getId(), TokenInfo.from(execution.getTokenUsage()),
                         execution.eventMetaData()));
+        recordTokenAudit(execution);
     }
 
     @Override
@@ -35,6 +42,7 @@ public class DefaultRuntimeLifeStyleManager implements RuntimeLifeStyleManager {
         this.runtimeEventPublisher.onExecutionComplete(
                 new ExecutionCompleteEvent(execution.getId(), TokenInfo.from(execution.getTokenUsage()),
                         execution.eventMetaData()));
+        recordTokenAudit(execution);
     }
 
     @Override
@@ -43,11 +51,19 @@ public class DefaultRuntimeLifeStyleManager implements RuntimeLifeStyleManager {
         this.runtimeEventPublisher.onExecutionError(
                 new ExecutionErrorEvent(e.getMessage(), null, execution.getId(),
                         TokenInfo.from(execution.getTokenUsage()), execution.eventMetaData()));
+        recordTokenAudit(execution);
     }
 
     @Override
     public void onResume(Execution snapshot) {
         log.info("【agent-loop】process is resumed: {}", snapshot.getId());
         this.runtimeEventPublisher.onExecutionResumed(new ExecutionResumedEvent(snapshot.getId(), snapshot.eventMetaData()));
+    }
+
+    @Override
+    public void recordTokenAudit(Execution execution) {
+        if (tokenAuditRecorder != null) {
+            tokenAuditRecorder.record(execution);
+        }
     }
 }

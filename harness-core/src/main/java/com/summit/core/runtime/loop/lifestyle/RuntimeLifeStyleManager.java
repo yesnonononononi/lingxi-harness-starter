@@ -17,4 +17,8 @@ public interface RuntimeLifeStyleManager {
     void onError(Execution execution, Exception e);
 
     void onResume(Execution snapshot);
+
+    /** Records an audit when a caller owns publication of the terminal lifecycle event. */
+    default void recordTokenAudit(Execution execution) {
+    }
 }
