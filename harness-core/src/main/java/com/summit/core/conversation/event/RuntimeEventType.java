@@ -123,7 +123,9 @@ public enum RuntimeEventType {
         }
     },
 
-    AGENT_TOKEN_AUDIT_RECORDED;
+    AGENT_TOKEN_AUDIT_RECORDED,
+
+    AGENT_TOKEN_AUDIT_FAILED;
 
 
 

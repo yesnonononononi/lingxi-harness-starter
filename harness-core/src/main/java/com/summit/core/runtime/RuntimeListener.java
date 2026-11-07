@@ -78,4 +78,7 @@ public interface RuntimeListener {
     default void onAuditRecorded(AgentAuditRecordedEvent event) {
     }
 
+    default void onAuditFailed(AgentAuditFailedEvent event) {
+    }
+
 }
