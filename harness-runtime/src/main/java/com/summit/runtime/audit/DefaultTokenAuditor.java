@@ -15,6 +15,9 @@ import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.MessageType;
 import com.summit.core.conversation.message.ToolMessageEntity;
+import com.summit.core.conversation.message.UserMessageEntity;
+import com.summit.core.conversation.message.content.Content;
+import com.summit.core.conversation.message.content.TextContent;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.tool.ToolDefinition;
 import com.summit.core.tool.ToolRegistry;
@@ -26,6 +29,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -160,18 +164,35 @@ public class DefaultTokenAuditor implements TokenAuditor {
 
 
     private OtherTokens resolveOtherTokens(Execution execution) {
-        //One: Tool Definition
-        DocumentElement<Integer> toolDefinitionTokens = toolDefOf(this.toolRegistry.registeredTools(execution));
-
-        //Two: Mcp Tools
-        DocumentElement<Integer> mcpDefinitionTokens = toolDefOf(this.mcpToolDefinitions.apply(execution));
-
-
-        return new OtherTokens(toolDefinitionTokens,mcpDefinitionTokens);
+        var definitions = runAudit("TOOL_DEFINITION", true,
+                () -> toolDefOf(this.toolRegistry.registeredTools(execution)));
+        var mcpDefinitions = runAudit("MCP_TOOL_DEFINITION", true,
+                () -> toolDefOf(this.mcpToolDefinitions.apply(execution)));
+        var memory = runAudit("MEMORY", true,
+                () -> textOf(execution.getAgentRequest().getContextSpec().getMemory()));
+        var attachments = runAudit("ATTACHMENT", execution.getMessages() != null,
+                () -> attachmentsOf(execution.getMessages()));
+        return new OtherTokens(definitions, mcpDefinitions, memory, attachments);
     }
 
-    private ToolElement toolElementsOf(List<Message> tmes, Map<ToolMessageEntity, Integer> argumentTokensByMessage,
-                                       int resultMessageTokens) {
+    private DocumentElement<Integer> attachmentsOf(List<Message> messages) {
+        int count = 0;
+        for (Message message : messages) {
+            if (!(message instanceof UserMessageEntity user) || user.getContent() == null) continue;
+            for (Content content : user.getContent()) {
+                Objects.requireNonNull(content, "User content part must not be null");
+                if (!(content instanceof TextContent)) {
+                    count += this.tokenizer.count(content);
+                }
+            }
+        }
+        return countOf(count);
+    }
+
+    private ToolElement toolElementsOf(List<Message> tmes,
+                                       Map<ToolMessageEntity, Integer> argumentTokensByMessage,
+                                       int resultMessageTokens
+    ) {
         int argumentTokens = 0, outputTokens = 0;
         for (Message message : tmes) {
             if (message instanceof ToolMessageEntity tme) {
@@ -185,19 +206,42 @@ public class DefaultTokenAuditor implements TokenAuditor {
 
     private <T> DocumentElement<T> runIgnoreErr(MessageType messageType, List<Message> messages,
                                                 Callable<DocumentElement<T>> callable) {
-        if (messages == null) {
-            return DocumentElement.<T>builder().type(messageType.name()).status(AuditStatus.NO_DATA).build();
+        return runAudit(messageType.name(), messages != null, callable);
+    }
+
+    private <T> DocumentElement<T> runAudit(String type, boolean hasData,
+                                          Callable<DocumentElement<T>> callable) {
+        if (!hasData) {
+            return DocumentElement.<T>builder().type(type).status(AuditStatus.NO_DATA).build();
         }
         try {
-            return callable.call();
+            DocumentElement<T> result = callable.call();
+            result.setType(type);
+            return result;
         } catch (Exception e) {
-            log.error("Failed to conduct the audit, messageType: {}", messageType, e);
+            log.error("Failed to conduct the audit, type: {}", type, e);
             return DocumentElement.<T>builder()
-                    .type(messageType.name())
+                    .type(type)
                     .status(AuditStatus.FAILED)
                     .auditDes(e.getMessage())
                     .build();
         }
+    }
+
+    private DocumentElement<Integer> textOf(List<String> text) {
+        // Match the body rendered by withMemoryPrompt, including its newline separators.
+        String body = text == null ? "" : text.stream()
+                .filter(Objects::nonNull).filter(line -> !line.isBlank())
+                .collect(Collectors.joining("\n"));
+        return countOf(this.tokenizer.countText(body));
+    }
+
+    private DocumentElement<Integer> countOf(int count) {
+        return DocumentElement.<Integer>builder()
+                .ratio(count / (double) agentConfig.maxTokens())
+                .status(AuditStatus.SUCCESS)
+                .tokenMeta(count)
+                .build();
     }
 
 
@@ -205,12 +249,6 @@ public class DefaultTokenAuditor implements TokenAuditor {
 
         int defCount = this.tokenizer.count(List.of(), new ArrayList<>(toolDefinitions)); // Don't calculate the history again
 
-        double ratio = defCount / (double) this.agentConfig.maxTokens();
-
-        return DocumentElement.<Integer>builder()
-                .tokenMeta(defCount)
-                .status(AuditStatus.SUCCESS)
-                .ratio(ratio)
-                .build();
+        return countOf(defCount);
     }
 }

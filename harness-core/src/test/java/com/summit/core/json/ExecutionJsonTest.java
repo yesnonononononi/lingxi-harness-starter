@@ -8,8 +8,6 @@ import com.summit.core.conf.SensitiveDataSpec;
 import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.message.*;
 import com.summit.core.conversation.message.content.*;
-import com.summit.core.memory.MemoryConfig;
-import com.summit.core.memory.MemoryManagerMode;
 import com.summit.core.workspace.BasicWorkspaceSpec;
 import com.summit.core.workspace.WorkspaceSpec;
 import org.junit.jupiter.api.Test;
@@ -95,8 +93,12 @@ class ExecutionJsonTest {
                 .tokenUsage(new TokenUsageEntity(12, new TokenUsageEntity.InputTokens(8, 3),
                         new TokenUsageEntity.OutputTokens(4, 2))).thinking(true).streaming(true)
                 .maxSteps(9).errorMessage("example")
-                .agentRequest(AgentRequest.builder().executionId("exec-1").messages(messages)
-                        .systemPrompt("system").task(Collections.singletonList("task")).toolList(List.of("search"))
+                .agentRequest(AgentRequest.builder()
+                        .contextSpec(ContextSpec.builder()
+                                .context(messages)
+                                .systemPrompt("system")
+                                .build())
+                        .executionId("exec-1").task(Collections.singletonList("task")).toolList(List.of("search"))
                         .workspaceSpec(new BasicWorkspaceSpec("local", "/tmp/work", "tenant", Map.of("x", "y")))
                         .runtimeParameters(AgentRuntimeParameters.builder().allowOutsideWorkspace(true)
                                 .attributes(Map.of("attempt", 2, "labels", List.of("a", "b"))).build())
@@ -126,7 +128,7 @@ class ExecutionJsonTest {
         assertInstanceOf(AudioContent.class, user.getContent().get(2));
         assertInstanceOf(VideoContent.class, user.getContent().get(3));
         assertInstanceOf(PdfFileContent.class, user.getContent().get(4));
-        assertInstanceOf(UserMessageEntity.class, restored.getAgentRequest().getMessages().get(1));
+        assertInstanceOf(UserMessageEntity.class, restored.getAgentRequest().getContextSpec().getContext().get(1));
         assertEquals(original.getAgentRequest().getWorkspaceSpec(), restored.getAgentRequest().getWorkspaceSpec());
         assertEquals(original.getAgentRequest().getModelConfigSpec(), restored.getAgentRequest().getModelConfigSpec());
         assertEquals(99L, restored.getAgentRequest().getMcpConfigSpec().getId().longValue());
@@ -148,7 +150,7 @@ class ExecutionJsonTest {
         Execution execution = mapper.readValue("{\"id\":\"minimal\",\"agentRequest\":{}}", Execution.class);
         assertEquals("minimal", execution.getId());
         assertNull(execution.getMessages());
-        assertEquals(List.of(), execution.getAgentRequest().getMessages());
+        assertEquals(List.of(), execution.getAgentRequest().getContextSpec().getContext());
         assertNotNull(execution.getAgentRequest().getRuntimeParameters());
         assertNull(execution.getAgentRequest().getWorkspaceSpec());
         assertEquals(mapper.valueToTree(execution),

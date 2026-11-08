@@ -1,7 +1,8 @@
 package com.summit.harness.springbootautoconfigure.config;
 
-import com.summit.core.adapter.TokenEstimator;
+import com.summit.core.compact.TokenEstimator;
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.CompactSummaryApplier;
 import com.summit.core.conf.ModelConfig;
@@ -102,11 +103,13 @@ class ConversationConfigContextTest {
 
     private static Execution execution() {
         AgentRequest request = AgentRequest.builder()
-                .messages(List.of(UserMessageEntity.from("hello")))
+                .contextSpec(ContextSpec.builder()
+                        .context(List.of(UserMessageEntity.from("hello")))
+                        .build())
                 .toolList(List.of("demo"))
                 .build();
         return Execution.builder().id("execution-1").agentRequest(request)
-                .messages(new ArrayList<>(request.getMessages())).build();
+                .messages(new ArrayList<>(request.getContextSpec().getContext())).build();
     }
 
     /** Every collaborator the conversation wiring asks for, stubbed to the cheapest working form. */

@@ -1,12 +1,17 @@
 package com.summit.core.compact;
 
 import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.content.Content;
 import com.summit.core.tool.ToolDefinition;
 
 import java.util.List;
 
 public interface Tokenizer {
      int count(List<Message> messages);
+     /** Estimates one content part without message framing; unsupported parts must not report zero. */
+     default int count(Content content) {
+          throw new UnsupportedOperationException("Content token estimation is not supported");
+     }
 
      default int countText(String text) {
           return text == null ? 0 : text.length() / 3;

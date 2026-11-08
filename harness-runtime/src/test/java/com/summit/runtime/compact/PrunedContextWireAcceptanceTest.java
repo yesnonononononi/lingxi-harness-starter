@@ -10,6 +10,7 @@ import openAi.RequestBodyFactory;
 import openAi.ResponseSerializer;
 import java.net.http.HttpClient;
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.ContextCompactRequest;
@@ -273,7 +274,7 @@ class PrunedContextWireAcceptanceTest {
     /** 用真实的摘要重建路径改写历史，返回重建后的消息（供线缆断言使用）。 */
     private static List<Message> rebuildWithSummary(List<Message> messages) {
         Execution execution = Execution.create(
-                AgentRequest.builder().systemPrompt("system").messages(messages).build(), "test");
+                AgentRequest.builder().contextSpec(ContextSpec.builder().systemPrompt("system").context(messages).build()).build(), "test");
         execution.setMessages(new ArrayList<>(messages));
         new DefaultConversationManager(ContextAttachmentProvider.NONE)
                 .rebuildContext("压缩后的摘要", execution);
@@ -289,7 +290,7 @@ class PrunedContextWireAcceptanceTest {
                         new RuntimeEventPublisher(List.of()), 1));
         List<Message> copy = new ArrayList<>(messages);
         Execution execution = Execution.builder().id("execution-1")
-                .agentRequest(AgentRequest.builder().messages(copy).build())
+                .agentRequest(AgentRequest.builder().contextSpec(ContextSpec.builder().context(copy).build()).build())
                 .messages(copy).build();
         pruner.compact(new ContextCompactRequest(execution, null));
         return execution.getMessages();

@@ -1,18 +1,23 @@
 package com.summit.runtime.audit;
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
+import com.summit.core.agent.Image;
 import com.summit.core.audit.AuditStatus;
 import com.summit.core.audit.DocumentElement;
 import com.summit.core.audit.token.TokenAuditDocument;
 import com.summit.core.audit.token.tool.ToolAuditDocument;
 import com.summit.core.audit.token.tool.ToolElement;
 import com.summit.core.compact.ContextUsageMetric;
+import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.ToolMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
+import com.summit.core.conversation.message.content.ImageContent;
+import com.summit.core.conversation.message.content.PdfFileContent;
 import com.summit.core.mcp.McpSession;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.tool.ConcurrentPolicy;
@@ -22,17 +27,141 @@ import com.summit.core.tool.ToolExecutor;
 import com.summit.core.tool.ToolRegistry;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.conversation.DefaultTokenizer;
+import com.summit.runtime.conversation.DefaultConversationManager;
 import openAi.OpenAiTokenizer;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class DefaultTokenAuditorTest {
+    @Test
+    void countsJoinedMemoryBodyAndKeepsItWithinSystemTokens() {
+        var tokenizer = new DefaultTokenizer(new OpenAiTokenizer());
+        String body = "project conventions\nuser preferences";
+        var request = AgentRequest.builder().contextSpec(ContextSpec.builder()
+                .context(List.of(UserMessageEntity.from("task")))
+                .memory(java.util.Arrays.asList("project conventions", null, "  ", "user preferences"))
+                .build()).build();
+        var execution = Execution.create(request, "agent");
+        var conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE, tokenizer);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+
+        var audit = auditor(tokenizer).analysis(execution);
+
+        assertCount(audit.otherTokens().memoryTokens(), tokenizer.countText(body));
+        assertEquals("## Memory Prompt\n" + body, execution.getMessages().getFirst().text());
+        assertEquals(tokenizer.count(List.of(execution.getMessages().getFirst())),
+                audit.systemTokens().getTokenMeta());
+        assertCount(audit.otherTokens().attachmentTokens(), 0);
+    }
+
+    @Test
+    void countsOnlyRetainedUserAttachmentsWithoutTextOrMessageFraming() {
+        var tokenizer = new DefaultTokenizer(new OpenAiTokenizer());
+        Image low = Image.builder().base64Data("unused").detailLevel(Image.DetailLevel.LOW).build();
+        Image high = Image.builder().base64Data("unused").detailLevel(Image.DetailLevel.HIGH).build();
+        var user = UserMessageEntity.from("text must not be counted as an attachment", List.of(low, high));
+        var execution = execution(List.of(user, AiMessageEntity.builder().images(List.of(high)).build(),
+                UserMessageEntity.builder().build()));
+
+        var audit = auditor(tokenizer).analysis(execution);
+
+        assertCount(audit.otherTokens().attachmentTokens(), 85 + 765);
+        assertEquals(tokenizer.count(List.of(user, UserMessageEntity.builder().build())),
+                audit.userTokens().getTokenMeta());
+        // Audit the current snapshot after image-window trimming, not the original request history.
+        execution.setMessages(List.of(UserMessageEntity.from("text only")));
+        assertCount(auditor(tokenizer).analysis(execution).otherTokens().attachmentTokens(), 0);
+    }
+
+    @Test
+    void distinguishesAbsentMemoryFromMissingMessageHistory() {
+        var execution = execution(List.of());
+        execution.getAgentRequest().getContextSpec().setMemory(null);
+        var audit = auditor(new DefaultTokenizer()).analysis(execution);
+        assertCount(audit.otherTokens().memoryTokens(), 0);
+        assertCount(audit.otherTokens().attachmentTokens(), 0);
+
+        execution.setMessages(null);
+        audit = auditor(new DefaultTokenizer()).analysis(execution);
+        assertCount(audit.otherTokens().memoryTokens(), 0);
+        assertEquals(AuditStatus.NO_DATA, audit.otherTokens().attachmentTokens().getStatus());
+        assertNull(audit.otherTokens().attachmentTokens().getTokenMeta());
+    }
+
+    @Test
+    void isolatesMemoryEstimationFailureFromOtherAuditFields() {
+        var tokenizer = new DefaultTokenizer() {
+            @Override
+            public int countText(String text) {
+                if ("broken memory".equals(text)) throw new IllegalStateException("memory failed");
+                return super.countText(text);
+            }
+        };
+        var execution = execution(List.of(UserMessageEntity.from("task")));
+        execution.getAgentRequest().getContextSpec().setMemory(List.of("broken memory"));
+
+        var audit = assertDoesNotThrow(() -> auditor(tokenizer).analysis(execution));
+
+        assertEquals(AuditStatus.FAILED, audit.otherTokens().memoryTokens().getStatus());
+        assertEquals("memory failed", audit.otherTokens().memoryTokens().getAuditDes());
+        assertNull(audit.otherTokens().memoryTokens().getTokenMeta());
+        assertCount(audit.otherTokens().attachmentTokens(), 0);
+        assertEquals(AuditStatus.SUCCESS, audit.userTokens().getStatus());
+    }
+
+    @Test
+    void reportsUnsupportedAttachmentsAsFailedInsteadOfPartialOrZeroTotals() {
+        var tokenizer = new DefaultTokenizer(new OpenAiTokenizer());
+        var execution = execution(List.of(UserMessageEntity.builder().content(List.of(
+                ImageContent.from(Image.from("unused")), new PdfFileContent())).build()));
+
+        var audit = assertDoesNotThrow(() -> auditor(tokenizer).analysis(execution));
+
+        assertEquals(AuditStatus.FAILED, audit.otherTokens().attachmentTokens().getStatus());
+        assertNull(audit.otherTokens().attachmentTokens().getTokenMeta());
+        assertTrue(audit.otherTokens().attachmentTokens().getAuditDes().contains("supports only"));
+        assertCount(audit.otherTokens().memoryTokens(), 0);
+        assertEquals(AuditStatus.SUCCESS, audit.systemTokens().getStatus());
+    }
+
+    @Test
+    void missingEstimatorFailsOnlyTheAttachmentDetail() {
+        var execution = execution(List.of(UserMessageEntity.from(Image.from("unused"))));
+
+        var audit = assertDoesNotThrow(() -> auditor(new DefaultTokenizer()).analysis(execution));
+
+        assertEquals(AuditStatus.FAILED, audit.otherTokens().attachmentTokens().getStatus());
+        assertNull(audit.otherTokens().attachmentTokens().getTokenMeta());
+        assertCount(audit.otherTokens().memoryTokens(), 0);
+        assertEquals(AuditStatus.SUCCESS, audit.assistantTokens().getStatus());
+    }
+
+    @Test
+    void definitionLookupFailureDoesNotDiscardMemoryAndAttachmentDetails() {
+        DefaultTokenAuditor auditor = new DefaultTokenAuditor(new DefaultTokenizer(),
+                AgentConfig.builder().maxTokens(1000).build(), new ToolRegistry(List.of()),
+                (java.util.function.Function<Execution, List<ToolDefinition<?>>>) execution -> {
+                    throw new IllegalStateException("MCP unavailable");
+                });
+
+        var audit = assertDoesNotThrow(() -> auditor.analysis(execution(List.of())));
+
+        assertEquals(AuditStatus.FAILED, audit.otherTokens().mcpToolDefinitionTokens().getStatus());
+        assertCount(audit.otherTokens().memoryTokens(), 0);
+        assertCount(audit.otherTokens().attachmentTokens(), 0);
+    }
+
+    private void assertCount(DocumentElement<Integer> element, int expected) {
+        assertEquals(AuditStatus.SUCCESS, element.getStatus());
+        assertEquals(expected, element.getTokenMeta());
+        assertEquals(expected / 1000.0, element.getRatio());
+    }
+
     @Test
     void countsToolMessagesAsOneBatchAndKeepsTheMcpBucketSeparateFromToolNames() {
         var tokenizer = new DefaultTokenizer(new OpenAiTokenizer());
@@ -195,7 +324,7 @@ class DefaultTokenAuditorTest {
     }
 
     private Execution execution(List<Message> messages) {
-        return Execution.builder().agentRequest(AgentRequest.builder().messages(messages).build())
+        return Execution.builder().agentRequest(AgentRequest.builder().contextSpec(ContextSpec.builder().context(messages).build()).build())
                 .messages(messages).build();
     }
 

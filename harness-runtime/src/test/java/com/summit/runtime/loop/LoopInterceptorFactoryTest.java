@@ -1,6 +1,7 @@
 package com.summit.runtime.loop;
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.runtime.loop.AgenticLoopListener;
@@ -38,7 +39,11 @@ class LoopInterceptorFactoryTest {
             return decision;
         });
         Execution execution = Execution.builder().id("factory-execution")
-                .agentRequest(AgentRequest.builder().messages(List.of(UserMessageEntity.from("test"))).build()).build();
+                .agentRequest(AgentRequest.builder()
+                        .contextSpec(ContextSpec.builder()
+                                .context(List.of(UserMessageEntity.from("test")))
+                                .build())
+                        .build()).build();
         LoopContext context = LoopContext.builder().loopMessages(LoopMessages.builder().execution(execution).build())
                 .consecutiveCompactTurns(() -> 2).build();
 

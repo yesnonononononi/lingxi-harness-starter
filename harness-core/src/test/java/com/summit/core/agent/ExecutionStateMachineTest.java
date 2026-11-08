@@ -253,7 +253,9 @@ class ExecutionStateMachineTest {
                 .messages(new java.util.ArrayList<>(
                         List.of(UserMessageEntity.from("hi"))))
                 .agentRequest(AgentRequest.builder()
-                        .messages(List.of(UserMessageEntity.from("hi")))
+                        .contextSpec(ContextSpec.builder()
+                                .context(List.of(UserMessageEntity.from("hi")))
+                                .build())
                         .build())
                 .build();
     }

@@ -2,6 +2,7 @@ package com.summit.harness.springbootautoconfigure.config.execution;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
 import com.summit.core.compact.Tokenizer;
@@ -137,8 +138,10 @@ class ExecutionRuntimeConfigTest {
             assertEquals(0, scopeReads.get());
 
             Execution execution = Execution.create(AgentRequest.builder()
-                    .executionId("audit-run")
-                    .messages(List.of(UserMessageEntity.from("task"))).toolList(List.of("lookup")).build(), "a-1");
+                    .contextSpec(ContextSpec.builder()
+                            .context(List.of(UserMessageEntity.from("task")))
+                            .build())
+                    .executionId("audit-run").toolList(List.of("lookup")).build(), "a-1");
             execution.startChecked();
             execution.completeChecked();
             context.getBean(RuntimeLifeStyleManager.class).onComplete(execution);
@@ -151,8 +154,11 @@ class ExecutionRuntimeConfigTest {
             assertEquals(0.11, event.contextAudit().otherTokens().toolDefinitionTokens().getRatio());
             assertEquals(11, event.contextAudit().otherTokens().mcpToolDefinitionTokens().getTokenMeta());
             assertEquals(0.11, event.contextAudit().otherTokens().mcpToolDefinitionTokens().getRatio());
-            Execution other = Execution.create(AgentRequest.builder().executionId("other-run")
-                    .messages(List.of(UserMessageEntity.from("other task"))).build(), "other-mcp-agent");
+            Execution other = Execution.create(AgentRequest.builder()
+                    .contextSpec(ContextSpec.builder()
+                            .context(List.of(UserMessageEntity.from("other task")))
+                            .build())
+                    .executionId("other-run").build(), "other-mcp-agent");
             other.startChecked();
             other.completeChecked();
             context.getBean(RuntimeLifeStyleManager.class).onComplete(other);
@@ -256,7 +262,10 @@ class ExecutionRuntimeConfigTest {
         Execution execution = Execution.builder().id("e-1").agentId("a-1")
                 .executionState(ExecutionState.CREATED)
                 .agentRequest(AgentRequest.builder()
-                        .messages(List.of(UserMessageEntity.from("task"))).build())
+                        .contextSpec(ContextSpec.builder()
+                                .context(List.of(UserMessageEntity.from("task")))
+                                .build())
+                        .build())
                 .build();
         return LoopContext.withCompactionCounter(LoopMessages.builder().execution(execution).build(),
                 new ExecutionControlSignal("e-1"), () -> 0, null, messages -> { });

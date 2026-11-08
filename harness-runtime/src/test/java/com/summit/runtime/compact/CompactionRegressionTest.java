@@ -1,6 +1,7 @@
 package com.summit.runtime.compact;
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.ContextCompactRequest;
@@ -55,7 +56,7 @@ class CompactionRegressionTest {
         ArrayList<Message> history = new ArrayList<Message>(List.of(
                 SystemMessageEntity.builder().text("system").build(), UserMessageEntity.from("history")));
         Execution execution = Execution.builder().id("e").messages(history)
-                .agentRequest(AgentRequest.builder().messages(history).build()).build();
+                .agentRequest(AgentRequest.builder().contextSpec(ContextSpec.builder().context(history).build()).build()).build();
         assertTrue(compacter.compact(new ContextCompactRequest(execution, null)));
         assertEquals(ToolResultType.CONTEXT_COMPACT,
                 compacter.execute(ToolExecution.builder().executionId("e").args("{\"context\":\"history\"}").build()).getToolResultType());
@@ -225,6 +226,6 @@ class CompactionRegressionTest {
     private static Execution executionWith(Message... messages) {
         List<Message> list = new ArrayList<>(List.of(messages));
         return Execution.builder().id("e").messages(list)
-                .agentRequest(AgentRequest.builder().messages(list).build()).build();
+                .agentRequest(AgentRequest.builder().contextSpec(ContextSpec.builder().context(list).build()).build()).build();
     }
 }

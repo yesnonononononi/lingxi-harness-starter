@@ -3,9 +3,11 @@ package com.summit.runtime.audit;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.AgentRuntimeParameters;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
+import com.summit.core.agent.Image;
 import com.summit.core.audit.AuditStatus;
 import com.summit.core.audit.TokenAuditor;
 import com.summit.core.audit.token.TokenAuditDocument;
@@ -55,6 +57,24 @@ class ExecutionTokenAuditRecorderTest {
     private final TokenAuditor failingAuditor = messages -> {
         throw new IllegalStateException("audit unavailable");
     };
+
+    @Test
+    void unsupportedAttachmentStillPublishesTheRemainingAudit() {
+        var auditor = new DefaultTokenAuditor(new DefaultTokenizer(),
+                AgentConfig.builder().maxTokens(1000).build(), new ToolRegistry(List.of()), McpToolScope.EMPTY);
+        var execution = execution(ExecutionState.COMPLETED);
+        execution.getMessages().add(UserMessageEntity.from(Image.from("unused")));
+        var recorder = new ExecutionTokenAuditRecorder(auditor, new RuntimeEventPublisher(List.of(listener)));
+
+        recorder.record(execution);
+
+        assertTrue(failed.isEmpty());
+        assertEquals(1, recorded.size());
+        var event = assertInstanceOf(AgentTokenAuditRecordedEvent.class, recorded.getFirst());
+        assertEquals(AuditStatus.FAILED, event.contextAudit().otherTokens().attachmentTokens().getStatus());
+        assertEquals(AuditStatus.SUCCESS, event.contextAudit().otherTokens().memoryTokens().getStatus());
+        assertEquals(AuditStatus.SUCCESS, event.contextAudit().assistantTokens().getStatus());
+    }
 
     @ParameterizedTest
     @EnumSource(value = ExecutionState.class, names = {"COMPLETED", "FAILED", "CANCELLED"})
@@ -136,6 +156,9 @@ class ExecutionTokenAuditRecorderTest {
                 new ToolRegistry(List.of(definition)), McpToolScope.EMPTY);
         Execution execution = execution(ExecutionState.COMPLETED);
         execution.getAgentRequest().setToolList(List.of("lookup"));
+        execution.getAgentRequest().getContextSpec().setMemory(List.of("project memory"));
+        execution.getMessages().add(UserMessageEntity.from(
+                Image.builder().base64Data("unused").detailLevel(Image.DetailLevel.LOW).build()));
         ExecutionTokenAuditRecorder recorder = new ExecutionTokenAuditRecorder(
                 auditor, new RuntimeEventPublisher(List.of(listener)));
 
@@ -157,6 +180,11 @@ class ExecutionTokenAuditRecorderTest {
         assertEquals(AuditStatus.SUCCESS, restored.otherTokens().toolDefinitionTokens().getStatus());
         assertEquals(expected / 1000.0, restored.otherTokens().toolDefinitionTokens().getRatio());
         assertEquals(expected, restored.otherTokens().toolDefinitionTokens().getTokenMeta());
+        assertEquals(tokenizer.countText("project memory"), restored.otherTokens().memoryTokens().getTokenMeta());
+        assertEquals(AuditStatus.SUCCESS, restored.otherTokens().memoryTokens().getStatus());
+        assertEquals(85, restored.otherTokens().attachmentTokens().getTokenMeta());
+        assertEquals(0.085, restored.otherTokens().attachmentTokens().getRatio());
+        assertEquals(AuditStatus.SUCCESS, restored.otherTokens().attachmentTokens().getStatus());
     }
 
     @Test
@@ -196,8 +224,11 @@ class ExecutionTokenAuditRecorderTest {
     }
 
     private Execution execution(ExecutionState state) {
-        AgentRequest request = AgentRequest.builder().executionId("audit-run")
-                .messages(List.of(UserMessageEntity.from("task")))
+        AgentRequest request = AgentRequest.builder()
+                .contextSpec(ContextSpec.builder()
+                        .context(List.of(UserMessageEntity.from("task")))
+                        .build())
+                .executionId("audit-run")
                 .runtimeParameters(AgentRuntimeParameters.builder()
                         .eventMetaData(Map.of("turnId", "turn-1")).build())
                 .build();

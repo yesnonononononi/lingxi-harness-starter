@@ -1,14 +1,13 @@
 package com.summit.core.agent;
 
-
 import com.summit.core.conf.ModelRetryConfig;
 import com.summit.core.conf.SensitiveDataSpec;
 import com.summit.core.conf.SkillConfig;
-import com.summit.core.conversation.message.Message;
 import com.summit.core.model.image.ImageGenerationOptions;
 import com.summit.core.workspace.WorkspaceSpec;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NonNull;
 import lombok.experimental.SuperBuilder;
 import lombok.extern.jackson.Jacksonized;
 import java.util.List;
@@ -23,12 +22,10 @@ public class AgentRequest {
     /**
      * Complete context snapshot for this execution. This is the only source of conversation
      * history; the runtime never loads messages by an identifier. Images are carried by a
-     * {@code UserMessageEntity} in this list.
+     * {@code UserMessageEntity} in {@link ContextSpec#getContext()}.
      */
     @Builder.Default
-    private List<Message> messages = List.of();
-    /** The system prompt is given the LLM by the user as a starter */
-    private String systemPrompt;
+    private @NonNull ContextSpec contextSpec = ContextSpec.builder().build();
     /**
      * A high-level task definition, useful when a request is delegated by another agent. The
      * framework only carries it and renders it into the system prompt; it does not drive any

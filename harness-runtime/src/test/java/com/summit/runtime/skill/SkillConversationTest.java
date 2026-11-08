@@ -1,6 +1,7 @@
 package com.summit.runtime.skill;
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.conf.SkillConfig;
@@ -53,8 +54,11 @@ class SkillConversationTest {
     private String start(FileSystemSkillLoader loader, SkillConfig config) {
         DefaultConversationManager conversations = new DefaultConversationManager(new com.summit.runtime.conversation.DefaultTokenizer(), null,
                 ContextAttachmentProvider.NONE, SystemPromptAssembler::new, loader);
-        AgentRequest request = AgentRequest.builder().skillConfig(config)
-                .messages(List.of(UserMessageEntity.from("review"))).build();
+        AgentRequest request = AgentRequest.builder()
+                .contextSpec(ContextSpec.builder()
+                        .context(List.of(UserMessageEntity.from("review")))
+                        .build())
+                .skillConfig(config).build();
         Execution execution = Execution.create(request, "test");
         conversations.startConversation(execution, null, McpToolScope.EMPTY);
         return execution.getMessages().getFirst().text();

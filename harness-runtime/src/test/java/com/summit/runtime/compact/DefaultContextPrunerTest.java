@@ -4,6 +4,7 @@ import com.summit.core.conversation.message.TokenUsageEntity;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.CompactionState;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
@@ -631,7 +632,11 @@ class DefaultContextPrunerTest {
     static Execution execution(Message... messages) {
         List<Message> copy = new ArrayList<>(List.of(messages));
         return Execution.builder().id("two-stage")
-                .agentRequest(AgentRequest.builder().messages(copy).build()).messages(copy).build();
+                .agentRequest(AgentRequest.builder()
+                        .contextSpec(ContextSpec.builder()
+                                .context(copy)
+                                .build())
+                        .build()).messages(copy).build();
     }
 
     private static ToolCallRequest call(String id, String arguments) {

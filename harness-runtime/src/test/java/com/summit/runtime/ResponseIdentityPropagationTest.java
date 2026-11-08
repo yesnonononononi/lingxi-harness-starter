@@ -1,6 +1,7 @@
 package com.summit.runtime;
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
 import com.summit.core.compact.ContextAttachmentProvider;
@@ -262,7 +263,11 @@ class ResponseIdentityPropagationTest {
 
         private Fixture(ToolExecuteResult result, List<ToolExecutionPolicy> policies, ResponseIdGenerator generator) {
             List<Message> messages = List.of(UserMessageEntity.from("task"));
-            AgentRequest request = AgentRequest.builder().messages(messages).toolList(List.of("test")).build();
+            AgentRequest request = AgentRequest.builder()
+                    .contextSpec(ContextSpec.builder()
+                            .context(messages)
+                            .build())
+                    .toolList(List.of("test")).build();
             request.runtimeParametersOrDefault().setEventMetaData(METADATA);
             execution = Execution.builder().id("execution-1").agentId("agent-1").agentRequest(request)
                     .messages(new ArrayList<>(messages)).tokenUsage(TokenUsageEntity.empty()).build();

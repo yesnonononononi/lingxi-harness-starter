@@ -1,6 +1,7 @@
 package com.summit.runtime.loop;
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
 import com.summit.core.compact.ContextAttachmentProvider;
@@ -82,7 +83,7 @@ class LoopRegressionTest {
     private Execution execution() {
         List<Message> messages = List.of(UserMessageEntity.from("task"));
         return Execution.builder().id("e").agentId("a").executionState(ExecutionState.CREATED)
-                .agentRequest(AgentRequest.builder().messages(messages).build())
+                .agentRequest(AgentRequest.builder().contextSpec(ContextSpec.builder().context(messages).build()).build())
                 .messages(new ArrayList<>(messages)).tokenUsage(TokenUsageEntity.empty()).build();
     }
 

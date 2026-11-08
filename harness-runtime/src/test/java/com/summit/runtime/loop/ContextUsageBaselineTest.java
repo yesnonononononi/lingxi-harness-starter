@@ -2,6 +2,7 @@ package com.summit.runtime.loop;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.ContextCompactRequest;
@@ -224,7 +225,7 @@ class ContextUsageBaselineTest {
         List<Message> messages = new ArrayList<>(List.of(input));
         return Execution.builder().id("baseline-test").agentId("a").messages(messages)
                 .tokenUsage(TokenUsageEntity.of(12345, 12000, 345))
-                .agentRequest(AgentRequest.builder().messages(messages).build()).build();
+                .agentRequest(AgentRequest.builder().contextSpec(ContextSpec.builder().context(messages).build()).build()).build();
     }
 
     private static class CountingTokenizer extends DefaultTokenizer {

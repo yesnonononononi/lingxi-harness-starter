@@ -5,6 +5,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.ThrowableProxy;
 import ch.qos.logback.core.read.ListAppender;
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
 import com.summit.core.conversation.api.ChatResponseEntity;
@@ -469,7 +470,10 @@ class DefaultLoopInterceptorProcessorTest {
     private static Execution execution() {
         return Execution.builder().id("e-1").agentId("a-1").executionState(ExecutionState.CREATED)
                 .agentRequest(AgentRequest.builder()
-                        .messages(List.of(UserMessageEntity.from("task"))).build())
+                        .contextSpec(ContextSpec.builder()
+                                .context(List.of(UserMessageEntity.from("task")))
+                                .build())
+                        .build())
                 .build();
     }
 }

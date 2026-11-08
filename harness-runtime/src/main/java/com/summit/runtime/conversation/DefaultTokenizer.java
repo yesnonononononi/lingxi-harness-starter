@@ -1,9 +1,10 @@
 package com.summit.runtime.conversation;
 
-import com.summit.core.adapter.TokenEstimator;
+import com.summit.core.compact.TokenEstimator;
 import com.summit.core.compact.ContextUsageMetric;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.message.*;
+import com.summit.core.conversation.message.content.Content;
 import com.summit.core.tool.ToolDefinition;
 
 import java.util.List;
@@ -47,6 +48,13 @@ public class DefaultTokenizer implements Tokenizer {
     }
 
 
+    @Override
+    public int count(Content content) {
+        if (tokenEstimator == null) {
+            throw new UnsupportedOperationException("Content token estimation requires a TokenEstimator");
+        }
+        return tokenEstimator.estimateContent(content);
+    }
 
     @Override
     public String truncate(String output, int maxOutput) {

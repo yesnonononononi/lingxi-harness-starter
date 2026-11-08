@@ -3,6 +3,7 @@ package com.summit.runtime.compact;
 import com.summit.core.conversation.message.TokenUsageEntity;
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.CompactionState;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.Image;
@@ -391,8 +392,12 @@ class CompactionStateMachineTest {
                 AiMessageEntity.builder().text("first answer").build(),
                 UserMessageEntity.from(HISTORY_MARKER + " second user request")));
         return Execution.builder().id("execution-1")
-                .agentRequest(AgentRequest.builder().messages(messages)
-                        .systemPrompt("LEADING-SYSTEM-PROMPT").build())
+                .agentRequest(AgentRequest.builder()
+                        .contextSpec(ContextSpec.builder()
+                                .context(messages)
+                                .systemPrompt("LEADING-SYSTEM-PROMPT")
+                                .build())
+                        .build())
                 .messages(messages).build();
     }
 

@@ -1,6 +1,7 @@
 package com.summit.runtime.model;
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.conf.ModelRetryConfig;
@@ -225,7 +226,10 @@ class ModelInvocationAttemptTest {
         private final ModelRequestFactory factory;
 
         private Fixture(boolean streaming, ModelRetryConfig retryConfig) {
-            AgentRequest request = AgentRequest.builder().messages(List.of(UserMessageEntity.from("original input")))
+            AgentRequest request = AgentRequest.builder()
+                    .contextSpec(ContextSpec.builder()
+                            .context(List.of(UserMessageEntity.from("original input")))
+                            .build())
                     .retryConfig(retryConfig).build();
             execution = Execution.create(request, "agent");
             execution.setId("execution");

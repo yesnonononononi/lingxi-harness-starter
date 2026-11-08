@@ -3,6 +3,7 @@ package com.summit.harness.springbootautoconfigure.config;
 import com.summit.core.conversation.message.TokenUsageEntity;
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.ContextSqueezeRequest;
@@ -51,8 +52,16 @@ class ModelConfigurationTest {
         var config = AgentConfig.builder().maxTokens(withLookup).build();
         var reporter = conversations.contextUsageReporter(tokenizer, config, new RuntimeEventPublisher(List.of()),
                 new AgentChatProperties(), beans.getBeanProvider(ToolRegistry.class));
-        var visibleExecution = Execution.create(AgentRequest.builder().messages(messages).toolList(List.of("lookup")).build(), "test");
-        var hiddenExecution = Execution.create(AgentRequest.builder().messages(messages).build(), "test");
+        var visibleExecution = Execution.create(AgentRequest.builder()
+                .contextSpec(ContextSpec.builder()
+                        .context(messages)
+                        .build())
+                .toolList(List.of("lookup")).build(), "test");
+        var hiddenExecution = Execution.create(AgentRequest.builder()
+                .contextSpec(ContextSpec.builder()
+                        .context(messages)
+                        .build())
+                .build(), "test");
         assertEquals(withLookup, reporter.report(visibleExecution).tokenCount());
         assertEquals(messagesOnly, reporter.report(hiddenExecution).tokenCount());
         var manager = new DefaultConversationManager(ContextAttachmentProvider.NONE);

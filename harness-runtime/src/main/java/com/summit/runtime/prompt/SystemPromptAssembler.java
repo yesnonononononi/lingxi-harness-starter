@@ -135,7 +135,11 @@ public class SystemPromptAssembler implements PromptAssembler {
 
     @Override
     public PromptAssembler withMemoryPrompt(List<String> memory) {
-        stringBuilder.append("\n\n## Memory Prompt\n").append(String.join("\n", memory));
+        if (memory == null || memory.isEmpty()) return this;
+        List<String> bodies = memory.stream().filter(Objects::nonNull)
+                .filter(body -> !body.isBlank()).toList();
+        if (bodies.isEmpty()) return this;
+        stringBuilder.append("\n\n## Memory Prompt\n").append(String.join("\n", bodies));
         return this;
     }
 

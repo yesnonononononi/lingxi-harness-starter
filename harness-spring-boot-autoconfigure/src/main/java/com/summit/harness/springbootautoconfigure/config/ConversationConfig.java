@@ -1,6 +1,6 @@
 package com.summit.harness.springbootautoconfigure.config;
 
-import com.summit.core.adapter.TokenEstimator;
+import com.summit.core.compact.TokenEstimator;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conf.ModelBehavior;
@@ -42,7 +42,7 @@ public class ConversationConfig {
      * No prompt is supplied here.
      *
      * <p>The framework holds no system prompt of its own: the text a model is given comes from
-     * {@code AgentRequest.systemPrompt}, which the application fills. A framework-level default was
+     * {@code AgentRequest.contextSpec.systemPrompt}, which the application fills. A framework-level default was
      * the one place the prompt could be changed without the application noticing, and it turned
      * "what prompt is this run using" into a question about configuration files rather than about
      * the request.</p>

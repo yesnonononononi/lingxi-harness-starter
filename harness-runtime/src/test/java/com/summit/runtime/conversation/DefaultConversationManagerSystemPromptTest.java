@@ -1,6 +1,7 @@
 package com.summit.runtime.conversation;
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.conf.SensitiveDataSpec;
@@ -42,12 +43,38 @@ class DefaultConversationManagerSystemPromptTest {
             new DefaultConversationManager(ContextAttachmentProvider.NONE);
 
     @Test
+    void memoryIsRenderedOnceBeforeTheTaskAndBlankEntriesAreOmitted() {
+        var request = AgentRequest.builder().contextSpec(ContextSpec.builder()
+                        .systemPrompt("role").memory(java.util.Arrays.asList("first memory", null, "  ", "second memory"))
+                        .build()).task(List.of("final task")).build();
+
+        String prompt = startConversation(request, sandbox(), McpToolScope.EMPTY);
+
+        assertTrue(prompt.contains("## Memory Prompt\nfirst memory\nsecond memory"));
+        assertEquals(1, prompt.split("## Memory Prompt", -1).length - 1);
+        assertTrue(prompt.endsWith("## Task Manifest\nfinal task"));
+    }
+
+    @Test
+    void nullEmptyAndBlankMemoryDoNotCreateAnEmptySection() {
+        for (List<String> memory : java.util.Arrays.<List<String>>asList(
+                null, List.of(), java.util.Arrays.asList(null, "", "  "))) {
+            var request = AgentRequest.builder().contextSpec(ContextSpec.builder().memory(memory).build()).build();
+            String prompt = startConversation(request, sandbox(), McpToolScope.EMPTY);
+            assertFalse(prompt.contains("## Memory Prompt"));
+            assertFalse(prompt.contains("null"));
+        }
+    }
+
+    @Test
     @DisplayName("根请求（无 task、有 MCP）：环境 → 角色 → 远端工具摘要")
     void rootRequestWithRemoteTools() {
         String prompt = startConversation(
                 AgentRequest.builder()
-                        .messages(List.of(UserMessageEntity.from("帮我看看这个仓库")))
-                        .systemPrompt("You are LingXi, a coding agent. Reply in the user's language.")
+                        .contextSpec(ContextSpec.builder()
+                                .context(List.of(UserMessageEntity.from("帮我看看这个仓库")))
+                                .systemPrompt("You are LingXi, a coding agent. Reply in the user's language.")
+                                .build())
                         .toolList(List.of("read_file", "edit_file", "search_tool"))
                         .mcpConfigSpec(SensitiveDataSpec.builder().id(99L).version(3).build())
                         .build(),
@@ -88,8 +115,10 @@ class DefaultConversationManagerSystemPromptTest {
     void delegatedRequestEndsWithTheTaskManifest() {
         String prompt = startConversation(
                 AgentRequest.builder()
-                        .messages(List.of(UserMessageEntity.from("请只回复一个词：ok")))
-                        .systemPrompt("你是一名后端工程师。")
+                        .contextSpec(ContextSpec.builder()
+                                .context(List.of(UserMessageEntity.from("请只回复一个词：ok")))
+                                .systemPrompt("你是一名后端工程师。")
+                                .build())
                         .task(List.of("请只回复一个词：ok"))
                         .toolList(List.of("read_file"))
                         .build(),
@@ -107,8 +136,7 @@ class DefaultConversationManagerSystemPromptTest {
     @DisplayName("裸模型请求：没有角色提示词也没有 task 时不留空标题")
     void bareRequestKeepsNoEmptySections() {
         String prompt = startConversation(
-                AgentRequest.builder()
-                        .messages(List.of(UserMessageEntity.from("hi")))
+                AgentRequest.builder().contextSpec(ContextSpec.builder().context(List.of(UserMessageEntity.from("hi"))).build())
                         .build(),
                 sandbox(),
                 McpToolScope.EMPTY);
@@ -131,7 +159,7 @@ class DefaultConversationManagerSystemPromptTest {
     @DisplayName("执行环境段必须真的出现在提示词里（此前 append 写到了被丢弃的实例上）")
     void executionEnvironmentIsActuallyPresent() {
         String prompt = startConversation(
-                AgentRequest.builder().messages(List.of(UserMessageEntity.from("hi"))).build(),
+                AgentRequest.builder().contextSpec(ContextSpec.builder().context(List.of(UserMessageEntity.from("hi"))).build()).build(),
                 sandbox(), McpToolScope.EMPTY);
 
         assertTrue(prompt.startsWith("## Execution environment"), "环境段是首段，且不带前导空行");
@@ -144,12 +172,14 @@ class DefaultConversationManagerSystemPromptTest {
      * so an application can predict exactly what its agents are told.
      */
     @Test
-    @DisplayName("提示词逐字来自 AgentRequest.systemPrompt，框架不加料也不补默认值")
+    @DisplayName("提示词逐字来自 AgentRequest.contextSpec.systemPrompt，框架不加料也不补默认值")
     void promptComesFromTheRequestVerbatim() {
         String prompt = startConversation(
                 AgentRequest.builder()
-                        .messages(List.of(UserMessageEntity.from("hi")))
-                        .systemPrompt("  你是后端工程师，只回答结论。  ")
+                        .contextSpec(ContextSpec.builder()
+                                .context(List.of(UserMessageEntity.from("hi")))
+                                .systemPrompt("  你是后端工程师，只回答结论。  ")
+                                .build())
                         .build(),
                 sandbox(), McpToolScope.EMPTY);
 
@@ -167,7 +197,7 @@ class DefaultConversationManagerSystemPromptTest {
     @DisplayName("提示词只到服务级（名字+描述+工具数），工具名与 schema 都不进")
     void remoteServersAppearAsResumesOnly() {
         String prompt = startConversation(
-                AgentRequest.builder().messages(List.of(UserMessageEntity.from("hi"))).build(),
+                AgentRequest.builder().contextSpec(ContextSpec.builder().context(List.of(UserMessageEntity.from("hi"))).build()).build(),
                 sandbox(), scopeOf(githubTools()));
 
         assertTrue(prompt.contains("- github - GitHub remote tools - 2 tools"),

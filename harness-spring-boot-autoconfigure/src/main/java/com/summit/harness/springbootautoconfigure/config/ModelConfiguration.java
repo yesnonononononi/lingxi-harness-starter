@@ -1,7 +1,7 @@
 package com.summit.harness.springbootautoconfigure.config;
 
 import openAi.OpenAiTokenizer;
-import com.summit.core.adapter.TokenEstimator;
+import com.summit.core.compact.TokenEstimator;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.model.ModelProviderRegistry;
 import com.summit.core.model.ModelProviderRouting;

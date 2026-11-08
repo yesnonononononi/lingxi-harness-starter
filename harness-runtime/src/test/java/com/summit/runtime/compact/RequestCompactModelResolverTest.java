@@ -1,6 +1,7 @@
 package com.summit.runtime.compact;
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.ContextCompactRequest;
@@ -64,7 +65,7 @@ class RequestCompactModelResolverTest {
     }
 
     private AgentRequest request(long id, int version) {
-        return AgentRequest.builder().messages(List.of(UserMessageEntity.from("history")))
+        return AgentRequest.builder().contextSpec(ContextSpec.builder().context(List.of(UserMessageEntity.from("history"))).build())
                 .modelConfigSpec(new SensitiveDataSpec(id, version)).modelProvider("ignored").build();
     }
 

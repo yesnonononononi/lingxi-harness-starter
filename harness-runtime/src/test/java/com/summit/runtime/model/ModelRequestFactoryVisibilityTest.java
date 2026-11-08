@@ -1,6 +1,7 @@
 package com.summit.runtime.model;
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.message.Message;
@@ -169,7 +170,9 @@ class ModelRequestFactoryVisibilityTest {
                 .id("e").agentId("a")
                 .messages(new ArrayList<>(List.of(UserMessageEntity.from("task"))))
                 .agentRequest(AgentRequest.builder()
-                        .messages(List.of(UserMessageEntity.from("task")))
+                        .contextSpec(ContextSpec.builder()
+                                .context(List.of(UserMessageEntity.from("task")))
+                                .build())
                         .toolList(whitelist)
                         .build())
                 .build();

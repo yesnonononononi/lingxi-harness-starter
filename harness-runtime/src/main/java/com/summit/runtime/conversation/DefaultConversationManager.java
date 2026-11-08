@@ -9,17 +9,12 @@ import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.api.ConversationTranscriptSink;
 import com.summit.core.conversation.message.*;
-import com.summit.core.mcp.McpToolExecutor;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.prompt.PromptAssembler;
 import com.summit.core.runtime.loop.LoopMessages;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.skill.SkillLoader;
 import com.summit.core.skill.SkillResume;
-import com.summit.core.skill.SkillToolExecutor;
-import com.summit.core.tool.ToolDefinition;
-import com.summit.core.tool.ToolExecuteResult;
-import com.summit.core.tool.ToolExecutor;
 import com.summit.runtime.prompt.SystemPromptAssembler;
 import lombok.extern.slf4j.Slf4j;
 import java.util.*;
@@ -239,7 +234,7 @@ public class DefaultConversationManager implements ConversationManager {
      * Builds the leading system message: where the agent runs, who it is, the remote tools it may
      * look up, and — last, closest to the user's turn — the task this execution was delegated.
      *
-     * <p>The prompt itself is not composed here. It arrives as {@code AgentRequest.systemPrompt} and
+     * <p>The prompt itself is not composed here. It arrives as {@code AgentRequest.contextSpec.systemPrompt} and
      * is rendered verbatim: the framework holds no default of its own, so there is exactly one place
      * that decides what the model is told about its role.</p>
      *
@@ -259,8 +254,9 @@ public class DefaultConversationManager implements ConversationManager {
                 .startWithWorkspace(workspace)
                 .withBusinessPrompt(businessPromptOf(request))
                 .withMcpToolPrompt(scope.resumes())
-                .withTaskPrompt(request.getTask())
                 .withSkillPrompt(skillResumes)
+                .withMemoryPrompt(request.getContextSpec().getMemory())
+                .withTaskPrompt(request.getTask())
                 .complete();
 
         return SystemMessageEntity.builder()
@@ -281,7 +277,7 @@ public class DefaultConversationManager implements ConversationManager {
     }
 
     private static String businessPromptOf(AgentRequest request) {
-        String prompt = request == null ? null : request.getSystemPrompt();
+        String prompt = request == null ? null : request.getContextSpec().getSystemPrompt();
         return prompt == null ? "" : prompt.strip();
     }
 

@@ -1,6 +1,7 @@
 package com.summit.runtime.agent;
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
 import com.summit.core.conf.McpConfig;
@@ -160,7 +161,9 @@ class ChatAgentMcpScopeLifecycleTest {
                 .executionState(ExecutionState.CREATED)
                 .messages(new ArrayList<>(List.of(UserMessageEntity.from("task"))))
                 .agentRequest(AgentRequest.builder()
-                        .messages(List.of(UserMessageEntity.from("task")))
+                        .contextSpec(ContextSpec.builder()
+                                .context(List.of(UserMessageEntity.from("task")))
+                                .build())
                         .build())
                 .build());
 
@@ -235,7 +238,9 @@ class ChatAgentMcpScopeLifecycleTest {
                 .executionState(ExecutionState.CREATED)
                 .messages(new ArrayList<>(List.of(UserMessageEntity.from("task"))))
                 .agentRequest(AgentRequest.builder()
-                        .messages(List.of(UserMessageEntity.from("task")))
+                        .contextSpec(ContextSpec.builder()
+                                .context(List.of(UserMessageEntity.from("task")))
+                                .build())
                         .mcpConfigSpec(SensitiveDataSpec.builder().id(99L).version(3).build())
                         .build())
                 .build();

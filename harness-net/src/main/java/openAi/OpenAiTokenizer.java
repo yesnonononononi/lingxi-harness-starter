@@ -4,7 +4,7 @@ import com.knuddels.jtokkit.Encodings;
 import com.knuddels.jtokkit.api.Encoding;
 import com.knuddels.jtokkit.api.EncodingRegistry;
 import com.knuddels.jtokkit.api.EncodingType;
-import com.summit.core.adapter.TokenEstimator;
+import com.summit.core.compact.TokenEstimator;
 import com.summit.core.agent.Image;
 import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.message.AiMessageEntity;
@@ -19,6 +19,7 @@ import com.summit.core.tool.ToolDefinition;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Local, network-free token estimator for OpenAI Chat Completions.
@@ -93,6 +94,18 @@ public class OpenAiTokenizer implements TokenEstimator {
     @Override
     public int estimateMessages(List<Message> messages) {
         return estimateMessages(messages, List.of());
+    }
+
+    @Override
+    public int estimateContent(Content content) {
+        if (content instanceof TextContent text) {
+            return estimateText(text.getText());
+        }
+        if (content instanceof ImageContent ic) {
+            Image image = Objects.requireNonNull(ic.getImage(), "Image content must contain an image");
+            return imageTokensOf(image);
+        }
+        throw new UnsupportedOperationException("Content token estimation supports only text and images");
     }
 
     @Override

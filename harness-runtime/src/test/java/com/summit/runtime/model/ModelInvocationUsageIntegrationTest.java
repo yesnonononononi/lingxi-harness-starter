@@ -1,6 +1,7 @@
 package com.summit.runtime.model;
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.exception.RetriableModelException;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
@@ -434,7 +435,11 @@ class ModelInvocationUsageIntegrationTest {
         private Consumer<AgentCompleteTextEvent> publication = event -> { };
         private Execution execution = Execution.builder().id("execution").agentId("agent")
                 .executionState(ExecutionState.CREATED)
-                .agentRequest(AgentRequest.builder().messages(List.of(UserMessageEntity.from("question"))).build())
+                .agentRequest(AgentRequest.builder()
+                        .contextSpec(ContextSpec.builder()
+                                .context(List.of(UserMessageEntity.from("question")))
+                                .build())
+                        .build())
                 .messages(new ArrayList<>(List.of(UserMessageEntity.from("question"))))
                 .tokenUsage(TokenUsageEntity.empty()).build();
 

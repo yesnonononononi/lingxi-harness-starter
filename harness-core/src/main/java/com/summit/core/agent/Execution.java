@@ -143,15 +143,19 @@ public class Execution {
     }
     public static Execution create(AgentRequest request, String agentId) {
         Objects.requireNonNull(request, "agentRequest");
-        if (request.getMessages() == null || request.getMessages().isEmpty()) {
-            throw new IllegalArgumentException("AgentRequest.messages must contain the conversation context");
+
+        List<Message> context = request.getContextSpec().getContext();
+
+        if (context == null || context.isEmpty()) {
+            throw new IllegalArgumentException("AgentRequest.contextSpec.context must contain the conversation context");
         }
+
         return Execution.builder()
                 .id(request.getExecutionId() == null
                         || request.getExecutionId().isBlank()
                         ? UUID.randomUUID().toString() : request.getExecutionId())
                 .agentId(agentId).agentRequest(request)
-                .messages(new ArrayList<>(request.getMessages()))
+                .messages(new ArrayList<>(context))
                 .executionState(ExecutionState.CREATED)
                 .createAt(Instant.now()).build();
     }

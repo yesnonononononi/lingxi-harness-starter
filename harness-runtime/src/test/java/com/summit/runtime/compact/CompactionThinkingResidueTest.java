@@ -1,6 +1,7 @@
 package com.summit.runtime.compact;
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.ContextCompactRequest;
@@ -75,8 +76,12 @@ class CompactionThinkingResidueTest {
     }
 
     private AgentRequest request() {
-        return AgentRequest.builder().systemPrompt("SYS-PROMPT")
-                .messages(List.of(UserMessageEntity.from("占位"))).build();
+        return AgentRequest.builder()
+                .contextSpec(ContextSpec.builder()
+                        .systemPrompt("SYS-PROMPT")
+                        .context(List.of(UserMessageEntity.from("占位")))
+                        .build())
+                .build();
     }
 
     /** 两条改动点之前的 assistant 消息 + 改动点之后（保留尾部）一条带 thinking 的 assistant 消息。 */

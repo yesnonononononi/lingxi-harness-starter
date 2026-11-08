@@ -47,6 +47,7 @@ Inject `DefaultChatAgent` and submit the full context:
 
 ```java
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.runtime.agent.DefaultChatAgent;
@@ -54,15 +55,20 @@ import java.util.List;
 
 // agent is the Spring-injected DefaultChatAgent.
 Execution execution = agent.execute(AgentRequest.builder()
-        .messages(List.of(UserMessageEntity.from("Introduce this project")))
-        .systemPrompt("You are a project assistant. Answer based on facts.")
+        .contextSpec(ContextSpec.builder()
+                .context(List.of(UserMessageEntity.from("Introduce this project")))
+                .systemPrompt("You are a project assistant. Answer based on facts.")
+                .memory(List.of("Project conventions and user preferences"))
+                .build())
         .build());
 ```
 
 `execute` is a synchronous call. When it returns, the execution has completed, been suspended, or been cancelled; a failed execution throws an exception. For asynchronous HTTP/SSE services, the application schedules the execution thread and forwards events through `RuntimeListener`.
 
-- History for each new request comes from `AgentRequest.messages`; the framework does not query history automatically by conversation ID.
-- `systemPrompt` is provided by the application; the framework separately assembles workspace, task, MCP, and Skills information.
+- History for each new request comes from `AgentRequest.contextSpec.context`; the framework does not query history automatically by conversation ID.
+- Callers and persisted request JSON using the former top-level `messages` / `systemPrompt` fields must move them into `contextSpec.context` / `contextSpec.systemPrompt` before reuse.
+- `contextSpec.systemPrompt` is provided by the application; the framework separately assembles workspace, task, MCP, and Skills information.
+- `contextSpec.memory` supplies optional memory bodies rendered in the system prompt. Null and blank entries are omitted. In token audits, `otherTokens.memoryTokens` estimates the joined memory body (without the section heading or message framing); `attachmentTokens` estimates retained non-text user content. These are attribution details already covered by the corresponding system/user context estimates and must not be added to them. An unsupported attachment estimate reports `FAILED` without discarding the other audit fields.
 - A request may set `modelConfig` to override the entire model configuration, or set `modelProvider` to switch the provider used by the application configuration. When both are set, `modelConfig` wins; no per-field merge is performed.
 - `agent.createExecution(request)` creates a `CREATED` execution and saves it through the repository; `agent.execute(execution)` runs an existing object. Resuming preserves the original execution identity.
 
@@ -74,7 +80,8 @@ When `workspaceSpec` is not set, or is set to `null`, the local workspace is use
 import com.summit.core.workspace.BasicWorkspaceSpec;
 
 AgentRequest request = AgentRequest.builder()
-        .messages(List.of(UserMessageEntity.from("Inspect the working directory")))
+        .contextSpec(ContextSpec.builder()
+                .context(List.of(UserMessageEntity.from("Inspect the working directory"))).build())
         .workspaceSpec(new BasicWorkspaceSpec("local", "D:/projects/example"))
         .build();
 ```
@@ -131,7 +138,8 @@ Put the bean method in an application `@Configuration` class, then authorize the
 
 ```java
 AgentRequest request = AgentRequest.builder()
-        .messages(List.of(UserMessageEntity.from("Tell me the current project directory")))
+        .contextSpec(ContextSpec.builder()
+                .context(List.of(UserMessageEntity.from("Tell me the current project directory"))).build())
         .toolList(List.of("project_info"))
         .build();
 ```
@@ -353,7 +361,8 @@ import com.summit.core.conf.SkillConfig;
 import java.nio.file.Path;
 
 AgentRequest request = AgentRequest.builder()
-        .messages(List.of(UserMessageEntity.from("Review the code using the project Skill")))
+        .contextSpec(ContextSpec.builder()
+                .context(List.of(UserMessageEntity.from("Review the code using the project Skill"))).build())
         .skillConfig(new SkillConfig(Path.of("D:/skills")))
         .toolList(List.of("read_skill"))
         .build();
@@ -420,7 +429,8 @@ Agent requests carry the same options explicitly:
 ```java
 AgentRequest request = AgentRequest.builder()
         .modelProvider("default-image-model")
-        .messages(List.of(UserMessageEntity.from("Draw a forest")))
+        .contextSpec(ContextSpec.builder()
+                .context(List.of(UserMessageEntity.from("Draw a forest"))).build())
         .imageGenerationOptions(ImageGenerationOptions.builder().size("1536x1024").build())
         .build();
 ```
@@ -536,7 +546,7 @@ All packages are prefixed with `com.summit.core`:
 | `prompt.PromptAssembler` | Assembles prompts in segments; optional bean or custom conversation manager; beware concurrency of mutable builder state |
 | `compact.ContextCompacter` | Blocking compaction; current auto-configuration injects the concrete `DefaultManualCompacter` / `DefaultModelCompacter`, so registering only this interface bean does not replace both |
 | `compact.Tokenizer` | Token counting and truncation; replaceable by a same-type bean |
-| `adapter.TokenEstimator` | Low-level token estimation; replaceable by a same-type bean |
+| `compact.TokenEstimator` | Low-level token estimation; replaceable by a same-type bean |
 | `workspace.WorkspaceResolver` | Stateless provider selection; replaceable by a same-type bean |
 | `workspace.WorkspaceProvider` | Resolves a specification; resource lifecycle remains owned by the provider |
 | `runtime.workspace.Workspace` | Environment, path boundaries, and bridge; returned by the provider |

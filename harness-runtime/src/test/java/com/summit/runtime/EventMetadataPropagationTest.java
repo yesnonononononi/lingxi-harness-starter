@@ -1,6 +1,7 @@
 package com.summit.runtime;
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.AgentRuntimeParameters;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
@@ -185,8 +186,11 @@ class EventMetadataPropagationTest {
     }
 
     private Execution execution(String id, Map<String, Object> metadata) {
-        AgentRequest request = AgentRequest.builder().executionId(id)
-                .messages(List.of(UserMessageEntity.from("task")))
+        AgentRequest request = AgentRequest.builder()
+                .contextSpec(ContextSpec.builder()
+                        .context(List.of(UserMessageEntity.from("task")))
+                        .build())
+                .executionId(id)
                 .runtimeParameters(AgentRuntimeParameters.builder()
                         .attributes(Map.of("private", "internal"))
                         .eventMetaData(metadata).build()).build();

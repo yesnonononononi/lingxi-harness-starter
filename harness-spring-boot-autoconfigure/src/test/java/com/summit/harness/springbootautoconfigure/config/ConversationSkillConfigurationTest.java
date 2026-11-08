@@ -1,6 +1,6 @@
 package com.summit.harness.springbootautoconfigure.config;
 
-import com.summit.core.adapter.TokenEstimator;
+import com.summit.core.compact.TokenEstimator;
 import com.summit.core.conf.SkillConfig;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.conf.McpConfig;

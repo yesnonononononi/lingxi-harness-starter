@@ -1,6 +1,7 @@
 package com.summit.runtime.compact;
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.ContextCompactRequest;
@@ -241,7 +242,12 @@ class SummaryRebuildContractTest {
                 .findFirst()
                 .orElse("");
         return Execution.builder().id("execution-1")
-                .agentRequest(AgentRequest.builder().messages(copy).systemPrompt(systemPrompt).build())
+                .agentRequest(AgentRequest.builder()
+                        .contextSpec(ContextSpec.builder()
+                                .context(copy)
+                                .systemPrompt(systemPrompt)
+                                .build())
+                        .build())
                 .messages(copy).build();
     }
 

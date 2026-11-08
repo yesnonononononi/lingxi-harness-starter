@@ -2,6 +2,7 @@ package com.summit.harness.springbootautoconfigure.config.json;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.UserMessageEntity;
@@ -22,7 +23,7 @@ class JsonConfigTest {
         Execution original = Execution.builder().id("execution")
                 .createAt(Instant.parse("2026-09-27T00:00:00Z"))
                 .messages(messages)
-                .agentRequest(AgentRequest.builder().messages(messages).build()).build();
+                .agentRequest(AgentRequest.builder().contextSpec(ContextSpec.builder().context(messages).build()).build()).build();
 
         Execution restored = mapper.readValue(mapper.writeValueAsString(original), Execution.class);
 
