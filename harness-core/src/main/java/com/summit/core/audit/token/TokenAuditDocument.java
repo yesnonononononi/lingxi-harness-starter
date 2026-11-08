@@ -12,6 +12,7 @@ public record TokenAuditDocument(
         DocumentElement<Integer> assistantTokens,
         DocumentElement<Integer> userTokens,
         DocumentElement<ToolAuditDocument> toolTokens,
-        DocumentElement<Integer> systemTokens
+        DocumentElement<Integer> systemTokens,
+        OtherTokens otherTokens
 ) {
 }

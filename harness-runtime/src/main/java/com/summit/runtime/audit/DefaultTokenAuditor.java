@@ -1,8 +1,10 @@
 package com.summit.runtime.audit;
 
+import com.summit.core.agent.Execution;
 import com.summit.core.audit.AuditStatus;
 import com.summit.core.audit.DocumentElement;
 import com.summit.core.audit.TokenAuditor;
+import com.summit.core.audit.token.OtherTokens;
 import com.summit.core.audit.token.TokenAuditDocument;
 import com.summit.core.audit.token.tool.ToolAuditDocument;
 import com.summit.core.audit.token.tool.ToolElement;
@@ -13,6 +15,9 @@ import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.MessageType;
 import com.summit.core.conversation.message.ToolMessageEntity;
+import com.summit.core.mcp.McpToolScope;
+import com.summit.core.tool.ToolDefinition;
+import com.summit.core.tool.ToolRegistry;
 import com.summit.runtime.agent.AgentConfig;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -33,14 +38,24 @@ public class DefaultTokenAuditor implements TokenAuditor {
     private final String UNKNOW_TOOL = "unknown_tool";
     private final Tokenizer tokenizer;
     private final AgentConfig agentConfig;
+    private final ToolRegistry toolRegistry;
+    private final Function<Execution, List<ToolDefinition<?>>> mcpToolDefinitions;
+
+    /** Direct callers may bind one scope; shared auditors resolve definitions per execution. */
+    public DefaultTokenAuditor(Tokenizer tokenizer, AgentConfig agentConfig, ToolRegistry toolRegistry,
+                               McpToolScope mcpToolScope) {
+        this(tokenizer, agentConfig, toolRegistry,
+                execution -> (mcpToolScope == null ? McpToolScope.EMPTY : mcpToolScope).disclosedTools());
+    }
 
     @Override
-    public TokenAuditDocument analysis(List<Message> messageList) {
+    public TokenAuditDocument analysis(Execution execution) {
+        List<Message> messageList = Objects.requireNonNull(execution).getMessages();
         DocumentElement<Integer> assistantTokens = runIgnoreErr(MessageType.AI, messageList, () -> resolve(messageList, MessageType.AI));
         DocumentElement<Integer> userTokens = runIgnoreErr(MessageType.USER, messageList, () -> resolve(messageList, MessageType.USER));
         DocumentElement<Integer> systemTokens = runIgnoreErr(MessageType.SYSTEM, messageList, () -> resolve(messageList, MessageType.SYSTEM));
         DocumentElement<ToolAuditDocument> toolTokens = runIgnoreErr(MessageType.TOOL, messageList, () -> resolveTool(messageList));
-        return new TokenAuditDocument(assistantTokens, userTokens, toolTokens, systemTokens);
+        return new TokenAuditDocument(assistantTokens, userTokens, toolTokens, systemTokens, resolveOtherTokens(execution));
     }
 
 
@@ -144,6 +159,17 @@ public class DefaultTokenAuditor implements TokenAuditor {
     }
 
 
+    private OtherTokens resolveOtherTokens(Execution execution) {
+        //One: Tool Definition
+        DocumentElement<Integer> toolDefinitionTokens = toolDefOf(this.toolRegistry.registeredTools(execution));
+
+        //Two: Mcp Tools
+        DocumentElement<Integer> mcpDefinitionTokens = toolDefOf(this.mcpToolDefinitions.apply(execution));
+
+
+        return new OtherTokens(toolDefinitionTokens,mcpDefinitionTokens);
+    }
+
     private ToolElement toolElementsOf(List<Message> tmes, Map<ToolMessageEntity, Integer> argumentTokensByMessage,
                                        int resultMessageTokens) {
         int argumentTokens = 0, outputTokens = 0;
@@ -172,5 +198,19 @@ public class DefaultTokenAuditor implements TokenAuditor {
                     .auditDes(e.getMessage())
                     .build();
         }
+    }
+
+
+    private DocumentElement<Integer> toolDefOf(List<ToolDefinition<?>> toolDefinitions){
+
+        int defCount = this.tokenizer.count(List.of(), new ArrayList<>(toolDefinitions)); // Don't calculate the history again
+
+        double ratio = defCount / (double) this.agentConfig.maxTokens();
+
+        return DocumentElement.<Integer>builder()
+                .tokenMeta(defCount)
+                .status(AuditStatus.SUCCESS)
+                .ratio(ratio)
+                .build();
     }
 }

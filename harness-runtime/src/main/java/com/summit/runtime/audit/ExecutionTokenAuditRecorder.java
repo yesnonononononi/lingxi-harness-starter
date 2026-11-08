@@ -23,7 +23,7 @@ public class ExecutionTokenAuditRecorder {
             return;
         }
         try {
-            var audit = tokenAuditor.analysis(execution.getMessages());
+            var audit = tokenAuditor.analysis(execution);
             eventPublisher.onAuditRecorded(new AgentTokenAuditRecordedEvent(
                     execution.getId(), execution.getExecutionState(), TokenInfo.from(execution.getTokenUsage()),
                     audit, Instant.now(), execution.eventMetaData()));

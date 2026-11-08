@@ -18,6 +18,7 @@ import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.ToolDefinition;
 import com.summit.core.tool.ToolExecutor;
+import com.summit.core.tool.ToolExecuteResult;
 import com.summit.runtime.loop.DefaultExecutionController;
 import com.summit.runtime.loop.DefaultRuntimeLifeStyleManager;
 import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
@@ -105,6 +106,49 @@ class ChatAgentMcpScopeLifecycleTest {
         agent.execute(request("e-1"));
 
         assertEquals(1, closed.get());
+    }
+
+    @Test
+    void retainedDefinitionsFollowDisclosureAndDisappearAfterTerminalRelease() {
+        ToolDefinition<ToolExecutor> visible = ToolDefinition.<ToolExecutor>builder()
+                .id("visible").name("visible").description("Visible tool").parametersJsonSchema("{}")
+                .maxOutput(64).timeout(5L).executor(ignored -> ToolExecuteResult.success("ok")).build();
+        ToolDefinition<ToolExecutor> hidden = ToolDefinition.<ToolExecutor>builder()
+                .id("hidden").name("hidden").description("Hidden tool").parametersJsonSchema("{}")
+                .maxOutput(64).timeout(5L).executor(ignored -> ToolExecuteResult.success("ok")).build();
+        AtomicInteger attempts = new AtomicInteger();
+        RuntimeFactory factory = (invoker, workspace, scope) -> execution -> {
+            if (attempts.incrementAndGet() == 1) {
+                scope.disclose(List.of(visible.name()));
+                execution.setExecutionState(ExecutionState.SUSPENDED);
+            } else {
+                assertEquals(List.of(visible), scope.disclosedTools());
+                execution.setExecutionState(ExecutionState.COMPLETED);
+            }
+            return execution;
+        };
+        TestAgent agent = new TestAgent(factory, config -> {
+            opened.incrementAndGet();
+            return McpToolScope.of(List.of(new McpSession() {
+                public String name() { return "disclosure-server"; }
+                public List<ToolDefinition<? extends ToolExecutor>> tools() { return List.of(visible, hidden); }
+                public void close() { closed.incrementAndGet(); }
+            }));
+        });
+        Execution execution = request("disclosed");
+
+        assertTrue(agent.disclosedMcpToolDefinitions(execution.getId()).isEmpty());
+        agent.execute(execution);
+        assertEquals(List.of(visible), agent.disclosedMcpToolDefinitions(execution.getId()));
+        assertTrue(agent.disclosedMcpToolDefinitions("other-execution").isEmpty());
+        assertEquals(1, opened.get());
+        assertEquals(0, closed.get());
+
+        agent.execute(execution);
+
+        assertEquals(1, opened.get());
+        assertEquals(1, closed.get());
+        assertTrue(agent.disclosedMcpToolDefinitions(execution.getId()).isEmpty());
     }
 
     @Test

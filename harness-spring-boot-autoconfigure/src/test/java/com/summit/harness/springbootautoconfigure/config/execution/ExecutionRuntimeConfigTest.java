@@ -20,6 +20,10 @@ import com.summit.core.runtime.RuntimeFactory;
 import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.runtime.loop.*;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
+import com.summit.core.tool.ToolDefinition;
+import com.summit.core.tool.ToolExecuteResult;
+import com.summit.core.tool.ToolExecutor;
+import com.summit.core.tool.ToolRegistry;
 import com.summit.core.workspace.WorkspaceResolver;
 import com.summit.harness.springbootautoconfigure.config.InterceptorConfig;
 import com.summit.harness.springbootautoconfigure.config.agent.AgentConfiguration;
@@ -41,6 +45,7 @@ import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -87,10 +92,38 @@ class ExecutionRuntimeConfigTest {
             context.getEnvironment().getPropertySources().addFirst(new MapPropertySource("audit",
                     Map.of("lingxi.agent.runtime.token-audit.enabled", "true")));
             context.registerBean(AgentConfig.class, () -> AgentConfig.builder().maxTokens(100).build());
+            ToolDefinition<ToolExecutor> definition = ToolDefinition.<ToolExecutor>builder()
+                    .id("lookup").name("lookup").description("Find a file")
+                    .parametersJsonSchema("{\"type\":\"object\"}").maxOutput(64).timeout(5L)
+                    .executor(ignored -> ToolExecuteResult.success("ok")).build();
+            context.registerBean(ToolRegistry.class, () -> new ToolRegistry(List.of(definition)));
+            AtomicInteger scopeReads = new AtomicInteger();
+            context.registerBean("mcpAgent", ChatAgent.class, () -> new ChatAgent(
+                    context.getBean(RuntimeFactory.class), null, null, null, null, null, null, null, null) {
+                @Override
+                public String id() { return "mcp-agent"; }
+
+                @Override
+                public List<ToolDefinition<?>> disclosedMcpToolDefinitions(String executionId) {
+                    scopeReads.incrementAndGet();
+                    return "audit-run".equals(executionId) ? List.of(definition) : List.of();
+                }
+            });
+            context.registerBean("otherMcpAgent", ChatAgent.class, () -> new ChatAgent(
+                    context.getBean(RuntimeFactory.class), null, null, null, null, null, null, null, null) {
+                @Override
+                public String id() { return "other-mcp-agent"; }
+
+                @Override
+                public List<ToolDefinition<?>> disclosedMcpToolDefinitions(String executionId) {
+                    scopeReads.incrementAndGet();
+                    return "other-run".equals(executionId) ? List.of(definition, definition) : List.of();
+                }
+            });
             context.registerBean(Tokenizer.class, () -> new DefaultTokenizer() {
                 @Override
-                public int count(List<Message> messages, List<com.summit.core.tool.ToolDefinition<?>> tools) {
-                    return messages.isEmpty() ? 0 : 17;
+                public int count(List<Message> messages, List<ToolDefinition<?>> tools) {
+                    return (messages == null || messages.isEmpty() ? 0 : 17) + tools.size() * 11;
                 }
             });
             List<AgentAuditRecordedEvent> events = new ArrayList<>();
@@ -101,9 +134,11 @@ class ExecutionRuntimeConfigTest {
                 }
             });
             context.refresh();
+            assertEquals(0, scopeReads.get());
 
             Execution execution = Execution.create(AgentRequest.builder()
-                    .messages(List.of(UserMessageEntity.from("task"))).build(), "a-1");
+                    .executionId("audit-run")
+                    .messages(List.of(UserMessageEntity.from("task"))).toolList(List.of("lookup")).build(), "a-1");
             execution.startChecked();
             execution.completeChecked();
             context.getBean(RuntimeLifeStyleManager.class).onComplete(execution);
@@ -112,6 +147,19 @@ class ExecutionRuntimeConfigTest {
             assertEquals(1, events.size());
             assertEquals(17, event.contextAudit().userTokens().getTokenMeta());
             assertEquals(0.17, event.contextAudit().userTokens().getRatio());
+            assertEquals(11, event.contextAudit().otherTokens().toolDefinitionTokens().getTokenMeta());
+            assertEquals(0.11, event.contextAudit().otherTokens().toolDefinitionTokens().getRatio());
+            assertEquals(11, event.contextAudit().otherTokens().mcpToolDefinitionTokens().getTokenMeta());
+            assertEquals(0.11, event.contextAudit().otherTokens().mcpToolDefinitionTokens().getRatio());
+            Execution other = Execution.create(AgentRequest.builder().executionId("other-run")
+                    .messages(List.of(UserMessageEntity.from("other task"))).build(), "other-mcp-agent");
+            other.startChecked();
+            other.completeChecked();
+            context.getBean(RuntimeLifeStyleManager.class).onComplete(other);
+            assertEquals(2, events.size());
+            AgentTokenAuditRecordedEvent otherEvent = assertInstanceOf(AgentTokenAuditRecordedEvent.class, events.getLast());
+            assertEquals(0, otherEvent.contextAudit().otherTokens().toolDefinitionTokens().getTokenMeta());
+            assertEquals(22, otherEvent.contextAudit().otherTokens().mcpToolDefinitionTokens().getTokenMeta());
         }
     }
 

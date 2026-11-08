@@ -1,5 +1,7 @@
 package com.summit.runtime.audit;
 
+import com.summit.core.agent.AgentRequest;
+import com.summit.core.agent.Execution;
 import com.summit.core.audit.AuditStatus;
 import com.summit.core.audit.DocumentElement;
 import com.summit.core.audit.token.TokenAuditDocument;
@@ -11,6 +13,13 @@ import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.ToolMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
+import com.summit.core.mcp.McpSession;
+import com.summit.core.mcp.McpToolScope;
+import com.summit.core.tool.ConcurrentPolicy;
+import com.summit.core.tool.ToolDefinition;
+import com.summit.core.tool.ToolExecuteResult;
+import com.summit.core.tool.ToolExecutor;
+import com.summit.core.tool.ToolRegistry;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.conversation.DefaultTokenizer;
 import openAi.OpenAiTokenizer;
@@ -27,7 +36,7 @@ class DefaultTokenAuditorTest {
     @Test
     void countsToolMessagesAsOneBatchAndKeepsTheMcpBucketSeparateFromToolNames() {
         var tokenizer = new DefaultTokenizer(new OpenAiTokenizer());
-        var auditor = new DefaultTokenAuditor(tokenizer, AgentConfig.builder().maxTokens(1000).build());
+        DefaultTokenAuditor auditor = auditor(tokenizer);
         var local = ToolMessageEntity.builder().id("local").name("MCP").toolOutput("local result").build();
         var remote = ToolMessageEntity.builder().id("remote").name("unprefixed")
                 .isMcpTool(true).toolOutput("remote result").build();
@@ -45,7 +54,7 @@ class DefaultTokenAuditorTest {
         int skillArgumentTokens = tokenizer.countText(skillArguments);
         int total = tokenizer.count(List.of(skill, local, remote));
 
-        var toolAudit = auditor.analysis(messages).toolTokens();
+        DocumentElement<ToolAuditDocument> toolAudit = auditor.analysis(execution(messages)).toolTokens();
 
         assertEquals(AuditStatus.SUCCESS, toolAudit.getStatus());
         assertEquals(total, toolAudit.getTokenMeta().toolTokens());
@@ -64,14 +73,14 @@ class DefaultTokenAuditorTest {
 
     @Test
     void matchesRepeatedCallIdsToTheirOwnRound() {
-        var auditor = new DefaultTokenAuditor(new DefaultTokenizer(), AgentConfig.builder().maxTokens(1000).build());
+        DefaultTokenAuditor auditor = auditor(new DefaultTokenizer());
         var first = AiMessageEntity.builder().toolCalls(List.of(
                 new ToolCallRequest("same", "read", 0, "abc"))).build();
         var second = AiMessageEntity.builder().toolCalls(List.of(
                 new ToolCallRequest("same", "read", 0, "abcdef"))).build();
-        TokenAuditDocument audit = auditor.analysis(List.of(first,
+        TokenAuditDocument audit = auditor.analysis(execution(List.of(first,
                 ToolMessageEntity.builder().id("same").name("read").toolOutput("one").build(), second,
-                ToolMessageEntity.builder().id("same").name("read").toolOutput("two").build()));
+                ToolMessageEntity.builder().id("same").name("read").toolOutput("two").build())));
         DocumentElement<ToolAuditDocument> result = audit.toolTokens();
 
         assertEquals(AuditStatus.SUCCESS, result.getStatus());
@@ -83,9 +92,9 @@ class DefaultTokenAuditorTest {
 
     @Test
     void reportsMissingCallsInsteadOfCountingUnknownInputAsZero() {
-        var auditor = new DefaultTokenAuditor(new DefaultTokenizer(), AgentConfig.builder().build());
-        var audit = auditor.analysis(List.of(
-                ToolMessageEntity.builder().id("missing").name("read").toolOutput("result").build()));
+        DefaultTokenAuditor auditor = auditor(new DefaultTokenizer());
+        TokenAuditDocument audit = auditor.analysis(execution(List.of(
+                ToolMessageEntity.builder().id("missing").name("read").toolOutput("result").build())));
 
         assertEquals(AuditStatus.FAILED, audit.toolTokens().getStatus());
         assertTrue(audit.toolTokens().getAuditDes().contains("Missing tool call"));
@@ -103,22 +112,97 @@ class DefaultTokenAuditorTest {
                 return super.usage(messages, tools, maxTokens);
             }
         };
-        var auditor = new DefaultTokenAuditor(tokenizer, AgentConfig.builder().maxTokens(1000).build());
+        DefaultTokenAuditor auditor = auditor(tokenizer);
 
-        var empty = auditor.analysis(List.of()).userTokens();
+        DocumentElement<Integer> empty = auditor.analysis(execution(List.of())).userTokens();
         assertEquals(AuditStatus.SUCCESS, empty.getStatus());
         assertEquals(0, empty.getTokenMeta());
 
-        var missing = auditor.analysis(null);
+        TokenAuditDocument missing = auditor.analysis(execution(null));
         assertEquals(AuditStatus.NO_DATA, missing.userTokens().getStatus());
         assertEquals(AuditStatus.NO_DATA, missing.toolTokens().getStatus());
         assertNull(missing.userTokens().getTokenMeta());
 
-        var audit = auditor.analysis(List.of(UserMessageEntity.from("task")));
+        TokenAuditDocument audit = auditor.analysis(execution(List.of(UserMessageEntity.from("task"))));
         assertEquals(AuditStatus.FAILED, audit.userTokens().getStatus());
         assertEquals("estimate failed", audit.userTokens().getAuditDes());
         assertNull(audit.userTokens().getTokenMeta());
         assertEquals(AuditStatus.SUCCESS, audit.systemTokens().getStatus());
         assertEquals(AuditStatus.SUCCESS, audit.toolTokens().getStatus());
+    }
+
+    @Test
+    void countsOnlyWhitelistedDefinitionsWithoutIncludingMessageHistory() {
+        DefaultTokenizer tokenizer = new DefaultTokenizer(new OpenAiTokenizer());
+        ToolDefinition<ToolExecutor> allowed = definition("lookup");
+        ToolDefinition<ToolExecutor> excluded = definition("excluded");
+        DefaultTokenAuditor auditor = new DefaultTokenAuditor(tokenizer,
+                AgentConfig.builder().maxTokens(1000).build(),
+                new ToolRegistry(List.of(allowed, excluded)), McpToolScope.EMPTY);
+        Execution execution = execution(List.of(UserMessageEntity.from("long history ".repeat(1000))));
+        execution.getAgentRequest().setToolList(List.of("lookup"));
+
+        TokenAuditDocument audit = auditor.analysis(execution);
+        DocumentElement<Integer> definitions = audit.otherTokens().toolDefinitionTokens();
+        int expected = tokenizer.count(List.of(), List.of(allowed));
+
+        assertTrue(expected > 0);
+        assertEquals(AuditStatus.SUCCESS, definitions.getStatus());
+        assertEquals(expected, definitions.getTokenMeta());
+        assertEquals(expected / 1000.0, definitions.getRatio());
+        assertEquals(0, audit.otherTokens().mcpToolDefinitionTokens().getTokenMeta());
+        execution.setMessages(List.of(UserMessageEntity.from("short")));
+        assertEquals(expected, auditor.analysis(execution).otherTokens().toolDefinitionTokens().getTokenMeta());
+        execution.getAgentRequest().setToolList(List.of());
+        assertEquals(0, auditor.analysis(execution).otherTokens().toolDefinitionTokens().getTokenMeta());
+    }
+
+    @Test
+    void countsOnlyDisclosedMcpDefinitions() {
+        ToolDefinition<ToolExecutor> disclosed = definition("mcp_visible");
+        ToolDefinition<ToolExecutor> undisclosed = definition("mcp_hidden");
+        McpSession session = new McpSession() {
+            @Override
+            public String name() { return "audit-server"; }
+
+            @Override
+            public List<ToolDefinition<? extends ToolExecutor>> tools() {
+                return List.of(disclosed, undisclosed);
+            }
+
+            @Override
+            public void close() { }
+        };
+        DefaultTokenizer tokenizer = new DefaultTokenizer(new OpenAiTokenizer());
+        try (McpToolScope scope = McpToolScope.of(List.of(session))) {
+            scope.disclose(List.of(disclosed.name()));
+            DefaultTokenAuditor auditor = new DefaultTokenAuditor(tokenizer,
+                    AgentConfig.builder().maxTokens(1000).build(), new ToolRegistry(List.of()), scope);
+
+            TokenAuditDocument audit = auditor.analysis(execution(List.of(UserMessageEntity.from("task"))));
+
+            int expected = tokenizer.count(List.of(), List.of(disclosed));
+            assertEquals(0, audit.otherTokens().toolDefinitionTokens().getTokenMeta());
+            assertEquals(AuditStatus.SUCCESS, audit.otherTokens().mcpToolDefinitionTokens().getStatus());
+            assertEquals(expected, audit.otherTokens().mcpToolDefinitionTokens().getTokenMeta());
+            assertEquals(expected / 1000.0, audit.otherTokens().mcpToolDefinitionTokens().getRatio());
+        }
+    }
+
+    private DefaultTokenAuditor auditor(DefaultTokenizer tokenizer) {
+        return new DefaultTokenAuditor(tokenizer, AgentConfig.builder().maxTokens(1000).build(),
+                new ToolRegistry(List.of()), McpToolScope.EMPTY);
+    }
+
+    private Execution execution(List<Message> messages) {
+        return Execution.builder().agentRequest(AgentRequest.builder().messages(messages).build())
+                .messages(messages).build();
+    }
+
+    private ToolDefinition<ToolExecutor> definition(String name) {
+        return ToolDefinition.<ToolExecutor>builder().id(name).name(name).description("Find a file")
+                .parametersJsonSchema("{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}}}")
+                .maxOutput(64).timeout(5L).concurrentPolicy(ConcurrentPolicy.READ_ONLY)
+                .executor(ignored -> ToolExecuteResult.success("ok")).build();
     }
 }

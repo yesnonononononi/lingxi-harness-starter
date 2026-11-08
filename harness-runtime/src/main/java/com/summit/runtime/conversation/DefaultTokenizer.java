@@ -7,6 +7,7 @@ import com.summit.core.conversation.message.*;
 import com.summit.core.tool.ToolDefinition;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Default Tokenizer: prefers the injected {@link TokenEstimator} (provided by an adapter module,
@@ -31,7 +32,7 @@ public class DefaultTokenizer implements Tokenizer {
 
     @Override
     public int countText(String text) {
-        if(text == null || text.isEmpty())return 0;
+        if (text == null || text.isEmpty()) return 0;
         return this.tokenEstimator == null ? this.estimateTokenCountFallbackOfText(text) : this.tokenEstimator.estimateText(text);
     }
 
@@ -42,12 +43,7 @@ public class DefaultTokenizer implements Tokenizer {
         if (tokenEstimator != null) {
             return tokenEstimator.estimateMessages(emptyHistory ? List.of() : messages, tools);
         }
-        if (emptyHistory) return 0;
-        int res = 0;
-        for (Message message : messages) {
-            res += estimateTokenCountFallback(message);
-        }
-        return res;
+        return estimateTokenCountFallback(messages,tools);
     }
 
 
@@ -80,23 +76,46 @@ public class DefaultTokenizer implements Tokenizer {
     }
 
     @Override
-    public double calcCurrentTokenRatio(List<Message> messages,List<ToolDefinition<?>> tools, int maxTokens) {
-        int currentTokens = this.count(messages,tools);
+    public double calcCurrentTokenRatio(List<Message> messages, List<ToolDefinition<?>> tools, int maxTokens) {
+        int currentTokens = this.count(messages, tools);
         return currentTokens / (double) maxTokens;
     }
 
     @Override
-    public ContextUsageMetric usage(List<Message> messages,List<ToolDefinition<?>> tools, Integer maxTokens) {
+    public ContextUsageMetric usage(List<Message> messages, List<ToolDefinition<?>> tools, Integer maxTokens) {
         if (maxTokens == null || maxTokens <= 0) {
             return null;
         }
-        int tokenCount = count(messages,tools);
+        int tokenCount = count(messages, tools);
         return new ContextUsageMetric(
                 tokenCount,
                 maxTokens,
                 tokenCount / (double) maxTokens);
     }
 
+    private int estimateTokenCountFallback(List<Message> messages, List<ToolDefinition<?>> definitions) {
+        int result = 0;
+        if(messages != null && !messages.isEmpty()) {
+            for (Message message : messages) {
+                result += estimateTokenCountFallback(message);
+            }
+        }
+        if(definitions != null && !definitions.isEmpty()) {
+            for (ToolDefinition<?> definition : definitions) {
+                result +=
+                        this.estimateTokenCountFallbackOfText(definition.description())
+                                +
+                                this.estimateTokenCountFallbackOfText(definition.name())
+                                +
+                                this.estimateTokenCountFallbackOfText(definition.parametersJsonSchema())
+                                +
+                                this.estimateTokenCountFallbackOfText(definition.concurrentPolicy() != null ? definition.concurrentPolicy().name() : "")
+                                +
+                                this.estimateTokenCountFallbackOfText(Objects.toString(definition.id(), ""));
+            }
+        }
+        return result;
+    }
 
     private int estimateTokenCountFallback(Message message) {
         if (message instanceof SystemMessageEntity systemMessage) {
@@ -120,8 +139,8 @@ public class DefaultTokenizer implements Tokenizer {
         return 0;
     }
 
-    private int estimateTokenCountFallbackOfText(String text){
-        if(text == null || text.isEmpty())return 0;
+    private int estimateTokenCountFallbackOfText(String text) {
+        if (text == null || text.isEmpty()) return 0;
         return text.length() / 3;
     }
 

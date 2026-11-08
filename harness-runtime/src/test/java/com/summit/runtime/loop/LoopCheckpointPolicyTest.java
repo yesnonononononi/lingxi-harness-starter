@@ -14,6 +14,7 @@ import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
+import com.summit.core.mcp.McpToolScope;
 import com.summit.core.model.chat.ChatModel;
 import com.summit.core.runtime.RuntimeListener;
 import com.summit.core.runtime.loop.ContextUsageReporter;
@@ -179,7 +180,8 @@ class LoopCheckpointPolicyTest {
         DefaultTokenizer tokenizer = new DefaultTokenizer();
         AgentConfig config = AgentConfig.builder().maxIterations(5).build();
         DefaultRuntimeLifeStyleManager lifecycle = new DefaultRuntimeLifeStyleManager(events,
-                new ExecutionTokenAuditRecorder(new DefaultTokenAuditor(tokenizer, config), events));
+                new ExecutionTokenAuditRecorder(new DefaultTokenAuditor(tokenizer, config,
+                        new ToolRegistry(List.of()), McpToolScope.EMPTY), events));
         DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
         ToolExecutionManager tools = new ToolExecutionManager() {
             public List<ToolExecuteResult> execute(ToolExecuteCommand command) {
