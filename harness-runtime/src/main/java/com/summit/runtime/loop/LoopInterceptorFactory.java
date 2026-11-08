@@ -93,12 +93,10 @@ public class LoopInterceptorFactory {
             public InterceptorResult onRunEnd(Execution execution) {
                 if (InterceptorType.RUN_END.equals(agenticLoopListener.value())) {
                     return method.apply(
-                            new LoopContext(
-                                    LoopMessages.builder().execution(execution).build(),
-                                    null,
-                                    null,
-                                    null
-                            ));
+                             LoopContext.builder()
+                                     .loopMessages(LoopMessages.builder().execution(execution).build())
+                                     .build()
+                    );
                 }
                 return LoopInterceptor.super.onRunEnd(execution);
             }

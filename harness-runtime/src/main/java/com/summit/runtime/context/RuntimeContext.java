@@ -1,6 +1,7 @@
 package com.summit.runtime.context;
 
 
+import com.summit.core.compact.CompactSummaryApplier;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ResponseIdGenerator;
@@ -12,6 +13,7 @@ import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.ToolExecutionManager;
 import com.summit.runtime.conversation.SnowflakeResponseIdGenerator;
+import com.summit.runtime.compact.DefaultCompactSummaryApplier;
 import lombok.Getter;
 import lombok.experimental.SuperBuilder;
 
@@ -30,6 +32,7 @@ public class RuntimeContext {
     private final RuntimeLifeStyleManager runtimeLifeStyleManager;
     private final List<ExecutionFailureObserver> failureObservers;
     private final RuntimeBoundaryChecker runtimeBoundaryChecker;
+    private final CompactSummaryApplier compactSummaryApplier;
     private final ExecutionRepository executionRepository;
     private final ExecutionControl executionControl;
     private final ModelInvoker invoker;
@@ -71,6 +74,12 @@ public class RuntimeContext {
     /** Direct builder users share one generator so separate runtimes do not reuse worker sequences. */
     public ResponseIdGenerator getResponseIdGenerator() {
         return responseIdGenerator == null ? SnowflakeResponseIdGenerator.DEFAULT : responseIdGenerator;
+    }
+
+    /** Direct builder users retain the default summary application behavior. */
+    public CompactSummaryApplier getCompactSummaryApplier() {
+        return compactSummaryApplier == null
+                ? new DefaultCompactSummaryApplier(conversationManager) : compactSummaryApplier;
     }
 
 }

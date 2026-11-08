@@ -1,6 +1,7 @@
 package com.summit.harness.springbootautoconfigure.config.execution;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.summit.core.compact.CompactSummaryApplier;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ResponseIdGenerator;
@@ -57,13 +58,15 @@ public class ExecutionRuntimeConfig {
                                                 LoopInterceptorProcessor loopInterceptorProcessor,
                                                 RuntimeBoundaryChecker boundaryChecker,
                                                 List<ExecutionFailureObserver> failureObservers,
-                                                ResponseIdGenerator responseIdGenerator
+                                                ResponseIdGenerator responseIdGenerator,
+                                                CompactSummaryApplier compactSummaryApplier
     ) {
         return DefaultRuntimeFactory.builder()
                 .toolExecutionManager(defaultToolExecutionManager)
                 .runtimeEventPublisher(defaultRuntimeListener)
                 .responseIdGenerator(responseIdGenerator)
                 .conversationManager(conversationManager)
+                .compactSummaryApplier(compactSummaryApplier)
                 .usage(usage)
                 .tokenizer(tokenizer)
                 .loopInterceptorProcessor(loopInterceptorProcessor)

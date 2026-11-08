@@ -6,6 +6,7 @@ import com.summit.core.compact.Tokenizer;
 import com.summit.core.conf.ModelBehavior;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.conf.SensitiveDataProvider;
+import com.summit.core.compact.CompactSummaryApplier;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ConversationTranscriptSink;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
@@ -19,9 +20,7 @@ import com.summit.core.skill.SkillResolver;
 import com.summit.core.tool.ToolRegistry;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
 import com.summit.runtime.agent.AgentConfig;
-import com.summit.runtime.compact.DefaultContextPruner;
-import com.summit.runtime.compact.DefaultModelCompacter;
-import com.summit.runtime.compact.RequestCompactModelResolver;
+import com.summit.runtime.compact.*;
 import com.summit.runtime.conversation.DefaultConversationManager;
 import com.summit.runtime.conversation.DefaultTokenizer;
 import com.summit.runtime.prompt.SystemPromptAssembler;
@@ -62,6 +61,12 @@ public class ConversationConfig {
                 () -> promptAssembler.getIfAvailable(SystemPromptAssembler::new),
                 skillLoader
         );
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(CompactSummaryApplier.class)
+    public CompactSummaryApplier compactSummaryApplier(ConversationManager conversationManager){
+        return new DefaultCompactSummaryApplier(conversationManager);
     }
 
 
@@ -127,10 +132,16 @@ public class ConversationConfig {
     @Bean
     @ConditionalOnMissingBean(name = "modelCompacter")
     public DefaultModelCompacter modelCompacter(RequestCompactModelResolver models, ExecutionRepository executions,
-            ConversationManager conversations, List<ContextAttachmentProvider> attachments,
-            ContextUsageReporter usage) {
-        return new DefaultModelCompacter(models::resolve, executions, conversations,
-                ContextAttachmentProvider.compose(attachments), usage);
+                                                ConversationManager conversations, List<ContextAttachmentProvider> attachments,
+                                                ContextUsageReporter usage, CompactSummaryApplier compactSummaryApplier) {
+        return DefaultModelCompacter.builder()
+                .contextAttachmentProvider(ContextAttachmentProvider.compose(attachments))
+                .usage(usage)
+                .conversationManager(conversations)
+                .executions(executions)
+                .models(models::resolve)
+                .summaryApplier(compactSummaryApplier)
+                .build();
     }
 
     @Bean

@@ -3,6 +3,7 @@ package com.summit.harness.springbootautoconfigure.config;
 import com.summit.core.adapter.TokenEstimator;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
+import com.summit.core.compact.CompactSummaryApplier;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.conversation.message.Message;
@@ -17,6 +18,7 @@ import com.summit.core.tool.ToolExecutor;
 import com.summit.core.tool.ToolRegistry;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
 import com.summit.runtime.agent.AgentConfig;
+import com.summit.runtime.compact.DefaultCompactSummaryApplier;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
@@ -29,6 +31,8 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -75,10 +79,24 @@ class ConversationConfigContextTest {
             context.refresh();
 
             ContextUsageReporter reporter = context.getBean(ContextUsageReporter.class);
+            assertInstanceOf(DefaultCompactSummaryApplier.class, context.getBean(CompactSummaryApplier.class));
             Execution execution = execution();
             assertTrue(reporter.countInput(execution, execution.getMessages()) > 0);
             assertNotNull(reporter.report(execution));
             assertEquals(0, context.getBeansOfType(ToolRegistry.class).size());
+        }
+    }
+
+    @Test
+    void applicationSummaryApplierReplacesTheDefaultBean() {
+        CompactSummaryApplier custom = (raw, execution) -> false;
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.registerBean("businessSummaryApplier", CompactSummaryApplier.class, () -> custom);
+            context.register(Collaborators.class, ConversationConfig.class);
+            context.refresh();
+
+            assertEquals(1, context.getBeansOfType(CompactSummaryApplier.class).size());
+            assertSame(custom, context.getBean(CompactSummaryApplier.class));
         }
     }
 

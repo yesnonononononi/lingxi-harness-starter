@@ -1,7 +1,9 @@
 package com.summit.runtime.compact;
 
 import com.summit.core.agent.Execution;
+import com.summit.core.compact.CompactSummaryApplier;
 import com.summit.core.conversation.ConversationManager;
+import lombok.RequiredArgsConstructor;
 
 /**
  * Applies a model-generated compaction output to a session.
@@ -11,19 +13,18 @@ import com.summit.core.conversation.ConversationManager;
  * The summary layout and the prompt that produces it are the compaction strategy's business, so
  * they live beside this class rather than in the {@link ConversationManager} contract.</p>
  */
-public final class CompactSummaryApplier {
+@RequiredArgsConstructor
+public class DefaultCompactSummaryApplier implements CompactSummaryApplier {
 
     private final ConversationManager conversationManager;
 
-    public CompactSummaryApplier(ConversationManager conversationManager) {
-        this.conversationManager = conversationManager;
-    }
 
     /**
      * Resolves the output and rebuilds the context, but only when a usable summary came out of it.
      *
      * @return {@code false} when the output was blank or unusable, leaving the context untouched
      */
+    @Override
     public boolean apply(String rawOutput, Execution execution) {
         ContextSummary summary = CompactSummaryResolver.resolve(rawOutput);
         if (summary == null) return false;

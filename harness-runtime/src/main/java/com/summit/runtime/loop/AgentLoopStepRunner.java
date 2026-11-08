@@ -17,12 +17,10 @@ import com.summit.core.tool.ToolExecuteCommand;
 import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolResultType;
 import com.summit.runtime.agent.AgentConfig;
-import com.summit.runtime.compact.CompactSummaryApplier;
 import com.summit.runtime.context.RuntimeContext;
 import com.summit.runtime.model.ModelRequestFactory;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletionException;
@@ -91,7 +89,7 @@ public class AgentLoopStepRunner {
         private final LoopInterceptorProcessor interceptor;
         private final LoopContext loopContext;
         private int consecutiveCompactRounds;
-        private TokenUsageEntity tokenUsageBaseLine;
+        private final TokenUsageEntity tokenUsageBaseLine;
 
         private Run(Execution execution, ExecutionControlSignal control) {
             this.execution = execution;
@@ -103,6 +101,7 @@ public class AgentLoopStepRunner {
                     messages,
                     control,
                     () -> consecutiveCompactRounds,
+                    context.getCompactSummaryApplier(),
                     appended -> appended.forEach(m -> context.getConversationManager().appendMessage(execution, m))
             );
         }
@@ -306,8 +305,7 @@ public class AgentLoopStepRunner {
             if (!result.isSuccess() || result.getToolResultType() != ToolResultType.CONTEXT_COMPACT)
                 return false;
 
-            boolean applied = new CompactSummaryApplier(context.getConversationManager())
-                    .apply(result.getToolOutput(), execution);
+            boolean applied = loopContext.getCompactSummaryApplier().apply(result.getToolOutput(), execution);
             if (!applied) return false;
 
             appendCompactRoundToTranscriptOnly();

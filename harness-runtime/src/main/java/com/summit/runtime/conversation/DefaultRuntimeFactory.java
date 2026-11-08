@@ -1,6 +1,7 @@
 package com.summit.runtime.conversation;
 
 import com.summit.core.agent.Execution;
+import com.summit.core.compact.CompactSummaryApplier;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ResponseIdGenerator;
@@ -31,6 +32,7 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
     private final ResponseIdGenerator responseIdGenerator;
     private final ToolExecutionManager toolExecutionManager;
     private final ConversationManager conversationManager;
+    private final CompactSummaryApplier compactSummaryApplier;
     private final Tokenizer tokenizer;
     private final com.summit.core.runtime.loop.ContextUsageReporter usage;
     private final AgentConfig agentConfig;
@@ -63,6 +65,7 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
                         .responseIdGenerator(responseIdGenerator)
                         .toolExecutionManager(toolExecutionManager)
                         .conversationManager(conversationManager)
+                        .compactSummaryApplier(compactSummaryApplier)
                         .runtimeLifeStyleManager(runtimeLifeStyleManager)
                         .failureObservers(failureObservers)
                         .usage(usage)

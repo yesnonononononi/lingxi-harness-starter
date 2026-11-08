@@ -93,12 +93,13 @@ class SummaryRebuildContractTest {
         StubContextTokenizer tokenizer = new StubContextTokenizer(OVER_THRESHOLD);
         ContextUsageReporter usage = new ContextUsageReporter(tokenizer, 100_000,
                 new RuntimeEventPublisher(List.of()), 1);
-        DefaultModelCompacter compacter = new DefaultModelCompacter(request -> {
+        DefaultModelCompacter compacter = DefaultModelCompacter.builder().models(ignored -> request -> {
             requests.add(request);
             return ChatResponseEntity.builder()
                     .aiMessageEntity(AiMessageEntity.builder().text(SUMMARY_JSON).build())
                     .build();
-        }, conversations, id -> Optional.empty(), usage);
+        }).conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
         Execution execution = execution(
                 SystemMessageEntity.builder().text("LEADING-SYSTEM-PROMPT").build(),
                 UserMessageEntity.from("history the first round compresses"));

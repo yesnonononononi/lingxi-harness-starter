@@ -258,8 +258,8 @@ class ExecutionRuntimeConfigTest {
                 .agentRequest(AgentRequest.builder()
                         .messages(List.of(UserMessageEntity.from("task"))).build())
                 .build();
-        return new LoopContext(LoopMessages.builder().execution(execution).build(),
-                new ExecutionControlSignal("e-1"), 0, messages -> { });
+        return LoopContext.withCompactionCounter(LoopMessages.builder().execution(execution).build(),
+                new ExecutionControlSignal("e-1"), () -> 0, null, messages -> { });
     }
 
     private static LoopInterceptor interceptor(String name, int order, List<String> seen) {

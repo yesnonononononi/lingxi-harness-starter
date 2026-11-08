@@ -295,10 +295,11 @@ class DefaultContextPrunerTest {
         AgentConfig config = AgentConfig.builder().maxTokens(1_000).build();
         DefaultConversationManager conversations = new DefaultConversationManager(id -> Optional.empty());
         ContextUsageReporter usage = reporter(1_000);
-        DefaultModelCompacter compacter = new DefaultModelCompacter(request -> {
+        DefaultModelCompacter compacter = DefaultModelCompacter.builder().models(ignored -> request -> {
             modelCalls.incrementAndGet();
             throw new IllegalStateException("offline model failure");
-        }, conversations, id -> Optional.empty(), usage);
+        }).conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
         BoundaryChecker checker = new BoundaryChecker(config, tokenizer, conversations,
                 new DefaultContextPruner(config, usage), compacter, null, null);
         Execution execution = history("{}", "old output", "latest output".repeat(1_000));
@@ -577,11 +578,12 @@ class DefaultContextPrunerTest {
         AgentConfig config = AgentConfig.builder().maxTokens(1_000).maxSummaryAttempts(2).build();
         DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
         ContextUsageReporter usage = reporter(1_000);
-        DefaultModelCompacter summaries = new DefaultModelCompacter(request -> {
+        DefaultModelCompacter summaries = DefaultModelCompacter.builder().models(ignored -> request -> {
             summaryCalls.incrementAndGet();
             return ChatResponseEntity.builder().aiMessageEntity(AiMessageEntity.builder()
                     .text("{\"summary\":\"usable summary\"}").build()).build();
-        }, conversations, ContextAttachmentProvider.NONE, usage);
+        }).conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
 
         BoundaryChecker checker = new BoundaryChecker(config, tokenizer, conversations,
                 new DefaultContextPruner(config, usage), summaries, null, null);

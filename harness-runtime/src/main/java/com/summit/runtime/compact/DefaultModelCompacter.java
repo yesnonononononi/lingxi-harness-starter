@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.compact.CompactSummaryApplier;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.ContextCompactRequest;
 import com.summit.core.compact.ContextCompacter;
@@ -20,6 +21,7 @@ import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolExecution;
 import com.summit.core.tool.ToolExecutor;
 import com.summit.core.tool.ToolResultType;
+import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 
@@ -43,6 +45,7 @@ import java.util.function.Function;
  * latch on {@link Execution#getCompactionState()}.</p>
  */
 @Slf4j
+@Builder
 public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private final Function<AgentRequest, ChatModel> models;
@@ -52,21 +55,7 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
     private final ContextUsageReporter usage;
     private final CompactSummaryApplier summaryApplier;
 
-    public DefaultModelCompacter(ChatModel chatModel, ConversationManager conversationManager,
-                                 ContextAttachmentProvider contextAttachmentProvider, ContextUsageReporter usage) {
-        this(ignored -> chatModel, null, conversationManager, contextAttachmentProvider, usage);
-    }
 
-    public DefaultModelCompacter(Function<AgentRequest, ChatModel> models, ExecutionRepository executions,
-                                 ConversationManager conversationManager, ContextAttachmentProvider contextAttachmentProvider,
-                                 ContextUsageReporter usage) {
-        this.models = models;
-        this.executions = executions;
-        this.conversationManager = conversationManager;
-        this.contextAttachmentProvider = contextAttachmentProvider;
-        this.usage = usage;
-        this.summaryApplier = new CompactSummaryApplier(conversationManager);
-    }
 
     @Override
     public boolean compact(ContextCompactRequest request) {

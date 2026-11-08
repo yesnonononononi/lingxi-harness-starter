@@ -4,6 +4,8 @@ import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
 import com.summit.core.compact.ContextAttachmentProvider;
+import com.summit.core.compact.CompactSummaryApplier;
+import com.summit.core.mcp.McpToolScope;
 import com.summit.core.conf.SkillConfig;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.api.ToolCallRequest;
@@ -20,6 +22,7 @@ import com.summit.core.tool.*;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.context.RuntimeContext;
 import com.summit.runtime.conversation.DefaultConversationManager;
+import com.summit.runtime.conversation.DefaultRuntimeFactory;
 import com.summit.runtime.conversation.DefaultTokenizer;
 import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
 import org.junit.jupiter.api.Test;
@@ -759,6 +762,55 @@ class LoopRegressionTest {
         assertTrue(systemTexts(compactedContext).stream().anyMatch(text -> text.contains("finished earlier work")));
         assertFalse(compactedContext.stream().anyMatch(ToolMessageEntity.class::isInstance));
         assertFalse(execution.getMessages().stream().anyMatch(ToolMessageEntity.class::isInstance));
+    }
+
+    @Test
+    void runtimeFactoryPassesCustomSummaryApplierToTheLoopAndCallbacks() {
+        AtomicInteger calls = new AtomicInteger();
+        AtomicInteger applied = new AtomicInteger();
+        Execution execution = execution();
+        CompactSummaryApplier applier = (raw, current) -> {
+            assertSame(execution, current);
+            assertEquals("business summary output", raw);
+            applied.incrementAndGet();
+            conversations.rebuildContext("custom rendered summary", current);
+            return true;
+        };
+        LoopInterceptor observer = new LoopInterceptor() {
+            public int order() { return 0; }
+            public InterceptorResult onLoopStart(LoopContext context) {
+                assertSame(applier, context.getCompactSummaryApplier());
+                return InterceptorResult.NONE;
+            }
+        };
+        ToolExecutionManager tools = new ToolExecutionManager() {
+            public List<ToolExecuteResult> execute(ToolExecuteCommand command) {
+                return List.of(ToolExecuteResult.success("business summary output", ToolResultType.CONTEXT_COMPACT));
+            }
+            public ToolRegistry toolRegistry() { return new ToolRegistry(List.of()); }
+        };
+        RuntimeEventPublisher events = new RuntimeEventPublisher(List.of());
+        RuntimeLifeStyleManager lifecycle = new DefaultRuntimeLifeStyleManager(events);
+        DefaultRuntimeFactory factory = DefaultRuntimeFactory.builder()
+                .agentConfig(AgentConfig.builder().build()).conversationManager(conversations)
+                .compactSummaryApplier(applier).toolExecutionManager(tools).tokenizer(tokenizer)
+                .runtimeEventPublisher(events).runtimeLifeStyleManager(lifecycle)
+                .executionRepository(repository)
+                .executionControl(new DefaultExecutionController(() -> null, repository, events, lifecycle))
+                .usage(new ContextUsageReporter(tokenizer, 1_024_000, events, 1))
+                .loopInterceptorProcessor(new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor(), observer)))
+                .boundaryChecker(boundaryChecker(2)).build();
+
+        factory.createRuntime(new DefaultChatModelInvoker(request -> {
+            if (calls.getAndIncrement() == 1) {
+                assertTrue(systemTexts(request.getMessages()).stream().anyMatch(text -> text.contains("custom rendered summary")));
+            }
+            return response(calls.get() == 1);
+        }), null, McpToolScope.EMPTY).execute(execution);
+
+        assertEquals(ExecutionState.COMPLETED, execution.getExecutionState());
+        assertEquals(1, applied.get());
+        assertEquals(2, calls.get());
     }
 
     @Test

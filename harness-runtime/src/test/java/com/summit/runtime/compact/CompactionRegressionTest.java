@@ -46,11 +46,12 @@ class CompactionRegressionTest {
     void automaticAndToolCompactionUseTheSamePromptAndProtectedAttachment() {
         List<ChatRequestEntity> requests = new ArrayList<>();
         DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
-        DefaultModelCompacter compacter = new DefaultModelCompacter(request -> {
+        DefaultModelCompacter compacter = DefaultModelCompacter.builder().models(ignored -> request -> {
             requests.add(request);
             return ChatResponseEntity.builder().aiMessageEntity(AiMessageEntity.builder()
                     .text("{\"summary\":\"summary\"}").build()).build();
-        }, conversations, id -> Optional.of("protected state"), usage);
+        }).conversationManager(conversations).contextAttachmentProvider(id -> Optional.of("protected state"))
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
         ArrayList<Message> history = new ArrayList<Message>(List.of(
                 SystemMessageEntity.builder().text("system").build(), UserMessageEntity.from("history")));
         Execution execution = Execution.builder().id("e").messages(history)
@@ -75,6 +76,27 @@ class CompactionRegressionTest {
         assertEquals(List.of("system", "summary"), rebuilt.getMessages().stream()
                         .filter(SystemMessageEntity.class::isInstance).map(Message::text).toList(),
                 "pruning keeps every system message, in order and untouched");
+    }
+
+    @Test
+    void automaticCompactionUsesTheInjectedSummaryApplier() {
+        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        Execution execution = executionWith(UserMessageEntity.from("history"));
+        List<String> outputs = new ArrayList<>();
+        DefaultModelCompacter compacter = DefaultModelCompacter.builder()
+                .models(ignored -> request -> ChatResponseEntity.builder()
+                        .aiMessageEntity(AiMessageEntity.builder().text("business summary output").build()).build())
+                .conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
+                .usage(usage).summaryApplier((raw, current) -> {
+                    assertSame(execution, current);
+                    outputs.add(raw);
+                    conversations.rebuildContext("custom rendered summary", current);
+                    return true;
+                }).build();
+
+        assertTrue(compacter.compact(new ContextCompactRequest(execution, null)));
+        assertEquals(List.of("business summary output"), outputs);
+        assertTrue(execution.getMessages().stream().anyMatch(message -> message.text().contains("custom rendered summary")));
     }
 
     @Test
@@ -139,10 +161,11 @@ class CompactionRegressionTest {
         List<ContextUpdateEvent> events = new ArrayList<>();
         List<Integer> modelCalls = new ArrayList<>();
         DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
-        DefaultModelCompacter compacter = new DefaultModelCompacter(request -> {
+        DefaultModelCompacter compacter = DefaultModelCompacter.builder().models(ignored -> request -> {
             modelCalls.add(1);
             throw new IllegalStateException("model unavailable");
-        }, conversations, id -> Optional.empty(), capturingReporter(events));
+        }).conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
+                .usage(capturingReporter(events)).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
 
         Execution execution = executionWith(
                 SystemMessageEntity.builder().text("system").build(),

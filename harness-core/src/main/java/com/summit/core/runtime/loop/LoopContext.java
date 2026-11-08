@@ -1,9 +1,11 @@
 package com.summit.core.runtime.loop;
 
 import com.summit.core.agent.Execution;
+import com.summit.core.compact.CompactSummaryApplier;
 import com.summit.core.conversation.message.Message;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 
 import java.util.List;
@@ -17,22 +19,33 @@ import java.util.function.Supplier;
  */
 @Data
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
+@Builder
 public class LoopContext {
-        private final LoopMessages loopMessages;
-        private final ExecutionControlSignal signal;
-        private final Supplier<Integer> consecutiveCompactTurns;
-        // It will be put into context as the message of user
-        private final Consumer<List<? extends Message>> appendMessage;
 
-    public LoopContext(LoopMessages loopMessages, ExecutionControlSignal signal,
-                       Integer consecutiveCompactTurns, Consumer<List<? extends Message>> appendMessage) {
-        this(loopMessages, signal, () -> consecutiveCompactTurns, appendMessage);
-    }
+    private final LoopMessages loopMessages;
+    private final ExecutionControlSignal signal;
+    private final Supplier<Integer> consecutiveCompactTurns;
+    // It will be put into context as the message of user
+    private final Consumer<List<? extends Message>> appendMessage;
+    private final CompactSummaryApplier compactSummaryApplier;
 
-    public static LoopContext withCompactionCounter(LoopMessages loopMessages, ExecutionControlSignal signal,
-                                                    IntSupplier counter, Consumer<List<? extends Message>> appendMessage) {
+
+
+
+    public static LoopContext withCompactionCounter(LoopMessages loopMessages,
+                                                    ExecutionControlSignal signal,
+                                                    IntSupplier counter,
+                                                    CompactSummaryApplier compactSummaryApplier,
+                                                    Consumer<List<? extends Message>> appendMessage
+    ) {
         Objects.requireNonNull(counter, "counter");
-        return new LoopContext(loopMessages, signal, counter::getAsInt, appendMessage);
+        return LoopContext.builder()
+                .loopMessages(loopMessages)
+                .signal(signal)
+                .appendMessage(appendMessage)
+                .consecutiveCompactTurns(counter::getAsInt)
+                .compactSummaryApplier(compactSummaryApplier)
+                .build();
     }
 
     /**
@@ -40,7 +53,7 @@ public class LoopContext {
      * a committed non-compaction round resets it. A resumed run starts at zero.
      */
     public Integer getConsecutiveCompactTurns() {
-        return consecutiveCompactTurns.get();
+        return consecutiveCompactTurns == null ? null : consecutiveCompactTurns.get();
     }
 
     /**

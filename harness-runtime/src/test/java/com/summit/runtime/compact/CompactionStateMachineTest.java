@@ -350,8 +350,9 @@ class CompactionStateMachineTest {
                 return 0; // These state-machine cases script the trigger; pruning size is tested separately.
             }
         };
-        DefaultModelCompacter modelCompacter = new DefaultModelCompacter(model, conversations,
-                id -> Optional.empty(), usage);
+        DefaultModelCompacter modelCompacter = DefaultModelCompacter.builder().models(ignored -> model)
+                .conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
         AgentConfig agentConfig = AgentConfig.builder()
                 .maxTokens(100_000)
                 .maxSummaryAttempts(maxSummaryAttempts)

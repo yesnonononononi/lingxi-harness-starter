@@ -14,6 +14,7 @@ import com.summit.core.exception.TokenBudgetExceededException;
 import com.summit.core.runtime.loop.ContextUsageReporter;
 import com.summit.core.tool.*;
 import com.summit.runtime.agent.AgentConfig;
+import com.summit.runtime.compact.DefaultCompactSummaryApplier;
 import com.summit.runtime.compact.DefaultContextPruner;
 import com.summit.runtime.compact.DefaultModelCompacter;
 import com.summit.runtime.conversation.DefaultConversationManager;
@@ -181,12 +182,13 @@ class ContextUsageBaselineTest {
         TokenUsageEntity baseline = usage.baseline(execution);
         AtomicInteger attempts = new AtomicInteger();
         DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
-        DefaultModelCompacter compacter = new DefaultModelCompacter(request -> {
+        DefaultModelCompacter compacter = DefaultModelCompacter.builder().models(ignored -> request -> {
             int attempt = attempts.incrementAndGet();
             String summary = alwaysOversized || attempt == 1 ? "x".repeat(6000) : "short summary";
             return ChatResponseEntity.builder().aiMessageEntity(AiMessageEntity.builder()
                     .text("{\"summary\":\"" + summary + "\"}").build()).build();
-        }, conversations, ContextAttachmentProvider.NONE, usage);
+        }).conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
         BoundaryChecker checker = new BoundaryChecker(config(2), tokenizer, conversations,
                 new DefaultContextPruner(config(2), usage), compacter, usage, null);
         if (alwaysOversized) {

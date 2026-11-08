@@ -435,8 +435,8 @@ class DefaultLoopInterceptorProcessorTest {
     @Test
     void loopCountTracksRoundsAcrossTheWholeRun() {
         Execution execution = execution();
-        LoopContext context = new LoopContext(LoopMessages.builder().execution(execution).build(),
-                new ExecutionControlSignal("e-1"), 0, messages -> { });
+        LoopContext context = LoopContext.withCompactionCounter(LoopMessages.builder().execution(execution).build(),
+                new ExecutionControlSignal("e-1"), () -> 0, null, messages -> { });
 
         assertEquals(0, context.loopCount());
         execution.incrementModelAttempts();
@@ -445,24 +445,20 @@ class DefaultLoopInterceptorProcessorTest {
     }
 
     private static LoopContext context() {
-        return new LoopContext(LoopMessages.builder().execution(execution()).build(),
-                new ExecutionControlSignal("e-1"), 0, messages -> { });
+        return LoopContext.withCompactionCounter(LoopMessages.builder().execution(execution()).build(),
+                new ExecutionControlSignal("e-1"), () -> 0, null, messages -> { });
     }
 
     @Test
-    void compactionCounterIsLiveWithoutChangingTheExistingConstructor() {
+    void compactionCounterStaysLiveAndAnOmittedCounterIsNullable() {
         AtomicInteger counter = new AtomicInteger();
-        LoopMessages messages = LoopMessages.builder().execution(execution()).build();
-        ExecutionControlSignal signal = new ExecutionControlSignal("e-1");
-        LoopContext live = LoopContext.withCompactionCounter(messages, signal, counter::get, ignored -> { });
-        LoopContext fixed = new LoopContext(messages, signal, 7, ignored -> { });
-        LoopContext nullable = new LoopContext(messages, signal, null, ignored -> { });
+        LoopContext live = LoopContext.withCompactionCounter(LoopMessages.builder().execution(execution()).build(),
+                new ExecutionControlSignal("e-1"), counter::get, null, ignored -> { });
 
         assertEquals(0, live.getConsecutiveCompactTurns());
         counter.set(2);
         assertEquals(2, live.getConsecutiveCompactTurns());
-        assertEquals(7, fixed.getConsecutiveCompactTurns());
-        assertNull(nullable.getConsecutiveCompactTurns());
+        assertNull(LoopContext.builder().build().getConsecutiveCompactTurns());
     }
 
     private static ChatResponseEntity response() {

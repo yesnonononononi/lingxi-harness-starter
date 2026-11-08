@@ -109,7 +109,8 @@ class LoopListenerAutoConfigurationTest {
     }
 
     private LoopContext payload() {
-        return new LoopContext(LoopMessages.builder().build(), new ExecutionControlSignal("annotation-test"), 0, null);
+        return LoopContext.builder().loopMessages(LoopMessages.builder().build())
+                .signal(new ExecutionControlSignal("annotation-test")).consecutiveCompactTurns(() -> 0).build();
     }
 
     public static class Listener {

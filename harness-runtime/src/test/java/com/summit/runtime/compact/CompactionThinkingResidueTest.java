@@ -66,9 +66,12 @@ class CompactionThinkingResidueTest {
             }
         });
         ChatModel compactModel = providers.create(ModelConfig.builder().modelName("compact").provider("default").build());
-        return new DefaultModelCompacter(ignored -> compactModel, new InMemoryActiveExecutionRegistry(),
-                new DefaultConversationManager(ContextAttachmentProvider.NONE), ContextAttachmentProvider.NONE,
-                new ContextUsageReporter(new DefaultTokenizer(), 10_000, new RuntimeEventPublisher(List.of()), 1));
+        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        return DefaultModelCompacter.builder().models(ignored -> compactModel)
+                .executions(new InMemoryActiveExecutionRegistry()).conversationManager(conversations)
+                .contextAttachmentProvider(ContextAttachmentProvider.NONE)
+                .usage(new ContextUsageReporter(new DefaultTokenizer(), 10_000, new RuntimeEventPublisher(List.of()), 1))
+                .summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
     }
 
     private AgentRequest request() {

@@ -32,7 +32,8 @@ class LoopInterceptorHandlerTest {
         try (AnnotationConfigApplicationContext context = context(Listener.class)) {
             LoopInterceptorFactory factory = scan(context);
             Listener listener = context.getBean(Listener.class);
-            LoopContext payload = new LoopContext(LoopMessages.builder().build(), null, 3, null);
+            LoopContext payload = LoopContext.builder().loopMessages(LoopMessages.builder().build())
+                    .consecutiveCompactTurns(() -> 3).build();
 
             assertEquals(0, listener.calls);
             assertSame(InterceptorResult.NONE, processor(factory).onLoopStart(payload));

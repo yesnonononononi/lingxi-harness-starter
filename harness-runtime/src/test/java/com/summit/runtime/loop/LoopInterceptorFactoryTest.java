@@ -39,7 +39,8 @@ class LoopInterceptorFactoryTest {
         });
         Execution execution = Execution.builder().id("factory-execution")
                 .agentRequest(AgentRequest.builder().messages(List.of(UserMessageEntity.from("test"))).build()).build();
-        LoopContext context = new LoopContext(LoopMessages.builder().execution(execution).build(), null, 2, null);
+        LoopContext context = LoopContext.builder().loopMessages(LoopMessages.builder().execution(execution).build())
+                .consecutiveCompactTurns(() -> 2).build();
 
         for (InterceptorType hook : InterceptorType.values()) {
             assertSame(hook == selected ? decision : InterceptorResult.NONE,

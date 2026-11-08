@@ -169,8 +169,10 @@ class RequestCompactModelResolverTest {
         executions.save(tool);
         ContextUsageReporter usage = new ContextUsageReporter(new DefaultTokenizer(), 10_000,
                 new RuntimeEventPublisher(List.of()), 1);
-        DefaultModelCompacter compacter = new DefaultModelCompacter(resolver::resolve, executions,
-                new DefaultConversationManager(ContextAttachmentProvider.NONE), ContextAttachmentProvider.NONE, usage);
+        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        DefaultModelCompacter compacter = DefaultModelCompacter.builder().models(resolver::resolve).executions(executions)
+                .conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
 
         assertTrue(compacter.compact(new ContextCompactRequest(automatic, null)));
         assertTrue(compacter.execute(ToolExecution.builder().executionId(tool.getId()).args("history").build()).isSuccess());
