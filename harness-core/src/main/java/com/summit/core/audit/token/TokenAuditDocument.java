@@ -4,8 +4,8 @@ import com.summit.core.audit.DocumentElement;
 import com.summit.core.audit.token.tool.ToolAuditDocument;
 
 /**
- * Message-role estimates for the retained context. Tool arguments contribute to assistantTokens;
- * tool totals exclude them, while tool details retain argument counts for attribution only.
+ * Estimates for the retained context. Tool arguments contribute to toolTokens, and non-text user
+ * attachments are reported separately in otherTokens.
  * Independently estimated role totals can differ from an estimate of the complete message batch.
  */
 public record TokenAuditDocument(

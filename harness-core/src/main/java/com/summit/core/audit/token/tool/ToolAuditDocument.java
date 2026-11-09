@@ -5,9 +5,9 @@ import com.summit.core.audit.DocumentElement;
 import java.util.Map;
 
 /**
- * Audit of calls with retained results. Totals exclude arguments already counted in assistant messages.
- * Each detail is estimated independently, so request framing and tokenization boundaries can make
- * the sum of group totals differ from the whole-batch total.
+ * The total includes all retained call arguments and tool result messages. Group details cover calls
+ * with retained results. Request framing and tokenization boundaries can also make group totals
+ * differ from the whole-batch total.
  */
 public record ToolAuditDocument(
         int toolTokens,

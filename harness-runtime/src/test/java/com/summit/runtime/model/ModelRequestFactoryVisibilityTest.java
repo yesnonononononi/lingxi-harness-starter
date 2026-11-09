@@ -95,6 +95,8 @@ class ModelRequestFactoryVisibilityTest {
         assertEquals(1, tools.size());
         assertEquals("static", tools.get("shared").description(),
                 "the registry layer is put in first, so the remote one must not displace it");
+        assertEquals(tools, fixture.visibleTools(List.of()),
+                "disclosure admits the name even when the winning definition is outside the whitelist");
     }
 
     /** One static registry plus one request scope, with both layers passed in explicitly. */

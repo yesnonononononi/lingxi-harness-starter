@@ -7,43 +7,51 @@ import com.summit.core.audit.TokenAuditor;
 import com.summit.core.audit.token.OtherTokens;
 import com.summit.core.audit.token.TokenAuditDocument;
 import com.summit.core.audit.token.tool.ToolAuditDocument;
-import com.summit.core.audit.token.tool.ToolElement;
 import com.summit.core.compact.ContextUsageMetric;
 import com.summit.core.compact.Tokenizer;
-import com.summit.core.conversation.api.ToolCallRequest;
-import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.MessageType;
-import com.summit.core.conversation.message.ToolMessageEntity;
-import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.conversation.message.content.Content;
-import com.summit.core.conversation.message.content.TextContent;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.tool.ToolDefinition;
 import com.summit.core.tool.ToolRegistry;
 import com.summit.runtime.agent.AgentConfig;
+import com.summit.runtime.tool.ModelToolVisibility;
 import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Slf4j
-@RequiredArgsConstructor
 public class DefaultTokenAuditor implements TokenAuditor {
+    public static final String MCP_LABEL = ToolTokenAuditor.MCP_LABEL;
+    public static final String SKILL_LABEL = ToolTokenAuditor.SKILL_LABEL;
+    public static final String MEMORY_LABEL = "MEMORY";
+    public static final String ATTACHMENT_LABEL = "ATTACHMENT";
+    public static final String MCP_DEF_LABEL = "MCP_TOOL_DEFINITION";
+    public static final String TOOL_DEF_LABEL = "TOOL_DEFINITION";
+
     @Getter
-    private final String MCP_LABEL = "MCP";
-    @Getter
-    private final String SKILL_LABEL = "SKILL";
-    @Getter
-    private final String UNKNOW_TOOL = "unknown_tool";
+    private final String UNKNOW_TOOL = ToolTokenAuditor.UNKNOWN_TOOL;
     private final Tokenizer tokenizer;
     private final AgentConfig agentConfig;
     private final ToolRegistry toolRegistry;
     private final Function<Execution, List<ToolDefinition<?>>> mcpToolDefinitions;
+    private final ToolTokenAuditor toolAuditor;
+
+    public DefaultTokenAuditor(Tokenizer tokenizer, AgentConfig agentConfig, ToolRegistry toolRegistry,
+                               Function<Execution, List<ToolDefinition<?>>> mcpToolDefinitions) {
+        this.tokenizer = tokenizer;
+        this.agentConfig = agentConfig;
+        this.toolRegistry = toolRegistry;
+        this.mcpToolDefinitions = mcpToolDefinitions;
+        this.toolAuditor = new ToolTokenAuditor(tokenizer, agentConfig);
+    }
 
     /** Direct callers may bind one scope; shared auditors resolve definitions per execution. */
     public DefaultTokenAuditor(Tokenizer tokenizer, AgentConfig agentConfig, ToolRegistry toolRegistry,
@@ -54,186 +62,83 @@ public class DefaultTokenAuditor implements TokenAuditor {
 
     @Override
     public TokenAuditDocument analysis(Execution execution) {
-        List<Message> messageList = Objects.requireNonNull(execution).getMessages();
-        DocumentElement<Integer> assistantTokens = runIgnoreErr(MessageType.AI, messageList, () -> resolve(messageList, MessageType.AI));
-        DocumentElement<Integer> userTokens = runIgnoreErr(MessageType.USER, messageList, () -> resolve(messageList, MessageType.USER));
-        DocumentElement<Integer> systemTokens = runIgnoreErr(MessageType.SYSTEM, messageList, () -> resolve(messageList, MessageType.SYSTEM));
-        DocumentElement<ToolAuditDocument> toolTokens = runIgnoreErr(MessageType.TOOL, messageList, () -> resolveTool(messageList));
-        return new TokenAuditDocument(assistantTokens, userTokens, toolTokens, systemTokens, resolveOtherTokens(execution));
+        AuditContext context = AuditContext.fromHistory(Objects.requireNonNull(execution).getMessages());
+        boolean hasHistory = context.hasHistory();
+        DocumentElement<Integer> assistant = runAudit(MessageType.AI.name(), hasHistory,
+                () -> estimateMessages(context.assistantMessages()));
+        DocumentElement<Integer> user = runAudit(MessageType.USER.name(), hasHistory,
+                () -> estimateMessages(context.userMessages()));
+        DocumentElement<Integer> system = runAudit(MessageType.SYSTEM.name(), hasHistory,
+                () -> estimateMessages(context.systemMessages()));
+        DocumentElement<ToolAuditDocument> tools = runAudit(MessageType.TOOL.name(), hasHistory,
+                () -> toolAuditor.audit(context));
+        return new TokenAuditDocument(assistant, user, tools, system, resolveOtherTokens(execution, context));
     }
 
-
-    private DocumentElement<Integer> resolve(List<Message> messageList, MessageType type) {
-        var waitingEstimate = new ArrayList<Message>();
-
-        for (Message message : messageList) {
-            if (type == message.type()) {
-                waitingEstimate.add(message);
-            }
-        }
-
-        return estimateUsage(type.name(), waitingEstimate, ContextUsageMetric::tokenCount);
-
-
-    }
-
-
-    private DocumentElement<ToolAuditDocument> resolveTool(List<Message> messages) {
-        final Map<String, List<Message>> aggregatedMap = new HashMap<>();  // tool name -> messageList
-        final Map<String, ToolElement> detailMap = new HashMap<>();        // tool name -> (argumentTokenCounts, outputTokenCounts, totalTokenCounts)
-        final Map<String, Integer> callArgumentTokens = new HashMap<>();   // toolCall id -> tokenCounts of arguments
-        final Map<ToolMessageEntity, Integer> argumentTokensByMessage = new IdentityHashMap<>(); // ToolMessage -> tokenCount
-        final List<Message> mcpList = new ArrayList<>();
-        final List<Message> skillList = new ArrayList<>();
-        final List<ToolMessageEntity> toolList = new ArrayList<>();
-
-        for (Message message : messages) {
-            if (message instanceof AiMessageEntity ai && ai.getToolCalls() != null) {
-                for (ToolCallRequest call : ai.getToolCalls()) {
-                    callArgumentTokens.put(call.id(), this.tokenizer.countText(call.arguments()));
-                }
-            }
-            if (message instanceof ToolMessageEntity tool) {
-                String id = tool.getId() == null ? null : tool.getId().toString();
-                Integer argumentTokens = id == null ? null : callArgumentTokens.remove(id);
-                if (argumentTokens == null) {
-                    throw new IllegalArgumentException("Missing tool call for result: " + tool.getId());
-                }
-                toolList.add(tool);
-                argumentTokensByMessage.put(tool, argumentTokens);
-            }
-        }
-
-        for (ToolMessageEntity toolMessage : toolList) {
-            if (toolMessage.isMcpTool()) {
-                mcpList.add(toolMessage);
-                continue;
-            } else if (toolMessage.isSkillTool()) {
-                skillList.add(toolMessage);
-                continue;
-            }
-
-            String name = Objects.requireNonNullElse(toolMessage.getName(), UNKNOW_TOOL);
-
-            List<Message> list = aggregatedMap.computeIfAbsent(name, n -> new ArrayList<>());
-
-            list.add(toolMessage);
-        }
-
-        for (Map.Entry<String, List<Message>> entry : aggregatedMap.entrySet()) {
-            detailMap.put(entry.getKey(), toolElementsOf(entry.getValue(), argumentTokensByMessage,
-                    this.tokenizer.count(entry.getValue())));
-        }
-
-        // Arguments belong to assistant messages and must not be added to tool-result totals.
-        int totalTokens = this.tokenizer.count(new ArrayList<>(toolList));
-
-        double ratio = totalTokens / (double) this.agentConfig.maxTokens();
-
-        DocumentElement<ToolElement> mcpDoc = estimateUsage(MCP_LABEL, mcpList,
-                usage -> toolElementsOf(mcpList, argumentTokensByMessage, usage.tokenCount()));
-        DocumentElement<ToolElement> skillDoc = estimateUsage(SKILL_LABEL, skillList,
-                usage -> toolElementsOf(skillList, argumentTokensByMessage, usage.tokenCount()));
-        if (mcpDoc.getStatus() == AuditStatus.SUCCESS) {
-            mcpDoc.setRatio(mcpDoc.getTokenMeta().totalTokens() / (double) this.agentConfig.maxTokens());
-        }
-        if (skillDoc.getStatus() == AuditStatus.SUCCESS) {
-            skillDoc.setRatio(skillDoc.getTokenMeta().totalTokens() / (double) this.agentConfig.maxTokens());
-        }
-
-        ToolAuditDocument toolAuditDocument = new ToolAuditDocument(totalTokens, mcpDoc, skillDoc, detailMap);
-        return DocumentElement.<ToolAuditDocument>builder()
-                .tokenMeta(toolAuditDocument)
-                .ratio(ratio)
-                .type(MessageType.TOOL.name())
-                .status(AuditStatus.SUCCESS)
-                .build();
-    }
-
-    private <T> DocumentElement<T> estimateUsage(String type, List<Message> messages, Function<ContextUsageMetric, T> resolveElement) {
-        ContextUsageMetric usage = this.tokenizer.usage(messages, List.of(), agentConfig.maxTokens());
-        DocumentElement.DocumentElementBuilder<T> element = DocumentElement.<T>builder().type(type);
+    private DocumentElement<Integer> estimateMessages(List<Message> messages) {
+        ContextUsageMetric usage = tokenizer.usage(messages, List.of(), agentConfig.maxTokens());
         if (usage == null) {
-            return element.status(AuditStatus.NO_DATA).build();
+            return DocumentElement.<Integer>builder().status(AuditStatus.NO_DATA).build();
         }
-        return element.tokenMeta(resolveElement.apply(usage))
+        return DocumentElement.<Integer>builder()
+                .tokenMeta(usage.tokenCount())
                 .ratio(usage.ratio())
                 .status(AuditStatus.SUCCESS)
                 .build();
     }
 
-
-    private OtherTokens resolveOtherTokens(Execution execution) {
-        var definitions = runAudit("TOOL_DEFINITION", true,
-                () -> toolDefOf(this.toolRegistry.registeredTools(execution)));
-        var mcpDefinitions = runAudit("MCP_TOOL_DEFINITION", true,
-                () -> toolDefOf(this.mcpToolDefinitions.apply(execution)));
-        var memory = runAudit("MEMORY", true,
-                () -> textOf(execution.getAgentRequest().getContextSpec().getMemory()));
-        var attachments = runAudit("ATTACHMENT", execution.getMessages() != null,
-                () -> attachmentsOf(execution.getMessages()));
-        return new OtherTokens(definitions, mcpDefinitions, memory, attachments);
+    private OtherTokens resolveOtherTokens(Execution execution, AuditContext context) {
+        DefinitionAudits definitions = auditDefinitions(execution);
+        DocumentElement<Integer> memory = runAudit(MEMORY_LABEL, true,
+                () -> auditMemory(execution.getAgentRequest().getContextSpec().getMemory()));
+        DocumentElement<Integer> attachments = runAudit(ATTACHMENT_LABEL, context.hasHistory(),
+                () -> auditAttachments(context.attachments()));
+        return new OtherTokens(definitions.registered(), definitions.mcp(), memory, attachments);
     }
 
-    private DocumentElement<Integer> attachmentsOf(List<Message> messages) {
+    private DefinitionAudits auditDefinitions(Execution execution) {
+        List<? extends ToolDefinition<?>> registered;
+        List<String> allowed;
+        try {
+            registered = toolRegistry.getToolDefinitionList();
+            allowed = execution.getAgentRequest().getToolList();
+        } catch (Exception failure) {
+            return new DefinitionAudits(failed(TOOL_DEF_LABEL, failure), failed(MCP_DEF_LABEL, failure));
+        }
+
+        ModelToolVisibility.Selection selection;
+        try {
+            selection = ModelToolVisibility.select(registered, mcpToolDefinitions.apply(execution), allowed);
+        } catch (Exception failure) {
+            return new DefinitionAudits(
+                    runAudit(TOOL_DEF_LABEL, true,
+                            () -> countDefinitions(ModelToolVisibility.select(registered, List.of(), allowed).registered())),
+                    failed(MCP_DEF_LABEL, failure));
+        }
+
+        DocumentElement<Integer> mcp = runAudit(MCP_DEF_LABEL, true, () -> countDefinitions(selection.mcp()));
+        return new DefinitionAudits(
+                runAudit(TOOL_DEF_LABEL, true, () -> countDefinitions(selection.registered())), mcp);
+    }
+
+    private DocumentElement<Integer> countDefinitions(List<ToolDefinition<?>> definitions) {
+        return countOf(tokenizer.count(List.of(), new ArrayList<>(definitions)));
+    }
+
+    private DocumentElement<Integer> auditAttachments(List<Content> attachments) {
         int count = 0;
-        for (Message message : messages) {
-            if (!(message instanceof UserMessageEntity user) || user.getContent() == null) continue;
-            for (Content content : user.getContent()) {
-                Objects.requireNonNull(content, "User content part must not be null");
-                if (!(content instanceof TextContent)) {
-                    count += this.tokenizer.count(content);
-                }
-            }
+        for (Content attachment : attachments) {
+            count += tokenizer.count(Objects.requireNonNull(attachment, "User content part must not be null"));
         }
         return countOf(count);
     }
 
-    private ToolElement toolElementsOf(List<Message> tmes,
-                                       Map<ToolMessageEntity, Integer> argumentTokensByMessage,
-                                       int resultMessageTokens
-    ) {
-        int argumentTokens = 0, outputTokens = 0;
-        for (Message message : tmes) {
-            if (message instanceof ToolMessageEntity tme) {
-                outputTokens += this.tokenizer.countText(tme.getToolOutput());
-                argumentTokens += argumentTokensByMessage.get(tme);
-            }
-        }
-
-        return new ToolElement(argumentTokens, outputTokens, resultMessageTokens);
-    }
-
-    private <T> DocumentElement<T> runIgnoreErr(MessageType messageType, List<Message> messages,
-                                                Callable<DocumentElement<T>> callable) {
-        return runAudit(messageType.name(), messages != null, callable);
-    }
-
-    private <T> DocumentElement<T> runAudit(String type, boolean hasData,
-                                          Callable<DocumentElement<T>> callable) {
-        if (!hasData) {
-            return DocumentElement.<T>builder().type(type).status(AuditStatus.NO_DATA).build();
-        }
-        try {
-            DocumentElement<T> result = callable.call();
-            result.setType(type);
-            return result;
-        } catch (Exception e) {
-            log.error("Failed to conduct the audit, type: {}", type, e);
-            return DocumentElement.<T>builder()
-                    .type(type)
-                    .status(AuditStatus.FAILED)
-                    .auditDes(e.getMessage())
-                    .build();
-        }
-    }
-
-    private DocumentElement<Integer> textOf(List<String> text) {
+    private DocumentElement<Integer> auditMemory(List<String> memory) {
         // Match the body rendered by withMemoryPrompt, including its newline separators.
-        String body = text == null ? "" : text.stream()
+        String body = memory == null ? "" : memory.stream()
                 .filter(Objects::nonNull).filter(line -> !line.isBlank())
                 .collect(Collectors.joining("\n"));
-        return countOf(this.tokenizer.countText(body));
+        return countOf(tokenizer.countText(body));
     }
 
     private DocumentElement<Integer> countOf(int count) {
@@ -244,11 +149,27 @@ public class DefaultTokenAuditor implements TokenAuditor {
                 .build();
     }
 
-
-    private DocumentElement<Integer> toolDefOf(List<ToolDefinition<?>> toolDefinitions){
-
-        int defCount = this.tokenizer.count(List.of(), new ArrayList<>(toolDefinitions)); // Don't calculate the history again
-
-        return countOf(defCount);
+    private <T> DocumentElement<T> runAudit(String type, boolean hasData, Callable<DocumentElement<T>> callable) {
+        if (!hasData) {
+            return DocumentElement.<T>builder().type(type).status(AuditStatus.NO_DATA).build();
+        }
+        try {
+            DocumentElement<T> result = callable.call();
+            result.setType(type);
+            return result;
+        } catch (Exception failure) {
+            return failed(type, failure);
+        }
     }
+
+    private <T> DocumentElement<T> failed(String type, Exception failure) {
+        log.error("Failed to conduct the audit, type: {}", type, failure);
+        return DocumentElement.<T>builder()
+                .type(type)
+                .status(AuditStatus.FAILED)
+                .auditDes(failure.getMessage())
+                .build();
+    }
+
+    private record DefinitionAudits(DocumentElement<Integer> registered, DocumentElement<Integer> mcp) {}
 }

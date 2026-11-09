@@ -6,21 +6,17 @@ import com.summit.core.conversation.api.ChatRequestEntity;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.event.InvokeRetryEvent;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
-import com.summit.core.mcp.McpToolScope;
 import com.summit.core.model.ModelChatCommand;
 import com.summit.core.model.ModelInvocationUsage;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.utils.RetryUtil;
 import com.summit.core.tool.ToolDefinition;
-import com.summit.core.tool.ToolExecutor;
 import com.summit.runtime.context.RuntimeContext;
+import com.summit.runtime.tool.ModelToolVisibility;
 import lombok.RequiredArgsConstructor;
 
 import java.time.Duration;
-import java.util.Collection;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -64,7 +60,7 @@ public class ModelRequestFactory {
         return ChatRequestEntity.builder()
                 .imageGenerationOptions(execution.getAgentRequest().getImageGenerationOptions())
                 .messages(List.copyOf(context.getConversationManager().messages(execution)))
-                .tools(List.copyOf(availableTools(allowedTools))).build();
+                .tools(availableTools(allowedTools)).build();
     }
 
     private ModelChatCommand createCommand(Execution execution, String responseId, ExecutionControlSignal control,
@@ -149,41 +145,8 @@ public class ModelRequestFactory {
                 control);
     }
 
-    /**
-     * Tools exposed to the model this round: the static registry filtered by the whitelist, plus the
-     * request's own MCP tools that have been disclosed so far.
-     *
-     * <p>The whitelist admits nothing when {@code null} or empty. A request's MCP tools are the one
-     * thing an absent list cannot name — their names did not exist when any list could have been
-     * written — but that is a reason to disclose them <em>progressively</em>, not to declare them all
-     * at once: they enter only after {@code search_tool} has handed the model their definitions and
-     * recorded them on the {@link McpToolScope}. Before that the model knows they exist (the prompt
-     * carries their résumés) but cannot call them, which is the point of a lookup entry.</p>
-     *
-     * <p>Admission in {@code DefaultToolExecutionManager} is deliberately looser and admits any tool
-     * of the scope. The two gates are not meant to agree: this one decides what the model is offered,
-     * that one decides what a call is allowed to reach. A model that names a disclosed tool in the
-     * same batch as the search that revealed it is therefore served, not rejected.</p>
-     *
-     * <p>Static tools come first so an MCP tool can never shadow a framework built-in.</p>
-     */
     private List<ToolDefinition<?>> availableTools(List<String> allowedTools) {
-        McpToolScope mcpScope = context.getMcpToolScope();
-
-        Map<String, ToolDefinition<?>> candidates = new LinkedHashMap<>();
-
-        Collection<ToolDefinition<? extends ToolExecutor>> registered = context.getToolExecutionManager()
-                .toolRegistry().getTools().values();
-
-        registered.forEach(tool -> candidates.put(tool.name(), tool));
-
-        // Only the disclosed slice of the request's MCP tools: everything else stays a résumé in the
-        // prompt until the model asks for it.
-        mcpScope.disclosedTools().forEach(tool -> candidates.putIfAbsent(tool.name(), tool));
-
-        return candidates.values().stream()
-                .filter(tool -> tool.allowedFor(allowedTools)
-                        || mcpScope.isDisclosed(tool.name()))
-                .toList();
+        return ModelToolVisibility.select(context.getToolExecutionManager().toolRegistry().getTools().values(),
+                context.getMcpToolScope().disclosedTools(), allowedTools).all();
     }
 }

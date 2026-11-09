@@ -4,8 +4,8 @@ import com.summit.core.audit.DocumentElement;
 
 /**
  * Context estimates and attribution details, not provider-billed usage.
- * Memory bodies are already included in systemTokens; user attachments are already included
- * in userTokens when supported by the estimator. Neither detail should be added to role totals.
+ * Memory bodies are already included in systemTokens. Non-text user attachments are excluded
+ * from userTokens and estimated separately when supported by the estimator.
  */
 public record OtherTokens(
         DocumentElement<Integer> toolDefinitionTokens,

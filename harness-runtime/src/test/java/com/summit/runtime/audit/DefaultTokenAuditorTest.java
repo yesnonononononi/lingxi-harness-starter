@@ -71,8 +71,10 @@ class DefaultTokenAuditorTest {
         var audit = auditor(tokenizer).analysis(execution);
 
         assertCount(audit.otherTokens().attachmentTokens(), 85 + 765);
-        assertEquals(tokenizer.count(List.of(user, UserMessageEntity.builder().build())),
-                audit.userTokens().getTokenMeta());
+        assertCount(audit.userTokens(), tokenizer.count(List.of(
+                UserMessageEntity.from(user.text()), UserMessageEntity.builder().build())));
+        assertEquals(3, user.getContent().size());
+        assertEquals(audit, auditor(tokenizer).analysis(execution));
         // Audit the current snapshot after image-window trimming, not the original request history.
         execution.setMessages(List.of(UserMessageEntity.from("text only")));
         assertCount(auditor(tokenizer).analysis(execution).otherTokens().attachmentTokens(), 0);
@@ -181,7 +183,7 @@ class DefaultTokenAuditorTest {
                 AiMessageEntity.builder().text("done").build());
         int localArgumentTokens = tokenizer.countText(localArguments);
         int skillArgumentTokens = tokenizer.countText(skillArguments);
-        int total = tokenizer.count(List.of(skill, local, remote));
+        int total = tokenizer.count(List.of(skill, local, remote)) + localArgumentTokens + skillArgumentTokens;
 
         DocumentElement<ToolAuditDocument> toolAudit = auditor.analysis(execution(messages)).toolTokens();
 
@@ -189,14 +191,14 @@ class DefaultTokenAuditorTest {
         assertEquals(total, toolAudit.getTokenMeta().toolTokens());
         assertEquals(total / 1000.0, toolAudit.getRatio());
         assertEquals(Map.of("MCP", new ToolElement(localArgumentTokens,
-                tokenizer.countText(local.getToolOutput()), tokenizer.count(local))),
+                tokenizer.countText(local.getToolOutput()), tokenizer.count(local) + localArgumentTokens)),
                 toolAudit.getTokenMeta().tokenDetails());
         assertEquals(new ToolElement(0, tokenizer.countText(remote.getToolOutput()), tokenizer.count(remote)),
                 toolAudit.getTokenMeta().mcpDetail().getTokenMeta());
         assertEquals(new ToolElement(skillArgumentTokens, tokenizer.countText(skill.getToolOutput()),
-                tokenizer.count(skill)), toolAudit.getTokenMeta().skillDetail().getTokenMeta());
+                tokenizer.count(skill) + skillArgumentTokens), toolAudit.getTokenMeta().skillDetail().getTokenMeta());
         assertEquals(tokenizer.count(remote) / 1000.0, toolAudit.getTokenMeta().mcpDetail().getRatio());
-        assertEquals(tokenizer.count(skill) / 1000.0,
+        assertEquals((tokenizer.count(skill) + skillArgumentTokens) / 1000.0,
                 toolAudit.getTokenMeta().skillDetail().getRatio());
     }
 
@@ -213,10 +215,25 @@ class DefaultTokenAuditorTest {
         DocumentElement<ToolAuditDocument> result = audit.toolTokens();
 
         assertEquals(AuditStatus.SUCCESS, result.getStatus());
-        assertEquals(new ToolElement(3, 2, 2), result.getTokenMeta().tokenDetails().get("read"));
-        assertEquals(2, result.getTokenMeta().toolTokens());
-        assertEquals(5, audit.assistantTokens().getTokenMeta());
+        assertEquals(new ToolElement(3, 2, 5), result.getTokenMeta().tokenDetails().get("read"));
+        assertEquals(5, result.getTokenMeta().toolTokens());
+        assertEquals(2, audit.assistantTokens().getTokenMeta());
         assertEquals(7, audit.assistantTokens().getTokenMeta() + result.getTokenMeta().toolTokens());
+        assertEquals("abc", first.getToolCalls().getFirst().arguments());
+        assertEquals("abcdef", second.getToolCalls().getFirst().arguments());
+    }
+
+    @Test
+    void retainsArgumentTokensWhenTheToolHasNoResultYet() {
+        DefaultTokenAuditor auditor = auditor(new DefaultTokenizer());
+        AiMessageEntity request = AiMessageEntity.builder().toolCalls(List.of(
+                new ToolCallRequest("pending", "read", 0, "abcdef"))).build();
+
+        TokenAuditDocument audit = auditor.analysis(execution(List.of(request)));
+
+        assertCount(audit.assistantTokens(), 1);
+        assertEquals(2, audit.toolTokens().getTokenMeta().toolTokens());
+        assertTrue(audit.toolTokens().getTokenMeta().tokenDetails().isEmpty());
     }
 
     @Test
@@ -318,6 +335,24 @@ class DefaultTokenAuditorTest {
         }
     }
 
+    @Test
+    void countsOnlyTheVisibleDefinitionForEachModelFacingName() {
+        DefaultTokenizer tokenizer = new DefaultTokenizer(new OpenAiTokenizer());
+        ToolDefinition<ToolExecutor> registered = definition("mcp_shared");
+        ToolDefinition<ToolExecutor> remote = definition("mcp_shared", "A shadowed remote tool");
+        ToolDefinition<ToolExecutor> uniqueRemote = definition("mcp_unique");
+        ToolDefinition<ToolExecutor> duplicateRemote = definition("mcp_unique", "A later definition for the same name");
+        DefaultTokenAuditor auditor = new DefaultTokenAuditor(tokenizer,
+                AgentConfig.builder().maxTokens(1000).build(), new ToolRegistry(List.of(registered)),
+                execution -> List.of(remote, uniqueRemote, duplicateRemote));
+        Execution execution = execution(List.of());
+
+        TokenAuditDocument audit = auditor.analysis(execution);
+
+        assertCount(audit.otherTokens().toolDefinitionTokens(), tokenizer.count(List.of(), List.of(registered)));
+        assertCount(audit.otherTokens().mcpToolDefinitionTokens(), tokenizer.count(List.of(), List.of(uniqueRemote)));
+    }
+
     private DefaultTokenAuditor auditor(DefaultTokenizer tokenizer) {
         return new DefaultTokenAuditor(tokenizer, AgentConfig.builder().maxTokens(1000).build(),
                 new ToolRegistry(List.of()), McpToolScope.EMPTY);
@@ -329,7 +364,11 @@ class DefaultTokenAuditorTest {
     }
 
     private ToolDefinition<ToolExecutor> definition(String name) {
-        return ToolDefinition.<ToolExecutor>builder().id(name).name(name).description("Find a file")
+        return definition(name, "Find a file");
+    }
+
+    private ToolDefinition<ToolExecutor> definition(String name, String description) {
+        return ToolDefinition.<ToolExecutor>builder().id(name).name(name).description(description)
                 .parametersJsonSchema("{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}}}")
                 .maxOutput(64).timeout(5L).concurrentPolicy(ConcurrentPolicy.READ_ONLY)
                 .executor(ignored -> ToolExecuteResult.success("ok")).build();
