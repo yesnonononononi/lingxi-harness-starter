@@ -197,7 +197,7 @@ public abstract class ChatAgent implements Agent {
         ensureNotBlank(requestConfig.getModelName(), "modelName");
         return requestConfig.toBuilder()
                 .provider(ModelProviderRouting.chatProvider(null, requestConfig.getModelName(),
-                        requestConfig.isReturnThinking()))
+                        requestConfig.isStream()))
                 .build();
     }
 
