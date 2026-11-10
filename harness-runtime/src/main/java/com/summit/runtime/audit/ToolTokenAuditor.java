@@ -13,12 +13,9 @@ import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.audit.AuditContext.ToolResult;
 import lombok.RequiredArgsConstructor;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.IdentityHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /** Counts retained calls and their results, with result details grouped by provenance. */
 @RequiredArgsConstructor
@@ -85,7 +82,10 @@ final class ToolTokenAuditor {
             int resultTokens = tokenizer.count(messages(results));
             details.put(name, buildDetail(results, arguments, resultTokens));
         });
-        return details;
+
+        return details.entrySet().stream()
+                .sorted(Comparator.comparingInt((Map.Entry<String,ToolElement> entry) -> entry.getValue().totalTokens()).reversed())
+                .collect(Collectors.toMap(Map.Entry::getKey,Map.Entry::getValue,(a,b)->a,LinkedHashMap::new));
     }
 
     private DocumentElement<ToolElement> auditGroup(String label, List<ToolResult> results, ArgumentTokens arguments) {

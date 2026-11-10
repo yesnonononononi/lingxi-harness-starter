@@ -1,5 +1,6 @@
 package com.summit.core.agent;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.summit.core.conversation.message.Message;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -15,6 +16,7 @@ import java.util.List;
 @Jacksonized
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties({"skills"})
 public class ContextSpec {
     private String systemPrompt;
     @Builder.Default
