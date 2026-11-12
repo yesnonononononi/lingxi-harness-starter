@@ -16,6 +16,7 @@ import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.skill.SkillLoader;
 import com.summit.core.skill.SkillResume;
 import com.summit.runtime.prompt.SystemPromptAssembler;
+import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
 import java.util.*;
 import java.util.function.Supplier;
@@ -66,93 +67,40 @@ public class DefaultConversationManager implements ConversationManager {
 
     /** Convenience entry point for the common case: no transcript sink, default tokenizer. */
     public DefaultConversationManager(ContextAttachmentProvider contextAttachmentProvider) {
-        this(builder().contextAttachmentProvider(contextAttachmentProvider));
+        this(null, 0, 0, contextAttachmentProvider, null, null, null);
     }
 
     /** Convenience entry point for callers that only swap the tokenizer. */
     public DefaultConversationManager(ContextAttachmentProvider contextAttachmentProvider, Tokenizer tokenizer) {
-        this(builder().contextAttachmentProvider(contextAttachmentProvider).tokenizer(tokenizer));
-    }
-
-    private DefaultConversationManager(Builder builder) {
-        this.tokenizer = builder.tokenizer;
-        this.maxTokens = builder.maxTokens > 0 ? builder.maxTokens : DEFAULT_MAX_TOKENS;
-        this.maxLiveContextBlocks = builder.maxLiveContextBlocks > 0
-                ? builder.maxLiveContextBlocks : DEFAULT_MAX_LIVE_CONTEXT_BLOCKS;
-
-        this.contextAttachmentProvider = builder.contextAttachmentProvider == null
-                ? ContextAttachmentProvider.NONE : builder.contextAttachmentProvider;
-        this.conversationTranscriptSink = builder.conversationTranscriptSink;
-        this.promptAssemblerFactory = builder.promptAssemblerFactory == null
-                ? SystemPromptAssembler::new : builder.promptAssemblerFactory;
-        this.skillLoader = builder.skillLoader;
-    }
-
-    public static Builder builder() {
-        return new Builder();
+        this(tokenizer, 0, 0, contextAttachmentProvider, null, null, null);
     }
 
     /**
-     * Collects the six collaborators this manager needs.
+     * Collects the collaborators this manager needs, replacing six overloads whose argument order
+     * was the only thing telling "the sink" from "the tokenizer" apart.
      *
-     * <p>It replaced six overloads whose argument order was the only thing telling "the sink" from
-     * "the tokenizer" apart. Every field is optional except none: the defaults below are the
-     * production fallbacks, and a caller states only what it wants to change.</p>
+     * <p>Every parameter is optional: a non-positive number or a {@code null} reference falls back
+     * to the production default, so a caller states only what it wants to change.</p>
      */
-    public static final class Builder {
-        private Tokenizer tokenizer = new DefaultTokenizer();
-        private int maxTokens = DEFAULT_MAX_TOKENS;
-        private int maxLiveContextBlocks = DEFAULT_MAX_LIVE_CONTEXT_BLOCKS;
-        private ContextAttachmentProvider contextAttachmentProvider = ContextAttachmentProvider.NONE;
-        private ConversationTranscriptSink conversationTranscriptSink;
-        private Supplier<PromptAssembler> promptAssemblerFactory = SystemPromptAssembler::new;
-        private SkillLoader skillLoader;
+    @Builder
+    private DefaultConversationManager(Tokenizer tokenizer,
+                                       int maxTokens,
+                                       int maxLiveContextBlocks,
+                                       ContextAttachmentProvider contextAttachmentProvider,
+                                       ConversationTranscriptSink conversationTranscriptSink,
+                                       Supplier<PromptAssembler> promptAssemblerFactory,
+                                       SkillLoader skillLoader) {
+        this.tokenizer = tokenizer == null ? new DefaultTokenizer() : tokenizer;
+        this.maxTokens = maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS;
+        this.maxLiveContextBlocks = maxLiveContextBlocks > 0
+                ? maxLiveContextBlocks : DEFAULT_MAX_LIVE_CONTEXT_BLOCKS;
 
-        private Builder() {
-        }
-
-        public Builder tokenizer(Tokenizer tokenizer) {
-            this.tokenizer = tokenizer;
-            return this;
-        }
-
-        public Builder maxTokens(int maxTokens) {
-            this.maxTokens = maxTokens;
-            return this;
-        }
-
-        /**
-         * Live per-round context blocks tolerated before a warning is logged. Zero keeps the
-         * default.
-         */
-        public Builder maxLiveContextBlocks(int maxLiveContextBlocks) {
-            this.maxLiveContextBlocks = maxLiveContextBlocks;
-            return this;
-        }
-
-        public Builder contextAttachmentProvider(ContextAttachmentProvider provider) {
-            this.contextAttachmentProvider = provider;
-            return this;
-        }
-
-        public Builder conversationTranscriptSink(ConversationTranscriptSink sink) {
-            this.conversationTranscriptSink = sink;
-            return this;
-        }
-
-        public Builder promptAssemblerFactory(Supplier<PromptAssembler> factory) {
-            this.promptAssemblerFactory = factory;
-            return this;
-        }
-
-        public Builder skillLoader(SkillLoader skillLoader) {
-            this.skillLoader = skillLoader;
-            return this;
-        }
-
-        public DefaultConversationManager build() {
-            return new DefaultConversationManager(this);
-        }
+        this.contextAttachmentProvider = contextAttachmentProvider == null
+                ? ContextAttachmentProvider.NONE : contextAttachmentProvider;
+        this.conversationTranscriptSink = conversationTranscriptSink;
+        this.promptAssemblerFactory = promptAssemblerFactory == null
+                ? SystemPromptAssembler::new : promptAssemblerFactory;
+        this.skillLoader = skillLoader;
     }
 
 
@@ -336,13 +284,18 @@ public class DefaultConversationManager implements ConversationManager {
      * count keeps climbing, compaction is not running often enough for the amount of dynamic
      * content this agent produces — the two knobs are {@code compactionThreshold} (trigger earlier)
      * and the pruner, both owned by the compaction strategy, not by this manager.</p>
+     *
+     * <p>It warns when the count crosses the limit and again on every further multiple, so a long
+     * uncompacted session logs a handful of lines instead of one per round.</p>
      */
     private void warnWhenContextPilesUp(Execution execution, List<Message> messages) {
         int live = 0;
         for (Message message : messages) {
             if (message instanceof UserMessageEntity user && user.hasContextContract()) live++;
         }
-        if (live > maxLiveContextBlocks) {
+        boolean crossed = live > maxLiveContextBlocks
+                && (live == maxLiveContextBlocks + 1 || live % maxLiveContextBlocks == 0);
+        if (crossed) {
             log.warn("Uncompacted history holds {} dynamic context blocks (limit {}): the per-round "
                             + "context is piling up. Lower compactionThreshold or enable the context "
                             + "pruner. executionId: {}",

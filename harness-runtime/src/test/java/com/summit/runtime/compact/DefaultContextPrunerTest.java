@@ -622,6 +622,8 @@ class DefaultContextPrunerTest {
                 "the newest block survives: pruning must never drop the live background knowledge");
         assertTrue(execution.getMessages().stream().anyMatch(message -> "second question".equals(message.text())),
                 "the current user turn is still there");
+        assertFalse(pruner(20_000).compact(new ContextCompactRequest(execution)),
+                "a second pass has nothing left to drop, so the prune reports no change");
     }
 
     private DefaultContextPruner pruner(int budget) {
