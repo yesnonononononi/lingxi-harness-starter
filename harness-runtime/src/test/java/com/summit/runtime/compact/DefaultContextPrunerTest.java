@@ -599,6 +599,31 @@ class DefaultContextPrunerTest {
         assertTrue(execution.getCompactionState().summaryUnavailable());
     }
 
+    @Test
+    void pruneKeepsOnlyTheNewestDynamicContextBlock() {
+        UserMessageEntity newest = UserMessageEntity.from("<context> NEWEST").markContextContract();
+        Execution execution = execution(
+                SystemMessageEntity.builder().text("LEADING").build(),
+                UserMessageEntity.from("<context> OLDEST").markContextContract(),
+                UserMessageEntity.from("first question"),
+                AiMessageEntity.builder().text("first answer").build(),
+                newest,
+                UserMessageEntity.from("second question"));
+
+        pruner(20_000).compact(new ContextCompactRequest(execution));
+
+        List<UserMessageEntity> blocks = execution.getMessages().stream()
+                .filter(UserMessageEntity.class::isInstance)
+                .map(UserMessageEntity.class::cast)
+                .filter(UserMessageEntity::hasContextContract)
+                .toList();
+        assertEquals(1, blocks.size(), "superseded background blocks are dropped: " + execution.getMessages());
+        assertSame(newest, blocks.getFirst(),
+                "the newest block survives: pruning must never drop the live background knowledge");
+        assertTrue(execution.getMessages().stream().anyMatch(message -> "second question".equals(message.text())),
+                "the current user turn is still there");
+    }
+
     private DefaultContextPruner pruner(int budget) {
         return new DefaultContextPruner(AgentConfig.builder().maxTokens(budget).build(), reporter(budget));
     }

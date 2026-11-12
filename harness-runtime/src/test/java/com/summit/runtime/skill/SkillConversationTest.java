@@ -53,8 +53,12 @@ class SkillConversationTest {
     }
 
     private String start(FileSystemSkillLoader loader, SkillConfig config) {
-        DefaultConversationManager conversations = new DefaultConversationManager(new com.summit.runtime.conversation.DefaultTokenizer(), null,
-                ContextAttachmentProvider.NONE, SystemPromptAssembler::new, loader);
+        DefaultConversationManager conversations = DefaultConversationManager.builder()
+                .tokenizer(new com.summit.runtime.conversation.DefaultTokenizer())
+                .contextAttachmentProvider(ContextAttachmentProvider.NONE)
+                .promptAssemblerFactory(SystemPromptAssembler::new)
+                .skillLoader(loader)
+                .build();
         AgentRequest request = AgentRequest.builder()
                 .contextSpec(ContextSpec.builder()
                         .context(List.of(UserMessageEntity.from("review")))

@@ -85,8 +85,10 @@ class EventMetadataPropagationTest {
         };
         RuntimeContext context = RuntimeContext.builder()
                 .runtimeEventPublisher(publisher).toolExecutionManager(tools)
-                .conversationManager(new DefaultConversationManager(
-                        (id, ai, toolMessages) -> { }, ContextAttachmentProvider.NONE))
+                .conversationManager(DefaultConversationManager.builder()
+                        .conversationTranscriptSink((id, ai, toolMessages) -> { })
+                        .contextAttachmentProvider(ContextAttachmentProvider.NONE)
+                        .build())
                 .build();
         ModelChatCommand command = new ModelRequestFactory(context).build(execution, List.of(), "1234567890123456789", null);
         command.streamingChatResponseHandler().onPartialResponse("hello", NOOP_TRANSPORT);
@@ -161,7 +163,10 @@ class EventMetadataPropagationTest {
                 received.set(metadata);
             }
         };
-        DefaultConversationManager conversations = new DefaultConversationManager(sink, ContextAttachmentProvider.NONE);
+        DefaultConversationManager conversations = DefaultConversationManager.builder()
+                .conversationTranscriptSink(sink)
+                .contextAttachmentProvider(ContextAttachmentProvider.NONE)
+                .build();
         Execution execution = execution("transcript", METADATA);
         execution.setTokenUsage(TokenUsageEntity.empty());
 

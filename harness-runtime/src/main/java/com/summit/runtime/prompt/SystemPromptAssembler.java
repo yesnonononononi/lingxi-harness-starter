@@ -1,36 +1,33 @@
 package com.summit.runtime.prompt;
 
-import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
-import com.summit.core.mcp.McpResume;
 import com.summit.core.prompt.PromptAssembler;
 import com.summit.core.runtime.RuntimeEnvironment;
 import com.summit.core.runtime.workspace.Workspace;
-import com.summit.core.skill.SkillResume;
-import com.summit.runtime.conversation.ContextChangeDiscover;
 import lombok.Getter;
 import org.jspecify.annotations.Nullable;
 
-import java.util.*;
-
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.TreeMap;
 
 /**
- * Assembles the leading system message of one execution.
+ * Assembles the stable leading system message of one execution: where the agent runs, and the
+ * prompt the application wrote.
+ *
+ * <p>Nothing that changes between rounds belongs here. Remote-tool résumés, skills, memory and the
+ * task manifest are rendered by {@code ContextDynamicAssembler} and travel as a user message, so
+ * this text stays constant and the provider can serve the prompt-cache prefix it already holds.</p>
  *
  * <p>Sections are appended in the order the caller chains them, and a section whose input is empty
- * is skipped outright: a heading with nothing under it costs tokens and tells the model nothing.
- * That also makes the assembler tolerant of the shapes a request actually arrives in — a root
- * request carries no {@code task}, a bare-model session carries no business prompt.</p>
+ * is skipped outright: a heading with nothing under it costs tokens and tells the model nothing.</p>
  */
 public class SystemPromptAssembler implements PromptAssembler {
     @Getter
     private String systemPrompt;
 
     private final StringBuilder stringBuilder = new StringBuilder();
-
-    private List<String> taskPrompt = null, memory = null;
-    private List<SkillResume> skills = null;
-    private List<McpResume> mcps = null;
 
     /**
      * Environment variables listed verbatim before the rest is collapsed into a count.
@@ -87,50 +84,17 @@ public class SystemPromptAssembler implements PromptAssembler {
         return this;
     }
 
-    @Override
-    public PromptAssembler withTaskPrompt(List<String> task) {
-        this.taskPrompt = task;
-        return this;
-    }
-
-
-    /**
-     * Publishes the request's MCP servers, one line each — name, the description declared for it,
-     * and how many tools it contributed — plus the two ways to go deeper: {@code list_mcp_tools}
-     * for a server's tool names, {@code search_tool} for one tool's schema.
-     * See {@link com.summit.core.mcp.McpToolScope}.
-     */
-    @Override
-    public PromptAssembler withMcpToolPrompt(List<McpResume> mcps) {
-        this.mcps = mcps;
-        return this;
-    }
-
-
-
-    @Override
-    public PromptAssembler withMemoryPrompt(List<String> memory) {
-        this.memory = memory;
-        return this;
-    }
-
-    @Override
-    public PromptAssembler withSkillPrompt(List<SkillResume> skills) {
-        this.skills = skills;
-        return this;
-    }
-
     /**
      * Returns the assembled prompt, without the blank lines the section separators leave at either
      * end. Every section opens with {@code \n\n} so that sections never run together; the first and
      * last ones have nothing to be separated from.
      */
     @Override
-    public SystemMessageEntity complete(List<Message> context) {
+    public SystemMessageEntity complete() {
         this.systemPrompt = this.stringBuilder.toString().strip();
         this.stringBuilder.setLength(0);
 
-        return  SystemMessageEntity.builder()
+        return SystemMessageEntity.builder()
                 .text(this.systemPrompt)
                 .build();
     }

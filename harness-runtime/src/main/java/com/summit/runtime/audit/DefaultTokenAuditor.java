@@ -32,6 +32,7 @@ public class DefaultTokenAuditor implements TokenAuditor {
     public static final String MCP_LABEL = ToolTokenAuditor.MCP_LABEL;
     public static final String SKILL_LABEL = ToolTokenAuditor.SKILL_LABEL;
     public static final String MEMORY_LABEL = "MEMORY";
+    public static final String DYNAMIC_CONTEXT_LABEL = "DYNAMIC_CONTEXT";
     public static final String ATTACHMENT_LABEL = "ATTACHMENT";
     public static final String MCP_DEF_LABEL = "MCP_TOOL_DEFINITION";
     public static final String TOOL_DEF_LABEL = "TOOL_DEFINITION";
@@ -89,11 +90,15 @@ public class DefaultTokenAuditor implements TokenAuditor {
 
     private OtherTokens resolveOtherTokens(Execution execution, AuditContext context) {
         DefinitionAudits definitions = auditDefinitions(execution);
+        // The per-round block is its own bucket: it is neither the application's system prompt nor
+        // something the user typed, and folding it into either one is what made the numbers lie.
+        DocumentElement<Integer> dynamicContext = runAudit(DYNAMIC_CONTEXT_LABEL, context.hasHistory(),
+                () -> estimateMessages(context.dynamicContextMessages()));
         DocumentElement<Integer> memory = runAudit(MEMORY_LABEL, true,
                 () -> auditMemory(execution.getAgentRequest().getContextSpec().getMemory()));
         DocumentElement<Integer> attachments = runAudit(ATTACHMENT_LABEL, context.hasHistory(),
                 () -> auditAttachments(context.attachments()));
-        return new OtherTokens(definitions.registered(), definitions.mcp(), memory, attachments);
+        return new OtherTokens(definitions.registered(), definitions.mcp(), dynamicContext, memory, attachments);
     }
 
     private DefinitionAudits auditDefinitions(Execution execution) {

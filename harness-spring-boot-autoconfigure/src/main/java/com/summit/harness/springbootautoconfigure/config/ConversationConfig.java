@@ -55,12 +55,14 @@ public class ConversationConfig {
                                                    SkillLoader skillLoader,
                                                    Tokenizer tokenizer,
                                                    AgentConfig agentConfig) {
-        return new DefaultConversationManager(
-                tokenizer, agentConfig.maxTokens(), conversationTranscriptSink.getIfAvailable(),
-                ContextAttachmentProvider.compose(contextAttachmentProviders),
-                () -> promptAssembler.getIfAvailable(SystemPromptAssembler::new),
-                skillLoader
-        );
+        return DefaultConversationManager.builder()
+                .tokenizer(tokenizer)
+                .maxTokens(agentConfig.maxTokens())
+                .conversationTranscriptSink(conversationTranscriptSink.getIfAvailable())
+                .contextAttachmentProvider(ContextAttachmentProvider.compose(contextAttachmentProviders))
+                .promptAssemblerFactory(() -> promptAssembler.getIfAvailable(SystemPromptAssembler::new))
+                .skillLoader(skillLoader)
+                .build();
     }
 
     @Bean

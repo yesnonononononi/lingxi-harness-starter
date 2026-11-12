@@ -161,6 +161,10 @@ public class DefaultContextPruner implements ContextCompacter {
         // With no user message, treat the entire non-system history as the current turn.
         int keepFrom = Math.max(0, history.latestUser());
         if (compactLatest) keepFrom = Math.max(keepFrom, history.latestAssistant());
+        // Dynamic context is re-rendered every round; only the newest block carries live state. The
+        // newest one is kept unconditionally, so pruning never drops the background knowledge —
+        // it only drops the superseded copies.
+        int latestContext = latestContextIndex(input);
 
         for (Message message : input) {
             if (message instanceof SystemMessageEntity) product.add(message);
@@ -186,6 +190,7 @@ public class DefaultContextPruner implements ContextCompacter {
 
                 if (owner >= keepFrom) product.add(tool);
             } else if (message instanceof UserMessageEntity user) {
+                if (user.hasContextContract() && index != latestContext) continue;
                 Message retained = user.retainForCompaction(index < history.latestAssistant());
                 if (retained != null) product.add(retained);
             } else {
@@ -194,6 +199,16 @@ public class DefaultContextPruner implements ContextCompacter {
         }
 
         return product;
+    }
+
+    /** Index of the newest per-round context block, or -1 when this history has none. */
+    private static int latestContextIndex(List<Message> messages) {
+        for (int index = messages.size() - 1; index >= 0; index--) {
+            if (messages.get(index) instanceof UserMessageEntity user && user.hasContextContract()) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     private AiMessageEntity rewriteAssistant(AiMessageEntity source, List<ToolCallRequest> calls) {

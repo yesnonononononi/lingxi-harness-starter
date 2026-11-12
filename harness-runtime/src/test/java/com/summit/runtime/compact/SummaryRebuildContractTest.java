@@ -191,9 +191,12 @@ class SummaryRebuildContractTest {
     void oversizedTrailingTurnIsShrunkToItsLastAssistantMessage() {
         // Small cap so the trailing turn (everything after the last user message) clearly exceeds
         // TAIL_COMPACT_THRESHOLD (20%) of it.
-        DefaultConversationManager conversations = new DefaultConversationManager(
-                new DefaultTokenizer(), 900, null, ContextAttachmentProvider.NONE,
-                SystemPromptAssembler::new, null);
+        DefaultConversationManager conversations = DefaultConversationManager.builder()
+                .tokenizer(new DefaultTokenizer())
+                .maxTokens(900)
+                .contextAttachmentProvider(ContextAttachmentProvider.NONE)
+                .promptAssemblerFactory(SystemPromptAssembler::new)
+                .build();
         Execution execution = execution(
                 SystemMessageEntity.builder().text("LEADING").build(),
                 UserMessageEntity.from("do the work"),

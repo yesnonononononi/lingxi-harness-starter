@@ -16,16 +16,17 @@ import java.util.Map;
 
 /** Partitions retained history without modifying the execution's messages. */
 record AuditContext(boolean hasHistory, List<AiMessageEntity> assistantHistory, List<Message> userMessages,
-                    List<Message> systemMessages, List<Content> attachments, List<ToolCallRequest> toolCalls,
-                    List<ToolResult> toolResults) {
+                    List<Message> dynamicContextMessages, List<Message> systemMessages, List<Content> attachments,
+                    List<ToolCallRequest> toolCalls, List<ToolResult> toolResults) {
 
     static AuditContext fromHistory(List<Message> history) {
         if (history == null) {
-            return new AuditContext(false, List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+            return new AuditContext(false, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
         }
 
         List<AiMessageEntity> assistantHistory = new ArrayList<>();
         List<Message> userMessages = new ArrayList<>();
+        List<Message> dynamicContextMessages = new ArrayList<>();
         List<Message> systemMessages = new ArrayList<>();
         List<Content> attachments = new ArrayList<>();
         List<ToolCallRequest> toolCalls = new ArrayList<>();
@@ -49,13 +50,22 @@ record AuditContext(boolean hasHistory, List<AiMessageEntity> assistantHistory, 
                     ToolCallRequest call = tool.getId() == null ? null : pendingCalls.remove(tool.getId().toString());
                     toolResults.add(new ToolResult(tool, call));
                 }
-                case UserMessageEntity user -> userMessages.add(withoutAttachments(user, attachments));
+                case UserMessageEntity user -> {
+                    // The per-round context block is framework-rendered background, not something
+                    // the user said: reporting it as user tokens would blame the wrong party.
+                    if (user.hasContextContract()) {
+                        dynamicContextMessages.add(withoutAttachments(user, attachments));
+                    } else {
+                        userMessages.add(withoutAttachments(user, attachments));
+                    }
+                }
                 case SystemMessageEntity system -> systemMessages.add(system);
                 case null, default -> { }
             }
         }
 
-        return new AuditContext(true, assistantHistory, userMessages, systemMessages, attachments, toolCalls, toolResults);
+        return new AuditContext(true, assistantHistory, userMessages, dynamicContextMessages, systemMessages,
+                attachments, toolCalls, toolResults);
     }
 
     List<Message> assistantMessages() {

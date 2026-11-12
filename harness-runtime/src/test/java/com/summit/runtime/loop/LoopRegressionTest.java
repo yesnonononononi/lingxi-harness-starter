@@ -44,9 +44,10 @@ class LoopRegressionTest {
     private final InMemoryActiveExecutionRegistry repository = new InMemoryActiveExecutionRegistry();
     private final DefaultTokenizer tokenizer = new DefaultTokenizer();
     private final AtomicInteger transcripts = new AtomicInteger();
-    private final DefaultConversationManager conversations = new DefaultConversationManager(
-            (id, ai, tools) -> transcripts.incrementAndGet(),
-            ContextAttachmentProvider.NONE);
+    private final DefaultConversationManager conversations = DefaultConversationManager.builder()
+            .conversationTranscriptSink((id, ai, tools) -> transcripts.incrementAndGet())
+            .contextAttachmentProvider(ContextAttachmentProvider.NONE)
+            .build();
 
     @Test
     void failureNotificationOccursOnceAfterUsageAndRunEnd() {

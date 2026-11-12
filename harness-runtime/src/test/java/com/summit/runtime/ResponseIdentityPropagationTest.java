@@ -281,7 +281,10 @@ class ResponseIdentityPropagationTest {
                     rounds.add(responseId);
                 }
             };
-            DefaultConversationManager conversations = new DefaultConversationManager(sink, ContextAttachmentProvider.NONE);
+            DefaultConversationManager conversations = DefaultConversationManager.builder()
+                    .conversationTranscriptSink(sink)
+                    .contextAttachmentProvider(ContextAttachmentProvider.NONE)
+                    .build();
             RuntimeEventPublisher publisher = new RuntimeEventPublisher(List.of(events));
             ToolDefinition<?> definition = ToolDefinition.builder().id("test").name("test").timeout(0L)
                     .maxOutput(1000).concurrentPolicy(ConcurrentPolicy.READ_ONLY).executor(call -> {

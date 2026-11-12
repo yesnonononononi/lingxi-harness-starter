@@ -26,7 +26,6 @@ import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolExecutor;
 import com.summit.core.tool.ToolRegistry;
 import com.summit.runtime.agent.AgentConfig;
-import com.summit.runtime.conversation.ContextDynamicAssembler;
 import com.summit.runtime.conversation.DefaultTokenizer;
 import com.summit.runtime.conversation.DefaultConversationManager;
 import openAi.OpenAiTokenizer;
@@ -39,7 +38,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class DefaultTokenAuditorTest {
     @Test
-    void countsJoinedMemoryBodyAndKeepsItWithinSystemTokens() {
+    void countsMemoryInsideTheDynamicContextRatherThanAsSystemOrUserTokens() {
         var tokenizer = new DefaultTokenizer(new OpenAiTokenizer());
         String body = "project conventions\nuser preferences";
         var request = AgentRequest.builder().contextSpec(ContextSpec.builder()
@@ -52,22 +51,32 @@ class DefaultTokenAuditorTest {
         conversations.startConversation(execution, null, McpToolScope.EMPTY);
 
         var audit = auditor(tokenizer).analysis(execution);
+        Message dynamicContext = dynamicMessage(execution);
 
         assertCount(audit.otherTokens().memoryTokens(), tokenizer.countText(body));
-        assertEquals("<context>\n\n## Memory Prompt\n" + body, dynamicContext(execution),
+        assertEquals("<context>\n\n## Memory Prompt\n" + body, dynamicContext.text(),
                 "memory moved out of the system prompt into the per-round context");
+
+        // The cacheable system prompt holds the environment section only.
         assertEquals(tokenizer.count(List.of(execution.getMessages().getFirst())),
                 audit.systemTokens().getTokenMeta());
+        // The per-round block gets its own bucket instead of being blamed on the user.
+        assertCount(audit.otherTokens().dynamicContextTokens(), tokenizer.count(List.of(dynamicContext)));
+        assertCount(audit.userTokens(), tokenizer.count(List.of(UserMessageEntity.from("task"))));
         assertCount(audit.otherTokens().attachmentTokens(), 0);
     }
 
     /** The per-round context message, or an empty string when the request carries none. */
     private static String dynamicContext(Execution execution) {
+        return dynamicMessage(execution).text();
+    }
+
+    /** The per-round context message itself, for counting. */
+    private static Message dynamicMessage(Execution execution) {
         return execution.getMessages().stream()
                 .filter(UserMessageEntity.class::isInstance)
-                .map(Message::text)
-                .filter(text -> text.startsWith(ContextDynamicAssembler.LABEL))
-                .findFirst().orElse("");
+                .filter(message -> ((UserMessageEntity) message).hasContextContract())
+                .findFirst().orElseThrow(() -> new AssertionError("no per-round context in this execution"));
     }
 
     @Test
