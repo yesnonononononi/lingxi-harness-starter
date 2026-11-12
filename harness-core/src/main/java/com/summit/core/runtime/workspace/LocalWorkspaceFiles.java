@@ -3,7 +3,10 @@ package com.summit.core.runtime.workspace;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.stream.Stream;
 
 public final class LocalWorkspaceFiles implements WorkspaceFiles {
     @Override
@@ -29,6 +32,15 @@ public final class LocalWorkspaceFiles implements WorkspaceFiles {
     @Override
     public byte[] readBytes(Path path) throws IOException {
         return Files.readAllBytes(path);
+    }
+
+    @Override
+    public List<Entry> list(Path directory) throws IOException {
+        try (Stream<Path> entries = Files.list(directory)) {
+            // NOFOLLOW_LINKS: a link is reported as a file, so walk never descends through one.
+            return entries.map(path -> new Entry(path, Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)))
+                    .toList();
+        }
     }
 
     @Override

@@ -3,7 +3,11 @@ package com.summit.core.runtime.workspace;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
+import java.util.function.Predicate;
 
 /** Paths are resolved by the owning workspace; implementations preserve its IO boundary. */
 public interface WorkspaceFiles {
@@ -44,6 +48,51 @@ public interface WorkspaceFiles {
      */
     default List<String> readLines(Path path, Charset charset) throws IOException {
         return readString(path, charset).lines().toList();
+    }
+
+    /**
+     * One entry directly under a directory.
+     *
+     * <p>{@code directory} decides whether {@link #walk} descends into it. Implementations must not
+     * follow symbolic links when deciding that flag, so a self-referencing link cannot loop the walk.</p>
+     */
+    record Entry(Path path, boolean directory) {
+    }
+
+    /**
+     * Lists the entries directly under the given directory, in the implementation's own order.
+     *
+     * <p>A backend that cannot enumerate its namespace must throw
+     * {@link UnsupportedOperationException} instead of returning an empty list: callers cannot tell an
+     * unsupported workspace from an empty directory, and would report "no matches" for a full one.</p>
+     */
+    default List<Entry> list(Path directory) throws IOException {
+        throw new UnsupportedOperationException(
+                "Listing is not supported by this workspace files implementation");
+    }
+
+    /**
+     * Collects the regular files under {@code root} at any depth, {@code root} itself excluded.
+     *
+     * <p>Directories for which {@code directoryToSkip} returns {@code true} are never entered, which is
+     * how callers prune vendor and build output without reading it. Derived from {@link #list} on
+     * purpose: traversal stays the single listing rule, so a backend only answers one question about
+     * its own namespace.</p>
+     */
+    default List<Entry> walk(Path root, Predicate<Path> directoryToSkip) throws IOException {
+        List<Entry> files = new ArrayList<>();
+        Deque<Path> pending = new ArrayDeque<>();
+        pending.push(root);
+        while (!pending.isEmpty()) {
+            for (Entry entry : list(pending.pop())) {
+                if (!entry.directory()) {
+                    files.add(entry);
+                } else if (directoryToSkip == null || !directoryToSkip.test(entry.path())) {
+                    pending.push(entry.path());
+                }
+            }
+        }
+        return files;
     }
 
     /**

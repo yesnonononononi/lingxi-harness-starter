@@ -66,6 +66,12 @@ try {
       try { fs.statSync(r.path); result.exists = true; }
       catch (e) { if (!['ENOENT', 'ENOTDIR'].includes(e.code)) throw e; result.exists = false; }
       break;
+    case 'list':
+      // Dirent flags come from the entry itself, so a symlinked directory is reported as a file
+      // and a workspace walk can never loop through one.
+      result.entries = fs.readdirSync(r.path, {withFileTypes: true})
+        .map(entry => ({name: entry.name, directory: entry.isDirectory()}));
+      break;
     case 'mkdir': fs.mkdirSync(r.path, { recursive: true }); break;
     case 'delete':
       try { fs.unlinkSync(r.path); } catch (e) { if (e.code !== 'ENOENT') throw e; }

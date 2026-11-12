@@ -13,7 +13,9 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -58,6 +60,20 @@ final class MxcWorkspaceFiles implements WorkspaceFiles {
     @Override
     public void createDirectories(Path path) throws IOException {
         fileUnchecked("mkdir", target(path));
+    }
+
+    @Override
+    public List<Entry> list(Path directory) throws IOException {
+        JsonNode result = fileUnchecked("list", target(directory));
+        JsonNode entries = result.path("entries");
+        if (!entries.isArray()) throw new IOException("Missing MXC directory listing");
+        List<Entry> listing = new ArrayList<>(entries.size());
+        for (JsonNode entry : entries) {
+            // The helper answers names only; joining them on the host side keeps the sandbox path rules out of the response.
+            listing.add(new Entry(directory.resolve(entry.path("name").textValue()),
+                    entry.path("directory").booleanValue()));
+        }
+        return listing;
     }
 
     @Override
