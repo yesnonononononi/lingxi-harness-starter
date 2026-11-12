@@ -61,7 +61,7 @@ class ChatAgentModelRoutingTest {
     void explicitProviderWinsAndInferencePreservesParameters() {
         assertEquals("default-streaming", resolve("claude-opus-4-6", true, "default-streaming").getProvider());
         ModelConfig config = ModelConfig.builder().baseUrl("http://localhost/v1").apiKey("key")
-                .modelName("claude-opus-4-6").returnThinking(true).reasoningEffort("high")
+                .modelName("claude-opus-4-6").stream(true).returnThinking(true).reasoningEffort("high")
                 .anthropicOptions(ModelConfig.AnthropicOptions.builder()
                         .thinkingType("enabled").thinkingBudgetTokens(2048).build()).maxTokens(4096).build();
         ChatAgent agent = DefaultChatAgent.builder().modelConfigSensitiveDataProvider((id, version) -> config).build();
@@ -75,7 +75,7 @@ class ChatAgentModelRoutingTest {
     private ModelConfig resolve(String model, boolean streaming, String provider) {
         ModelConfig config = ModelConfig.builder()
                 .baseUrl("http://localhost/v1").apiKey("key").modelName(model)
-                .returnThinking(streaming).provider(provider).build();
+                .stream(streaming).provider(provider).build();
         return DefaultChatAgent.builder().modelConfigSensitiveDataProvider((id, version) -> config).build()
                 .resolveModelConfig(AgentRequest.builder().modelConfigSpec(spec()).build());
     }

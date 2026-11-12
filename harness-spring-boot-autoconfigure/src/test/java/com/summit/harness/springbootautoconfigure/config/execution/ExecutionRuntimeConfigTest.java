@@ -98,6 +98,14 @@ class ExecutionRuntimeConfigTest {
                     .parametersJsonSchema("{\"type\":\"object\"}").maxOutput(64).timeout(5L)
                     .executor(ignored -> ToolExecuteResult.success("ok")).build();
             context.registerBean(ToolRegistry.class, () -> new ToolRegistry(List.of(definition)));
+            ToolDefinition<ToolExecutor> mcpOne = ToolDefinition.<ToolExecutor>builder()
+                    .id("mcp-one").name("mcp-one").description("First disclosed tool")
+                    .parametersJsonSchema(definition.parametersJsonSchema()).maxOutput(64).timeout(5L)
+                    .executor(ignored -> ToolExecuteResult.success("ok")).build();
+            ToolDefinition<ToolExecutor> mcpTwo = ToolDefinition.<ToolExecutor>builder()
+                    .id("mcp-two").name("mcp-two").description("Second disclosed tool")
+                    .parametersJsonSchema(definition.parametersJsonSchema()).maxOutput(64).timeout(5L)
+                    .executor(ignored -> ToolExecuteResult.success("ok")).build();
             AtomicInteger scopeReads = new AtomicInteger();
             context.registerBean("mcpAgent", ChatAgent.class, () -> new ChatAgent(
                     context.getBean(RuntimeFactory.class), null, null, null, null, null, null, null, null) {
@@ -107,7 +115,7 @@ class ExecutionRuntimeConfigTest {
                 @Override
                 public List<ToolDefinition<?>> disclosedMcpToolDefinitions(String executionId) {
                     scopeReads.incrementAndGet();
-                    return "audit-run".equals(executionId) ? List.of(definition) : List.of();
+                    return "audit-run".equals(executionId) ? List.of(mcpOne) : List.of();
                 }
             });
             context.registerBean("otherMcpAgent", ChatAgent.class, () -> new ChatAgent(
@@ -118,7 +126,7 @@ class ExecutionRuntimeConfigTest {
                 @Override
                 public List<ToolDefinition<?>> disclosedMcpToolDefinitions(String executionId) {
                     scopeReads.incrementAndGet();
-                    return "other-run".equals(executionId) ? List.of(definition, definition) : List.of();
+                    return "other-run".equals(executionId) ? List.of(mcpOne, mcpTwo) : List.of();
                 }
             });
             context.registerBean(Tokenizer.class, () -> new DefaultTokenizer() {
