@@ -9,8 +9,12 @@ import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.mcp.McpToolScope;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -134,6 +138,48 @@ class DynamicContextLayoutTest {
         assertSame(newestContext, remaining.getFirst(), "the surviving copy is the newest one");
     }
 
+    @Test
+    @DisplayName("护栏只在上限被跨过时告警：内容不变的多轮不刷屏，且一如既往地继续追加")
+    void pileUpWarningFiresWhenTheLimitIsCrossedNotOnEveryRound() {
+        Logger logger = (Logger) LoggerFactory.getLogger(DefaultConversationManager.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            // Four live blocks already in history; the request renders a different one.
+            List<Message> history = new ArrayList<>(List.of(
+                    SystemMessageEntity.builder().text("SYS").build(),
+                    contextOf("CONTEXT-1"),
+                    contextOf("CONTEXT-2"),
+                    contextOf("CONTEXT-3"),
+                    contextOf("CONTEXT-4"),
+                    UserMessageEntity.from("question")));
+            Execution execution = execution(history, requestWithMemory("CONTEXT-5"));
+
+            // The fifth block crosses the default limit of four: one warning, and it is appended.
+            conversations.startConversation(execution, null, McpToolScope.EMPTY);
+            assertEquals(5, liveContextBlocks(execution), "the block is still appended: the guard only reports");
+            assertEquals(1, warningCount(appender), "crossing the limit warns once");
+
+            // Nothing changed: no insert, so no repeated warning on the following rounds.
+            conversations.startConversation(execution, null, McpToolScope.EMPTY);
+            conversations.startConversation(execution, null, McpToolScope.EMPTY);
+            assertEquals(5, liveContextBlocks(execution), "an unchanged context is not appended again");
+            assertEquals(1, warningCount(appender),
+                    "an unchanged history sitting at the limit must not warn on every round");
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    private static long liveContextBlocks(Execution execution) {
+        return execution.getMessages().stream()
+                .filter(UserMessageEntity.class::isInstance)
+                .map(UserMessageEntity.class::cast)
+                .filter(UserMessageEntity::hasContextContract)
+                .count();
+    }
+
     // --- helpers ---------------------------------------------------------------------------
 
     private static UserMessageEntity contextOf(String text) {
@@ -144,6 +190,10 @@ class DynamicContextLayoutTest {
         return AgentRequest.builder()
                 .contextSpec(ContextSpec.builder().memory(List.of(memory)).build())
                 .build();
+    }
+
+    private static long warningCount(ListAppender<ILoggingEvent> appender) {
+        return appender.list.stream().filter(event -> event.getLevel().toString().equals("WARN")).count();
     }
 
     private static Execution execution(List<Message> messages, AgentRequest request) {

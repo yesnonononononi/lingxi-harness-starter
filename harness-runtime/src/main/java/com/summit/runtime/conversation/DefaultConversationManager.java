@@ -133,9 +133,10 @@ public class DefaultConversationManager implements ConversationManager {
         if (layout.insert()) {
             rebuilt.add(layout.insertIndex(), layout.contract());
             changed = true;
+            // Only a round that actually appended can push the count over a threshold; evaluating
+            // it outside this branch made an unchanged history at the limit warn on every round.
+            warnWhenContextPilesUp(execution, rebuilt);
         }
-
-        warnWhenContextPilesUp(execution, rebuilt);
 
         // Replacing the list is what tells the incremental token baseline that its snapshot is
         // stale; leaving the reference alone when nothing changed keeps that baseline valid.
