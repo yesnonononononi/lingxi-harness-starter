@@ -1,10 +1,13 @@
 package com.summit.runtime.prompt;
 
+import com.summit.core.conversation.message.Message;
+import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.mcp.McpResume;
 import com.summit.core.prompt.PromptAssembler;
 import com.summit.core.runtime.RuntimeEnvironment;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.skill.SkillResume;
+import com.summit.runtime.conversation.ContextChangeDiscover;
 import lombok.Getter;
 import org.jspecify.annotations.Nullable;
 
@@ -24,6 +27,11 @@ public class SystemPromptAssembler implements PromptAssembler {
     private String systemPrompt;
 
     private final StringBuilder stringBuilder = new StringBuilder();
+
+    private List<String> taskPrompt = null, memory = null;
+    private List<SkillResume> skills = null;
+    private List<McpResume> mcps = null;
+
     /**
      * Environment variables listed verbatim before the rest is collapsed into a count.
      */
@@ -81,18 +89,7 @@ public class SystemPromptAssembler implements PromptAssembler {
 
     @Override
     public PromptAssembler withTaskPrompt(List<String> task) {
-        if (task == null || task.isEmpty()) {
-            return this;
-        }
-        List<String> lines = task.stream()
-                .filter(Objects::nonNull)
-                .map(String::strip)
-                .filter(line -> !line.isEmpty())
-                .toList();
-        if (lines.isEmpty()) {
-            return this;
-        }
-        stringBuilder.append("\n\n## Task Manifest\n").append(String.join("\n", lines));
+        this.taskPrompt = task;
         return this;
     }
 
@@ -105,60 +102,21 @@ public class SystemPromptAssembler implements PromptAssembler {
      */
     @Override
     public PromptAssembler withMcpToolPrompt(List<McpResume> mcps) {
-        if (mcps == null || mcps.isEmpty()) {
-            return this;
-        }
-
-        stringBuilder.append("\n\n## MCP Tools\n")
-                .append("""
-                        Remote tools are hosted by MCP servers; the counts below are how many each one contributed.
-                        Their parameter schemas are deliberately left out of this prompt. Call `list_mcp_tools` with
-                        a server name to list that server's tools (name and description), or `search_tool` with a
-                        keyword to get one tool's schema directly. A tool found either way becomes callable from your
-                        next turn on. A server holding more tools than one listing shows is listed in successive
-                        windows: pass `start` and `end` to read a later one, and keep going while the result reports
-                        `hasMore`.
-                        """);
-        for (McpResume mcp : mcps) {
-            stringBuilder.append("\n- ").append(mcp.name())
-                    .append(" - ").append(descriptionOf(mcp))
-                    .append(" - ").append(mcp.toolCount()).append(" tools");
-        }
+        this.mcps = mcps;
         return this;
     }
 
-    /** One server's declared description, or a placeholder when its configuration declares none. */
-    private static String descriptionOf(McpResume mcp) {
-        String description = normalize(mcp.description());
-        return description.isEmpty() ? "no description" : description;
-    }
+
 
     @Override
     public PromptAssembler withMemoryPrompt(List<String> memory) {
-        if (memory == null || memory.isEmpty()) return this;
-        List<String> bodies = memory.stream().filter(Objects::nonNull)
-                .filter(body -> !body.isBlank()).toList();
-        if (bodies.isEmpty()) return this;
-        stringBuilder.append("\n\n## Memory Prompt\n").append(String.join("\n", bodies));
+        this.memory = memory;
         return this;
     }
 
     @Override
     public PromptAssembler withSkillPrompt(List<SkillResume> skills) {
-        if(skills == null || skills.isEmpty())return this;
-
-        stringBuilder.append("\n\n## Skill Prompt\n");
-        stringBuilder.append("Before using a skill, call `read_skill` if you have  with its entry path below. ")
-                .append("Paths refer to the host-side Skill resources, independently of the execution workspace. ")
-                .append("Read referenced files with the same tool, resolving references against the directory of the file that contains them.\n");
-
-        for (SkillResume skill : skills) {
-            stringBuilder.append("\n- ").append(skill.name()).append(": ").append(normalize(skill.description()));
-            if (skill.path() != null && !skill.path().isBlank()) {
-                stringBuilder.append("\n  Entry path: ").append(skill.path());
-            }
-        }
-
+        this.skills = skills;
         return this;
     }
 
@@ -168,10 +126,13 @@ public class SystemPromptAssembler implements PromptAssembler {
      * last ones have nothing to be separated from.
      */
     @Override
-    public String complete() {
+    public SystemMessageEntity complete(List<Message> context) {
         this.systemPrompt = this.stringBuilder.toString().strip();
         this.stringBuilder.setLength(0);
-        return this.systemPrompt;
+
+        return  SystemMessageEntity.builder()
+                .text(this.systemPrompt)
+                .build();
     }
 
     /**
@@ -215,11 +176,6 @@ public class SystemPromptAssembler implements PromptAssembler {
 
     private static boolean isBlank(@Nullable String text) {
         return text == null || text.isBlank();
-    }
-
-    /** Collapses a multi-line description to one line so a résumé entry cannot break the list. */
-    private static String normalize(@Nullable String text) {
-        return text == null ? "" : text.strip().replaceAll("\\s+", " ");
     }
 
     private static String text(@Nullable Object value) {

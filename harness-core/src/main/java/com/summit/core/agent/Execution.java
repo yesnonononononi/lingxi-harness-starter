@@ -154,7 +154,8 @@ public class Execution {
                 .id(request.getExecutionId() == null
                         || request.getExecutionId().isBlank()
                         ? UUID.randomUUID().toString() : request.getExecutionId())
-                .agentId(agentId).agentRequest(request)
+                .agentId(agentId)
+                .agentRequest(request)
                 .messages(new ArrayList<>(context))
                 .executionState(ExecutionState.CREATED)
                 .createAt(Instant.now()).build();

@@ -31,11 +31,13 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * The leading system message of one execution, asserted as rendered text.
+ * The messages one execution sends on its first round, asserted as rendered text.
  *
- * <p>This is the prompt a model actually receives on its first round, so it is verified end to end
- * rather than section by section: the assembler's output, the section order and the progressive
- * disclosure of remote tools are all visible in one string.</p>
+ * <p>There are two halves and they have different owners. The leading system message is the part
+ * that must never change once it is cached — environment and the application's own prompt. The
+ * dynamic context is everything that moves between rounds — remote tools, skills, memory, task —
+ * and it rides as a user message <em>before</em> the user turn, so the cached prefix survives and
+ * the model still reads the question last.</p>
  */
 class DefaultConversationManagerSystemPromptTest {
 
@@ -48,11 +50,15 @@ class DefaultConversationManagerSystemPromptTest {
                         .systemPrompt("role").memory(java.util.Arrays.asList("first memory", null, "  ", "second memory"))
                         .build()).task(List.of("final task")).build();
 
-        String prompt = startConversation(request, sandbox(), McpToolScope.EMPTY);
+        Rendered prompt = startConversation(request, sandbox(), McpToolScope.EMPTY);
 
-        assertTrue(prompt.contains("## Memory Prompt\nfirst memory\nsecond memory"));
-        assertEquals(1, prompt.split("## Memory Prompt", -1).length - 1);
-        assertTrue(prompt.endsWith("## Task Manifest\nfinal task"));
+        assertTrue(prompt.dynamic().contains("## Memory Prompt\nfirst memory\nsecond memory"),
+                "memory keeps its own line structure: " + prompt.dynamic());
+        assertEquals(1, prompt.dynamic().split("## Memory Prompt", -1).length - 1);
+        assertTrue(prompt.dynamic().endsWith("## Task Manifest\nfinal task"),
+                "the task manifest stays the last section of the dynamic block");
+        assertFalse(prompt.system().contains("## Memory Prompt"),
+                "memory changes between rounds, so it must not sit in the cached system prompt");
     }
 
     @Test
@@ -60,16 +66,18 @@ class DefaultConversationManagerSystemPromptTest {
         for (List<String> memory : java.util.Arrays.<List<String>>asList(
                 null, List.of(), java.util.Arrays.asList(null, "", "  "))) {
             var request = AgentRequest.builder().contextSpec(ContextSpec.builder().memory(memory).build()).build();
-            String prompt = startConversation(request, sandbox(), McpToolScope.EMPTY);
-            assertFalse(prompt.contains("## Memory Prompt"));
-            assertFalse(prompt.contains("null"));
+            Rendered prompt = startConversation(request, sandbox(), McpToolScope.EMPTY);
+            assertFalse(prompt.system().contains("## Memory Prompt"));
+            assertFalse(prompt.dynamic().contains("## Memory Prompt"));
+            assertEquals("", prompt.dynamic(),
+                    "a request with no dynamic section must not get an empty user message injected");
         }
     }
 
     @Test
-    @DisplayName("根请求（无 task、有 MCP）：环境 → 角色 → 远端工具摘要")
+    @DisplayName("根请求（无 task、有 MCP）：系统提示词只有环境与角色，远端工具摘要走动态上下文")
     void rootRequestWithRemoteTools() {
-        String prompt = startConversation(
+        Rendered prompt = startConversation(
                 AgentRequest.builder()
                         .contextSpec(ContextSpec.builder()
                                 .context(List.of(UserMessageEntity.from("帮我看看这个仓库")))
@@ -96,24 +104,18 @@ class DefaultConversationManagerSystemPromptTest {
                   - PATH=/usr/local/bin:/usr/bin
 
                 ## Business Prompt
-                You are LingXi, a coding agent. Reply in the user's language.
+                You are LingXi, a coding agent. Reply in the user's language.""", prompt.system(),
+                "the cacheable half holds the environment and the application's own prompt, nothing else");
 
-                ## MCP Tools
-                Remote tools are hosted by MCP servers; the counts below are how many each one contributed.
-                Their parameter schemas are deliberately left out of this prompt. Call `list_mcp_tools` with
-                a server name to list that server's tools (name and description), or `search_tool` with a
-                keyword to get one tool's schema directly. A tool found either way becomes callable from your
-                next turn on. A server holding more tools than one listing shows is listed in successive
-                windows: pass `start` and `end` to read a later one, and keep going while the result reports
-                `hasMore`.
-
-                - github - GitHub remote tools - 2 tools""", prompt);
+        assertTrue(prompt.dynamic().startsWith("<context>\n\n## MCP Tools\n"), prompt.dynamic());
+        assertTrue(prompt.dynamic().contains("`hasMore`."), "the disclosure instructions survive");
+        assertTrue(prompt.dynamic().endsWith("- github - GitHub remote tools - 2 tools"), prompt.dynamic());
     }
 
     @Test
-    @DisplayName("子代理请求（有 task）：任务清单排在最后，紧邻用户回合")
+    @DisplayName("子代理请求（有 task）：任务清单排在动态上下文最后，紧邻用户回合")
     void delegatedRequestEndsWithTheTaskManifest() {
-        String prompt = startConversation(
+        Rendered prompt = startConversation(
                 AgentRequest.builder()
                         .contextSpec(ContextSpec.builder()
                                 .context(List.of(UserMessageEntity.from("请只回复一个词：ok")))
@@ -127,15 +129,15 @@ class DefaultConversationManagerSystemPromptTest {
 
         print(prompt);
 
-        assertTrue(prompt.endsWith("## Task Manifest\n请只回复一个词：ok"),
-                "任务清单必须是最后一段：它离用户回合最近，注意力权重最高");
-        assertFalse(prompt.contains("## MCP Tools"), "没有远端工具就不该出现空段落");
+        assertTrue(prompt.dynamic().endsWith("## Task Manifest\n请只回复一个词：ok"),
+                "任务清单必须是动态上下文的最后一段：它离用户回合最近，注意力权重最高");
+        assertFalse(prompt.dynamic().contains("## MCP Tools"), "没有远端工具就不该出现空段落");
     }
 
     @Test
     @DisplayName("裸模型请求：没有角色提示词也没有 task 时不留空标题")
     void bareRequestKeepsNoEmptySections() {
-        String prompt = startConversation(
+        Rendered prompt = startConversation(
                 AgentRequest.builder().contextSpec(ContextSpec.builder().context(List.of(UserMessageEntity.from("hi"))).build())
                         .build(),
                 sandbox(),
@@ -143,12 +145,13 @@ class DefaultConversationManagerSystemPromptTest {
 
         print(prompt);
 
-        assertFalse(prompt.contains("## Business Prompt"), "空角色提示词不该留下标题");
-        assertFalse(prompt.contains("## Task Manifest"), "空任务清单不该留下标题");
-        assertFalse(prompt.contains("## MCP Tools"), "空远端工具清单不该留下标题");
-        assertFalse(prompt.contains("## System Prompt"),
+        assertFalse(prompt.system().contains("## Business Prompt"), "空角色提示词不该留下标题");
+        assertFalse(prompt.system().contains("## Task Manifest"), "空任务清单不该留下标题");
+        assertFalse(prompt.system().contains("## MCP Tools"), "空远端工具清单不该留下标题");
+        assertFalse(prompt.system().contains("## System Prompt"),
                 "框架不再有自己的提示词段落：提示词只有一个来源");
-        assertTrue(prompt.startsWith("## Execution environment"), "只剩环境段");
+        assertTrue(prompt.system().startsWith("## Execution environment"), "只剩环境段");
+        assertEquals("", prompt.dynamic(), "没有动态内容就只有两条消息");
     }
 
     /**
@@ -158,13 +161,13 @@ class DefaultConversationManagerSystemPromptTest {
     @Test
     @DisplayName("执行环境段必须真的出现在提示词里（此前 append 写到了被丢弃的实例上）")
     void executionEnvironmentIsActuallyPresent() {
-        String prompt = startConversation(
+        Rendered prompt = startConversation(
                 AgentRequest.builder().contextSpec(ContextSpec.builder().context(List.of(UserMessageEntity.from("hi"))).build()).build(),
                 sandbox(), McpToolScope.EMPTY);
 
-        assertTrue(prompt.startsWith("## Execution environment"), "环境段是首段，且不带前导空行");
-        assertTrue(prompt.contains("- Reported OS: LINUX; shell: BASH; charset: UTF-8."));
-        assertTrue(prompt.contains("- Working directory: /workspace"));
+        assertTrue(prompt.system().startsWith("## Execution environment"), "环境段是首段，且不带前导空行");
+        assertTrue(prompt.system().contains("- Reported OS: LINUX; shell: BASH; charset: UTF-8."));
+        assertTrue(prompt.system().contains("- Working directory: /workspace"));
     }
 
     /**
@@ -174,7 +177,7 @@ class DefaultConversationManagerSystemPromptTest {
     @Test
     @DisplayName("提示词逐字来自 AgentRequest.contextSpec.systemPrompt，框架不加料也不补默认值")
     void promptComesFromTheRequestVerbatim() {
-        String prompt = startConversation(
+        Rendered prompt = startConversation(
                 AgentRequest.builder()
                         .contextSpec(ContextSpec.builder()
                                 .context(List.of(UserMessageEntity.from("hi")))
@@ -183,9 +186,9 @@ class DefaultConversationManagerSystemPromptTest {
                         .build(),
                 sandbox(), McpToolScope.EMPTY);
 
-        assertTrue(prompt.contains("## Business Prompt\n你是后端工程师，只回答结论。"),
+        assertTrue(prompt.system().contains("## Business Prompt\n你是后端工程师，只回答结论。"),
                 "首尾空白被收掉，正文一字不改");
-        assertFalse(prompt.contains("%s"), "框架不引入任何占位符");
+        assertFalse(prompt.system().contains("%s"), "框架不引入任何占位符");
     }
 
     /**
@@ -196,21 +199,25 @@ class DefaultConversationManagerSystemPromptTest {
     @Test
     @DisplayName("提示词只到服务级（名字+描述+工具数），工具名与 schema 都不进")
     void remoteServersAppearAsResumesOnly() {
-        String prompt = startConversation(
+        Rendered prompt = startConversation(
                 AgentRequest.builder().contextSpec(ContextSpec.builder().context(List.of(UserMessageEntity.from("hi"))).build()).build(),
                 sandbox(), scopeOf(githubTools()));
 
-        assertTrue(prompt.contains("- github - GitHub remote tools - 2 tools"),
+        assertTrue(prompt.dynamic().contains("- github - GitHub remote tools - 2 tools"),
                 "一行一个服务：名字 + 描述 + 工具数");
-        assertFalse(prompt.contains("mcp_github_get_me"), "工具级留给 list_mcp_tools，不进提示词");
-        assertFalse(prompt.contains("create_issue"), "工具名不进提示词");
-        assertFalse(prompt.contains("owner"), "参数名只存在于 schema，不该出现在提示词里");
-        assertFalse(prompt.contains("properties"), "参数 schema 不该出现在提示词里");
+        assertFalse(prompt.dynamic().contains("mcp_github_get_me"), "工具级留给 list_mcp_tools，不进提示词");
+        assertFalse(prompt.dynamic().contains("create_issue"), "工具名不进提示词");
+        assertFalse(prompt.dynamic().contains("owner"), "参数名只存在于 schema，不该出现在提示词里");
+        assertFalse(prompt.dynamic().contains("properties"), "参数 schema 不该出现在提示词里");
     }
 
     // --- helpers ---------------------------------------------------------------------------
 
-    private String startConversation(AgentRequest request, Workspace workspace, McpToolScope scope) {
+    /** The two halves of the first round: the cacheable system prompt, and the per-round context. */
+    private record Rendered(String system, String dynamic) {
+    }
+
+    private Rendered startConversation(AgentRequest request, Workspace workspace, McpToolScope scope) {
         Execution execution = Execution.builder()
                 .id("e-1").agentId("a")
                 .messages(new ArrayList<>(List.of(UserMessageEntity.from("hi"))))
@@ -222,14 +229,32 @@ class DefaultConversationManagerSystemPromptTest {
         List<Message> messages = execution.getMessages();
         SystemMessageEntity leading = assertInstanceOf(SystemMessageEntity.class, messages.getFirst(),
                 "首条消息必须是系统提示词");
-        assertEquals(2, messages.size(), "系统提示词 + 用户消息，没有多余条目");
-        assertEquals("hi", messages.get(1).text(), "用户消息紧随其后，不被挤走");
-        return leading.getText();
+
+        int dynamicIndex = -1;
+        for (int i = 0; i < messages.size(); i++) {
+            if (messages.get(i) instanceof UserMessageEntity user && user.hasContextContract()) {
+                dynamicIndex = i;
+            }
+        }
+        String dynamic = dynamicIndex < 0 ? "" : messages.get(dynamicIndex).text();
+
+        assertEquals("hi", messages.getLast().text(), "本轮用户消息必须是最后一条");
+        assertTrue(messages.getLast() instanceof UserMessageEntity, "用户消息紧随其后，不被挤走");
+        if (dynamicIndex < 0) {
+            assertEquals(2, messages.size(), "系统提示词 + 用户消息，没有多余条目");
+        } else {
+            assertEquals(dynamicIndex, messages.size() - 2,
+                    "动态上下文只能有一个，且必须紧贴在本轮用户消息之前");
+            assertEquals(3, messages.size(), "系统提示词 + 动态上下文 + 用户消息");
+        }
+        return new Rendered(leading.getText(), dynamic);
     }
 
-    private static void print(String prompt) {
-        System.out.println("========== INITIAL SYSTEM PROMPT ==========");
-        System.out.println(prompt.replace(" ", "·").replace("\n", "\n| "));
+    private static void print(Rendered prompt) {
+        System.out.println("========== SYSTEM PROMPT ==========");
+        System.out.println(prompt.system().replace(" ", "·").replace("\n", "\n| "));
+        System.out.println("========== DYNAMIC CONTEXT ==========");
+        System.out.println(prompt.dynamic().replace(" ", "·").replace("\n", "\n| "));
         System.out.println("========== END ==========");
     }
 

@@ -7,6 +7,7 @@ import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.conf.SkillConfig;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.mcp.McpToolScope;
+import com.summit.runtime.conversation.ContextDynamicAssembler;
 import com.summit.runtime.conversation.DefaultConversationManager;
 import com.summit.runtime.prompt.SystemPromptAssembler;
 import org.junit.jupiter.api.Test;
@@ -61,6 +62,10 @@ class SkillConversationTest {
                 .skillConfig(config).build();
         Execution execution = Execution.create(request, "test");
         conversations.startConversation(execution, null, McpToolScope.EMPTY);
-        return execution.getMessages().getFirst().text();
+        return execution.getMessages().stream()
+                .filter(UserMessageEntity.class::isInstance)
+                .map(com.summit.core.conversation.message.Message::text)
+                .filter(text -> text.startsWith(ContextDynamicAssembler.LABEL))
+                .findFirst().orElse("");
     }
 }

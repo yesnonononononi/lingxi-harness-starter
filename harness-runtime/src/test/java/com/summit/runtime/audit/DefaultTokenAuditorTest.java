@@ -26,6 +26,7 @@ import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolExecutor;
 import com.summit.core.tool.ToolRegistry;
 import com.summit.runtime.agent.AgentConfig;
+import com.summit.runtime.conversation.ContextDynamicAssembler;
 import com.summit.runtime.conversation.DefaultTokenizer;
 import com.summit.runtime.conversation.DefaultConversationManager;
 import openAi.OpenAiTokenizer;
@@ -53,10 +54,20 @@ class DefaultTokenAuditorTest {
         var audit = auditor(tokenizer).analysis(execution);
 
         assertCount(audit.otherTokens().memoryTokens(), tokenizer.countText(body));
-        assertEquals("## Memory Prompt\n" + body, execution.getMessages().getFirst().text());
+        assertEquals("<context>\n\n## Memory Prompt\n" + body, dynamicContext(execution),
+                "memory moved out of the system prompt into the per-round context");
         assertEquals(tokenizer.count(List.of(execution.getMessages().getFirst())),
                 audit.systemTokens().getTokenMeta());
         assertCount(audit.otherTokens().attachmentTokens(), 0);
+    }
+
+    /** The per-round context message, or an empty string when the request carries none. */
+    private static String dynamicContext(Execution execution) {
+        return execution.getMessages().stream()
+                .filter(UserMessageEntity.class::isInstance)
+                .map(Message::text)
+                .filter(text -> text.startsWith(ContextDynamicAssembler.LABEL))
+                .findFirst().orElse("");
     }
 
     @Test

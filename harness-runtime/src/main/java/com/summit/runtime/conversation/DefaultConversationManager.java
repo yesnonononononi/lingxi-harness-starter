@@ -114,10 +114,40 @@ public class DefaultConversationManager implements ConversationManager {
 
     @Override
     public void startConversation(Execution execution, Workspace workspace, McpToolScope mcpToolScope) {
-        if (execution.getMessages() == null) execution.setMessages(new ArrayList<>());
-        if (execution.getTokenUsage() == null) execution.setTokenUsage(TokenUsageEntity.empty());
-        setLeadingSystemMessage(execution,
-                buildSystemMessage(execution.getAgentRequest(), workspace, mcpToolScope));
+        AgentRequest agentRequest = execution.getAgentRequest();
+        McpToolScope scope = mcpToolScope == null ? McpToolScope.EMPTY : mcpToolScope;
+
+        List<Message> current = execution.getMessages() == null ? new ArrayList<>() : execution.getMessages();
+        List<Message> rebuilt = new ArrayList<>(current);
+        boolean changed = false;
+
+        // A session with no assistant turn yet is a fresh one: it gets the (cacheable) system
+        // prompt, and its accounting starts from zero.
+        if (rebuilt.stream().noneMatch(AiMessageEntity.class::isInstance)) {
+            execution.setTokenUsage(TokenUsageEntity.empty());
+            if (rebuilt.isEmpty() || !(rebuilt.getFirst() instanceof SystemMessageEntity)) {
+                rebuilt.addFirst(buildSystemMessage(agentRequest, workspace, rebuilt));
+                changed = true;
+            }
+        }
+        if (execution.getTokenUsage() == null) {
+            execution.setTokenUsage(TokenUsageEntity.empty());
+        }
+
+        // Everything that varies per round goes behind the cached prefix, right before the user
+        // turn. When it has not changed, history is left untouched so the prefix keeps hitting.
+        ContextChangeDiscover.Layout layout = ContextChangeDiscover.layout(
+                rebuilt, agentRequest, scope, loadSkill(agentRequest.getSkillConfig()));
+        if (layout.insert()) {
+            rebuilt.add(layout.insertIndex(), layout.contract());
+            changed = true;
+        }
+
+        // Replacing the list is what tells the incremental token baseline that its snapshot is
+        // stale; leaving the reference alone when nothing changed keeps that baseline valid.
+        if (changed) {
+            execution.setMessages(rebuilt);
+        }
     }
 
     @Override
@@ -242,26 +272,17 @@ public class DefaultConversationManager implements ConversationManager {
      * model's tool list up front; they are published here as name and description and unlocked one
      * at a time through {@code search_tool}. See {@link McpToolScope}.</p>
      */
-    private SystemMessageEntity buildSystemMessage(AgentRequest request, Workspace workspace,
-                                                   McpToolScope mcpToolScope) {
+    private SystemMessageEntity buildSystemMessage(AgentRequest request,
+                                                   Workspace workspace,
+                                                   List<Message> context
+    ) {
         Objects.requireNonNull(request);
 
-        McpToolScope scope = mcpToolScope == null ? McpToolScope.EMPTY : mcpToolScope;
-
-        List<SkillResume> skillResumes = loadSkill(request.getSkillConfig());
-
-        String result = promptAssemblerFactory.get()
+        // global system prompt - tool def -
+       return promptAssemblerFactory.get()
                 .startWithWorkspace(workspace)
                 .withBusinessPrompt(businessPromptOf(request))
-                .withMcpToolPrompt(scope.resumes())
-                .withSkillPrompt(skillResumes)
-                .withMemoryPrompt(request.getContextSpec().getMemory())
-                .withTaskPrompt(request.getTask())
-                .complete();
-
-        return SystemMessageEntity.builder()
-                .text(result)
-                .build();
+                .complete(context);
     }
 
     /**
@@ -282,19 +303,23 @@ public class DefaultConversationManager implements ConversationManager {
     }
 
 
-    private void setLeadingSystemMessage(Execution execution, SystemMessageEntity systemMessage) {
-        List<Message> messages = execution.getMessages();
-
-        if (!messages.isEmpty() && messages.getFirst() instanceof SystemMessageEntity) messages.set(0, systemMessage);
-        else messages.addFirst(systemMessage);
-    }
-
     private List<Message> retainCompactionInputs(List<Message> current) {
         List<Message> retained = new ArrayList<>(current.size());
         boolean hasLaterAssistantReply = false;
+        boolean keptDynamicContext = false;
         // Use the original order so a prior reply cannot confirm a newly injected input.
         for (Message message : current.reversed()) {
             if (message instanceof AiMessageEntity) hasLaterAssistantReply = true;
+            if (message instanceof UserMessageEntity compactionCandidate
+                    && compactionCandidate.hasContextContract()) {
+                // Dynamic context is rebuilt every round, so one copy is enough: reverse order meets
+                // the newest first, and the older ones are dropped instead of piling up per turn.
+                if (!keptDynamicContext) {
+                    keptDynamicContext = true;
+                    retained.add(compactionCandidate);
+                }
+                continue;
+            }
             Message candidate = message instanceof UserMessageEntity user
                     ? user.retainForCompaction(hasLaterAssistantReply) : message;
             if (candidate != null) retained.add(candidate);

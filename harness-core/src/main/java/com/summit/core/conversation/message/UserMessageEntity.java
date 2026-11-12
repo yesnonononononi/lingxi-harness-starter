@@ -22,6 +22,7 @@ import java.util.Map;
 @JsonIgnoreProperties(value = "type", allowGetters = true)
 public class UserMessageEntity implements Message{
     public static final String COMPACT = "COMPACT";
+    public static final String CONTEXT_CONTRACT = "CONTEXT_CONTRACT";
 
     private List<Content> content;
     @Builder.Default
@@ -34,6 +35,13 @@ public class UserMessageEntity implements Message{
         this.content = content;
     }
 
+    public UserMessageEntity markContextContract(){
+        Map<String, Boolean> updated = attrs == null ? new HashMap<>() : new HashMap<>(attrs);
+        updated.putIfAbsent(CONTEXT_CONTRACT,false);
+        attrs = updated;
+        return this;
+    }
+
     public UserMessageEntity markPendingCompaction() {
         Map<String, Boolean> updated = attrs == null ? new HashMap<>() : new HashMap<>(attrs);
         updated.putIfAbsent(COMPACT, false);
@@ -43,6 +51,9 @@ public class UserMessageEntity implements Message{
 
     public boolean hasCompactionMarker() {
         return attrs != null && attrs.containsKey(COMPACT);
+    }
+    public boolean hasContextContract() {
+        return attrs != null && attrs.containsKey(CONTEXT_CONTRACT);
     }
 
     /** A later assistant reply permits removal on a subsequent compaction. */
