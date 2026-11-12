@@ -16,6 +16,9 @@ import java.util.Objects;
  */
 public class DefaultTokenizer implements Tokenizer {
 
+    /** Marks the point where the tail of an oversized output was dropped. */
+    private static final String TRUNCATED_MARKER = "\n...[OUTPUT_TRUNCATED]...";
+
     private final TokenEstimator tokenEstimator;
 
     public DefaultTokenizer() {
@@ -70,17 +73,12 @@ public class DefaultTokenizer implements Tokenizer {
         }
         int tokenBudget = Math.max(maxOutput, 1);
 
-        int headTokens = tokenBudget / 2;
-        int tailTokens = tokenBudget - headTokens;
-
-
         double charsPerToken = (double) output.length() / Math.max(totalTokens, 1);
-        int headChars = Math.min(output.length(), (int) (headTokens * charsPerToken));
-        int tailChars = Math.min(output.length() - headChars, (int) (tailTokens * charsPerToken));
+        int headChars = Math.min(output.length(), (int) (tokenBudget * charsPerToken));
 
-        return output.substring(0, headChars)
-                + "\n...[OUTPUT_TRUNCATED]...\n"
-                + output.substring(output.length() - tailChars);
+        // Cut the tail only: a kept tail reads like a continuation of the kept head, so callers
+        // cannot tell which lines are missing. Everything past the budget is simply dropped.
+        return output.substring(0, headChars) + TRUNCATED_MARKER;
     }
 
     @Override

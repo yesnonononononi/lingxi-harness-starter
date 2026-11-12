@@ -27,6 +27,11 @@ public interface Tokenizer {
 
     /**
      * Truncates the given output to the specified maximum size.
+     *
+     * <p>The kept part is always the prefix: the budget is spent from the head and everything past it
+     * is dropped behind a truncation marker. Keeping a tail as well would make the result read as a
+     * continuous document while whole regions are silently missing.</p>
+     *
      * @param output  The output to be truncated.
      * @param maxOutput The maximum size of the output in TOKENS. Outputs whose token
      *                  estimate does not exceed this budget are returned unchanged.
