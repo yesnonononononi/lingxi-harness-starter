@@ -19,9 +19,9 @@ public interface ConversationManager {
      * <p>The MCP scope is passed in rather than looked up: it is per-execution request data that
      * only the runtime holds, while this manager is a singleton shared by every execution. The
      * prompt needs it to publish the request's remote tools as résumés — see
-     * {@link com.summit.core.prompt.PromptAssembler#withMcpToolPrompt}. An implementation with no
-     * use for it may ignore the argument; a request without MCP servers passes the shared empty
-     * scope, so the "no remote tools" case needs no special handling.</p>
+     * {@link com.summit.core.mcp.McpToolScope}. An implementation with no use for it may
+     * ignore the argument; a request without MCP servers passes the shared empty scope, so the
+     * "no remote tools" case needs no special handling.</p>
      */
     void startConversation(Execution execution, Workspace workspace, McpToolScope mcpToolScope);
 
