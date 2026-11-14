@@ -13,10 +13,10 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -28,7 +28,11 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
     @Getter(AccessLevel.NONE)
     private final AtomicReference<StreamingHandler> transport = new AtomicReference<>();
 
-    private final Set<String> hasSentPartialToolCall = new HashSet<>();
+    /**
+     * Tool call ids already announced. Deduplication must not lose an entry to a concurrent delta:
+     * a lost entry drops the announcement silently instead of failing loudly.
+     */
+    private final Set<String> hasSentPartialToolCall = ConcurrentHashMap.newKeySet();
 
     private int responseOffset;
     private int thinkingOffset;
