@@ -12,6 +12,7 @@ import com.summit.core.runtime.loop.*;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.ToolExecutionManager;
+import com.summit.core.transaction.RuntimeTransactionalSupport;
 import com.summit.runtime.conversation.SnowflakeResponseIdGenerator;
 import com.summit.runtime.compact.DefaultCompactSummaryApplier;
 import lombok.Getter;
@@ -44,6 +45,8 @@ public class RuntimeContext {
     private final ToolExecutionManager toolExecutionManager;
     private final ContextUsageReporter usage;
     private final Tokenizer tokenizer;
+    private final RuntimeTransactionalSupport runtimeTransactionalSupport;
+
     /**
      * MCP tools declared by this request. Request-scoped by construction and closed by the runtime
      * when the execution reaches a terminal state.
@@ -61,6 +64,17 @@ public class RuntimeContext {
 
 
 
+
+    /**
+     * Direct builder users get a pass-through: nothing to join, nothing to roll back.
+     *
+     * <p>The runtime closes every run through this hook, so it must never be {@code null} — a
+     * context assembled outside Spring would otherwise fail at the one moment it cannot recover:
+     * the finalize step, after the loop's work is already done.</p>
+     */
+    public RuntimeTransactionalSupport getRuntimeTransactionalSupport() {
+        return runtimeTransactionalSupport == null ? RuntimeTransactionalSupport.direct() : runtimeTransactionalSupport;
+    }
 
     /** The MCP tools of this request, never {@code null}. */
     public McpToolScope getMcpToolScope() {

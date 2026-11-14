@@ -114,13 +114,12 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
             // execution that had already run once. Snapshot isolation is already guaranteed by
             // save(), which serializes the execution into a value copy, so no read-only view is needed.
 
-            // END: fill context state with the execution
+            // END: fill context state with the execution. Usage reporting and the snapshot land in
+            // one transaction; the terminal notification is the only step that must wait for that
+            // transaction to commit, so it is not part of the transactional block.
             Throwable throwable = RuntimeUtil.runAll(
                     () -> execution.fillContextUsage(this.context.getUsage().report(execution)),
-                    () -> this.save(execution),
-                    () -> this.context.getExecutionRepository().unregister(control),
-                    () -> this.context.getUsage().publish(execution),
-                    () -> this.notifyRunEnd(execution),
+                    () -> this.finalizeWithTransaction(execution, control),
                     () -> this.notifyTerminal(pe, peDeferred)
             );
 
@@ -133,6 +132,37 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
             }
         }
     }
+
+
+
+    /**
+     * The closing snapshot, the control-slot release, the usage broadcast and the terminal callback
+     * commit together: a run whose snapshot did not land must not have released its slot or told the
+     * application it finished.
+     *
+     * <p><b>The order is load-bearing and must stay {@code save → unregister}.</b> An application
+     * repository decides whether a save closes the execution's bookkeeping by asking the registry
+     * whether a control slot still exists; releasing the slot first makes every terminal save look
+     * like a startup failure and runs the closure work twice.</p>
+     *
+     * <p>{@code fillContextUsage} stays outside the transaction: usage attribution is arithmetic on
+     * the live execution and has nothing to roll back, and {@code unregister} removes an in-process
+     * slot that no transaction manager can restore.</p>
+     *
+     * <p>The caller delivers the terminal notification <em>after</em> this method returns — see
+     * {@link #notifyTerminal}, which is the only exit for a terminal notification precisely because
+     * a callback registered inside the commit would be silently dropped.</p>
+     */
+    private void finalizeWithTransaction(Execution execution, ExecutionControlSignal control) {
+        this.context.getRuntimeTransactionalSupport().execute(() -> {
+            this.save(execution);
+            this.context.getExecutionRepository().unregister(control);
+            this.context.getUsage().publish(execution);
+            this.notifyRunEnd(execution);
+            return null;
+        });
+    }
+
 
 
 

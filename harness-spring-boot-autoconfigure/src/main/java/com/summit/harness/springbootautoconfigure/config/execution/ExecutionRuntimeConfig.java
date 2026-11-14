@@ -12,6 +12,7 @@ import com.summit.core.runtime.loop.*;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.tool.ToolExecutionManager;
 import com.summit.core.tool.ToolRegistry;
+import com.summit.core.transaction.RuntimeTransactionalSupport;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.agent.ChatAgent;
 import com.summit.runtime.audit.DefaultTokenAuditor;
@@ -31,12 +32,16 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
+import java.util.concurrent.Callable;
 
 @AutoConfiguration
 public class ExecutionRuntimeConfig {
-    /** Configure distinct worker IDs (0..1023) for runtime instances that share response storage. */
+    /**
+     * Configure distinct worker IDs (0..1023) for runtime instances that share response storage.
+     */
     @Bean
     @ConditionalOnMissingBean(ResponseIdGenerator.class)
     public ResponseIdGenerator responseIdGenerator(
@@ -59,8 +64,8 @@ public class ExecutionRuntimeConfig {
                                                 RuntimeBoundaryChecker boundaryChecker,
                                                 List<ExecutionFailureObserver> failureObservers,
                                                 ResponseIdGenerator responseIdGenerator,
-                                                CompactSummaryApplier compactSummaryApplier
-    ) {
+                                                CompactSummaryApplier compactSummaryApplier,
+                                                RuntimeTransactionalSupport runtimeTransactionalSupport) {
         return DefaultRuntimeFactory.builder()
                 .toolExecutionManager(defaultToolExecutionManager)
                 .runtimeEventPublisher(defaultRuntimeListener)
@@ -68,6 +73,7 @@ public class ExecutionRuntimeConfig {
                 .conversationManager(conversationManager)
                 .compactSummaryApplier(compactSummaryApplier)
                 .usage(usage)
+                .transactionalSupport(runtimeTransactionalSupport)
                 .tokenizer(tokenizer)
                 .loopInterceptorProcessor(loopInterceptorProcessor)
                 .executionRepository(executionRepository)
@@ -101,7 +107,53 @@ public class ExecutionRuntimeConfig {
                 contextPruner, modelCompacter, usage, toolRegistry);
     }
 
-    /** The dispatcher orders callbacks only; runtime limits are owned by the loop. */
+
+    @Bean
+    @ConditionalOnMissingBean
+    public RuntimeTransactionalSupport runtimeTransactionalSupport(ObjectProvider<TransactionTemplate> transactionTemplate) {
+        return new RuntimeTransactionalSupport() {
+            @Override
+            public <T> T executeWith(Callable<T> callback, int propagationBehavior) {
+                TransactionTemplate template = transactionTemplate.getIfAvailable();
+                if (template == null || template.getTransactionManager() == null) {
+                    throw new UnsupportedOperationException("The transactionTemplate cannot be null");
+                }
+                TransactionTemplate newInstance = new TransactionTemplate(template.getTransactionManager());
+                newInstance.setPropagationBehavior(propagationBehavior);
+                return action(newInstance,callback);
+            }
+
+            @Override
+            public <T> T execute(Callable<T> callback) {
+                TransactionTemplate template = transactionTemplate.getIfAvailable();
+                if (template == null) {
+                    throw new UnsupportedOperationException("The transactionTemplate cannot be null");
+                }
+                return action(template,callback);
+            }
+
+            private <T>T action(TransactionTemplate template,Callable<T> callback){
+                return template.execute(status -> {
+                    try {
+                        return callback.call();
+                    } catch (Exception e) {
+                        status.setRollbackOnly();
+                        if (e instanceof RuntimeException) {
+                            throw (RuntimeException) e;
+                        }
+                        throw new RuntimeException(e);
+                    }
+                });
+            }
+
+
+        };
+    }
+
+
+    /**
+     * The dispatcher orders callbacks only; runtime limits are owned by the loop.
+     */
     @Bean
     @ConditionalOnMissingBean
     public LoopInterceptorProcessor defaultLoopInterceptorProcessor(LoopInterceptorFactory loopInterceptorFactory) {
@@ -111,7 +163,7 @@ public class ExecutionRuntimeConfig {
     @Bean
     @ConditionalOnMissingBean
     public RuntimeLifeStyleManager runtimeLifeStyleListener(RuntimeEventPublisher runtimeEventPublisher,
-                                                           ObjectProvider<ExecutionTokenAuditRecorder> tokenAuditRecorder) {
+                                                            ObjectProvider<ExecutionTokenAuditRecorder> tokenAuditRecorder) {
         return new DefaultRuntimeLifeStyleManager(runtimeEventPublisher, tokenAuditRecorder.getIfAvailable());
     }
 

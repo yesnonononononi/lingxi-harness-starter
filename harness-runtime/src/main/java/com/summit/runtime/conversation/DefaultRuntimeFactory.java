@@ -14,6 +14,7 @@ import com.summit.core.runtime.loop.*;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.ToolExecutionManager;
+import com.summit.core.transaction.RuntimeTransactionalSupport;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.compact.DefaultContextPruner;
 import com.summit.runtime.compact.DefaultModelCompacter;
@@ -41,6 +42,7 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
     private final ExecutionRepository executionRepository;
     private final ExecutionControl executionControl;
     private final LoopInterceptorProcessor loopInterceptorProcessor;
+    private final RuntimeTransactionalSupport transactionalSupport;
     /** Local history pruning (prune band). */
     private final DefaultContextPruner contextPruner;
     /** Model deep compaction (summarize band). */
@@ -69,6 +71,7 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
                         .runtimeLifeStyleManager(runtimeLifeStyleManager)
                         .failureObservers(failureObservers)
                         .usage(usage)
+                        .runtimeTransactionalSupport(transactionalSupport)
                         .tokenizer(tokenizer)
                         .loopInterceptorProcessor(loopInterceptorProcessor)
                         .executionRepository(executionRepository)
