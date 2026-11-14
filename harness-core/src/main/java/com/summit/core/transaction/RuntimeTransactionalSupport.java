@@ -12,8 +12,16 @@ import java.util.concurrent.Callable;
  */
 public interface RuntimeTransactionalSupport {
     <T>T execute(Callable<T> callback);
+    /**
+     * Run the callback under the given propagation behavior.
+     *
+     * <p>No default is offered on purpose: a support that cannot honour a propagation behavior must
+     * say so at the call site, not answer {@code null} and turn the omission into an unrelated
+     * {@link NullPointerException} later.</p>
+     */
     default <T>T executeWith(Callable<T> callable,int propagationBehavior){
-        return null;
+        throw new UnsupportedOperationException(
+                "This runtime transactional support does not implement propagation semantics");
     }
 
     /**
