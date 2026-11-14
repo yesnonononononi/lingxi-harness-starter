@@ -47,6 +47,16 @@ public class RuntimeEventPublisher {
         });
     }
 
+    public void onToolCallPreparing(ToolCallPrepareEvent event){
+        listeners.forEach(listener -> {
+            try {
+                listener.onToolCallPrepare(event);
+            } catch (Exception e) {
+                log.error("Error occurred while publishing tool call prepare event, listenerId:{}", listener.id(), e);
+            }
+        });
+    }
+
     public void onToolCall(ToolCallStartEvent event) {
         listeners.forEach(listener -> {
             try {

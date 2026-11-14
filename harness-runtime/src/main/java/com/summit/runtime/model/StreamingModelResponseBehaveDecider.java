@@ -1,10 +1,7 @@
 package com.summit.runtime.model;
 
 import com.summit.core.conversation.api.ChatResponseEntity;
-import com.summit.core.conversation.event.AgentCompleteTextEvent;
-import com.summit.core.conversation.event.AgentPartialTextEvent;
-import com.summit.core.conversation.event.AgentPartialThinkingEvent;
-import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.conversation.event.*;
 import com.summit.core.model.ModelInvocationUsage;
 import com.summit.core.model.streaming.StreamingHandler;
 import com.summit.core.model.streaming.StreamingModelResponseHandler;
@@ -16,7 +13,9 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -28,6 +27,8 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
     private final AtomicBoolean reject = new AtomicBoolean(false);
     @Getter(AccessLevel.NONE)
     private final AtomicReference<StreamingHandler> transport = new AtomicReference<>();
+
+    private final Set<String> hasSentPartialToolCall = new HashSet<>();
 
     private int responseOffset;
     private int thinkingOffset;
@@ -110,7 +111,23 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
      */
     @Override
     public void onPartialToolCall(int index, String id, String name, String partialArguments, StreamingHandler streamingHandler) {
-        rejectDelta(streamingHandler);
+        if (rejectDelta(streamingHandler)) {
+            return;
+        }
+        if (id != null && !id.isEmpty() && name != null && !this.hasSentPartialToolCall.contains(id)) {
+            this.runtimeEventPublisher.onToolCallPreparing(ToolCallPrepareEvent.builder()
+                    .executionId(streamingResponseContext.executionId())
+                    .responseId(streamingResponseContext.responseId())
+                    .metaData(streamingResponseContext.eventMetaData())
+                    .index(index)
+                    .agentId(streamingResponseContext.agentId())
+                    .partialArguments(partialArguments)
+                    .toolCallId(id)
+                    .toolName(name)
+                    .build());
+            this.hasSentPartialToolCall.add(id);
+        }
+
     }
 
     private boolean rejectDelta(StreamingHandler streamingHandler) {
@@ -217,7 +234,9 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
         }
     }
 
-    /** Transport cleanup must not replace the attempt's original failure. */
+    /**
+     * Transport cleanup must not replace the attempt's original failure.
+     */
     private void cancelTransport() {
         StreamingHandler handle = transport.getAndSet(null);
         if (handle == null) return;

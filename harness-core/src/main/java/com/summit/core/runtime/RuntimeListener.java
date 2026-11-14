@@ -81,4 +81,5 @@ public interface RuntimeListener {
     default void onAuditFailed(AgentAuditFailedEvent event) {
     }
 
+    default void onToolCallPrepare(ToolCallPrepareEvent event){};
 }

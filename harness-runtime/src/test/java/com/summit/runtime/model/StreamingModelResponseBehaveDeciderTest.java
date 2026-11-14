@@ -6,6 +6,7 @@ import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.event.AgentPartialTextEvent;
 import com.summit.core.conversation.event.AgentPartialThinkingEvent;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.conversation.event.ToolCallPrepareEvent;
 import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.json.ExecutionJson;
@@ -17,6 +18,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
@@ -264,6 +266,70 @@ class StreamingModelResponseBehaveDeciderTest {
         assertEquals(0, transport.cancelCount());
     }
 
+    /** First partial tool call chunk emits a single prepare event carrying metadata and response identity. */
+    @Test
+    void publishesToolCallPrepareOncePerToolCallWithMetadataAndResponseIdentity() throws Exception {
+        RecordingListener listener = new RecordingListener();
+        RuntimeEventPublisher publisher = new RuntimeEventPublisher(List.of(listener));
+        StreamingModelResponseBehaveDecider handler = new StreamingModelResponseBehaveDecider(
+                publisher,
+                StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
+                        .executionId("execution-1")
+                        .agentId("chatAgent")
+                        .responseId("1234567890123456789")
+                        .eventMetaData(Map.of("turnId", "9001", "sessionId", "8001"))
+                        .future(new CompletableFuture<>())
+                        .build(),
+                null);
+        RecordingTransport transport = new RecordingTransport();
+
+        handler.onPartialToolCall(0, "call-1", "edit_file", "{\"path\":", transport);
+        handler.onPartialToolCall(0, "call-1", "edit_file", "\"a.txt\"}", transport);
+        handler.onPartialToolCall(1, "", "read_file", "{}", transport);
+        handler.onPartialToolCall(1, "call-invalid", null, "{}", transport);
+        handler.onPartialToolCall(1, "call-2", "read_file", "{\"path\":\"b.txt\"}", transport);
+
+        assertEquals(2, listener.prepareEvents.size());
+        ToolCallPrepareEvent first = listener.prepareEvents.get(0);
+        assertEquals("TOOL_CALL_PREPARE", first.type());
+        assertEquals("execution-1", first.executionId());
+        assertEquals("chatAgent", first.getAgentId());
+        assertEquals("1234567890123456789", first.getResponseId());
+        assertEquals(Map.of("turnId", "9001", "sessionId", "8001"), first.eventMetaData());
+        assertEquals("call-1", first.getToolCallId());
+        assertEquals("edit_file", first.getToolName());
+        assertEquals(0, first.getIndex());
+        assertEquals("{\"path\":", first.getPartialArguments());
+        assertNotNull(first.timestamp());
+
+        assertEquals("call-2", listener.prepareEvents.get(1).getToolCallId());
+        assertEquals(1, listener.prepareEvents.get(1).getIndex());
+
+        ObjectMapper mapper = ExecutionJson.newObjectMapper();
+        JsonNode json = mapper.readTree(mapper.writeValueAsString(first));
+        assertEquals("1234567890123456789", json.path("responseId").asText());
+        assertEquals("9001", json.path("metaData").path("turnId").asText());
+        assertEquals("call-1", json.path("toolCallId").asText());
+        assertEquals("edit_file", json.path("toolName").asText());
+        assertTrue(json.hasNonNull("timestamp"));
+    }
+
+    /** Once the stream is interrupted, subsequent tool deltas must not publish prepare events. */
+    @Test
+    void interruptedPartialToolCallDoesNotPublishPrepareEvent() {
+        RecordingListener listener = new RecordingListener();
+        CompletableFuture<ChatResponseEntity> future = new CompletableFuture<>();
+        ExecutionControlSignal control = new ExecutionControlSignal("execution-1");
+        StreamingModelResponseBehaveDecider handler = decider(future, control, new RuntimeEventPublisher(List.of(listener)));
+        RecordingTransport transport = new RecordingTransport();
+
+        control.requireCancel();
+        handler.onPartialToolCall(0, "call-1", "edit_file", "{}", transport);
+
+        assertTrue(listener.prepareEvents.isEmpty());
+        assertEquals(1, transport.cancelCount());
+    }
+
     private static ChatResponseEntity response(String text) {
         return ChatResponseEntity.builder()
                 .aiMessageEntity(AiMessageEntity.builder().text(text).build())
@@ -309,6 +375,7 @@ class StreamingModelResponseBehaveDeciderTest {
         private final List<String> partialTexts = new ArrayList<>();
         private final List<AgentPartialTextEvent> textEvents = new ArrayList<>();
         private final List<AgentPartialThinkingEvent> thinkingEvents = new ArrayList<>();
+        private final List<ToolCallPrepareEvent> prepareEvents = new ArrayList<>();
 
         @Override
         public void onPartialText(AgentPartialTextEvent event) {
@@ -319,6 +386,11 @@ class StreamingModelResponseBehaveDeciderTest {
         @Override
         public void onPartialThinking(AgentPartialThinkingEvent event) {
             thinkingEvents.add(event);
+        }
+
+        @Override
+        public void onToolCallPrepare(ToolCallPrepareEvent event) {
+            prepareEvents.add(event);
         }
     }
 }

@@ -100,6 +100,13 @@ public enum RuntimeEventType {
             return "TOOL_CALL";
         }
     },
+    /** A tool is being invoked. */
+    TOOL_CALL_PREPARE{
+        @Override
+        public String type() {
+            return "TOOL_CALL_PREPARE";
+        }
+    },
     /** A tool finished and produced an output. */
     TOOL_COMPLETED{
         @Override
