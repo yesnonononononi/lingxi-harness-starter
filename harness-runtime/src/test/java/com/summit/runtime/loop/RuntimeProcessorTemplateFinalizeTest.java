@@ -82,7 +82,7 @@ class RuntimeProcessorTemplateFinalizeTest {
     }
 
     @Test
-    void aFailedFinalizeRollsBackAsAWholeAndStillDeliversTheTerminalEvent() {
+    void aFailedFinalizeRollsBackAsAWholeAndSuppressesTheTerminalEvent() {
         RecordingRepository repository = new RecordingRepository(true);
 
         RuntimeException thrown = assertThrows(RuntimeException.class,
@@ -92,8 +92,8 @@ class RuntimeProcessorTemplateFinalizeTest {
                 "The primary finalize failure must not be replaced: " + thrown);
         assertTrue(trail.contains("tx:rollback"),
                 "A failed finalize must leave the transaction rolled back, actual: " + trail);
-        assertTrue(trail.indexOf("complete") > trail.indexOf("tx:rollback"),
-                "The terminal notification is delivered after the rollback, not instead of it: " + trail);
+        assertFalse(trail.contains("complete"),
+                "A rolled-back finalize must not deliver the completion notification, actual: " + trail);
     }
 
     @Test

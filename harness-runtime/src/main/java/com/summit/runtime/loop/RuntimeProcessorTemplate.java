@@ -36,7 +36,6 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
     private Execution process(Execution execution, ExecutionControlSignal control, boolean resumed) {
         RuntimeException failure = null;
         Runnable pendingEvent = null;
-        boolean pendingEventDeferred = false;
         try {
             execution.setMessages(new ArrayList<>(execution.getMessages() == null ? List.of() : execution.getMessages()));
 
@@ -65,21 +64,18 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
             // Step five: run the agent loop
             LoopResult result = new AgentLoopStepRunner(context).run(execution, control);
 
-            // Step six: handle the result by the status of result
+            // Step six: transition to the closing state; the closing snapshot is saved once in finalizeWithTransaction
             switch (result.status()) {
                 case SUSPENDED -> {
                     execution.suspendChecked();
-                    save(execution);
                     pendingEvent = () -> this.context.getRuntimeLifeStyleManager().onSuspend(execution);
                 }
                 case COMPLETED -> {
                     execution.completeChecked();
-                    save(execution);
                     pendingEvent = () -> this.context.getRuntimeLifeStyleManager().onComplete(execution);
                 }
                 case CANCELLED -> {
                     execution.cancelChecked();
-                    save(execution);
                     pendingEvent = () -> this.context.getRuntimeLifeStyleManager().onCancel(execution);
                 }
                 default -> throw new IllegalStateException("loop returned a non-terminal result: " + result.status());
@@ -93,11 +89,9 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
             try {
                 // NOT completed / Canceled / Failed
                 if (!execution.getExecutionState().isTerminal()) {
-                    // fail() already hands back a task that waits for the snapshot transaction
-                    pendingEvent = this.context.getExecutionControl().fail(execution, e);
-                    pendingEventDeferred = true;
+                    execution.failChecked(e.getMessage());
+                    pendingEvent = () -> this.context.getRuntimeLifeStyleManager().onError(execution, e);
                     notifyFailureObservers(execution, e);
-
                 }
             } catch (Exception callbackFailure) {
                 if (callbackFailure != failure) failure.addSuppressed(callbackFailure);
@@ -105,7 +99,6 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
             throw failure;
         } finally {
             final Runnable pe = pendingEvent;
-            final boolean peDeferred = pendingEventDeferred;
             // The message list is deliberately left mutable: this is the live domain object, and it
             // outlives the loop — RuntimeLifeStyleManager, LoopInterceptor and usage reporting all
             // observe it after the run, and a caller may still append to it before resuming
@@ -115,12 +108,13 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
             // save(), which serializes the execution into a value copy, so no read-only view is needed.
 
             // END: fill context state with the execution. Usage reporting and the snapshot land in
-            // one transaction; the terminal notification is the only step that must wait for that
-            // transaction to commit, so it is not part of the transactional block.
+            // one transaction; the terminal notification runs only after that transaction commits.
             Throwable throwable = RuntimeUtil.runAll(
                     () -> execution.fillContextUsage(this.context.getUsage().report(execution)),
-                    () -> this.finalizeWithTransaction(execution, control),
-                    () -> this.notifyTerminal(pe, peDeferred)
+                    () -> {
+                        this.finalizeWithTransaction(execution, control);
+                        this.notifyTerminal(pe);
+                    }
             );
 
             if (throwable != null) {
@@ -199,17 +193,12 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
      * it leaves the runtime through {@link ExecutionRepository#afterCommit}, so a transactional
      * repository publishes it only once the surrounding snapshot is durable, and it stays the last
      * thing the application observes.
-     *
-     * <p>{@code ExecutionControl#fail} already returns a task bound to the commit, hence the flag.
-     * Wrapping that task a second time is not harmless: inside a commit callback the transaction
-     * synchronization is still registered as active, so the nested registration is accepted and
-     * then silently dropped — the failure event would never be delivered.</p>
      */
-    private void notifyTerminal(Runnable notification, boolean alreadyDeferred) {
+    private void notifyTerminal(Runnable notification) {
         if (notification == null) return;
         Runnable delivery = () -> this.notifyLifecycle(notification);
         ExecutionRepository repository = this.context.getExecutionRepository();
-        if (alreadyDeferred || repository == null) {
+        if (repository == null) {
             delivery.run();
             return;
         }

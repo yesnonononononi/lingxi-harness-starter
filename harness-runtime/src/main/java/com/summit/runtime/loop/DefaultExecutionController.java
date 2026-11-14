@@ -11,19 +11,38 @@ import com.summit.core.runtime.loop.ApprovalOutcome;
 import com.summit.core.runtime.loop.ExecutionControl;
 import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
-import lombok.AllArgsConstructor;
+import com.summit.core.transaction.RuntimeTransactionalSupport;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Objects;
 import java.util.function.Supplier;
 
-@AllArgsConstructor
 @Slf4j
 public class DefaultExecutionController implements ExecutionControl {
     private final Supplier<? extends Agent> agent;
     private final ExecutionRepository executionRepository;
     private final RuntimeEventPublisher runtimeEvents;
     private final RuntimeLifeStyleManager runtimeLifeStyleManager;
+    private final RuntimeTransactionalSupport transactionalSupport;
+
+    public DefaultExecutionController(Supplier<? extends Agent> agent,
+                                      ExecutionRepository executionRepository,
+                                      RuntimeEventPublisher runtimeEvents,
+                                      RuntimeLifeStyleManager runtimeLifeStyleManager) {
+        this(agent, executionRepository, runtimeEvents, runtimeLifeStyleManager, RuntimeTransactionalSupport.direct());
+    }
+
+    public DefaultExecutionController(Supplier<? extends Agent> agent,
+                                      ExecutionRepository executionRepository,
+                                      RuntimeEventPublisher runtimeEvents,
+                                      RuntimeLifeStyleManager runtimeLifeStyleManager,
+                                      RuntimeTransactionalSupport transactionalSupport) {
+        this.agent = agent;
+        this.executionRepository = executionRepository;
+        this.runtimeEvents = runtimeEvents;
+        this.runtimeLifeStyleManager = runtimeLifeStyleManager;
+        this.transactionalSupport = transactionalSupport == null ? RuntimeTransactionalSupport.direct() : transactionalSupport;
+    }
 
 
     @Override
@@ -53,29 +72,35 @@ public class DefaultExecutionController implements ExecutionControl {
 
     @Override
     public void beginApproval(Execution execution) {
-        execution.resumeChecked();
-        executionRepository.save(execution);
+        transactionalSupport.execute(() -> {
+            execution.resumeChecked();
+            executionRepository.save(execution);
+            return null;
+        });
     }
 
     @Override
     public void finishApproval(Execution execution, ApprovalOutcome outcome) {
         Objects.requireNonNull(outcome, "outcome");
-        if (outcome == ApprovalOutcome.CANCELLED) {
-            execution.cancelChecked();
-        } else {
-            execution.suspendChecked();
-        }
-        executionRepository.save(execution);
-        if (outcome == ApprovalOutcome.CANCELLED) {
-            String executionId = execution.getId();
-            TokenInfo tokenInfo = TokenInfo.from(execution.getTokenUsage());
-            executionRepository.afterCommit(() -> {
-                // inside a commit callback: one throwing observer must not abort the others or the commit
-                bestEffort(() -> runtimeEvents.onExecutionCancelled(new ExecutionCancelledEvent(executionId,
-                        tokenInfo, execution.eventMetaData()))).run();
-                bestEffort(() -> runtimeLifeStyleManager.recordTokenAudit(execution)).run();
-            });
-        }
+        transactionalSupport.execute(() -> {
+            if (outcome == ApprovalOutcome.CANCELLED) {
+                execution.cancelChecked();
+            } else {
+                execution.suspendChecked();
+            }
+            executionRepository.save(execution);
+            if (outcome == ApprovalOutcome.CANCELLED) {
+                String executionId = execution.getId();
+                TokenInfo tokenInfo = TokenInfo.from(execution.getTokenUsage());
+                executionRepository.afterCommit(() -> {
+                    // inside a commit callback: one throwing observer must not abort the others or the commit
+                    bestEffort(() -> runtimeEvents.onExecutionCancelled(new ExecutionCancelledEvent(executionId,
+                            tokenInfo, execution.eventMetaData()))).run();
+                    bestEffort(() -> runtimeLifeStyleManager.recordTokenAudit(execution)).run();
+                });
+            }
+            return null;
+        });
     }
 
     @Override
@@ -86,8 +111,11 @@ public class DefaultExecutionController implements ExecutionControl {
     @Override
     public Runnable fail(Execution execution, Exception cause) {
         Objects.requireNonNull(cause, "cause");
-        execution.failChecked(cause.getMessage());
-        executionRepository.save(execution);
+        transactionalSupport.execute(() -> {
+            execution.failChecked(cause.getMessage());
+            executionRepository.save(execution);
+            return null;
+        });
         Runnable notification = bestEffort(() -> runtimeLifeStyleManager.onError(execution, cause));
         return () -> executionRepository.afterCommit(notification);
     }

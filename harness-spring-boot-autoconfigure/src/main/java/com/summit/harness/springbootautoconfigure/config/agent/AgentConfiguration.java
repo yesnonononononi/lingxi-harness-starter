@@ -10,6 +10,7 @@ import com.summit.core.runtime.RuntimeFactory;
 import com.summit.core.runtime.loop.ExecutionControl;
 import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.runtime.loop.lifestyle.RuntimeLifeStyleManager;
+import com.summit.core.transaction.RuntimeTransactionalSupport;
 import com.summit.core.workspace.WorkspaceResolver;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentChatProperties;
 import com.summit.harness.springbootautoconfigure.properties.agent.AgentImageWindowProperties;
@@ -60,8 +61,10 @@ public class AgentConfiguration {
     public ExecutionControl executionControl(ObjectProvider<ChatAgent> agent,
                                              ExecutionRepository executionRepository,
                                              RuntimeEventPublisher runtimeEvents,
-                                             RuntimeLifeStyleManager runtimeLifeStyleManager) {
-        return new DefaultExecutionController(agent::getObject, executionRepository, runtimeEvents, runtimeLifeStyleManager);
+                                             RuntimeLifeStyleManager runtimeLifeStyleManager,
+                                             ObjectProvider<RuntimeTransactionalSupport> transactionalSupport) {
+        return new DefaultExecutionController(agent::getObject, executionRepository, runtimeEvents,
+                runtimeLifeStyleManager, transactionalSupport.getIfAvailable(RuntimeTransactionalSupport::direct));
     }
 
     /**

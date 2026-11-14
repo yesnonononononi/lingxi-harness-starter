@@ -120,19 +120,19 @@ public class ExecutionRuntimeConfig {
                 }
                 TransactionTemplate newInstance = new TransactionTemplate(template.getTransactionManager());
                 newInstance.setPropagationBehavior(propagationBehavior);
-                return action(newInstance,callback);
+                return action(newInstance, callback);
             }
 
             @Override
             public <T> T execute(Callable<T> callback) {
                 TransactionTemplate template = transactionTemplate.getIfAvailable();
                 if (template == null) {
-                    throw new UnsupportedOperationException("The transactionTemplate cannot be null");
+                    return RuntimeTransactionalSupport.direct().execute(callback);
                 }
-                return action(template,callback);
+                return action(template, callback);
             }
 
-            private <T>T action(TransactionTemplate template,Callable<T> callback){
+            private <T> T action(TransactionTemplate template, Callable<T> callback) {
                 return template.execute(status -> {
                     try {
                         return callback.call();
