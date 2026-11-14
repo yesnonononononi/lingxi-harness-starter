@@ -95,13 +95,31 @@ public class McpConfig {
         }
     }
 
+    /**
+     * One MCP server.
+     *
+     * @param authMode how the credential is obtained; {@code null} is treated as
+     *                 {@link McpAuthMode#NONE}, which keeps every configuration written before the
+     *                 field existed behaving exactly as it did
+     */
     public record MCP(
             String name,
             String description,
             McpTransport transport,
             Conf conf,
-            int maxOutput
+            int maxOutput,
+            McpAuthMode authMode
     ) {
+
+        /** Keeps call sites written before the authorization mode existed on the same shape. */
+        public MCP(String name, String description, McpTransport transport, Conf conf, int maxOutput) {
+            this(name, description, transport, conf, maxOutput, McpAuthMode.NONE);
+        }
+
+        /** @return the effective mode, never null */
+        public McpAuthMode resolveAuthMode() {
+            return authMode == null ? McpAuthMode.NONE : authMode;
+        }
 
         public Duration initializationTimeout() {
             return switch (conf) {

@@ -5,11 +5,13 @@ import com.summit.core.mcp.ScopeMcpProvider;
 import com.summit.harness.springbootautoconfigure.config.tool.CommonToolAutoConfiguration;
 import io.modelcontextprotocol.client.McpSyncClient;
 import mcp.AgentScopeMcpProvider;
+import mcp.McpAuthorizationProvider;
 import mcp.McpClientSettings;
 import mcp.McpClientTransportBuilder;
 import mcp.McpSessionFactory;
 import mcp.transport.McpHttpTransportBuilder;
 import mcp.transport.McpStdioTransportBuilder;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -63,12 +65,16 @@ public class McpAutoConfiguration {
 
     /**
      * The default transports, as one replaceable list: an application that needs a proxy or another
-     * HTTP client publishes its own builders and none of these is used.
+     * HTTP client publishes its own builders and none of these is used. An application that needs a
+     * runtime credential publishes a {@link mcp.McpAuthorizationProvider} instead and keeps these
+     * builders.
      */
     @Bean
     @ConditionalOnMissingBean
-    public List<McpClientTransportBuilder> mcpTransportBuilders() {
-        return List.of(new McpHttpTransportBuilder(mcpJson), new McpStdioTransportBuilder(mcpJson));
+    public List<McpClientTransportBuilder> mcpTransportBuilders(
+            ObjectProvider<McpAuthorizationProvider> authorizationProvider) {
+        return List.of(new McpHttpTransportBuilder(mcpJson, authorizationProvider.getIfAvailable()),
+                new McpStdioTransportBuilder(mcpJson));
     }
 
     @Bean(destroyMethod = "close")

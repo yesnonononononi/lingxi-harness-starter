@@ -4,9 +4,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.conf.McpConfig;
 import com.summit.core.runtime.workspace.Workspace;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
+import io.modelcontextprotocol.client.transport.customizer.McpHttpClientTransportAuthorizationErrorHandler;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.spec.McpClientTransport;
+import mcp.McpAuthorizationProvider;
 import mcp.McpClientTransportBuilder;
+import mcp.McpServerAuthorization;
 import mcp.json.Jackson2McpJsonMapper;
 
 import java.net.URI;
@@ -26,6 +29,15 @@ import java.util.Map;
  * endpoint than the operator configured. The fix is to hand the transport the authority as the base
  * URI and the full configured path (plus query) as the endpoint, which makes the configured URL take
  * effect character for character.</p>
+ *
+ * <h2>Why authorization is delegated</h2>
+ *
+ * <p>Credentials that rotate — an OAuth access token, for instance — cannot live in a configured
+ * header: the header is a snapshot taken when the server entry was saved. The transport therefore
+ * asks the optional {@link McpAuthorizationProvider} for one server-bound handler and wires it to
+ * both library hooks: the request hook writes the credential of the moment, the error hook decides
+ * whether a rejected request may be replayed. Both hooks stay unwired when the provider answers
+ * {@code null}, so a server with a static credential keeps the request shape it has always had.</p>
  */
 public final class McpHttpTransportBuilder implements McpClientTransportBuilder {
 
@@ -33,13 +45,24 @@ public final class McpHttpTransportBuilder implements McpClientTransportBuilder 
     private static final String ROOT_PATH = "/";
 
     private final McpJsonMapper jsonMapper;
+    private final McpAuthorizationProvider authorizationProvider;
 
     /**
      * @param objectMapper application mapper used for the JSON-RPC framing; the SDK's ServiceLoader
      *                     lookup is deliberately bypassed
      */
     public McpHttpTransportBuilder(ObjectMapper objectMapper) {
+        this(objectMapper, null);
+    }
+
+    /**
+     * @param objectMapper          application mapper used for the JSON-RPC framing
+     * @param authorizationProvider optional per-server credential handling; {@code null} keeps the
+     *                              transport wired exactly as one built without authorization
+     */
+    public McpHttpTransportBuilder(ObjectMapper objectMapper, McpAuthorizationProvider authorizationProvider) {
         this.jsonMapper = new Jackson2McpJsonMapper(objectMapper);
+        this.authorizationProvider = authorizationProvider;
     }
 
     @Override
@@ -65,7 +88,35 @@ public final class McpHttpTransportBuilder implements McpClientTransportBuilder 
             // A single supported version is a pin: the server must answer with exactly this one.
             builder.supportedProtocolVersions(List.of(protocolVersion));
         }
+        applyAuthorization(builder, server);
         return builder.build();
+    }
+
+    /**
+     * Wires the credential hooks of one server, if the host owns its authorization.
+     *
+     * <p>The adapter is written here and not in the host because the library speaks reactive types
+     * on both hooks; keeping that translation in one place means a host only implements the two
+     * plain methods of {@link McpServerAuthorization}.</p>
+     *
+     * <p>The error hook never asks for a replay, although a replay would rebuild the request and
+     * pick up a renewed credential. What can produce a credential is a sign-in a person completes in
+     * a browser, and keeping the caller's request open for that is worse than failing it: the host
+     * reports the sign-in to its own caller and the next connection retries with the new token.</p>
+     */
+    private void applyAuthorization(HttpClientStreamableHttpTransport.Builder builder, McpConfig.MCP server) {
+        McpServerAuthorization authorization = authorizationProvider == null
+                ? null : authorizationProvider.resolveAuthorization(server);
+        if (authorization == null) {
+            return;
+        }
+        builder.httpRequestCustomizer(
+                        (requestBuilder, method, endpoint, body, context) -> authorization.customize(requestBuilder))
+                .authorizationErrorHandler(McpHttpClientTransportAuthorizationErrorHandler.fromSync(
+                        (snapshot, responseInfo, context) -> {
+                            authorization.onAuthorizationError(responseInfo);
+                            return false;
+                        }));
     }
 
     /**
