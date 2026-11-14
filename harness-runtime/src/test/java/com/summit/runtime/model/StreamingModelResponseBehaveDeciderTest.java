@@ -372,6 +372,7 @@ class StreamingModelResponseBehaveDeciderTest {
     }
 
     private static final class RecordingListener implements RuntimeListener {
+        @Override public int order() { return 0; }
         private final List<String> partialTexts = new ArrayList<>();
         private final List<AgentPartialTextEvent> textEvents = new ArrayList<>();
         private final List<AgentPartialThinkingEvent> thinkingEvents = new ArrayList<>();

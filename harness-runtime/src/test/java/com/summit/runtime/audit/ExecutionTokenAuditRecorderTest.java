@@ -44,6 +44,7 @@ class ExecutionTokenAuditRecorderTest {
     private final List<AgentAuditRecordedEvent> recorded = new ArrayList<>();
     private final List<AgentAuditFailedEvent> failed = new ArrayList<>();
     private final RuntimeListener listener = new RuntimeListener() {
+        @Override public int order() { return 0; }
         @Override
         public void onAuditRecorded(AgentAuditRecordedEvent event) {
             recorded.add(event);
@@ -190,6 +191,7 @@ class ExecutionTokenAuditRecorderTest {
     @Test
     void continuesDeliveringFailureWhenOneListenerThrows() {
         RuntimeListener throwingListener = new RuntimeListener() {
+            @Override public int order() { return 0; }
             @Override
             public void onAuditFailed(AgentAuditFailedEvent event) {
                 throw new IllegalStateException("listener unavailable");

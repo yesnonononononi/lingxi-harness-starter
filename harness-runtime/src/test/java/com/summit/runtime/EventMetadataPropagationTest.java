@@ -225,6 +225,7 @@ class EventMetadataPropagationTest {
     }
 
     private static class CapturingListener implements RuntimeListener {
+        @Override public int order() { return 0; }
         private final List<AgentEvent> events = new CopyOnWriteArrayList<>();
         public void onExecutionStart(ExecutionStartEvent event) { events.add(event); }
         public void onExecutionSuspended(ExecutionSuspendedEvent event) { events.add(event); }

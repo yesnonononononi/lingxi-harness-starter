@@ -137,6 +137,7 @@ class ExecutionRuntimeConfigTest {
             });
             List<AgentAuditRecordedEvent> events = new ArrayList<>();
             context.registerBean(RuntimeListener.class, () -> new RuntimeListener() {
+                @Override public int order() { return 0; }
                 @Override
                 public void onAuditRecorded(AgentAuditRecordedEvent event) {
                     events.add(event);

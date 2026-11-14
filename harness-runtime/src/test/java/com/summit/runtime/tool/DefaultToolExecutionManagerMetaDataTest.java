@@ -79,6 +79,7 @@ class DefaultToolExecutionManagerMetaDataTest {
     void concurrentBatchKeepsMetaDataPerCall() {
         Queue<ToolCallEndEvent> events = new ConcurrentLinkedQueue<>();
         RuntimeListener listener = new RuntimeListener() {
+            @Override public int order() { return 0; }
             @Override
             public void onToolCallOutput(ToolCallEndEvent event) {
                 events.add(event);
@@ -126,6 +127,7 @@ class DefaultToolExecutionManagerMetaDataTest {
     private MetaOutcome executeReturning(ToolExecuteResult toolResult, Map<String, Object> eventMetaData) {
         Queue<ToolCallEndEvent> events = new ConcurrentLinkedQueue<>();
         RuntimeListener listener = new RuntimeListener() {
+            @Override public int order() { return 0; }
             @Override
             public void onToolCallOutput(ToolCallEndEvent event) {
                 events.add(event);

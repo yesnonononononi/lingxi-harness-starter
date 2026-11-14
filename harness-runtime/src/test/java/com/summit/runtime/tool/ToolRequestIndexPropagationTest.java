@@ -183,6 +183,7 @@ class ToolRequestIndexPropagationTest {
     }
 
     private static class RecordingListener implements RuntimeListener {
+        @Override public int order() { return 0; }
         private final List<ToolCallStartEvent> starts = new CopyOnWriteArrayList<>();
         private final List<ToolCallEndEvent> ends = new CopyOnWriteArrayList<>();
 

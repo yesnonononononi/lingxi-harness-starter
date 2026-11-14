@@ -50,6 +50,7 @@ class DefaultToolExecutionManagerPromiseTest {
     void preservesPromiseAndPublishesPromisedStatus() {
         AtomicReference<ToolCallStatus> publishedStatus = new AtomicReference<>();
         RuntimeListener listener = new RuntimeListener() {
+            @Override public int order() { return 0; }
             @Override
             public void onToolCallOutput(ToolCallEndEvent event) {
                 publishedStatus.set(event.resultStatus());

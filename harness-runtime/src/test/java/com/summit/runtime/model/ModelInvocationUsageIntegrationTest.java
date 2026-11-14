@@ -457,6 +457,7 @@ class ModelInvocationUsageIntegrationTest {
 
         private void execute(ModelInvoker invoker) {
             RuntimeListener listener = new RuntimeListener() {
+                @Override public int order() { return 0; }
                 public void onInvokeRetry(InvokeRetryEvent event) { retryNotice.accept(event); }
                 public void onPartialText(AgentPartialTextEvent event) { text.add(event.content()); }
                 public void onExecutionCompleted(ExecutionCompleteEvent event) { terminalUsage.set(event.getTokenInfo()); }

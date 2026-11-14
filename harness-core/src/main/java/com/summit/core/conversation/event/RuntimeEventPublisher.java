@@ -5,196 +5,137 @@ import com.summit.core.runtime.RuntimeListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Comparator;
 import java.util.List;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 
 public class RuntimeEventPublisher {
     private static final Logger log = LoggerFactory.getLogger(RuntimeEventPublisher.class);
+    /** Sorted once: a listener states its dispatch position, and nothing reorders the chain later. */
     private final List<RuntimeListener> listeners;
 
     public RuntimeEventPublisher(List<RuntimeListener> listeners) {
-        this.listeners = listeners;
+        this.listeners = listeners == null ? List.of() : listeners.stream()
+                .sorted(Comparator.comparingInt(RuntimeListener::order))
+                .toList();
     }
 
     public void onExecutionStart(ExecutionStartEvent event) {
-
-        listeners.forEach(listener -> {
-            try {
-                listener.onExecutionStart(event);
-            } catch (Exception e) {
-                log.error("Error occurred while publishing execution start event, listenerId:{}", listener.id(), e);
-            }
-        });
+        publish("execution start", RuntimeListener::onExecutionStartPolicy,
+                listener -> listener.onExecutionStart(event));
     }
 
     public void onExecutionResumed(ExecutionResumedEvent executionResumeEvent) {
-        listeners.forEach(listener -> {
-            try {
-                listener.onExecutionResumed(executionResumeEvent);
-            } catch (Exception e) {
-                log.error("Error occurred while publishing execution resumed event, listenerId:{}", listener.id(), e);
-            }
-        });
+        publish("execution resumed", RuntimeListener::onExecutionResumedPolicy,
+                listener -> listener.onExecutionResumed(executionResumeEvent));
     }
 
     public void onExecutionSuspended(ExecutionSuspendedEvent executionSuspendedEvent) {
-        listeners.forEach(listener -> {
-            try {
-                listener.onExecutionSuspended(executionSuspendedEvent);
-            } catch (Exception e) {
-                log.error("Error occurred while publishing execution suspended event, listenerId:{}", listener.id(), e);
-            }
-        });
+        publish("execution suspended", RuntimeListener::onExecutionSuspendedPolicy,
+                listener -> listener.onExecutionSuspended(executionSuspendedEvent));
     }
 
     public void onToolCallPreparing(ToolCallPrepareEvent event){
-        listeners.forEach(listener -> {
-            try {
-                listener.onToolCallPrepare(event);
-            } catch (Exception e) {
-                log.error("Error occurred while publishing tool call prepare event, listenerId:{}", listener.id(), e);
-            }
-        });
+        publish("tool call prepare", RuntimeListener::onToolCallPreparePolicy,
+                listener -> listener.onToolCallPrepare(event));
     }
 
     public void onToolCall(ToolCallStartEvent event) {
-        listeners.forEach(listener -> {
-            try {
-                listener.onToolCall(event);
-            } catch (Exception e) {
-                log.error("Error occurred while publishing tool call event, listenerId:{}", listener.id(), e);
-            }
-        });
+        publish("tool call", RuntimeListener::onToolCallPolicy,
+                listener -> listener.onToolCall(event));
     }
 
     public void onToolCallOutput(ToolCallEndEvent event) {
-        listeners.forEach(listener -> {
-            try {
-                listener.onToolCallOutput(event);
-            } catch (Exception e) {
-                log.error("Error occurred while publishing tool call output event, listenerId:{}", listener.id(), e);
-            }
-        });
+        publish("tool call output", RuntimeListener::onToolCallOutputPolicy,
+                listener -> listener.onToolCallOutput(event));
     }
 
     public void onAiMessage(AgentMessageEvent event) {
-        listeners.forEach(listener -> {
-            try {
-                listener.onAiMessage(event);
-            } catch (Exception e) {
-                log.error("Error occurred while publishing ai message event, listenerId:{}", listener.id(), e);
-            }
-        });
+        publish("ai message", RuntimeListener::onAiMessagePolicy,
+                listener -> listener.onAiMessage(event));
     }
 
     public void onExecutionError(ExecutionErrorEvent event) {
-        listeners.forEach(listener -> {
-            try {
-                listener.onExecutionError(event);
-            } catch (Exception e) {
-                log.error("Error occurred while publishing execution error event, listenerId:{}", listener.id(), e);
-            }
-        });
+        publish("execution error", RuntimeListener::onExecutionErrorPolicy,
+                listener -> listener.onExecutionError(event));
     }
 
     public void onExecutionComplete(ExecutionCompleteEvent event) {
-        listeners.forEach(listener -> {
-            try {
-                listener.onExecutionCompleted(event);
-            } catch (Exception e) {
-                log.error("Error occurred while publishing execution completed event, listenerId:{}", listener.id(), e);
-            }
-        });
+        publish("execution completed", RuntimeListener::onExecutionCompletedPolicy,
+                listener -> listener.onExecutionCompleted(event));
     }
 
     public void onExecutionCancelled(ExecutionCancelledEvent event) {
-        listeners.forEach(listener -> {
-            try {
-                listener.onExecutionCancelled(event);
-            } catch (Exception e) {
-                log.error("Error occurred while publishing execution cancelled event, listenerId:{}", listener.id(), e);
-            }
-        });
+        publish("execution cancelled", RuntimeListener::onExecutionCancelledPolicy,
+                listener -> listener.onExecutionCancelled(event));
     }
 
     public void onInvokeRetry(InvokeRetryEvent event) {
-      listeners.forEach(listener -> {
-          try{
-              listener.onInvokeRetry(event);
-          }catch (Exception e){
-              log.error("Error occurred while publishing invoke retry event, listenerId:{}", listener.id(), e);
-          }
-      });
+        publish("invoke retry", RuntimeListener::onInvokeRetryPolicy,
+                listener -> listener.onInvokeRetry(event));
     }
 
     public void onApplicationEvent(Object event) {
-        listeners.forEach(listener -> {
-            try {
-                listener.onApplicationEvent(event);
-            } catch (Exception error) {
-                log.error("Error occurred while publishing application event, listenerId:{}", listener.id(), error);
-            }
-        });
+        publish("application", RuntimeListener::onApplicationEventPolicy,
+                listener -> listener.onApplicationEvent(event));
     }
 
     public void onPartialText(AgentPartialTextEvent event) {
-        listeners.forEach(listener -> {
-            try {
-                listener.onPartialText(event);
-            } catch (Exception e) {
-                log.error("Error occurred while publishing partial text event, listenerId:{}", listener.id(), e);
-            }
-        });
+        publish("partial text", RuntimeListener::onPartialTextPolicy,
+                listener -> listener.onPartialText(event));
     }
 
     public void onPartialThinking(AgentPartialThinkingEvent event) {
-        listeners.forEach(listener -> {
-            try {
-                listener.onPartialThinking(event);
-            } catch (Exception e) {
-                log.error("Error occurred while publishing partial thinking event, listenerId:{}", listener.id(), e);
-            }
-        });
+        publish("partial thinking", RuntimeListener::onPartialThinkingPolicy,
+                listener -> listener.onPartialThinking(event));
     }
 
     public void onCompleteText(AgentCompleteTextEvent event) {
-        listeners.forEach(listener -> {
-            try {
-                listener.onCompleteText(event);
-            } catch (Exception e) {
-                log.error("Error occurred while publishing complete text event, listenerId:{}", listener.id(), e);
-            }
-        });
+        publish("complete text", RuntimeListener::onCompleteTextPolicy,
+                listener -> listener.onCompleteText(event));
     }
 
     public void onContextUpdate(ContextUpdateEvent event) {
-        listeners.forEach(listener -> {
-            try {
-                listener.onContextUpdate(event);
-            } catch (Exception e) {
-                log.error("Error occurred while publishing context update event, listenerId:{}", listener.id(), e);
-            }
-        });
+        publish("context update", RuntimeListener::onContextUpdatePolicy,
+                listener -> listener.onContextUpdate(event));
     }
 
     public void onAuditRecorded(AgentAuditRecordedEvent event) {
-        listeners.forEach(listener -> {
-            try {
-                listener.onAuditRecorded(event);
-            } catch (Exception e) {
-                log.error("Error occurred while publishing audit recorded event, listenerId:{}", listener.id(), e);
-            }
-        });
+        publish("audit recorded", RuntimeListener::onAuditRecordedPolicy,
+                listener -> listener.onAuditRecorded(event));
     }
 
     public void onAuditFailed(AgentAuditFailedEvent event) {
-        listeners.forEach(listener -> {
+        publish("audit failed", RuntimeListener::onAuditFailedPolicy,
+                listener -> listener.onAuditFailed(event));
+    }
+
+    /**
+     * The single dispatch for every event, in ascending {@link RuntimeListener#order()}.
+     *
+     * <p>The policy is read per listener and per event: a listener may be an invariant carrier for
+     * one hook and a plain observer for the next. Containment is the default, because one broken
+     * observer must not take the run down with it. A propagating listener stops the dispatch, so the
+     * listeners after it never see the event — the same contract the loop's interceptor chain
+     * offers.</p>
+     */
+    private void publish(String event, Function<RuntimeListener, RuntimeListener.Behavior> policy,
+                         Consumer<RuntimeListener> delivery) {
+        for (RuntimeListener listener : listeners) {
             try {
-                listener.onAuditFailed(event);
-            } catch (Exception e) {
-                log.error("Error occurred while publishing audit failed event, listenerId:{}", listener.id(), e);
+                delivery.accept(listener);
+            } catch (RuntimeException e) {
+                RuntimeListener.Behavior behavior = policy.apply(listener);
+                if (behavior == null || behavior.catchErr()) {
+                    log.error("Error occurred while publishing {} event, listenerId:{}, order:{}",
+                            event, listener.id(), listener.order(), e);
+                } else {
+                    throw e;
+                }
             }
-        });
+        }
     }
 
 }

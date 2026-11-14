@@ -65,6 +65,7 @@ class DefaultRuntimeLifeStyleManagerSuspensionEventTest {
 
     private RuntimeListener recordingListener() {
         return new RuntimeListener() {
+            @Override public int order() { return 0; }
             @Override
             public void onExecutionSuspended(ExecutionSuspendedEvent event) {
                 published.add(event);

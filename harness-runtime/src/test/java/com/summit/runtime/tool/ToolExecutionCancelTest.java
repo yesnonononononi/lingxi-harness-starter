@@ -144,6 +144,7 @@ class ToolExecutionCancelTest {
 
     private DefaultToolExecutionManager manager(ToolDefinition<?> tool, Queue<ToolCallEndEvent> events) {
         RuntimeListener listener = new RuntimeListener() {
+            @Override public int order() { return 0; }
             @Override
             public void onToolCallOutput(ToolCallEndEvent event) {
                 events.add(event);

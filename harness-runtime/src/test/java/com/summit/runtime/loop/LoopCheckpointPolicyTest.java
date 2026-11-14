@@ -173,6 +173,7 @@ class LoopCheckpointPolicyTest {
 
     private RuntimeProcessorTemplate runtime(ChatModel model, LoopInterceptor application) {
         RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(new RuntimeListener() {
+            @Override public int order() { return 0; }
             @Override
             public void onAuditRecorded(AgentAuditRecordedEvent event) {
                 audits.add(assertInstanceOf(AgentTokenAuditRecordedEvent.class, event));

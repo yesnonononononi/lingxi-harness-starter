@@ -52,6 +52,7 @@ class DefaultExecutionControllerTest {
         DeferredRepository repository = new DeferredRepository();
         List<String> delivered = new ArrayList<>();
         RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(new RuntimeListener() {
+            @Override public int order() { return 0; }
             @Override
             public void onExecutionCancelled(ExecutionCancelledEvent event) {
                 delivered.add("cancel:" + event.executionId());
@@ -82,6 +83,7 @@ class DefaultExecutionControllerTest {
         DeferredRepository repository = new DeferredRepository();
         List<ExecutionErrorEvent> notifications = new ArrayList<>();
         RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(new RuntimeListener() {
+            @Override public int order() { return 0; }
             @Override
             public void onExecutionError(ExecutionErrorEvent event) {
                 notifications.add(event);
@@ -200,6 +202,7 @@ class DefaultExecutionControllerTest {
         DeferredRepository repository = new DeferredRepository();
         List<String> notifications = new ArrayList<>();
         RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(new RuntimeListener() {
+            @Override public int order() { return 0; }
             @Override
             public void onExecutionCancelled(ExecutionCancelledEvent event) {
                 notifications.add("cancel:" + event.executionId());
@@ -248,6 +251,7 @@ class DefaultExecutionControllerTest {
         DeferredRepository repository = new DeferredRepository();
         List<TokenInfo> usage = new ArrayList<>();
         RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(new RuntimeListener() {
+            @Override public int order() { return 0; }
             @Override
             public void onExecutionCancelled(ExecutionCancelledEvent event) {
                 usage.add(event.getTokenInfo());

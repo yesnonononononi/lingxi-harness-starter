@@ -632,6 +632,7 @@ class DefaultContextPrunerTest {
 
     private ContextUsageReporter reporter(int budget) {
         return new ContextUsageReporter(tokenizer, budget, new RuntimeEventPublisher(List.of(new RuntimeListener() {
+            @Override public int order() { return 0; }
             @Override
             public void onContextUpdate(ContextUpdateEvent event) {
                 events.add(event);

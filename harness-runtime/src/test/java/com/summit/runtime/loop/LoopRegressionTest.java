@@ -63,6 +63,7 @@ class LoopRegressionTest {
             }
         };
         RuntimeListener listener = new RuntimeListener() {
+            @Override public int order() { return 0; }
             public void onContextUpdate(ContextUpdateEvent event) { notifications.add("usage"); }
             public void onExecutionError(ExecutionErrorEvent event) {
                 assertEquals(ExecutionState.FAILED, execution.getExecutionState());
@@ -130,6 +131,7 @@ class LoopRegressionTest {
 
         runtime(command -> response(false), List.of(), LoopInterceptor.NOOP, 1,
                 new RuntimeListener() {
+                    @Override public int order() { return 0; }
                     public void onAiMessage(AgentMessageEvent event) {
                         received.set(event);
                     }
@@ -236,6 +238,7 @@ class LoopRegressionTest {
             }
         };
         RuntimeListener listener = new RuntimeListener() {
+            @Override public int order() { return 0; }
             public void onAiMessage(AgentMessageEvent event) { aiEvents.incrementAndGet(); }
             @Override
             public void onExecutionCompleted(ExecutionCompleteEvent event) {
@@ -302,6 +305,7 @@ class LoopRegressionTest {
             response.getAiMessageEntity().setToolCalls(List.of(new ToolCallRequest("c", "test", 0, "{}")));
             return response;
         }, List.of(ToolExecuteResult.success("ok")), interceptor, 1, new RuntimeListener() {
+            @Override public int order() { return 0; }
             @Override public void onExecutionCancelled(ExecutionCancelledEvent event) {
                 cancelledUsage.set(event.getTokenInfo());
             }
@@ -326,6 +330,7 @@ class LoopRegressionTest {
             }
         };
         RuntimeListener listener = new RuntimeListener() {
+            @Override public int order() { return 0; }
             @Override public void onExecutionCompleted(ExecutionCompleteEvent event) {
                 completedUsage.set(event.getTokenInfo());
             }
@@ -358,6 +363,7 @@ class LoopRegressionTest {
             return response;
         }), tools, new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor())),
                 new RuntimeListener() {
+                    @Override public int order() { return 0; }
                     @Override public void onExecutionError(ExecutionErrorEvent event) {
                         failedUsage.set(event.getTokenInfo());
                     }
@@ -403,7 +409,7 @@ class LoopRegressionTest {
         };
         Execution execution = execution();
         runtime(command -> response(rounds.getAndIncrement() == 0), List.of(ToolExecuteResult.success("ok")),
-                interceptor, 2, new RuntimeListener() { }).execute(execution);
+                interceptor, 2, () -> 0).execute(execution);
         assertEquals(ExecutionState.COMPLETED, execution.getExecutionState());
         assertEquals(1, completions.get());
         assertEquals(2, ends.get());
@@ -425,6 +431,7 @@ class LoopRegressionTest {
         };
         Execution execution = execution();
         runtime(command -> response(false), List.of(), interceptor, 1, new RuntimeListener() {
+            @Override public int order() { return 0; }
             public void onAiMessage(AgentMessageEvent event) { repository.requireSuspend("e"); }
         }).execute(execution);
         assertEquals(ExecutionState.SUSPENDED, execution.getExecutionState());
@@ -443,7 +450,7 @@ class LoopRegressionTest {
                 return InterceptorResult.of(LoopResult.suspended("waiting for child"), false);
             }
         };
-        runtime(command -> response(false), List.of(), processor, 1, new RuntimeListener() { }, null)
+        runtime(command -> response(false), List.of(), processor, 1, () -> 0, null)
                 .execute(execution);
         assertEquals(ExecutionState.CANCELLED, execution.getExecutionState());
         assertEquals(1, transcripts.get());
@@ -464,7 +471,7 @@ class LoopRegressionTest {
             }
         };
         assertSame(failure, assertThrows(IllegalStateException.class,
-                () -> runtime(command -> response(false), List.of(), interceptor, 1, new RuntimeListener() { })
+                () -> runtime(command -> response(false), List.of(), interceptor, 1, () -> 0)
                         .execute(execution)));
         assertEquals(ExecutionState.FAILED, execution.getExecutionState());
         assertEquals(1, transcripts.get());
@@ -484,7 +491,7 @@ class LoopRegressionTest {
         };
         Execution execution = execution();
         runtime(command -> response(true), List.of(ToolExecuteResult.promise("pending")),
-                interceptor, 1, new RuntimeListener() { }).execute(execution);
+                interceptor, 1, () -> 0).execute(execution);
         assertEquals(ExecutionState.SUSPENDED, execution.getExecutionState());
         assertEquals(1, transcripts.get());
         assertEquals(0, hooks.get());
@@ -503,7 +510,7 @@ class LoopRegressionTest {
         Execution execution = execution();
 
         runtime(command -> response(false), List.of(), LoopInterceptor.NOOP, 1,
-                new RuntimeListener() { }, silentObserver).execute(execution);
+                () -> 0, silentObserver).execute(execution);
 
         assertEquals(ExecutionState.COMPLETED, execution.getExecutionState());
         assertNotNull(execution.getStartAt());
@@ -530,7 +537,7 @@ class LoopRegressionTest {
                 return InterceptorResult.NONE;
             }
         };
-        runtime(command -> response(true), List.of(written), stopAfterTools, 2, new RuntimeListener() {})
+        runtime(command -> response(true), List.of(written), stopAfterTools, 2, () -> 0)
                 .execute(execution);
         assertEquals(ExecutionState.SUSPENDED, execution.getExecutionState());
         assertNull(outcome.get());
@@ -543,7 +550,7 @@ class LoopRegressionTest {
         assertEquals(sizeBefore + 1, liveMessages.size());
         liveMessages.remove(sizeBefore);
         assertEquals(1, execution.getModelAttempts());
-        runtime(command -> response(false), List.of(), stopAfterTools, 2, new RuntimeListener() {})
+        runtime(command -> response(false), List.of(), stopAfterTools, 2, () -> 0)
                 .execute(execution);
         assertEquals(ExecutionState.COMPLETED, execution.getExecutionState());
         assertEquals(2, execution.getModelAttempts());
@@ -586,7 +593,7 @@ class LoopRegressionTest {
         };
 
         runtime(command -> response(false), List.of(),
-                new DefaultLoopInterceptorProcessor(List.of(boom, survivor)), 1, new RuntimeListener() { }, null)
+                new DefaultLoopInterceptorProcessor(List.of(boom, survivor)), 1, () -> 0, null)
                 .execute(execution);
 
         assertEquals(ExecutionState.COMPLETED, execution.getExecutionState());
@@ -601,6 +608,7 @@ class LoopRegressionTest {
         Execution execution = execution();
         runtime(command -> { calls.incrementAndGet(); return response(false); }, List.of(), LoopInterceptor.NOOP,
                 1, new RuntimeListener() {
+                    @Override public int order() { return 0; }
                     public void onContextUpdate(ContextUpdateEvent event) { updates.incrementAndGet(); }
                 }).execute(execution);
         assertEquals(ExecutionState.COMPLETED, execution.getExecutionState());
@@ -648,6 +656,7 @@ class LoopRegressionTest {
             }
             return response(false);
         }, List.of(), reminder, 2, new RuntimeListener() {
+            @Override public int order() { return 0; }
             public void onExecutionStart(ExecutionStartEvent event) { starts.incrementAndGet(); }
         }).execute(execution);
 
@@ -676,7 +685,7 @@ class LoopRegressionTest {
         };
 
         runtime(command -> { calls.incrementAndGet(); return response(false); }, List.of(), processor,
-                2, new RuntimeListener() { }, null).execute(execution);
+                2, () -> 0, null).execute(execution);
 
         assertEquals(signal.equals("cancel") ? ExecutionState.CANCELLED : ExecutionState.SUSPENDED,
                 execution.getExecutionState());
@@ -699,7 +708,7 @@ class LoopRegressionTest {
         assertThrows(MaxStepsExceededException.class, () -> runtime(command -> {
             calls.incrementAndGet();
             return response(false);
-        }, List.of(), reminder, 2, new RuntimeListener() { }).execute(execution));
+        }, List.of(), reminder, 2, () -> 0).execute(execution));
 
         assertEquals(ExecutionState.FAILED, execution.getExecutionState());
         assertEquals(2, calls.get());
@@ -715,7 +724,7 @@ class LoopRegressionTest {
         AtomicInteger calls = new AtomicInteger();
         assertThrows(MaxStepsExceededException.class,
                 () -> runtime(command -> { calls.incrementAndGet(); return response(false); }, List.of(),
-                        LoopInterceptor.NOOP, 1, new RuntimeListener() {}).execute(execution));
+                        LoopInterceptor.NOOP, 1, () -> 0).execute(execution));
         assertEquals(0, calls.get());
         assertEquals(ExecutionState.FAILED, execution.getExecutionState());
     }
@@ -724,7 +733,7 @@ class LoopRegressionTest {
     void cancelDuringPlainTextResponseWinsBeforeCommit() {
         Execution execution = execution();
         runtime(command -> { repository.requireCancel("e"); return response(false); }, List.of(),
-                LoopInterceptor.NOOP, 1, new RuntimeListener() {}).execute(execution);
+                LoopInterceptor.NOOP, 1, () -> 0).execute(execution);
         assertEquals(ExecutionState.CANCELLED, execution.getExecutionState());
         assertEquals(0, transcripts.get());
     }
@@ -735,7 +744,7 @@ class LoopRegressionTest {
         Execution execution = execution();
         runtime(command -> response(calls.getAndIncrement() == 0),
                 List.of(ToolExecuteResult.success(" ", ToolResultType.CONTEXT_COMPACT)),
-                LoopInterceptor.NOOP, 2, new RuntimeListener() {}).execute(execution);
+                LoopInterceptor.NOOP, 2, () -> 0).execute(execution);
         assertEquals(ExecutionState.COMPLETED, execution.getExecutionState());
         assertEquals(2, transcripts.get());
         assertTrue(execution.getMessages().stream().anyMatch(ToolMessageEntity.class::isInstance));
@@ -760,7 +769,7 @@ class LoopRegressionTest {
         };
         runtime(model,
                 List.of(ToolExecuteResult.success("{\"summary\":\"finished earlier work\"}", ToolResultType.CONTEXT_COMPACT)),
-                LoopInterceptor.NOOP, 2, new RuntimeListener() {}).execute(execution);
+                LoopInterceptor.NOOP, 2, () -> 0).execute(execution);
         List<Message> compactedContext = served.get();
         assertEquals(2, transcripts.get());
         assertEquals(6, execution.getTokenUsage().getTotalTokens());
@@ -851,7 +860,7 @@ class LoopRegressionTest {
             results.add(round == 2 ? ToolExecuteResult.success("ordinary result")
                     : ToolExecuteResult.success("{\"summary\":\"earlier work\"}", ToolResultType.CONTEXT_COMPACT));
             return response(round < 4);
-        }, results, observer, 5, new RuntimeListener() { }).execute(execution);
+        }, results, observer, 5, () -> 0).execute(execution);
 
         assertEquals(ExecutionState.COMPLETED, execution.getExecutionState());
         assertEquals(List.of(0, 1, 2, 0, 1), starts);
@@ -881,12 +890,12 @@ class LoopRegressionTest {
         Execution execution = execution();
         runtime(command -> response(true),
                 List.of(ToolExecuteResult.success("{\"summary\":\"earlier work\"}", ToolResultType.CONTEXT_COMPACT)),
-                observer, 3, new RuntimeListener() { }).execute(execution);
+                observer, 3, () -> 0).execute(execution);
 
         assertEquals(ExecutionState.SUSPENDED, execution.getExecutionState());
         assertEquals(1, execution.getModelAttempts());
         Execution restored = repository.findById(execution.getId()).orElseThrow();
-        runtime(command -> response(false), List.of(), observer, 3, new RuntimeListener() { }).execute(restored);
+        runtime(command -> response(false), List.of(), observer, 3, () -> 0).execute(restored);
 
         assertEquals(ExecutionState.COMPLETED, restored.getExecutionState());
         assertEquals(List.of(0, 1, 0), starts);
@@ -946,7 +955,7 @@ class LoopRegressionTest {
                     new ToolCallRequest("a", "compact", 0, "{}"), new ToolCallRequest("b", "read", 1, "{}")));
             return response;
         }, List.of(ToolExecuteResult.success("summary", ToolResultType.CONTEXT_COMPACT), ToolExecuteResult.success("read result")),
-                LoopInterceptor.NOOP, 2, new RuntimeListener() {}).execute(execution);
+                LoopInterceptor.NOOP, 2, () -> 0).execute(execution);
         assertEquals(2, transcripts.get());
         assertEquals(2, execution.getMessages().stream().filter(ToolMessageEntity.class::isInstance).count());
     }
@@ -961,7 +970,7 @@ class LoopRegressionTest {
             calls.incrementAndGet();
             return response(true);
         }, List.of(ToolExecuteResult.success("written")), new DefaultLoopInterceptorProcessor(List.of()),
-                1, new RuntimeListener() { }, null).execute(execution));
+                1, () -> 0, null).execute(execution));
 
         assertEquals(1, calls.get());
         assertEquals(1, execution.getModelAttempts());
@@ -998,7 +1007,7 @@ class LoopRegressionTest {
                     .anyMatch(message -> message.text().equals("checked input")));
             return response(false);
         }, List.of(), new DefaultLoopInterceptorProcessor(List.of(last, new DefaultLoopInterceptor(), first)),
-                new RuntimeListener() { }, null, checker).execute(execution);
+                () -> 0, null, checker).execute(execution);
 
         assertEquals(List.of("first", "last", "boundary", "model"), phases);
         assertEquals(ExecutionState.COMPLETED, execution.getExecutionState());
@@ -1024,7 +1033,7 @@ class LoopRegressionTest {
             calls.incrementAndGet();
             return response(false);
         }, List.of(), new DefaultLoopInterceptorProcessor(List.of(inputAppender("large input", 0, new ArrayList<>()))),
-                new RuntimeListener() { }, null, checker).execute(execution);
+                () -> 0, null, checker).execute(execution);
 
         assertEquals(ExecutionState.CANCELLED, execution.getExecutionState());
         assertEquals(0, calls.get());
@@ -1046,7 +1055,7 @@ class LoopRegressionTest {
         runtime(command -> {
             calls.incrementAndGet();
             return response(false);
-        }, List.of(), stop, 1, new RuntimeListener() { }).execute(execution);
+        }, List.of(), stop, 1, () -> 0).execute(execution);
 
         assertEquals(ExecutionState.SUSPENDED, execution.getExecutionState());
         assertEquals(0, calls.get());
@@ -1081,7 +1090,7 @@ class LoopRegressionTest {
             calls.incrementAndGet();
             return response(false);
         }, List.of(), new DefaultLoopInterceptorProcessor(List.of(stop)),
-                new RuntimeListener() { }, null, checker).execute(execution);
+                () -> 0, null, checker).execute(execution);
 
         assertEquals(ExecutionState.CANCELLED, execution.getExecutionState());
         assertEquals(0, calls.get());
@@ -1108,7 +1117,7 @@ class LoopRegressionTest {
             calls.incrementAndGet();
             return response(false);
         }, List.of(), new DefaultLoopInterceptorProcessor(List.of()),
-                new RuntimeListener() { }, null, checker).execute(execution);
+                () -> 0, null, checker).execute(execution);
 
         assertEquals(ExecutionState.SUSPENDED, execution.getExecutionState());
         assertEquals(0, calls.get());
@@ -1148,7 +1157,7 @@ class LoopRegressionTest {
             assertTrue(execution.getMessages().stream().anyMatch(message -> message.text().equals("checked tool round")));
             return response(false);
         }, List.of(ToolExecuteResult.success("written")),
-                new DefaultLoopInterceptorProcessor(List.of(observer)), new RuntimeListener() { }, null, checker)
+                new DefaultLoopInterceptorProcessor(List.of(observer)), () -> 0, null, checker)
                 .execute(execution);
 
         assertEquals(List.of("callback", "boundary", "next model"), phases);
@@ -1171,7 +1180,7 @@ class LoopRegressionTest {
         };
 
         runtime(command -> response(true), List.of(ToolExecuteResult.promise("waiting")),
-                new DefaultLoopInterceptorProcessor(List.of()), new RuntimeListener() { }, null, checker)
+                new DefaultLoopInterceptorProcessor(List.of()), () -> 0, null, checker)
                 .execute(execution);
 
         Execution saved = repository.findById(execution.getId()).orElseThrow();
@@ -1198,7 +1207,7 @@ class LoopRegressionTest {
         assertSame(failure, assertThrows(IllegalStateException.class, () -> runtime(command -> {
             calls.incrementAndGet();
             return response(false);
-        }, List.of(), interceptor, 1, new RuntimeListener() { }).execute(execution)));
+        }, List.of(), interceptor, 1, () -> 0).execute(execution)));
 
         assertEquals(ExecutionState.FAILED, execution.getExecutionState());
         assertEquals(0, calls.get());
@@ -1224,7 +1233,7 @@ class LoopRegressionTest {
             calls.incrementAndGet();
             return response(true);
         }, List.of(ToolExecuteResult.success("written")), new DefaultLoopInterceptorProcessor(List.of(LoopInterceptor.NOOP)),
-                new RuntimeListener() { }, null, checker).execute(execution)));
+                () -> 0, null, checker).execute(execution)));
 
         assertEquals(ExecutionState.FAILED, execution.getExecutionState());
         assertEquals(failure.getMessage(), execution.getErrorMessage());
@@ -1251,7 +1260,7 @@ class LoopRegressionTest {
 
         assertSame(failure, assertThrows(IllegalStateException.class, () ->
                 runtime(command -> response(false), List.of(), failingRoundEnd(failure), 1,
-                        new RuntimeListener() { }).execute(execution)));
+                        () -> 0).execute(execution)));
 
         assertEquals(ExecutionState.FAILED, execution.getExecutionState());
         assertEquals(failure.getMessage(), execution.getErrorMessage());
@@ -1267,7 +1276,7 @@ class LoopRegressionTest {
 
         assertSame(primary, assertThrows(IllegalStateException.class, () ->
                 runtime(command -> { throw primary; }, List.of(), failingRoundEnd(cleanup), 1,
-                        new RuntimeListener() { }).execute(execution)));
+                        () -> 0).execute(execution)));
 
         assertArrayEquals(new Throwable[] { cleanup }, primary.getSuppressed());
         assertEquals(ExecutionState.FAILED, execution.getExecutionState());
@@ -1288,7 +1297,7 @@ class LoopRegressionTest {
         RuntimeException thrown = assertThrows(RuntimeException.class, () ->
                 runtimeWithTools(command -> { throw primary; }, tools,
                         new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor(), failingRoundEnd(cleanup))),
-                        new RuntimeListener() { }, null, boundaryChecker(1)).execute(execution));
+                        () -> 0, null, boundaryChecker(1)).execute(execution));
 
         assertSame(primary, thrown.getCause());
         assertArrayEquals(new Throwable[] { cleanup }, primary.getSuppressed());
@@ -1317,7 +1326,7 @@ class LoopRegressionTest {
 
         runtime(command -> response(false), List.of(),
                 new DefaultLoopInterceptorProcessor(List.of(failing, following)), 1,
-                new RuntimeListener() { }, null).execute(execution);
+                () -> 0, null).execute(execution);
 
         assertEquals(ExecutionState.COMPLETED, execution.getExecutionState());
         assertEquals(1, notified.get());
@@ -1340,7 +1349,7 @@ class LoopRegressionTest {
         };
 
         Execution returned = runtime(command -> response(false), List.of(), interceptor, 1,
-                new RuntimeListener() { }).execute(execution);
+                () -> 0).execute(execution);
 
         assertSame(execution, returned);
         assertEquals(ExecutionState.COMPLETED, execution.getExecutionState());
@@ -1366,7 +1375,7 @@ class LoopRegressionTest {
 
         assertSame(primary, assertThrows(IllegalStateException.class, () ->
                 runtime(command -> { throw primary; }, List.of(), interceptor, 1,
-                        new RuntimeListener() { }).execute(execution)));
+                        () -> 0).execute(execution)));
 
         assertEquals(primary.getMessage(), execution.getErrorMessage());
         assertEquals(1, notified.get());
@@ -1406,6 +1415,7 @@ class LoopRegressionTest {
             }
         };
         RuntimeListener listener = new RuntimeListener() {
+            @Override public int order() { return 0; }
             public void onExecutionCompleted(ExecutionCompleteEvent event) { delivered.add("completed"); }
         };
         DeferredRuntime deferred = deferredRuntime(command -> response(false), interceptor, listener);
@@ -1429,6 +1439,7 @@ class LoopRegressionTest {
             }
         };
         RuntimeListener listener = new RuntimeListener() {
+            @Override public int order() { return 0; }
             public void onExecutionError(ExecutionErrorEvent event) { delivered.add("failed"); }
         };
         DeferredRuntime deferred = deferredRuntime(command -> {

@@ -112,6 +112,7 @@ class RuntimeProcessorTemplateFinalizeTest {
 
     private RuntimeProcessorTemplate runtime(RecordingRepository repository, RecordingSupport support) {
         RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(new RuntimeListener() {
+            @Override public int order() { return 0; }
             @Override
             public void onContextUpdate(ContextUpdateEvent event) {
                 trail.add("publish");

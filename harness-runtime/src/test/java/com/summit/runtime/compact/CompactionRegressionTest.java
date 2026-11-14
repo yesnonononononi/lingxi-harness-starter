@@ -211,6 +211,7 @@ class CompactionRegressionTest {
     /** Reporter wired to a capturing listener: the tests assert on the emitted event sequence. */
     private ContextUsageReporter capturingReporter(List<ContextUpdateEvent> events) {
         return new ContextUsageReporter(tokenizer, 100_000, new RuntimeEventPublisher(List.of(new RuntimeListener() {
+            @Override public int order() { return 0; }
             @Override
             public void onContextUpdate(ContextUpdateEvent event) {
                 events.add(event);

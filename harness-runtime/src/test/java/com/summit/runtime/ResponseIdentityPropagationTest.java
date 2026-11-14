@@ -315,6 +315,7 @@ class ResponseIdentityPropagationTest {
     }
 
     private static final class Capture implements RuntimeListener {
+        @Override public int order() { return 0; }
         private final List<String> streamedIds = new ArrayList<>();
         private final List<AgentMessageEvent> messages = new CopyOnWriteArrayList<>();
         private final List<ToolCallStartEvent> starts = new CopyOnWriteArrayList<>();

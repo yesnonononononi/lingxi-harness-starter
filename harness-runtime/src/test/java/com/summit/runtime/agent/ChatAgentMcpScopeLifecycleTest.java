@@ -48,6 +48,7 @@ class ChatAgentMcpScopeLifecycleTest {
         InMemoryActiveExecutionRegistry repository = new InMemoryActiveExecutionRegistry();
         List<ExecutionErrorEvent> errors = new ArrayList<>();
         RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(new RuntimeListener() {
+            @Override public int order() { return 0; }
             public void onExecutionError(ExecutionErrorEvent event) {
                 assertTrue(repository.findById(event.executionId()).isEmpty(), "the terminal snapshot must be saved first");
                 errors.add(event);
@@ -73,6 +74,7 @@ class ChatAgentMcpScopeLifecycleTest {
         InMemoryActiveExecutionRegistry repository = new InMemoryActiveExecutionRegistry();
         AtomicInteger errors = new AtomicInteger();
         RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(new RuntimeListener() {
+            @Override public int order() { return 0; }
             public void onExecutionError(ExecutionErrorEvent event) { errors.incrementAndGet(); }
         }));
         IllegalStateException failure = new IllegalStateException("runtime initialization failed");

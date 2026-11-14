@@ -100,6 +100,7 @@ class StreamingModelResponseTerminalTest {
         AtomicBoolean futureDoneDuringEvent = new AtomicBoolean(true);
         Fixture fixture = new Fixture(null);
         RuntimeListener listener = new RuntimeListener() {
+            @Override public int order() { return 0; }
             @Override
             public void onCompleteText(AgentCompleteTextEvent event) {
                 futureDoneDuringEvent.set(fixture.future.isDone());
@@ -246,6 +247,7 @@ class StreamingModelResponseTerminalTest {
 
         private Fixture(ExecutionControlSignal control) {
             RuntimeListener listener = new RuntimeListener() {
+                @Override public int order() { return 0; }
                 public void onPartialText(AgentPartialTextEvent event) { events.add("text"); }
                 public void onPartialThinking(AgentPartialThinkingEvent event) { events.add("thinking"); }
                 public void onCompleteText(AgentCompleteTextEvent event) { events.add("complete"); }
