@@ -70,9 +70,10 @@ public class DefaultExecutionController implements ExecutionControl {
             String executionId = execution.getId();
             TokenInfo tokenInfo = TokenInfo.from(execution.getTokenUsage());
             executionRepository.afterCommit(() -> {
-                runtimeEvents.onExecutionCancelled(new ExecutionCancelledEvent(executionId, tokenInfo,
-                        execution.eventMetaData()));
-                runtimeLifeStyleManager.recordTokenAudit(execution);
+                // inside a commit callback: one throwing observer must not abort the others or the commit
+                bestEffort(() -> runtimeEvents.onExecutionCancelled(new ExecutionCancelledEvent(executionId,
+                        tokenInfo, execution.eventMetaData()))).run();
+                bestEffort(() -> runtimeLifeStyleManager.recordTokenAudit(execution)).run();
             });
         }
     }
@@ -87,12 +88,21 @@ public class DefaultExecutionController implements ExecutionControl {
         Objects.requireNonNull(cause, "cause");
         execution.failChecked(cause.getMessage());
         executionRepository.save(execution);
-        return () -> executionRepository.afterCommit(() -> {
+        Runnable notification = bestEffort(() -> runtimeLifeStyleManager.onError(execution, cause));
+        return () -> executionRepository.afterCommit(notification);
+    }
+
+    /**
+     * Observer failures never change the outcome and never escape a commit callback: other
+     * synchronizations and the delivery of the remaining terminal notifications still have to run.
+     */
+    private static Runnable bestEffort(Runnable notification) {
+        return () -> {
             try {
-                runtimeLifeStyleManager.onError(execution, cause);
+                notification.run();
             } catch (RuntimeException e) {
                 log.warn("Execution lifecycle observer failed", e);
             }
-        });
+        };
     }
 }

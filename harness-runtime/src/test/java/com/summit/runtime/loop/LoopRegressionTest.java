@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -77,6 +78,8 @@ class LoopRegressionTest {
         assertEquals("failed", notifications.getLast());
         assertTrue(notifications.indexOf("usage") < notifications.indexOf("failed"));
         assertTrue(notifications.indexOf("run-end") < notifications.indexOf("failed"));
+        assertTrue(notifications.lastIndexOf("usage") < notifications.indexOf("run-end"),
+                "the terminal event is the last thing delivered, after every cleanup step");
         ExecutionControlSignal nextRun = repository.register(execution.getId());
         repository.unregister(nextRun);
     }
@@ -1389,5 +1392,103 @@ class LoopRegressionTest {
         assertEquals(1, restored.getMessages().size());
         restored.getMessages().clear();
         assertEquals(1, repository.findById("e").orElseThrow().getMessages().size());
+    }
+
+    @Test
+    void completionNotificationWaitsForTheSnapshotCommit() {
+        Execution execution = execution();
+        List<String> delivered = new ArrayList<>();
+        LoopInterceptor interceptor = new LoopInterceptor() {
+            public int order() { return 0; }
+            public InterceptorResult onRunEnd(Execution finished) {
+                delivered.add("run-end");
+                return InterceptorResult.NONE;
+            }
+        };
+        RuntimeListener listener = new RuntimeListener() {
+            public void onExecutionCompleted(ExecutionCompleteEvent event) { delivered.add("completed"); }
+        };
+        DeferredRuntime deferred = deferredRuntime(command -> response(false), interceptor, listener);
+
+        deferred.template().execute(execution);
+
+        assertEquals(List.of("run-end"), delivered, "the terminal event waits for the snapshot commit");
+        deferred.repository().commit();
+        assertEquals(List.of("run-end", "completed"), delivered);
+    }
+
+    @Test
+    void failureNotificationWaitsForTheSnapshotCommitAndStillFollowsRunEnd() {
+        Execution execution = execution();
+        List<String> delivered = new ArrayList<>();
+        LoopInterceptor interceptor = new LoopInterceptor() {
+            public int order() { return 0; }
+            public InterceptorResult onRunEnd(Execution finished) {
+                delivered.add("run-end");
+                return InterceptorResult.NONE;
+            }
+        };
+        RuntimeListener listener = new RuntimeListener() {
+            public void onExecutionError(ExecutionErrorEvent event) { delivered.add("failed"); }
+        };
+        DeferredRuntime deferred = deferredRuntime(command -> {
+            throw new IllegalStateException("model failed");
+        }, interceptor, listener);
+
+        assertThrows(IllegalStateException.class, () -> deferred.template().execute(execution));
+
+        assertEquals(List.of("run-end"), delivered, "the failure event waits for the snapshot commit");
+        deferred.repository().commit();
+        assertEquals(List.of("run-end", "failed"), delivered);
+    }
+
+    private record DeferredRuntime(RuntimeProcessorTemplate template, DeferredCommitRepository repository) { }
+
+    /**
+     * Same fixture as the other tests, except the repository keeps after-commit notifications until
+     * {@link DeferredCommitRepository#commit()} — which is what a transactional repository does.
+     */
+    private DeferredRuntime deferredRuntime(ChatModel model, LoopInterceptor interceptor, RuntimeListener listener) {
+        DeferredCommitRepository deferred = new DeferredCommitRepository(repository);
+        RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(listener));
+        RuntimeLifeStyleManager notifications = new DefaultRuntimeLifeStyleManager(events);
+        ToolExecutionManager tools = new ToolExecutionManager() {
+            public List<ToolExecuteResult> execute(ToolExecuteCommand command) { return List.of(); }
+            public ToolRegistry toolRegistry() { return new ToolRegistry(List.of()); }
+        };
+        RuntimeProcessorTemplate template = new RuntimeProcessorTemplate(RuntimeContext.builder()
+                .conversationManager(conversations)
+                .executionRepository(deferred)
+                .executionControl(new DefaultExecutionController(() -> null, deferred, events, notifications))
+                .loopInterceptorProcessor(new DefaultLoopInterceptorProcessor(
+                        List.of(new DefaultLoopInterceptor(), interceptor)))
+                .runtimeLifeStyleManager(notifications)
+                .runtimeBoundaryChecker(boundaryChecker(1))
+                .usage(new ContextUsageReporter(tokenizer, 1_024_000, events, 1))
+                .runtimeEventPublisher(events).toolExecutionManager(tools)
+                .invoker(new DefaultChatModelInvoker(model)).build());
+        return new DeferredRuntime(template, deferred);
+    }
+
+    /** Repository whose after-commit notifications run only when the test commits. */
+    private static final class DeferredCommitRepository implements ExecutionRepository {
+        private final ExecutionRepository delegate;
+        private final List<Runnable> pending = new ArrayList<>();
+
+        DeferredCommitRepository(ExecutionRepository delegate) { this.delegate = delegate; }
+
+        @Override public void save(Execution execution) { delegate.save(execution); }
+        @Override public Optional<Execution> findById(String executionId) { return delegate.findById(executionId); }
+        @Override public ExecutionControlSignal register(String executionId) { return delegate.register(executionId); }
+        @Override public void unregister(ExecutionControlSignal signal) { delegate.unregister(signal); }
+        @Override public void requireSuspend(String executionId) { delegate.requireSuspend(executionId); }
+        @Override public void requireCancel(String executionId) { delegate.requireCancel(executionId); }
+        @Override public void afterCommit(Runnable notification) { pending.add(notification); }
+
+        void commit() {
+            List<Runnable> committed = List.copyOf(pending);
+            pending.clear();
+            committed.forEach(Runnable::run);
+        }
     }
 }

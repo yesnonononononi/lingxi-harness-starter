@@ -48,6 +48,36 @@ class DefaultExecutionControllerTest {
     }
 
     @Test
+    void cancellationNotificationExceptionsRemainContainedAfterCommit() {
+        DeferredRepository repository = new DeferredRepository();
+        List<String> delivered = new ArrayList<>();
+        RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(new RuntimeListener() {
+            @Override
+            public void onExecutionCancelled(ExecutionCancelledEvent event) {
+                delivered.add("cancel:" + event.executionId());
+            }
+        }));
+        DefaultRuntimeLifeStyleManager notifications = new DefaultRuntimeLifeStyleManager(events) {
+            @Override
+            public void recordTokenAudit(Execution execution) {
+                throw new IllegalStateException("audit recorder failed");
+            }
+        };
+        DefaultExecutionController controller = new DefaultExecutionController(
+                () -> null, repository, events, notifications);
+        Execution execution = Execution.builder().id("cancellation-observer-failure")
+                .agentRequest(AgentRequest.builder().build()).executionState(ExecutionState.SUSPENDED).build();
+
+        controller.beginApproval(execution);
+        controller.finishApproval(execution, ApprovalOutcome.CANCELLED);
+
+        assertDoesNotThrow(repository::commit);
+        assertEquals(List.of("cancel:cancellation-observer-failure"), delivered,
+                "a throwing audit recorder must not swallow the cancel event");
+        assertEquals(ExecutionState.CANCELLED, execution.getExecutionState());
+    }
+
+    @Test
     void failureIsSavedBeforeItsDeferredNotificationAndRejectsAnotherFailure() {
         DeferredRepository repository = new DeferredRepository();
         List<ExecutionErrorEvent> notifications = new ArrayList<>();

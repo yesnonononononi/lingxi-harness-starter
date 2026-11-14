@@ -5,6 +5,7 @@ import com.summit.core.agent.ExecutionState;
 import com.summit.core.runtime.ExecutionRuntime;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.loop.ExecutionFailureObserver;
+import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.runtime.loop.LoopResult;
 import com.summit.runtime.context.RuntimeContext;
 import com.summit.runtime.util.RuntimeUtil;
@@ -35,6 +36,7 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
     private Execution process(Execution execution, ExecutionControlSignal control, boolean resumed) {
         RuntimeException failure = null;
         Runnable pendingEvent = null;
+        boolean pendingEventDeferred = false;
         try {
             execution.setMessages(new ArrayList<>(execution.getMessages() == null ? List.of() : execution.getMessages()));
 
@@ -91,7 +93,9 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
             try {
                 // NOT completed / Canceled / Failed
                 if (!execution.getExecutionState().isTerminal()) {
+                    // fail() already hands back a task that waits for the snapshot transaction
                     pendingEvent = this.context.getExecutionControl().fail(execution, e);
+                    pendingEventDeferred = true;
                     notifyFailureObservers(execution, e);
 
                 }
@@ -101,6 +105,7 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
             throw failure;
         } finally {
             final Runnable pe = pendingEvent;
+            final boolean peDeferred = pendingEventDeferred;
             // The message list is deliberately left mutable: this is the live domain object, and it
             // outlives the loop — RuntimeLifeStyleManager, LoopInterceptor and usage reporting all
             // observe it after the run, and a caller may still append to it before resuming
@@ -116,10 +121,7 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
                     () -> this.context.getExecutionRepository().unregister(control),
                     () -> this.context.getUsage().publish(execution),
                     () -> this.notifyRunEnd(execution),
-                    () -> {
-                        // ensure that the AgentEvent is sent after all tasks are completed
-                        if (pe != null) this.notifyLifecycle(pe);
-                    }
+                    () -> this.notifyTerminal(pe, peDeferred)
             );
 
             if (throwable != null) {
@@ -160,6 +162,28 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
         } catch (RuntimeException e) {
             log.warn("Execution lifecycle observer failed", e);
         }
+    }
+
+    /**
+     * The single exit for a terminal notification (completed / cancelled / suspended / failed):
+     * it leaves the runtime through {@link ExecutionRepository#afterCommit}, so a transactional
+     * repository publishes it only once the surrounding snapshot is durable, and it stays the last
+     * thing the application observes.
+     *
+     * <p>{@code ExecutionControl#fail} already returns a task bound to the commit, hence the flag.
+     * Wrapping that task a second time is not harmless: inside a commit callback the transaction
+     * synchronization is still registered as active, so the nested registration is accepted and
+     * then silently dropped — the failure event would never be delivered.</p>
+     */
+    private void notifyTerminal(Runnable notification, boolean alreadyDeferred) {
+        if (notification == null) return;
+        Runnable delivery = () -> this.notifyLifecycle(notification);
+        ExecutionRepository repository = this.context.getExecutionRepository();
+        if (alreadyDeferred || repository == null) {
+            delivery.run();
+            return;
+        }
+        repository.afterCommit(delivery);
     }
 
     private void notifyFailureObservers(Execution execution, Exception cause) {
