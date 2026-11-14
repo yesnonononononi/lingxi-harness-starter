@@ -46,7 +46,7 @@ class LoopRegressionTest {
     private final DefaultTokenizer tokenizer = new DefaultTokenizer();
     private final AtomicInteger transcripts = new AtomicInteger();
     private final DefaultConversationManager conversations = DefaultConversationManager.builder()
-            .conversationTranscriptSink((id, ai, tools) -> transcripts.incrementAndGet())
+            .conversationTranscriptSink((id, ai, tools, responseId, metadata) -> transcripts.incrementAndGet())
             .contextAttachmentProvider(ContextAttachmentProvider.NONE)
             .build();
 

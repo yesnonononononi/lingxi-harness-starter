@@ -199,24 +199,14 @@ class ResponseIdentityPropagationTest {
     }
 
     @Test
-    void legacyTranscriptSinksStillReceiveRoundsAndSelectedMetadata() {
-        AtomicInteger legacyCalls = new AtomicInteger();
-        ConversationTranscriptSink legacy = (id, ai, tools) -> legacyCalls.incrementAndGet();
-        String responseId = "1234567890123456789";
-        legacy.appendRound("legacy", AiMessageEntity.builder().text("answer").build(), List.of(), responseId, METADATA);
-        assertEquals(1, legacyCalls.get());
+    void responseIdentityReachesTheTranscriptSink() {
+        AtomicReference<String> responseId = new AtomicReference<>();
+        ConversationTranscriptSink sink = (id, ai, tools, response, metadata) -> responseId.set(response);
+        String expected = "1234567890123456789";
 
-        AtomicReference<Map<String, Object>> metadata = new AtomicReference<>();
-        ConversationTranscriptSink selected = new ConversationTranscriptSink() {
-            public void appendRound(String id, AiMessageEntity ai, List<ToolMessageEntity> tools) {
-                fail("The metadata-aware overload must still be used");
-            }
-            public void appendRound(String id, AiMessageEntity ai, List<ToolMessageEntity> tools, Map<String, Object> value) {
-                metadata.set(value);
-            }
-        };
-        selected.appendRound("selected", AiMessageEntity.builder().text("answer").build(), List.of(), responseId, METADATA);
-        assertEquals(METADATA, metadata.get());
+        sink.appendRound("identity", AiMessageEntity.builder().text("answer").build(), List.of(), expected, METADATA);
+
+        assertEquals(expected, responseId.get());
     }
 
     private static ChatResponseEntity response(boolean tools) {

@@ -86,7 +86,7 @@ class EventMetadataPropagationTest {
         RuntimeContext context = RuntimeContext.builder()
                 .runtimeEventPublisher(publisher).toolExecutionManager(tools)
                 .conversationManager(DefaultConversationManager.builder()
-                        .conversationTranscriptSink((id, ai, toolMessages) -> { })
+                        .conversationTranscriptSink((id, ai, toolMessages, responseId, metadata) -> { })
                         .contextAttachmentProvider(ContextAttachmentProvider.NONE)
                         .build())
                 .build();
@@ -151,17 +151,12 @@ class EventMetadataPropagationTest {
     }
 
     @Test
-    void acceptedModelRoundPassesMetadataToTranscriptSink() {
+    void acceptedModelRoundPassesMetadataAndResponseIdToTranscriptSink() {
         AtomicReference<Map<String, Object>> received = new AtomicReference<>();
-        ConversationTranscriptSink sink = new ConversationTranscriptSink() {
-            public void appendRound(String id, AiMessageEntity ai, List<ToolMessageEntity> tools) {
-                fail("metadata-aware overload must be used");
-            }
-
-            public void appendRound(String id, AiMessageEntity ai, List<ToolMessageEntity> tools,
-                                    Map<String, Object> metadata) {
-                received.set(metadata);
-            }
+        AtomicReference<String> responseId = new AtomicReference<>();
+        ConversationTranscriptSink sink = (id, ai, tools, response, metadata) -> {
+            responseId.set(response);
+            received.set(metadata);
         };
         DefaultConversationManager conversations = DefaultConversationManager.builder()
                 .conversationTranscriptSink(sink)
@@ -171,10 +166,13 @@ class EventMetadataPropagationTest {
         execution.setTokenUsage(TokenUsageEntity.empty());
 
         conversations.addMessage(LoopMessages.builder().execution(execution).response(ChatResponseEntity.builder()
+                .responseId("1234567890123456789")
                 .aiMessageEntity(AiMessageEntity.builder().text("answer").build())
                 .tokenUsage(TokenUsageEntity.empty()).build()).toolExecuteResults(List.of()).build());
 
         assertEquals(METADATA, received.get());
+        assertEquals("1234567890123456789", responseId.get(),
+                "The identity of the round must reach the sink unchanged");
     }
 
     @Test
