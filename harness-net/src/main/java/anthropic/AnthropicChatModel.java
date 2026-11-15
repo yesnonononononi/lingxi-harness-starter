@@ -34,6 +34,9 @@ public class AnthropicChatModel implements ChatModel, StreamingChatModel {
     private static final Set<String> QUOTA_ERROR_CODES = Set.of("insufficient_quota",
             "billing_error", "billing_hard_limit_reached");
 
+    /** How much of the provider's own words may reach an exception message. */
+    private static final int MAX_ERROR_DETAIL_LENGTH = 300;
+
     private final ModelConfig modelConfig;
     private final HttpClient httpClient;
     private final ObjectMapper JSON;
@@ -101,35 +104,79 @@ public class AnthropicChatModel implements ChatModel, StreamingChatModel {
      * provider's own error code therefore wins over the status class, exactly as it did in the
      * retired {@code ProviderErrorMapper}.</p>
      *
+     * <p>The body is also the only place that says <em>why</em> a request was rejected. It is read
+     * once, for both the classification and the message: a bare {@code HTTP 400} in a log cannot be
+     * diagnosed after the fact, and the rejected request body is not repeatable evidence — the
+     * conversation has already moved on.</p>
+     *
      * @param status HTTP status of the response
-     * @param body   response body, used only to read the provider's error code; may be null
+     * @param body   response body, carrying the provider's error type and message; may be null
      * @param json   mapper that reads the error document
      */
     static void checkStatus(int status, String body, ObjectMapper json) {
-        if (status == 429 && quotaExhausted(body, json)) {
-            throw new NonRetriableModelException("Anthropic request failed with HTTP " + status, null);
+        ProviderError error = ProviderError.read(body, json);
+        if (status == 429 && error.isQuota()) {
+            throw new NonRetriableModelException(error.describe(status), null);
         }
         if (status == 408 || status == 429 || status >= 500) {
-            throw new RetriableModelException("Anthropic request failed with HTTP " + status, null);
+            throw new RetriableModelException(error.describe(status), null);
         }
         if (status != 200) {
-            throw new NonRetriableModelException("Anthropic request failed with HTTP " + status, null);
+            throw new NonRetriableModelException(error.describe(status), null);
         }
     }
 
-    /** @return whether the error body names an exhausted quota or a billing limit */
-    private static boolean quotaExhausted(String body, ObjectMapper json) {
-        if (body == null || body.isBlank() || json == null) return false;
-        JsonNode root;
-        try {
-            root = json.readTree(body);
-        } catch (JsonProcessingException malformed) {
-            // Not a provider error document: classify by status alone, as before.
-            return false;
+    /**
+     * The provider's error document, kept as evidence instead of being dropped after classification.
+     *
+     * <p>A body that is not an error document at all — a gateway page, a truncated read — is kept
+     * verbatim: that text is usually the whole explanation, and it costs one truncated line.</p>
+     */
+    private record ProviderError(String type, String code, String message, String raw) {
+
+        static final ProviderError EMPTY = new ProviderError(null, null, null, null);
+
+        static ProviderError read(String body, ObjectMapper json) {
+            if (body == null || body.isBlank()) return EMPTY;
+            String raw = body.strip();
+            if (json == null) return new ProviderError(null, null, null, raw);
+            JsonNode error;
+            try {
+                JsonNode root = json.readTree(raw);
+                error = root == null ? null : root.path("error");
+            } catch (JsonProcessingException malformed) {
+                // Not a provider error document: classify by status, but still say what came back.
+                return new ProviderError(null, null, null, raw);
+            }
+            if (error == null || !error.isObject()) return new ProviderError(null, null, null, raw);
+            return new ProviderError(error.path("type").asText(null), error.path("code").asText(null),
+                    error.path("message").asText(null), raw);
         }
-        if (root == null) return false;
-        JsonNode error = root.path("error");
-        return isQuotaCode(error.path("type").asText(null)) || isQuotaCode(error.path("code").asText(null));
+
+        /** @return whether the document names an exhausted quota or a billing limit */
+        boolean isQuota() {
+            return isQuotaCode(code) || isQuotaCode(type);
+        }
+
+        /** The exception message: the status, then the provider's own words whenever there are any. */
+        String describe(int status) {
+            String detail = detail();
+            String prefix = "Anthropic request failed with HTTP " + status;
+            return detail.isEmpty() ? prefix : prefix + ": " + detail;
+        }
+
+        private String detail() {
+            String label = code != null ? code : type;
+            String detail = label == null ? message : message == null ? label : label + ": " + message;
+            return truncate(detail == null ? raw : detail);
+        }
+    }
+
+    private static String truncate(String value) {
+        if (value == null) return "";
+        String stripped = value.strip();
+        return stripped.length() <= MAX_ERROR_DETAIL_LENGTH
+                ? stripped : stripped.substring(0, MAX_ERROR_DETAIL_LENGTH) + "...";
     }
 
     private static boolean isQuotaCode(String candidate) {

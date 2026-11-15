@@ -4,10 +4,14 @@ import anthropic.AnthropicChatModel;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.conf.ModelConfig;
 import com.summit.core.conversation.api.ChatRequestEntity;
+import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.exception.NonRetriableModelException;
 import com.summit.core.exception.RetriableModelException;
 import com.summit.core.model.chat.ChatModel;
+import com.summit.core.model.streaming.StreamingChatModel;
+import com.summit.core.model.streaming.StreamingChatResponseHandler;
+import com.summit.core.model.streaming.StreamingHandler;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -20,10 +24,14 @@ import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -104,6 +112,70 @@ class QuotaErrorClassificationTest {
         assertThrows(NonRetriableModelException.class, this::anthropicCall);
     }
 
+    /**
+     * The rejected request body is never repeatable evidence — the conversation moves on — so a bare
+     * status code leaves nothing to diagnose. The provider's own type and message must survive.
+     */
+    @Test
+    void anthropicKeepsTheProviderErrorTypeAndMessage() {
+        status.set(400);
+        body.set("{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":"
+                + "\"max_tokens: 102400 > 64000, which is the maximum allowed number of output tokens\"}}");
+
+        NonRetriableModelException failure = assertThrows(NonRetriableModelException.class, this::anthropicCall);
+
+        assertTrue(failure.getMessage().contains("HTTP 400"), failure.getMessage());
+        assertTrue(failure.getMessage().contains("invalid_request_error"), failure.getMessage());
+        assertTrue(failure.getMessage().contains("max_tokens: 102400"), failure.getMessage());
+    }
+
+    /** The streaming path is the one that actually reaches a 400 first — it must keep the text too. */
+    @Test
+    void streamingAnthropicFailureKeepsTheProviderText() throws Exception {
+        status.set(400);
+        body.set("{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\","
+                + "\"message\":\"thinking.type: adaptive is not supported\"}}");
+
+        Throwable failure = assertThrows(ExecutionException.class, this::anthropicStreamingCall).getCause();
+
+        assertInstanceOf(NonRetriableModelException.class, failure);
+        assertTrue(failure.getMessage().contains("invalid_request_error"), failure.getMessage());
+        assertTrue(failure.getMessage().contains("adaptive is not supported"), failure.getMessage());
+    }
+
+    @Test
+    void anthropicKeepsABodyThatIsNotAnErrorDocument() {
+        status.set(502);
+        body.set("<html>upstream gateway unavailable</html>");
+
+        RetriableModelException failure = assertThrows(RetriableModelException.class, this::anthropicCall);
+
+        assertTrue(failure.getMessage().contains("HTTP 502"), failure.getMessage());
+        assertTrue(failure.getMessage().contains("upstream gateway unavailable"), failure.getMessage());
+    }
+
+    @Test
+    void anthropicTruncatesAnEndlessErrorDetail() {
+        status.set(400);
+        body.set("{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\""
+                + "x".repeat(2000) + "\"}}");
+
+        NonRetriableModelException failure = assertThrows(NonRetriableModelException.class, this::anthropicCall);
+
+        assertTrue(failure.getMessage().endsWith("..."), "超长错误文本必须截断，日志不能被一条 400 撑爆");
+        assertTrue(failure.getMessage().length() < 400, failure.getMessage());
+    }
+
+    @Test
+    void anthropicReportsTheStatusAloneWhenThereIsNoBody() {
+        status.set(400);
+        body.set("");
+
+        NonRetriableModelException failure = assertThrows(NonRetriableModelException.class, this::anthropicCall);
+
+        assertEquals("Anthropic request failed with HTTP 400", failure.getMessage());
+    }
+
     @Test
     void anthropicRateLimitStaysRetriable() {
         body.set("{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\","
@@ -122,6 +194,18 @@ class QuotaErrorClassificationTest {
     private void anthropicCall() {
         ChatModel model = new AnthropicChatModel(config("claude-sonnet-4-6"), client, json);
         model.chat(request());
+    }
+
+    private void anthropicStreamingCall() throws Exception {
+        StreamingChatModel model = new AnthropicChatModel(config("claude-sonnet-4-6"), client, json);
+        CompletableFuture<ChatResponseEntity> completed = new CompletableFuture<>();
+        model.chat(request(), new StreamingChatResponseHandler() {
+            public void onPartialResponse(String text, StreamingHandler handle) {}
+            public void onPartialThinking(String text, StreamingHandler handle) {}
+            public void onFinalResponse(ChatResponseEntity response) { completed.complete(response); }
+            public void onError(Throwable error) { completed.completeExceptionally(error); }
+        });
+        completed.get(10, TimeUnit.SECONDS);
     }
 
     private static ChatRequestEntity request() {
