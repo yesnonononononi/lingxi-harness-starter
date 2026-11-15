@@ -249,7 +249,8 @@ class AnthropicChatWireTest {
                             Image.from(URI.create("https://example.com/reference.png"))))));
             var tool = ToolDefinition.builder().id("lookup").name("lookup").maxOutput(1024).timeout(5L)
                     .executor(ignored -> ToolExecuteResult.success("ok"))
-                    .parametersJsonSchema("{\"type\":\"object\",\"properties\":{\"q\":{\"type\":\"object\"}}}").build();
+                    .parametersJsonSchema("{\"oneOf\":[{\"type\":\"object\",\"properties\":{\"q\":{\"type\":\"object\"}}}]}")
+                    .build();
             var first = model.chat(ChatRequestEntity.builder().messages(history).tools(List.of(tool)).build());
             assertEquals("2023-06-01", versions.poll(5, TimeUnit.SECONDS));
             JsonNode sent = requests.poll(5, TimeUnit.SECONDS);
@@ -262,6 +263,8 @@ class AnthropicChatWireTest {
             assertEquals("image/png", sent.at("/messages/0/content/1/source/media_type").asText());
             assertEquals("https://example.com/reference.png", sent.at("/messages/0/content/2/source/url").asText());
             assertTrue(sent.at("/tools/0/input_schema").isObject());
+            assertFalse(sent.at("/tools/0/input_schema").has("oneOf"), "Anthropic refuses a union root: " + sent.at("/tools/0"));
+            assertEquals("object", sent.at("/tools/0/input_schema/properties/q/type").asText());
             assertNull(first.getAiMessageEntity().getText());
             assertEquals(FinishReason.TOOL_EXECUTION, first.getMeta().getFinishReason());
             assertEquals(19, first.getTokenUsage().getTotalTokens());

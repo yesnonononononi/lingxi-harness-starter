@@ -167,8 +167,7 @@ public class AnthropicModelRequest {
             ObjectNode tool = tools.addObject().put("name", definition.name());
             if (definition.description() != null) tool.put("description", definition.description());
             String schema = definition.parametersJsonSchema();
-            tool.set("input_schema", schema == null || schema.isBlank()
-                    ? mapper.createObjectNode().put("type", "object") : jsonObject(schema, mapper));
+            tool.set("input_schema", AnthropicToolSchema.inputSchema(schema, mapper));
         }
         return tools;
     }
@@ -176,7 +175,7 @@ public class AnthropicModelRequest {
     private static JsonNode jsonObject(String value, ObjectMapper mapper) throws JsonProcessingException {
         if (value == null || value.isBlank()) return mapper.createObjectNode();
         JsonNode node = mapper.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(value);
-        if (!node.isObject()) throw new NonRetriableModelException("Anthropic tool input and schema must be JSON objects", null);
+        if (!node.isObject()) throw new NonRetriableModelException("Anthropic tool input must be a JSON object", null);
         return node;
     }
 
