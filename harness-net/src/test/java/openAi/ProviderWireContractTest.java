@@ -133,8 +133,8 @@ class ProviderWireContractTest {
                     streaming, List.of(UserMessageEntity.from("question")), true);
             JsonNode request = endpoint.requests.poll(10, TimeUnit.SECONDS);
             assertNotNull(request);
-            assertFalse(request.has("thinking"), "认不出的模型名不能赌新版 thinking 协议");
-            assertFalse(request.has("output_config"), "认不出的模型名不能赌 output_config");
+            assertFalse(request.has("thinking"), "an unreadable model name must not gamble on the newer protocol");
+            assertFalse(request.has("output_config"), "an unreadable model name must not gamble on output_config");
         }
     }
 

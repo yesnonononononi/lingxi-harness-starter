@@ -27,13 +27,19 @@ public final class ReasoningEffortPlan {
     private ReasoningEffortPlan() {
     }
 
-    /** Newer naming puts the tier first: {@code claude-sonnet-4-6}, {@code claude-opus-4-5}. */
-    private static final Pattern NAMED_VERSION = Pattern.compile("claude-(?:opus|sonnet|haiku)-(\\d+)(?:-(\\d+))?.*");
-    /** Older naming puts the version first: {@code claude-3-5-sonnet-20241022}. */
-    private static final Pattern LEGACY_VERSION = Pattern.compile("claude-(\\d+)(?:-(\\d+))?-.+");
+    /**
+     * The version every Claude name carries, in either naming shape: {@code claude-3-5-sonnet-20241022}
+     * and {@code claude-sonnet-4-6} read as 3.5 and 4.6.
+     *
+     * <p>The optional word group is why the tier never needs naming here: a new tier is just another
+     * word in the model name, not another branch in this class.</p>
+     */
+    private static final Pattern CLAUDE_VERSION = Pattern.compile("claude(?:-[a-z]+)*-(\\d+)(?:-(\\d+))?.*");
     /** First generation that accepts {@code thinking.type=adaptive}; everything below is a manual budget. */
     private static final int ADAPTIVE_MAJOR = 4;
     private static final int ADAPTIVE_MINOR = 6;
+    /** The one model that takes a native effort parameter on top of a manual budget. */
+    private static final String NATIVE_EFFORT_WITH_BUDGET = "claude-opus-4-5";
 
     /** Whether effort has to be expressed as an Anthropic thinking budget / native effort. */
     public static boolean anthropicFamily(String provider, String modelName) {
@@ -44,14 +50,15 @@ public final class ReasoningEffortPlan {
     }
 
     /**
-     * Models whose thinking is expressed as a manual token budget (claude-3*, claude-4.0/4.1/4.5 and
-     * dated snapshots) instead of the adaptive effort parameter newer models accept.
+     * Models whose thinking is expressed as a manual token budget — everything older than the
+     * adaptive generation, dated snapshots included.
+     *
+     * <p>Decided by the version in the name alone; a name with no readable Claude version is not a
+     * manual-thinking model, which keeps an unclassifiable name from matching by accident.</p>
      */
     public static boolean manualThinking(String modelName) {
-        String model = normalize(modelName);
-        if (model == null) return false;
-        return model.startsWith("claude-3")
-                || model.matches("claude-(opus|sonnet|haiku)-4(?:-(?:0|1|5)(?:-.*)?|-\\d{8})?");
+        int[] version = claudeVersion(modelName);
+        return version != null && compare(version, ADAPTIVE_MAJOR, ADAPTIVE_MINOR) < 0;
     }
 
     /**
@@ -60,44 +67,38 @@ public final class ReasoningEffortPlan {
      *
      * <p>Only names whose version can actually be read count. An endpoint may serve anything under
      * any name — a relay's own alias, a renamed model, a typo — and sending a parameter the provider
-     * does not know is a 400 that is never retried. A name this class cannot classify therefore
-     * gets no thinking block and no {@code output_config} at all, rather than the newest protocol
-     * as a guess.</p>
+     * does not know is a 400 that is never retried. A name this class cannot read therefore gets no
+     * thinking block and no {@code output_config} at all, rather than the newest protocol as a
+     * guess.</p>
      */
     public static boolean adaptiveThinking(String modelName) {
-        String model = normalize(modelName);
-        if (model == null) return false;
-        int[] version = versionOf(model);
-        if (version == null) return false;
-        int major = version[0];
-        int minor = version[1];
-        return major > ADAPTIVE_MAJOR || (major == ADAPTIVE_MAJOR && minor >= ADAPTIVE_MINOR);
-    }
-
-    /**
-     * Reads {@code major[.minor]} out of either Anthropic naming shape.
-     *
-     * @return {@code {major, minor}} with {@code minor} 0 when the name carries no minor, or
-     *         {@code null} when the name is not a Claude model version at all
-     */
-    private static int[] versionOf(String model) {
-        Matcher named = NAMED_VERSION.matcher(model);
-        if (named.matches()) return version(named);
-        Matcher legacy = LEGACY_VERSION.matcher(model);
-        return legacy.matches() ? version(legacy) : null;
-    }
-
-    private static int[] version(Matcher matched) {
-        int major = Integer.parseInt(matched.group(1));
-        String minor = matched.group(2);
-        return new int[]{major, minor == null ? 0 : Integer.parseInt(minor)};
+        int[] version = claudeVersion(modelName);
+        return version != null && compare(version, ADAPTIVE_MAJOR, ADAPTIVE_MINOR) >= 0;
     }
 
     /** Whether the model accepts the native effort parameter on top of a manual thinking budget. */
     public static boolean supportsNativeEffort(String modelName) {
         String model = normalize(modelName);
-        if (model == null) return false;
-        return adaptiveThinking(model) || model.startsWith("claude-opus-4-5");
+        return model != null && (adaptiveThinking(model) || model.startsWith(NATIVE_EFFORT_WITH_BUDGET));
+    }
+
+    private static int compare(int[] version, int major, int minor) {
+        return version[0] == major ? Integer.compare(version[1], minor) : Integer.compare(version[0], major);
+    }
+
+    /**
+     * Reads the model version out of a Claude name.
+     *
+     * @return {@code {major, minor}}, minor 0 when the name carries none, or {@code null} when the
+     *         name is not a Claude model version at all
+     */
+    private static int[] claudeVersion(String modelName) {
+        String model = normalize(modelName);
+        if (model == null) return null;
+        Matcher matched = CLAUDE_VERSION.matcher(model);
+        if (!matched.matches()) return null;
+        String minor = matched.group(2);
+        return new int[]{Integer.parseInt(matched.group(1)), minor == null ? 0 : Integer.parseInt(minor)};
     }
 
     /** The value that actually reaches the provider; {@code xhigh}/{@code minimal} collapse on Anthropic. */
@@ -122,8 +123,8 @@ public final class ReasoningEffortPlan {
         if (!anthropicFamily(provider, modelName)) return LEVELS;
         List<String> levels = new ArrayList<>(LEVELS.size());
         for (String level : LEVELS) {
-            // xhigh 与 high、minimal 与 low 在 Anthropic 上生成完全相同的请求：
-            // 列出来就是承诺一个不存在的区别。
+            // xhigh and minimal produce exactly the same request as high and low on Anthropic:
+            // listing them would promise a difference that does not exist.
             if (!"xhigh".equals(level) && !"minimal".equals(level)) levels.add(level);
         }
         return List.copyOf(levels);
@@ -149,14 +150,15 @@ public final class ReasoningEffortPlan {
     public static String invalidReason(String provider, String modelName, String effort, Integer maxTokens) {
         String level = normalize(effort);
         if (level == null) return null;
-        if (!KNOWN.contains(level)) return "不支持的思考强度: " + effort;
+        if (!KNOWN.contains(level)) return "Unsupported reasoning effort: " + effort;
         if (!anthropicFamily(provider, modelName)) return null;
-        // none 关闭思考，不占预算
+        // "none" switches thinking off, so it spends no budget.
         if ("none".equals(level)) return null;
         if (!manualThinking(modelName) || maxTokens == null) return null;
         int budget = thinkingBudget(level);
         return budget >= maxTokens
-                ? "思考强度 " + level + " 的思考预算 " + budget + " 必须小于输出上限 " + maxTokens
+                ? "Thinking budget " + budget + " of level " + level + " must stay below the output limit "
+                        + maxTokens
                 : null;
     }
 

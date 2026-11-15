@@ -11,84 +11,88 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 档位语义的唯一真源：Anthropic 上 xhigh/minimal 与 high/low 同义，OpenAI 协议原样下发。
+ * The single source of tier semantics: on Anthropic xhigh/minimal mean high/low, while the OpenAI
+ * protocol passes the level through untouched.
  *
- * <p>这些规则同时被适配器（决定发什么）与业务侧（决定 UI 列几档、配置合不合法）消费，
- * 所以必须钉在框架里测，而不是各消费方各测一份自己的副本。</p>
+ * <p>The same rules are consumed by the adapter (which decides what to send) and by the business
+ * layer (which decides how many levels the UI offers and whether a configuration is legal), so they
+ * are pinned here in the framework rather than re-tested by each caller from its own copy.</p>
  */
 class ReasoningEffortPlanTest {
 
     @Test
-    @DisplayName("OpenAI 协议原样保留全部档位")
+    @DisplayName("The OpenAI protocol keeps every level verbatim")
     void openAiKeepsEveryLevel() {
         assertEquals(ReasoningEffortPlan.LEVELS, ReasoningEffortPlan.distinct("openai", "gpt-5"));
         assertEquals("xhigh", ReasoningEffortPlan.canonical("openai", "gpt-5", "xhigh"));
         assertEquals("minimal", ReasoningEffortPlan.canonical("openai", "gpt-5", "minimal"));
         assertNull(ReasoningEffortPlan.invalidReason("openai", "gpt-5", "max", 1024),
-                "OpenAI 协议下预算由服务端裁决，框架不做交叉校验");
+                "the server owns the budget on the OpenAI protocol; the framework does not cross-check it");
     }
 
     @Test
-    @DisplayName("Anthropic：xhigh 折 high、minimal 折 low，且不再单列这两个档")
+    @DisplayName("Anthropic folds xhigh into high and minimal into low, and stops listing them")
     void anthropicCollapsesIndistinguishableLevels() {
         for (String model : List.of("claude-3-5-sonnet-20241022", "claude-sonnet-4-5", "claude-sonnet-4-6")) {
             assertEquals("high", ReasoningEffortPlan.canonical("anthropic", model, "xhigh"), model);
             assertEquals("low", ReasoningEffortPlan.canonical("anthropic", model, "minimal"), model);
             List<String> levels = ReasoningEffortPlan.distinct("anthropic", model);
-            assertFalse(levels.contains("xhigh"), "xhigh 在 " + model + " 上不产生独立请求，不能列出来");
-            assertFalse(levels.contains("minimal"), "minimal 在 " + model + " 上不产生独立请求，不能列出来");
-            assertTrue(levels.contains("max"), "max 是真实可区分的档位: " + model);
+            assertFalse(levels.contains("xhigh"), "xhigh makes no separate request on " + model);
+            assertFalse(levels.contains("minimal"), "minimal makes no separate request on " + model);
+            assertTrue(levels.contains("max"), "max is a genuinely distinct level: " + model);
         }
         assertEquals(List.of("none", "low", "medium", "high", "max"),
                 ReasoningEffortPlan.distinct("anthropic", "claude-sonnet-4-6"));
     }
 
     @Test
-    @DisplayName("manual thinking 判定与 Opus 4.5 的例外")
+    @DisplayName("Manual thinking detection and the Opus 4.5 exception")
     void manualThinkingDetection() {
         assertTrue(ReasoningEffortPlan.manualThinking("claude-3-5-haiku-latest"));
         assertTrue(ReasoningEffortPlan.manualThinking("claude-sonnet-4-5"));
         assertTrue(ReasoningEffortPlan.manualThinking("claude-opus-4-1-20250805"));
-        assertFalse(ReasoningEffortPlan.manualThinking("claude-sonnet-4-6"), "4.6 走 adaptive thinking");
+        assertFalse(ReasoningEffortPlan.manualThinking("claude-sonnet-4-6"), "4.6 uses adaptive thinking");
         assertFalse(ReasoningEffortPlan.manualThinking("gpt-5"));
         assertTrue(ReasoningEffortPlan.supportsNativeEffort("claude-opus-4-5"));
         assertFalse(ReasoningEffortPlan.supportsNativeEffort("claude-sonnet-4-5"));
     }
 
     @Test
-    @DisplayName("adaptive 世代要认得出型号：认不出来就不发 thinking / output_config")
+    @DisplayName("adaptive thinking needs a readable Claude version, otherwise nothing is sent")
     void adaptiveThinkingRequiresARecognisableModelName() {
         assertTrue(ReasoningEffortPlan.adaptiveThinking("claude-sonnet-4-6"));
-        assertTrue(ReasoningEffortPlan.adaptiveThinking("claude-opus-4-7"), "新版命名：4.7 比 4.6 新");
-        assertTrue(ReasoningEffortPlan.adaptiveThinking("claude-5-opus-20260101"), "旧版命名同样要能读出版本");
-        assertFalse(ReasoningEffortPlan.adaptiveThinking("claude-sonnet-4-5"), "4.5 用手动预算");
-        assertFalse(ReasoningEffortPlan.adaptiveThinking("claude-3-5-sonnet-20241022"), "3.x 用手动预算");
-        assertFalse(ReasoningEffortPlan.adaptiveThinking("claude-3-opus-20240229"), "3.x 没写次版本也不能算新一代");
-        // 认不出来的一律不发：中转网关的自定义别名、拼错的名字、OpenAI 型号
+        assertTrue(ReasoningEffortPlan.adaptiveThinking("claude-opus-4-7"), "a newer minor is still adaptive");
+        assertTrue(ReasoningEffortPlan.adaptiveThinking("claude-5-opus-20260101"), "the older naming reads too");
+        assertFalse(ReasoningEffortPlan.adaptiveThinking("claude-sonnet-4-5"), "4.5 takes a manual budget");
+        assertFalse(ReasoningEffortPlan.adaptiveThinking("claude-3-5-sonnet-20241022"), "3.x takes a manual budget");
+        assertFalse(ReasoningEffortPlan.adaptiveThinking("claude-3-opus-20240229"),
+                "a name without a minor is not the adaptive generation");
+        // Nothing at all for a name we cannot read: a relay alias, a typo, an OpenAI model.
         assertFalse(ReasoningEffortPlan.adaptiveThinking(null));
         assertFalse(ReasoningEffortPlan.adaptiveThinking("claude"));
         assertFalse(ReasoningEffortPlan.adaptiveThinking("deepseek/deepseek-v4.1-flash"));
         assertFalse(ReasoningEffortPlan.adaptiveThinking("gpt-5"));
-        // 认不出来就不该声称支持原生 effort —— 否则 output_config 会被一起发出去
+        // Claiming native effort would send output_config along with it.
         assertFalse(ReasoningEffortPlan.supportsNativeEffort(null));
         assertFalse(ReasoningEffortPlan.supportsNativeEffort("gpt-5"));
         assertTrue(ReasoningEffortPlan.supportsNativeEffort("claude-sonnet-4-6"));
     }
 
     @Test
-    @DisplayName("档位与输出上限的交叉校验：思考预算必须小于输出上限")
+    @DisplayName("Level and output budget are cross-checked: the thinking budget must stay below the cap")
     void effortAndOutputBudgetAreCrossChecked() {
-        // 手动 thinking 的模型才受这条约束
+        // Only manual-thinking models are subject to this rule.
         assertNull(ReasoningEffortPlan.invalidReason("anthropic", "claude-sonnet-4-5", "max", 32768));
         assertTrue(ReasoningEffortPlan.invalidReason("anthropic", "claude-sonnet-4-5", "max", 4096).contains("16384"),
-                "提示要说清预算与上限各是多少");
+                "the message must state both the budget and the cap");
         assertTrue(ReasoningEffortPlan.invalidReason("anthropic", "claude-sonnet-4-5", "low", 1024) != null,
-                "预算 1024 不小于上限 1024，必须拦下 —— 否则建模型时才抛英文异常");
-        // none 关闭思考，不占预算
+                "a budget of 1024 is not below a cap of 1024 and must be rejected, "
+                        + "instead of surfacing as an English exception when the model is built");
+        // "none" switches thinking off, so it spends no budget.
         assertNull(ReasoningEffortPlan.invalidReason("anthropic", "claude-sonnet-4-5", "none", 512));
-        // adaptive 模型不传预算，不受上限约束
+        // An adaptive model carries no budget, so the cap cannot bind.
         assertNull(ReasoningEffortPlan.invalidReason("anthropic", "claude-sonnet-4-6", "max", 4096));
-        // 未知档位一眼看出是哪个值
+        // An unknown level names the offending value.
         assertTrue(ReasoningEffortPlan.invalidReason("openai", "gpt-5", "ultra", 32768).contains("ultra"));
         assertEquals(List.of("none"), ReasoningEffortPlan.usable("anthropic", "claude-sonnet-4-5", 1024));
     }

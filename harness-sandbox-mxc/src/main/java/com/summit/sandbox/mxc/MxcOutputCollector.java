@@ -89,7 +89,8 @@ final class MxcOutputCollector {
         String text = characters.flip().toString();
         boolean truncated = status.isOverflow() || text.length() > maxChars;
         String kept = text.length() > maxChars ? text.substring(0, maxChars) : text;
-        // 截断点不能留下半个代理对（emoji 占两个 char），否则模型看到的是坏字符。
+        // A truncation point must not split a surrogate pair (an emoji is two chars), or the model
+        // is handed a broken character.
         if (!kept.isEmpty() && Character.isHighSurrogate(kept.charAt(kept.length() - 1))) {
             kept = kept.substring(0, kept.length() - 1);
         }

@@ -164,7 +164,7 @@ class QuotaErrorClassificationTest {
 
         NonRetriableModelException failure = assertThrows(NonRetriableModelException.class, this::anthropicCall);
 
-        assertTrue(failure.getMessage().endsWith(detail), "错误文本必须原样带出，不在适配器里截断");
+        assertTrue(failure.getMessage().endsWith(detail), "the provider's text is reported whole, never trimmed here");
         assertTrue(failure.getMessage().startsWith("Anthropic request failed with HTTP 400: "),
                 failure.getMessage());
     }

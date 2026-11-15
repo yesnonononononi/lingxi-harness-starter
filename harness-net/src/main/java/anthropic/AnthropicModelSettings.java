@@ -16,8 +16,9 @@ record AnthropicModelSettings(String thinkingType, Integer budget, int maxTokens
         if (effort != null && !Set.of("none", "minimal", "low", "medium", "high", "xhigh", "max").contains(effort)) {
             throw new IllegalArgumentException("Unsupported Anthropic reasoning effort: " + effort);
         }
-        // 档位语义（xhigh 折 high、manual 判定、预算表）只在 ReasoningEffortPlan 里有一份：
-        // 业务侧要按它做能力声明与配置校验，这里再抄一遍必然漂移。
+        // Tier semantics (xhigh folding into high, the manual-generation test, the budget table) live
+        // in ReasoningEffortPlan only: the business layer reads capabilities and validates configuration
+        // through it, and a copy here would drift.
         String model = normalize(config.getModelName());
         boolean manualModel = ReasoningEffortPlan.manualThinking(model);
         String type = normalize(options == null ? null : options.thinkingType());

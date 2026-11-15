@@ -41,9 +41,11 @@ public enum ShellType {
     CMD("cmd.exe") {
         @Override
         public List<String> buildCommand(String command) {
-            // cmd 在进程启动时用控制台输入代码页把命令行转成字节，之后程序按该代码页输出；引导切到 65001，
-            // 让按控制台代码页输出字节的程序（git、node 等）与 UTF-8 解码一致。注意 cmd 内置命令（echo 等）
-            // 用的是启动时解析出的 ANSI 字节，chcp 对它们无效；脚本的引号/管道/重定向语义不受影响。
+            // cmd converts the command line into bytes through the console input code page at process
+            // start, and children then write in that same code page; the bootstrap switches it to 65001
+            // so programs that emit console-code-page bytes (git, node, ...) match UTF-8 decoding.
+            // Built-in commands (echo, ...) keep the ANSI bytes resolved at start-up and ignore chcp;
+            // quoting, pipes and redirection semantics are unaffected.
             return List.of(
                     this.command,
                     "/d",
@@ -90,7 +92,7 @@ public enum ShellType {
 
 
 
-    /** CMD 的输出代码页引导；拼在脚本前面，与脚本用 & 顺序连接。 */
+    /** The output code-page bootstrap for CMD; prepended to the script and chained with {@code &}. */
     static final String UTF8_CODE_PAGE_BOOTSTRAP = "chcp 65001>nul & ";
 
     public final String command;
