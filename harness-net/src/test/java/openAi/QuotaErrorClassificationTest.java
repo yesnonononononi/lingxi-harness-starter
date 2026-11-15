@@ -154,16 +154,19 @@ class QuotaErrorClassificationTest {
         assertTrue(failure.getMessage().contains("upstream gateway unavailable"), failure.getMessage());
     }
 
+    /** A rejected request body is explained once; the log line keeps as much of it as it wants. */
     @Test
-    void anthropicTruncatesAnEndlessErrorDetail() {
+    void anthropicKeepsAnEndlessErrorDetailWhole() {
         status.set(400);
+        String detail = "x".repeat(2000);
         body.set("{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\""
-                + "x".repeat(2000) + "\"}}");
+                + detail + "\"}}");
 
         NonRetriableModelException failure = assertThrows(NonRetriableModelException.class, this::anthropicCall);
 
-        assertTrue(failure.getMessage().endsWith("..."), "超长错误文本必须截断，日志不能被一条 400 撑爆");
-        assertTrue(failure.getMessage().length() < 400, failure.getMessage());
+        assertTrue(failure.getMessage().endsWith(detail), "错误文本必须原样带出，不在适配器里截断");
+        assertTrue(failure.getMessage().startsWith("Anthropic request failed with HTTP 400: "),
+                failure.getMessage());
     }
 
     @Test

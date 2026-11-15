@@ -34,9 +34,6 @@ public class AnthropicChatModel implements ChatModel, StreamingChatModel {
     private static final Set<String> QUOTA_ERROR_CODES = Set.of("insufficient_quota",
             "billing_error", "billing_hard_limit_reached");
 
-    /** How much of the provider's own words may reach an exception message. */
-    private static final int MAX_ERROR_DETAIL_LENGTH = 300;
-
     private final ModelConfig modelConfig;
     private final HttpClient httpClient;
     private final ObjectMapper JSON;
@@ -130,7 +127,7 @@ public class AnthropicChatModel implements ChatModel, StreamingChatModel {
      * The provider's error document, kept as evidence instead of being dropped after classification.
      *
      * <p>A body that is not an error document at all — a gateway page, a truncated read — is kept
-     * verbatim: that text is usually the whole explanation, and it costs one truncated line.</p>
+     * verbatim: that text is usually the whole explanation.</p>
      */
     private record ProviderError(String type, String code, String message, String raw) {
 
@@ -158,7 +155,12 @@ public class AnthropicChatModel implements ChatModel, StreamingChatModel {
             return isQuotaCode(code) || isQuotaCode(type);
         }
 
-        /** The exception message: the status, then the provider's own words whenever there are any. */
+        /**
+         * The exception message: the status, then the provider's own words whenever there are any.
+         *
+         * <p>Verbatim on purpose — a rejected request body is only ever explained once, and the log
+         * appender already handles how much of a line it keeps.</p>
+         */
         String describe(int status) {
             String detail = detail();
             String prefix = "Anthropic request failed with HTTP " + status;
@@ -167,16 +169,10 @@ public class AnthropicChatModel implements ChatModel, StreamingChatModel {
 
         private String detail() {
             String label = code != null ? code : type;
-            String detail = label == null ? message : message == null ? label : label + ": " + message;
-            return truncate(detail == null ? raw : detail);
+            if (label != null) return message == null ? label : label + ": " + message;
+            if (message != null) return message;
+            return raw == null ? "" : raw;
         }
-    }
-
-    private static String truncate(String value) {
-        if (value == null) return "";
-        String stripped = value.strip();
-        return stripped.length() <= MAX_ERROR_DETAIL_LENGTH
-                ? stripped : stripped.substring(0, MAX_ERROR_DETAIL_LENGTH) + "...";
     }
 
     private static boolean isQuotaCode(String candidate) {
