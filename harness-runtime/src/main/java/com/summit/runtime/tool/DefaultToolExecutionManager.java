@@ -188,16 +188,20 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
 
     /**
      * Rewrites each gateway call into the call of the remote tool it names (see {@link McpToolGateway}).
-     * Only a run that exposes the gateway gets its calls rewritten; an unresolvable or unexposed
-     * gateway call stays as it is and is answered by the gateway definition or rejected by admission.
+     * The gate is the one every static tool goes through: the registry holds the gateway and the
+     * request's whitelist names it. Without both, the call is not a call this run could have made, so
+     * it stays as it is and admission refuses it.
      */
     private ToolExecuteCommand unwrapGatewayCalls(ToolExecuteCommand command) {
         List<ToolCallRequest> requests = command.requests();
-        if (requests == null || requests.stream().noneMatch(request -> McpToolGateway.isGateway(request.name()))
-                || !McpToolGateway.admittedBy(command.allowedTools())) {
+        if (requests == null || requests.stream().noneMatch(request -> McpToolGateway.isGateway(request.name()))) {
             return command;
         }
         ToolRegistry registry = toolExecutionContext.toolRegistry();
+        ToolDefinition<?> gateway = registry.getTool(McpToolGateway.NAME);
+        if (gateway == null || !toolExecutionContext.allowToolExecution(gateway, command.allowedTools())) {
+            return command;
+        }
         return command.withRequests(requests.stream()
                 .map(request -> McpToolGateway.unwrap(request, command.mcpToolScope(), registry))
                 .toList());
@@ -208,12 +212,10 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
      * the tool belongs to this request's own {@link com.summit.core.mcp.McpToolScope} — a discovered
      * name cannot be written into a list authored before the servers were contacted, so scope
      * membership stands in for that entry. A {@code null} or empty whitelist admits no static tool.
-     * The gateway is admitted wherever it is exposed to the model.
      */
     private boolean admissible(ToolDefinition<?> tool, ToolExecuteCommand command) {
         return this.toolExecutionContext.allowToolExecution(tool, command.allowedTools())
-                || command.mcpToolScope().getTool(tool.name()) != null
-                || (McpToolGateway.isGateway(tool.name()) && McpToolGateway.admittedBy(command.allowedTools()));
+                || command.mcpToolScope().getTool(tool.name()) != null;
     }
 
 

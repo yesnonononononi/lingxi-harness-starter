@@ -7,7 +7,6 @@ import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.tool.ToolDefinition;
 import com.summit.core.tool.ToolRegistry;
 
-import java.util.List;
 import java.util.Objects;
 
 /**
@@ -29,7 +28,8 @@ import java.util.Objects;
  *
  * <p>Only a tool of the request's own {@link McpToolScope} can be named: a built-in is never reached
  * through the gateway, which keeps the gateway from turning into a way around the static
- * whitelist.</p>
+ * whitelist. The gateway itself is an ordinary registered definition — a run that wants remote tools
+ * names {@link #NAME} in its whitelist like any other tool.</p>
  */
 public final class McpToolGateway {
 
@@ -38,7 +38,7 @@ public final class McpToolGateway {
 
     /**
      * Name of the lookup entry that hands the model a remote tool's schema. The gateway is the call
-     * half of that lookup, so a run whose whitelist admits the lookup also sees the gateway.
+     * half of that lookup: a run names both, and neither implies the other.
      */
     public static final String DISCOVERY_TOOL = "search_tool";
 
@@ -63,14 +63,6 @@ public final class McpToolGateway {
 
     /** Why a gateway call names no callable remote tool; written for the model to correct itself. */
     public record Rejected(String reason) implements Resolution {
-    }
-
-    /** Whether the given request whitelist exposes the gateway: it names the gateway or the lookup entry. */
-    public static boolean admittedBy(List<String> whitelist) {
-        return whitelist != null && whitelist.stream()
-                .filter(Objects::nonNull)
-                .map(String::trim)
-                .anyMatch(name -> NAME.equals(name) || DISCOVERY_TOOL.equals(name));
     }
 
     public static boolean isGateway(String toolName) {

@@ -60,14 +60,14 @@ class ModelRequestFactoryVisibilityTest {
     }
 
     @Test
-    void theGatewayAppearsOnlyWhenTheWhitelistExposesIt() {
+    void theGatewayAppearsOnlyWhenTheWhitelistNamesIt() {
         Fixture fixture = new Fixture(List.of(gateway(), staticTool("static_tool")), List.of());
 
         assertEquals(Set.of(McpToolGateway.NAME), fixture.visible(List.of(McpToolGateway.NAME)));
-        assertEquals(Set.of(McpToolGateway.NAME), fixture.visible(List.of(McpToolGateway.DISCOVERY_TOOL)),
-                "the lookup entry is what makes remote tools reachable, so it exposes the gateway too");
         assertEquals(Set.of("static_tool"), fixture.visible(List.of("static_tool")),
-                "a run without the lookup cannot discover a name, so it gets no gateway");
+                "a run that never names the gateway cannot call remote tools");
+        assertEquals(Set.of("static_tool"), fixture.visible(List.of(McpToolGateway.DISCOVERY_TOOL, "static_tool")),
+                "the lookup entry is a tool of its own; it does not imply the gateway");
     }
 
     @Test
@@ -85,7 +85,7 @@ class ModelRequestFactoryVisibilityTest {
      */
     @Test
     void theToolListStaysByteIdenticalHoweverManyRemoteToolsTheRunDiscovers() {
-        List<String> whitelist = List.of(McpToolGateway.DISCOVERY_TOOL, "static_a", "static_b");
+        List<String> whitelist = List.of(McpToolGateway.NAME, "static_a", "static_b");
 
         String beforeLookup = fixture(List.of(remoteTool("mcp_one"))).wire(whitelist);
         String afterLookup = fixture(List.of(
@@ -101,7 +101,7 @@ class ModelRequestFactoryVisibilityTest {
     @Test
     void readingTheSameRunTwiceYieldsTheSameBytes() {
         Fixture fixture = fixture(List.of(remoteTool("mcp_one")));
-        List<String> whitelist = List.of(McpToolGateway.DISCOVERY_TOOL, "static_a");
+        List<String> whitelist = List.of(McpToolGateway.NAME, "static_a");
 
         assertEquals(fixture.wire(whitelist), fixture.wire(whitelist));
     }

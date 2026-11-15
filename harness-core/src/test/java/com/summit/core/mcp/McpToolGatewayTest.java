@@ -106,13 +106,13 @@ class McpToolGatewayTest {
     }
 
     @Test
-    void theGatewayIsExposedByNamingItOrTheLookupEntry() {
-        assertTrue(McpToolGateway.admittedBy(List.of(McpToolGateway.NAME)));
-        assertTrue(McpToolGateway.admittedBy(List.of(McpToolGateway.DISCOVERY_TOOL)));
-        assertTrue(McpToolGateway.admittedBy(List.of(" other ", McpToolGateway.DISCOVERY_TOOL)));
-        assertFalse(McpToolGateway.admittedBy(List.of("read_file")));
-        assertFalse(McpToolGateway.admittedBy(List.of()));
-        assertFalse(McpToolGateway.admittedBy(null), "an absent list admits nothing, like any other tool");
+    void theGatewayIsJustAnotherStaticName() {
+        // No implicit coupling to the lookup entry: whitelisting search_tool does not expose the
+        // gateway, and whitelisting the gateway does not expose the lookup.
+        assertTrue(McpToolGateway.isGateway(McpToolGateway.NAME));
+        assertFalse(McpToolGateway.isGateway(McpToolGateway.DISCOVERY_TOOL));
+        assertFalse(McpToolGateway.isGateway(null));
+        assertFalse(McpToolGateway.isGateway(" other "));
     }
 
     @Test

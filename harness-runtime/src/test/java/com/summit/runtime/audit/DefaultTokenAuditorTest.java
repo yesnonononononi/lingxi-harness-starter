@@ -344,7 +344,7 @@ class DefaultTokenAuditorTest {
         DefaultTokenAuditor auditor = new DefaultTokenAuditor(tokenizer,
                 AgentConfig.builder().maxTokens(1000).build(), new ToolRegistry(List.of(gateway)));
         Execution execution = execution(List.of(UserMessageEntity.from("task")));
-        execution.getAgentRequest().setToolList(List.of(McpToolGateway.DISCOVERY_TOOL));
+        execution.getAgentRequest().setToolList(List.of(McpToolGateway.NAME));
 
         TokenAuditDocument audit = auditor.analysis(execution);
 

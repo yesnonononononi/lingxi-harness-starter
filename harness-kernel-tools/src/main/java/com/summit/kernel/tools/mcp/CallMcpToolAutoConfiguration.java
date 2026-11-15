@@ -14,9 +14,9 @@ import org.springframework.context.annotation.Bean;
  *
  * <p>Registering it as a framework built-in rather than leaving it to each consumer is what keeps
  * the model-facing tool list constant: the gateway is one more static declaration, so looking a
- * remote tool up no longer adds a function to the next round's request. It is registered
- * unconditionally and hidden by the request whitelist like any other static tool, so a run with no
- * MCP servers simply never sees it.</p>
+ * remote tool up no longer adds a function to the next round's request. It is an ordinary static
+ * tool for the rest of the runtime: the request whitelist decides whether a run sees it, and a run
+ * that does not name it never calls remote tools.</p>
  *
  * <p>Its {@code concurrentPolicy} is serial on purpose: a remote tool's side effects are unknown,
  * and a batched gateway call would otherwise be admitted as read-only. A call that does resolve is

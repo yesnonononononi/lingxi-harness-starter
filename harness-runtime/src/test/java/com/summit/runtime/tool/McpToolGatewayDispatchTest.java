@@ -41,7 +41,7 @@ class McpToolGatewayDispatchTest {
         AtomicReference<ToolExecution> seen = new AtomicReference<>();
 
         try (Fixture fixture = new Fixture(scopeOf(remoteTool(REMOTE, "remote", seen)))) {
-            ToolExecuteResult result = fixture.run(List.of(McpToolGateway.DISCOVERY_TOOL),
+            ToolExecuteResult result = fixture.run(List.of(McpToolGateway.NAME),
                     gatewayCall("call-1", 0, "{\"name\":\"" + REMOTE + "\",\"arguments\":{\"q\":\"hello\"}}")).getFirst();
 
             assertEquals("remote:{\"q\":\"hello\"}", result.getToolOutput());
@@ -54,7 +54,7 @@ class McpToolGatewayDispatchTest {
     @Test
     void theCallerIdentitySurvivesTheRewriteOnEveryEvent() {
         try (Fixture fixture = new Fixture(scopeOf(remoteTool(REMOTE, "remote", new AtomicReference<>())))) {
-            ToolExecuteResult result = fixture.run(List.of(McpToolGateway.DISCOVERY_TOOL),
+            ToolExecuteResult result = fixture.run(List.of(McpToolGateway.NAME),
                     gatewayCall("call-9", 4, "{\"name\":\"" + REMOTE + "\",\"arguments\":{}}")).getFirst();
 
             assertEquals("call-9", result.getId());
@@ -78,7 +78,7 @@ class McpToolGatewayDispatchTest {
         try (Fixture fixture = new Fixture(scopeOf(
                 remoteTool("mcp_a", "a", new AtomicReference<>()),
                 remoteTool("mcp_b", "b", new AtomicReference<>())))) {
-            List<ToolExecuteResult> results = fixture.run(List.of(McpToolGateway.DISCOVERY_TOOL),
+            List<ToolExecuteResult> results = fixture.run(List.of(McpToolGateway.NAME),
                     gatewayCall("call-a", 0, "{\"name\":\"mcp_a\",\"arguments\":{}}"),
                     gatewayCall("call-b", 1, "{\"name\":\"mcp_b\",\"arguments\":{}}"));
 
@@ -106,11 +106,28 @@ class McpToolGatewayDispatchTest {
     }
 
     @Test
+    void namingOnlyTheLookupEntryDoesNotReachTheGateway() {
+        AtomicReference<ToolExecution> seen = new AtomicReference<>();
+
+        // Discovery and calling are two separate names: whitelisting the lookup allows looking a tool
+        // up, not calling it. Nothing here implies the other.
+        try (Fixture fixture = new Fixture(scopeOf(remoteTool(REMOTE, "remote", seen)))) {
+            ToolExecuteResult result = fixture.run(List.of(McpToolGateway.DISCOVERY_TOOL),
+                    gatewayCall("call-1", 0, "{\"name\":\"" + REMOTE + "\",\"arguments\":{}}")).getFirst();
+
+            assertTrue(result.getToolOutput().startsWith("Tool '" + GATEWAY + "' is not allowed"),
+                    result.getToolOutput());
+            assertNull(seen.get(), "the lookup entry must not become a way to call a remote tool");
+            assertEquals(0, fixture.gatewayCalls.get());
+        }
+    }
+
+    @Test
     void anUnresolvableNameIsAnsweredByTheGatewayDefinition() {
         try (Fixture fixture = new Fixture(McpToolScope.EMPTY)) {
             String envelope = "{\"name\":\"mcp_missing\",\"arguments\":{}}";
 
-            ToolExecuteResult result = fixture.run(List.of(McpToolGateway.DISCOVERY_TOOL),
+            ToolExecuteResult result = fixture.run(List.of(McpToolGateway.NAME),
                     gatewayCall("call-1", 0, envelope)).getFirst();
 
             assertEquals("gateway saw the raw envelope", result.getToolOutput(),
