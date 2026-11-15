@@ -13,6 +13,7 @@ import com.summit.core.tool.ToolDefinition;
 import com.summit.runtime.context.RuntimeContext;
 import com.summit.runtime.tool.ModelToolVisibility;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.time.Duration;
 import java.util.List;
@@ -24,6 +25,7 @@ import java.util.function.Supplier;
 /**
  * Assembles the {@link ModelChatCommand} of one loop round: the conversation so far, the tools the model may see under the current whitelist, and — for streaming executions — the handler that turns model deltas into runtime events.
  */
+@Slf4j
 @RequiredArgsConstructor
 public class ModelRequestFactory {
 
@@ -116,10 +118,14 @@ public class ModelRequestFactory {
                     return false;
                 },
                 retryContext -> {
+                    ModelChatCommand failed = currentAttempt.get();
+                    String failedResponseId = failed != null ? failed.responseId() : command.responseId();
+                    log.warn("retrying model invocation: executionId={}, responseId={}, retryCount={}/{}, delayMs={}",
+                            command.executionId(), failedResponseId, retryContext.retryCount(),
+                            settings.getMaxRetries(), retryContext.delay());
                     if (command.runtimeEventPublisher() != null) {
-                        ModelChatCommand failed = currentAttempt.get();
                         command.runtimeEventPublisher().onInvokeRetry(InvokeRetryEvent.builder()
-                                .executionId(command.executionId()).responseId(failed.responseId())
+                                .executionId(command.executionId()).responseId(failedResponseId)
                                 .metaData(command.eventMetaData()).retryCount(retryContext.retryCount())
                                 .retryDelay(retryContext.delay()).timeUnit(retryContext.timeUnit()).build());
                     }

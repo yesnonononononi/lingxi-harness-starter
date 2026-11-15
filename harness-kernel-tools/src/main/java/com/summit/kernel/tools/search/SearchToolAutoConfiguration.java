@@ -20,7 +20,8 @@ import org.springframework.context.annotation.Bean;
  * {@code @ConditionalOnMissingBean} keeps it replaceable — an application that wants a different
  * lookup policy declares its own {@code searchToolDefinition} and this one backs off. That
  * implementation must keep {@link SearchToolExecutor#NAME} as its tool name, since the model's
- * prompt refers to it by that name and it is what exposes the call gateway.</p>
+ * prompt refers to it by that name. It authorizes nothing beyond itself: calling a remote tool is
+ * {@code call_mcp_tool}, an entry of its own.</p>
  *
  * <p>Deliberately no ordering against the registry: the definition is collected through
  * {@code ObjectProvider} at call time, so it does not matter whether the registry is built before or
