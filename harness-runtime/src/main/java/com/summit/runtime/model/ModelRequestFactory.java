@@ -5,7 +5,6 @@ import com.summit.core.conf.ModelRetryConfig;
 import com.summit.core.conversation.api.ChatRequestEntity;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.event.InvokeRetryEvent;
-import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.model.ModelChatCommand;
 import com.summit.core.model.ModelInvocationUsage;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
@@ -133,7 +132,8 @@ public class ModelRequestFactory {
      */
     private StreamingModelResponseBehaveDecider streamingHandler(Execution execution, ExecutionControlSignal control,
                                                                 String responseId, ModelInvocationUsage invocationUsage) {
-        return new StreamingModelResponseBehaveDecider(context.getRuntimeEventPublisher(),
+        return new StreamingModelResponseBehaveDecider(
+                context.getRuntimeEventPublisher(),
                 StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
                         .executionId(execution.getId())
                         .agentId(execution.getAgentId())

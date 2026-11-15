@@ -7,15 +7,19 @@ import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.conf.ModelRetryConfig;
 import com.summit.core.conversation.api.ChatRequestEntity;
 import com.summit.core.conversation.api.ChatResponseEntity;
+import com.summit.core.conversation.event.InvokeRetryEvent;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
+import com.summit.core.exception.ResponseTimeoutException;
 import com.summit.core.model.ModelChatCommand;
 import com.summit.core.model.ModelInvocationUsage;
 import com.summit.core.model.image.ImageGenerationOptions;
 import com.summit.core.model.image.ImageModel;
+import com.summit.core.model.streaming.StreamingHandler;
 import com.summit.core.exception.RetriableModelException;
+import com.summit.core.runtime.RuntimeListener;
 import com.summit.runtime.loop.BoundaryChecker;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.conversation.DefaultTokenizer;
@@ -36,7 +40,9 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -44,9 +50,11 @@ import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ModelInvocationAttemptTest {
     @Test
@@ -206,6 +214,145 @@ class ModelInvocationAttemptTest {
         assertEquals(1, calls.get());
     }
 
+    @Test
+    void streamingIdleTimeoutTriggersRetryAndDisposesResources() throws Exception {
+        List<InvokeRetryEvent> retryEvents = new ArrayList<>();
+        RuntimeListener listener = new RuntimeListener() {
+            @Override
+            public int order() { return 0; }
+
+            @Override
+            public void onInvokeRetry(InvokeRetryEvent event) {
+                retryEvents.add(event);
+            }
+        };
+        Fixture fixture = new Fixture(true, retrySettings(1), listener);
+        List<ModelChatCommand> commands = new ArrayList<>();
+        List<RecordingTransport> transports = new ArrayList<>();
+        AtomicInteger calls = new AtomicInteger();
+
+        DefaultStreamingModelInvoker invoker = new DefaultStreamingModelInvoker((request, handler) -> {
+            RecordingTransport transport = new RecordingTransport();
+            transports.add(transport);
+            int attempt = calls.incrementAndGet();
+            handler.onStreamStart(transport);
+            if (attempt == 1) {
+                handler.onPartialResponse("partial-before-stall", transport);
+                return;
+            }
+            handler.onFinalResponse(response());
+        });
+
+        ChatResponseEntity result = invoker.invoke(
+                streamingAttemptsWithTimeout(fixture, commands, Duration.ofMillis(80), Duration.ofMillis(20)));
+
+        assertEquals(2, calls.get());
+        assertEquals("2", result.getResponseId());
+        assertEquals(1, retryEvents.size());
+        assertEquals("1", retryEvents.getFirst().getResponseId());
+
+        assertTrue(transports.get(0).awaitCancel(2, TimeUnit.SECONDS));
+        assertEquals(1, transports.get(0).cancelCount());
+        assertEquals(0, transports.get(1).cancelCount());
+        assertFalse(handler(commands.get(0)).getWatchDog().isRunning());
+        assertFalse(handler(commands.get(1)).getWatchDog().isRunning());
+    }
+
+    @Test
+    void streamingIdleTimeoutExhaustsRetriesAndDisposesAllAttemptResources() throws Exception {
+        Fixture fixture = new Fixture(true, retrySettings(1));
+        List<ModelChatCommand> commands = new ArrayList<>();
+        List<RecordingTransport> transports = new ArrayList<>();
+        AtomicInteger calls = new AtomicInteger();
+
+        DefaultStreamingModelInvoker invoker = new DefaultStreamingModelInvoker((request, handler) -> {
+            RecordingTransport transport = new RecordingTransport();
+            transports.add(transport);
+            calls.incrementAndGet();
+            handler.onStreamStart(transport);
+        });
+
+        CompletionException thrown = assertThrows(CompletionException.class, () -> invoker.invoke(
+                streamingAttemptsWithTimeout(fixture, commands, Duration.ofMillis(60), Duration.ofMillis(15))));
+
+        assertInstanceOf(ResponseTimeoutException.class, thrown.getCause());
+        assertEquals(2, calls.get());
+        assertEquals(2, transports.size());
+        for (int index = 0; index < transports.size(); index++) {
+            assertTrue(transports.get(index).awaitCancel(2, TimeUnit.SECONDS));
+            assertEquals(1, transports.get(index).cancelCount());
+            assertFalse(handler(commands.get(index)).getWatchDog().isRunning());
+        }
+    }
+
+    private static Supplier<ModelChatCommand> streamingAttemptsWithTimeout(
+            Fixture fixture,
+            List<ModelChatCommand> commands,
+            Duration activeWindow,
+            Duration heartbeatInterval) {
+        Supplier<ModelChatCommand> base = fixture.factory.buildAttempts(
+                fixture.execution, List.of("later-tool"),
+                new ExecutionControlSignal(fixture.execution.getId()), new ModelInvocationUsage());
+        return () -> {
+            ModelChatCommand original = base.get();
+            StreamingModelResponseBehaveDecider originalHandler =
+                    (StreamingModelResponseBehaveDecider) original.streamingChatResponseHandler();
+            StreamingModelResponseBehaveDecider customHandler = new StreamingModelResponseBehaveDecider(
+                    original.runtimeEventPublisher(),
+                    StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
+                            .executionId(originalHandler.getStreamingResponseContext().executionId())
+                            .agentId(originalHandler.getStreamingResponseContext().agentId())
+                            .responseId(originalHandler.getStreamingResponseContext().responseId())
+                            .eventMetaData(originalHandler.getStreamingResponseContext().eventMetaData())
+                            .invocationUsage(originalHandler.getStreamingResponseContext().invocationUsage())
+                            .future(new CompletableFuture<>())
+                            .build(),
+                    original.signal(),
+                    activeWindow,
+                    heartbeatInterval);
+            ModelChatCommand wrapped = ModelChatCommand.builder()
+                    .executionId(original.executionId())
+                    .responseId(original.responseId())
+                    .chatRequest(original.chatRequest())
+                    .signal(original.signal())
+                    .streamingChatResponseHandler(customHandler)
+                    .streaming(original.streaming())
+                    .thinking(original.thinking())
+                    .runtimeEventPublisher(original.runtimeEventPublisher())
+                    .retryConfig(original.retryConfig())
+                    .invocationUsage(original.invocationUsage())
+                    .beforeAttempt(original.beforeAttempt())
+                    .eventMetaData(original.eventMetaData())
+                    .build();
+            commands.add(wrapped);
+            return wrapped;
+        };
+    }
+
+    private static final class RecordingTransport implements StreamingHandler {
+        private final AtomicInteger cancelCount = new AtomicInteger();
+        private final CountDownLatch cancelled = new CountDownLatch(1);
+
+        @Override
+        public void cancel() {
+            cancelCount.incrementAndGet();
+            cancelled.countDown();
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return cancelCount.get() > 0;
+        }
+
+        boolean awaitCancel(long timeout, TimeUnit unit) throws InterruptedException {
+            return cancelled.await(timeout, unit);
+        }
+
+        int cancelCount() {
+            return cancelCount.get();
+        }
+    }
+
     private static ModelRetryConfig retrySettings(int retries) {
         return ModelRetryConfig.builder().enabled(true).maxRetries(retries)
                 .initialDelay(Duration.ZERO).maxDelay(Duration.ZERO).build();
@@ -225,7 +372,7 @@ class ModelInvocationAttemptTest {
         private final ToolRegistry registry = new ToolRegistry(List.of());
         private final ModelRequestFactory factory;
 
-        private Fixture(boolean streaming, ModelRetryConfig retryConfig) {
+        private Fixture(boolean streaming, ModelRetryConfig retryConfig, RuntimeListener... listeners) {
             AgentRequest request = AgentRequest.builder()
                     .contextSpec(ContextSpec.builder()
                             .context(List.of(UserMessageEntity.from("original input")))
@@ -241,7 +388,7 @@ class ModelInvocationAttemptTest {
             };
             factory = new ModelRequestFactory(RuntimeContext.builder()
                     .conversationManager(new DefaultConversationManager(ContextAttachmentProvider.NONE))
-                    .toolExecutionManager(tools).runtimeEventPublisher(new RuntimeEventPublisher(List.of()))
+                    .toolExecutionManager(tools).runtimeEventPublisher(new RuntimeEventPublisher(List.of(listeners)))
                     .runtimeBoundaryChecker(new BoundaryChecker(AgentConfig.builder().maxIterations(10).build(),
                             new DefaultTokenizer(), new DefaultConversationManager(ContextAttachmentProvider.NONE), null, null, null, null))
                     .responseIdGenerator(previous -> Integer.toString(ids.incrementAndGet())).build());

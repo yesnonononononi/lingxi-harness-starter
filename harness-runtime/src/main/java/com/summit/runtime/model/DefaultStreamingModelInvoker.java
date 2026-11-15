@@ -7,7 +7,6 @@ import com.summit.core.model.streaming.StreamingChatModel;
 import com.summit.core.runtime.loop.suspension.ExecutionInterruptedException;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
-
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CancellationException;
@@ -41,7 +40,7 @@ public class DefaultStreamingModelInvoker extends AbstractInvoker {
         CompletableFuture<ChatResponseEntity> future = handler.getStreamingResponseContext().future();
 
         while (true) {
-            handler.checkInterruption();
+            handler.interruptIfRequested();
             try {
                 ChatResponseEntity response = future.get(100, TimeUnit.MILLISECONDS);
                 response.setResponseId(chatCommand.responseId());
@@ -50,7 +49,7 @@ public class DefaultStreamingModelInvoker extends AbstractInvoker {
                 // Observe control even while the provider emits no deltas.
             } catch (InterruptedException error) {
                 Thread.currentThread().interrupt();
-                handler.checkInterruption();
+                handler.interruptIfRequested();
                 throw new ExecutionInterruptedException(ExecutionInterruptedException.Kind.CANCEL, "model invocation interrupted");
             } catch (CancellationException error) {
                 handler.interrupt(ExecutionInterruptedException.Kind.CANCEL);

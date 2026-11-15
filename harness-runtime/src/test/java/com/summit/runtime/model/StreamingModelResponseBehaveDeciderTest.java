@@ -9,6 +9,7 @@ import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.conversation.event.ToolCallPrepareEvent;
 import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;
+import com.summit.core.exception.ResponseTimeoutException;
 import com.summit.core.json.ExecutionJson;
 import com.summit.core.model.streaming.StreamingHandler;
 import com.summit.core.runtime.RuntimeListener;
@@ -16,11 +17,15 @@ import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.loop.suspension.ExecutionInterruptedException;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -330,6 +335,129 @@ class StreamingModelResponseBehaveDeciderTest {
         assertEquals(1, transport.cancelCount());
     }
 
+    @Test
+    void idleTimeoutCompletesFutureWithReadableMessageAndCancelsTransportAsynchronously() throws Exception {
+        CompletableFuture<ChatResponseEntity> future = new CompletableFuture<>();
+        StreamingModelResponseBehaveDecider handler = new StreamingModelResponseBehaveDecider(
+                new RuntimeEventPublisher(List.of()),
+                StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
+                        .executionId("execution-1")
+                        .agentId("chatAgent")
+                        .responseId("1234567890123456789")
+                        .future(future)
+                        .build(),
+                null,
+                Duration.ofMillis(80),
+                Duration.ofMillis(20));
+        RecordingTransport transport = new RecordingTransport();
+
+        handler.onStreamStart(transport);
+
+        ExecutionException thrown = assertThrows(ExecutionException.class,
+                () -> future.get(2, TimeUnit.SECONDS));
+        ResponseTimeoutException timeout = assertInstanceOf(ResponseTimeoutException.class, thrown.getCause());
+        assertNotNull(timeout.getMessage());
+        assertTrue(timeout.getMessage().contains("Streaming response idle timeout"));
+        assertTrue(timeout.getMessage().contains("activeWindow=80 ms"));
+        assertTrue(timeout.getMessage().contains("executionId=execution-1"));
+        assertTrue(timeout.getMessage().contains("responseId=1234567890123456789"));
+        assertTrue(transport.awaitCancel(2, TimeUnit.SECONDS));
+        assertEquals(1, transport.cancelCount());
+    }
+
+    @Test
+    void blockingCancelOnOneStreamDoesNotStallOtherConcurrentStreams() throws Exception {
+        CountDownLatch cancelEntered = new CountDownLatch(1);
+        CountDownLatch releaseCancel = new CountDownLatch(1);
+        CompletableFuture<ChatResponseEntity> futureA = new CompletableFuture<>();
+        CompletableFuture<ChatResponseEntity> futureB = new CompletableFuture<>();
+
+        StreamingModelResponseBehaveDecider deciderA = new StreamingModelResponseBehaveDecider(
+                new RuntimeEventPublisher(List.of()),
+                StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
+                        .executionId("exec-a")
+                        .agentId("chatAgent")
+                        .responseId("resp-a")
+                        .future(futureA)
+                        .build(),
+                null,
+                Duration.ofMillis(50),
+                Duration.ofMillis(15));
+        StreamingModelResponseBehaveDecider deciderB = new StreamingModelResponseBehaveDecider(
+                new RuntimeEventPublisher(List.of()),
+                StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
+                        .executionId("exec-b")
+                        .agentId("chatAgent")
+                        .responseId("resp-b")
+                        .future(futureB)
+                        .build(),
+                null,
+                Duration.ofMillis(70),
+                Duration.ofMillis(15));
+
+        StreamingHandler blockingTransport = new StreamingHandler() {
+            @Override
+            public void cancel() {
+                cancelEntered.countDown();
+                try {
+                    releaseCancel.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+
+            @Override
+            public boolean isCancelled() {
+                return cancelEntered.getCount() == 0;
+            }
+        };
+        RecordingTransport fastTransport = new RecordingTransport();
+
+        try {
+            deciderA.onStreamStart(blockingTransport);
+            deciderB.onStreamStart(fastTransport);
+
+            assertTrue(cancelEntered.await(2, TimeUnit.SECONDS));
+            ExecutionException thrownA = assertThrows(ExecutionException.class,
+                    () -> futureA.get(2, TimeUnit.SECONDS));
+            assertInstanceOf(ResponseTimeoutException.class, thrownA.getCause());
+
+            ExecutionException thrownB = assertThrows(ExecutionException.class,
+                    () -> futureB.get(2, TimeUnit.SECONDS));
+            assertInstanceOf(ResponseTimeoutException.class, thrownB.getCause());
+            assertTrue(fastTransport.awaitCancel(2, TimeUnit.SECONDS));
+        } finally {
+            releaseCancel.countDown();
+        }
+    }
+
+    @Test
+    void partialActivityKeepsStreamAlivePastActiveWindow() throws Exception {
+        CompletableFuture<ChatResponseEntity> future = new CompletableFuture<>();
+        StreamingModelResponseBehaveDecider handler = new StreamingModelResponseBehaveDecider(
+                new RuntimeEventPublisher(List.of()),
+                StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
+                        .executionId("execution-1")
+                        .agentId("chatAgent")
+                        .responseId("1234567890123456789")
+                        .future(future)
+                        .build(),
+                null,
+                Duration.ofMillis(120),
+                Duration.ofMillis(20));
+        RecordingTransport transport = new RecordingTransport();
+
+        handler.onStreamStart(transport);
+        for (int i = 0; i < 4; i++) {
+            Thread.sleep(45);
+            handler.onPartialResponse("chunk-" + i, transport);
+        }
+        handler.onFinalResponse(response("completed"));
+
+        assertEquals("completed", future.get(1, TimeUnit.SECONDS).getAiMessageEntity().text());
+        assertEquals(0, transport.cancelCount());
+    }
+
     private static ChatResponseEntity response(String text) {
         return ChatResponseEntity.builder()
                 .aiMessageEntity(AiMessageEntity.builder().text(text).build())
@@ -354,20 +482,26 @@ class StreamingModelResponseBehaveDeciderTest {
 
     /** 传输层取消句柄的替身：只记录是否被要求关闭、以及被要求了几次。 */
     private static final class RecordingTransport implements StreamingHandler {
-        private int cancelCount;
+        private final AtomicInteger cancelCount = new AtomicInteger();
+        private final CountDownLatch cancelled = new CountDownLatch(1);
 
         @Override
         public void cancel() {
-            cancelCount++;
+            cancelCount.incrementAndGet();
+            cancelled.countDown();
         }
 
         @Override
         public boolean isCancelled() {
-            return cancelCount > 0;
+            return cancelCount.get() > 0;
+        }
+
+        boolean awaitCancel(long timeout, TimeUnit unit) throws InterruptedException {
+            return cancelled.await(timeout, unit);
         }
 
         int cancelCount() {
-            return cancelCount;
+            return cancelCount.get();
         }
     }
 
