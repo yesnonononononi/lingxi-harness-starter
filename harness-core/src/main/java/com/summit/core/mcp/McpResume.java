@@ -6,7 +6,8 @@ package com.summit.core.mcp;
  *
  * <p>A résumé, not a definition: neither the tools nor their parameter schemas appear in the
  * prompt. The first level of progressive disclosure publishes these counts, {@code list_mcp_tools}
- * turns a count into tool names and descriptions, and {@code search_tool} returns one schema.</p>
+ * turns a count into tool names and descriptions, {@code search_tool} returns one schema, and
+ * {@code call_mcp_tool} calls it.</p>
  *
  * @param name        server name as declared by the request configuration
  * @param description the {@code instructions} the server returned while initializing, or an empty

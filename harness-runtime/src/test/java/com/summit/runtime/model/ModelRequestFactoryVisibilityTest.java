@@ -1,5 +1,9 @@
 package com.summit.runtime.model;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
@@ -9,6 +13,7 @@ import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.mcp.McpSession;
+import com.summit.core.mcp.McpToolGateway;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.model.ModelChatCommand;
 import com.summit.core.runtime.loop.LoopMessages;
@@ -18,42 +23,51 @@ import com.summit.runtime.context.RuntimeContext;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Model-visible tools = whitelisted static tools ∪ the request's <em>disclosed</em> MCP tools.
+ * Model-visible tools = the whitelisted static tools, plus the gateway when the whitelist exposes
+ * it — and nothing else. The request's MCP scope contributes no declaration of its own.
  *
- * <p>The whitelist is an allow-list with no implicit default: {@code null} and empty both admit no
- * static tool. Remote tools take the other road — they are never declared just for existing. A
- * request's MCP tools stay out of the tool list until the search entry has handed the model their
- * definitions and recorded them on the scope, so "discovered" and "offered to the model" are two
- * different states, and this class pins the difference.</p>
+ * <p>The tool list sits at the head of the prompt, so anything that moves it in the middle of a run
+ * invalidates the provider's prefix cache and the signatures bound to it. Remote tools are therefore
+ * reached through {@link McpToolGateway}: looking one up hands the model a schema in a message, and
+ * the declaration at the head of the prompt stays byte-identical for the whole run. This class pins
+ * both halves — what may appear, and that it never changes.</p>
  */
 class ModelRequestFactoryVisibilityTest {
 
+    private static final ObjectMapper JSON = new ObjectMapper();
+
     @Test
-    void undiscoveredRemoteToolsAreNeverDeclared() {
-        Fixture fixture = new Fixture(List.of(staticTool("static_tool")), List.of(remoteTool("mcp_remote")));
+    void noRemoteToolIsEverDeclaredHoweverManyTheScopeHolds() {
+        Fixture fixture = new Fixture(List.of(staticTool("static_tool")),
+                List.of(remoteTool("mcp_remote"), remoteTool("mcp_other")));
 
         assertEquals(Set.of(), fixture.visible(null),
-                "a remote tool nobody asked for must not be declared");
+                "an unnamed run declares nothing, remote or not");
         assertEquals(Set.of(), fixture.visible(List.of()),
                 "an empty whitelist admits no static tool either");
+        assertEquals(Set.of("static_tool"), fixture.visible(List.of("static_tool")),
+                "a remote tool is never declared, not even next to its own server");
     }
 
     @Test
-    void disclosedRemoteToolIsDeclaredEvenThoughNoListCouldHaveNamedIt() {
-        Fixture fixture = new Fixture(List.of(staticTool("static_tool")), List.of(remoteTool("mcp_remote")));
+    void theGatewayAppearsOnlyWhenTheWhitelistExposesIt() {
+        Fixture fixture = new Fixture(List.of(gateway(), staticTool("static_tool")), List.of());
 
-        fixture.scope.disclose(List.of("mcp_remote"));
-
-        assertEquals(Set.of("mcp_remote"), fixture.visible(null));
-        assertEquals(Set.of("mcp_remote"), fixture.visible(List.of()),
-                "disclosure is independent of the static whitelist");
+        assertEquals(Set.of(McpToolGateway.NAME), fixture.visible(List.of(McpToolGateway.NAME)));
+        assertEquals(Set.of(McpToolGateway.NAME), fixture.visible(List.of(McpToolGateway.DISCOVERY_TOOL)),
+                "the lookup entry is what makes remote tools reachable, so it exposes the gateway too");
+        assertEquals(Set.of("static_tool"), fixture.visible(List.of("static_tool")),
+                "a run without the lookup cannot discover a name, so it gets no gateway");
     }
 
     @Test
@@ -64,39 +78,36 @@ class ModelRequestFactoryVisibilityTest {
         assertEquals(Set.of("static_tool"), fixture.visible(List.of("static_tool")));
     }
 
+    /**
+     * The point of the whole design: discovery writes to the conversation, never to the tool list.
+     * Compared as serialized wire content, because equal lists of equal records can still differ in
+     * what the provider receives.
+     */
     @Test
-    void disclosureOfANameTheScopeDoesNotHoldIsIgnored() {
-        Fixture fixture = new Fixture(List.of(staticTool("static_tool")), List.of(remoteTool("mcp_remote")));
+    void theToolListStaysByteIdenticalHoweverManyRemoteToolsTheRunDiscovers() {
+        List<String> whitelist = List.of(McpToolGateway.DISCOVERY_TOOL, "static_a", "static_b");
 
-        // The search entry matches over the registry and the scope together and does not sort the
-        // hits by origin, so static names land here too.
-        fixture.scope.disclose(List.of("static_tool", "mcp_absent"));
+        String beforeLookup = fixture(List.of(remoteTool("mcp_one"))).wire(whitelist);
+        String afterLookup = fixture(List.of(
+                remoteTool("mcp_one"), remoteTool("mcp_two"), remoteTool("mcp_three"))).wire(whitelist);
 
-        assertEquals(Set.of(), fixture.visible(null),
-                "neither a static name nor an unknown one may widen the remote slice");
+        assertEquals(beforeLookup, afterLookup,
+                "more discovered tools must not move the head of the prompt");
+        assertTrue(beforeLookup.contains(McpToolGateway.NAME),
+                "the gateway is what makes the remote tools reachable at all");
     }
 
+    /** The same run read twice returns the same bytes: the declaration carries no per-round state. */
     @Test
-    void aRunWithNoMcpServerOfItsOwnExposesNothingWhenUnnamed() {
-        Fixture fixture = new Fixture(List.of(staticTool("static_tool")), List.of());
+    void readingTheSameRunTwiceYieldsTheSameBytes() {
+        Fixture fixture = fixture(List.of(remoteTool("mcp_one")));
+        List<String> whitelist = List.of(McpToolGateway.DISCOVERY_TOOL, "static_a");
 
-        assertEquals(Set.of(), fixture.visible(null));
-        assertEquals(Set.of(), fixture.visible(List.of()));
+        assertEquals(fixture.wire(whitelist), fixture.wire(whitelist));
     }
 
-    /** A request-level tool can never shadow a framework built-in of the same name. */
-    @Test
-    void staticToolWinsOnNameCollision() {
-        Fixture fixture = new Fixture(List.of(tool("shared", "static")), List.of(tool("shared", "remote")));
-        fixture.scope.disclose(List.of("shared"));
-
-        Map<String, ToolDefinition<?>> tools = fixture.visibleTools(List.of("shared"));
-
-        assertEquals(1, tools.size());
-        assertEquals("static", tools.get("shared").description(),
-                "the registry layer is put in first, so the remote one must not displace it");
-        assertEquals(tools, fixture.visibleTools(List.of()),
-                "disclosure admits the name even when the winning definition is outside the whitelist");
+    private static Fixture fixture(List<ToolDefinition<?>> remoteTools) {
+        return new Fixture(List.of(gateway(), staticTool("static_a"), staticTool("static_b")), remoteTools);
     }
 
     /** One static registry plus one request scope, with both layers passed in explicitly. */
@@ -113,16 +124,32 @@ class ModelRequestFactoryVisibilityTest {
         }
 
         private Set<String> visible(List<String> whitelist) {
-            return new java.util.LinkedHashSet<>(visibleTools(whitelist).keySet());
+            return new LinkedHashSet<>(visibleTools(whitelist).keySet());
         }
 
         private Map<String, ToolDefinition<?>> visibleTools(List<String> whitelist) {
             ModelChatCommand command = factory().build(execution(whitelist), whitelist, "1234567890123456789", null);
-            Map<String, ToolDefinition<?>> visible = new java.util.LinkedHashMap<>();
+            Map<String, ToolDefinition<?>> visible = new LinkedHashMap<>();
             for (ToolDefinition<?> tool : command.chatRequest().getTools()) {
                 visible.put(tool.name(), tool);
             }
             return visible;
+        }
+
+        /** The three declaration fields the provider actually receives, in list order. */
+        private String wire(List<String> whitelist) {
+            ArrayNode node = JSON.createArrayNode();
+            for (ToolDefinition<?> tool : visibleTools(whitelist).values()) {
+                ObjectNode item = node.addObject();
+                item.put("name", tool.name());
+                item.put("description", tool.description());
+                item.put("parameters", tool.parametersJsonSchema());
+            }
+            try {
+                return JSON.writeValueAsString(node);
+            } catch (JsonProcessingException impossible) {
+                throw new IllegalStateException("a JSON tree must serialize", impossible);
+            }
         }
 
         private ModelRequestFactory factory() {
@@ -180,6 +207,10 @@ class ModelRequestFactoryVisibilityTest {
                 .build();
     }
 
+    private static ToolDefinition<?> gateway() {
+        return tool(McpToolGateway.NAME, "the gateway");
+    }
+
     private static ToolDefinition<?> staticTool(String name) {
         return tool(name, "static");
     }
@@ -192,6 +223,7 @@ class ModelRequestFactoryVisibilityTest {
         return ToolDefinition.builder()
                 .id(name).name(name).timeout(5L).maxOutput(100)
                 .description(origin)
+                .parametersJsonSchema("{\"type\":\"object\"}")
                 .executor(execution -> ToolExecuteResult.success("ok"))
                 .build();
     }

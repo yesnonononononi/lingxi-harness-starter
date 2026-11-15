@@ -18,7 +18,7 @@ import com.summit.core.conversation.message.ToolMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.conversation.message.content.ImageContent;
 import com.summit.core.conversation.message.content.PdfFileContent;
-import com.summit.core.mcp.McpSession;
+import com.summit.core.mcp.McpToolGateway;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.tool.ConcurrentPolicy;
 import com.summit.core.tool.ToolDefinition;
@@ -168,14 +168,20 @@ class DefaultTokenAuditorTest {
 
     @Test
     void definitionLookupFailureDoesNotDiscardMemoryAndAttachmentDetails() {
+        // getToolDefinitionList is the one call that can fail here; a broken registry must fail the
+        // two definition buckets without discarding the rest of the report.
+        ToolRegistry failing = new ToolRegistry(List.of()) {
+            @Override
+            public List<ToolDefinition<? extends ToolExecutor>> getToolDefinitionList() {
+                throw new IllegalStateException("registry unavailable");
+            }
+        };
         DefaultTokenAuditor auditor = new DefaultTokenAuditor(new DefaultTokenizer(),
-                AgentConfig.builder().maxTokens(1000).build(), new ToolRegistry(List.of()),
-                (java.util.function.Function<Execution, List<ToolDefinition<?>>>) execution -> {
-                    throw new IllegalStateException("MCP unavailable");
-                });
+                AgentConfig.builder().maxTokens(1000).build(), failing);
 
         var audit = assertDoesNotThrow(() -> auditor.analysis(execution(List.of())));
 
+        assertEquals(AuditStatus.FAILED, audit.otherTokens().toolDefinitionTokens().getStatus());
         assertEquals(AuditStatus.FAILED, audit.otherTokens().mcpToolDefinitionTokens().getStatus());
         assertCount(audit.otherTokens().memoryTokens(), 0);
         assertCount(audit.otherTokens().attachmentTokens(), 0);
@@ -307,7 +313,7 @@ class DefaultTokenAuditorTest {
         ToolDefinition<ToolExecutor> excluded = definition("excluded");
         DefaultTokenAuditor auditor = new DefaultTokenAuditor(tokenizer,
                 AgentConfig.builder().maxTokens(1000).build(),
-                new ToolRegistry(List.of(allowed, excluded)), McpToolScope.EMPTY);
+                new ToolRegistry(List.of(allowed, excluded)));
         Execution execution = execution(List.of(UserMessageEntity.from("long history ".repeat(1000))));
         execution.getAgentRequest().setToolList(List.of("lookup"));
 
@@ -326,59 +332,29 @@ class DefaultTokenAuditorTest {
         assertEquals(0, auditor.analysis(execution).otherTokens().toolDefinitionTokens().getTokenMeta());
     }
 
+    /**
+     * The gateway is an ordinary static definition: exposed by the lookup entry's whitelist, billed
+     * exactly like any other tool, while the remote bucket stays empty — a remote tool's schema is
+     * paid for inside a lookup result, i.e. in the tool messages.
+     */
     @Test
-    void countsOnlyDisclosedMcpDefinitions() {
-        ToolDefinition<ToolExecutor> disclosed = definition("mcp_visible");
-        ToolDefinition<ToolExecutor> undisclosed = definition("mcp_hidden");
-        McpSession session = new McpSession() {
-            @Override
-            public String name() { return "audit-server"; }
-
-            @Override
-            public List<ToolDefinition<? extends ToolExecutor>> tools() {
-                return List.of(disclosed, undisclosed);
-            }
-
-            @Override
-            public void close() { }
-        };
+    void theGatewayIsCountedAsAStaticDefinitionAndRemoteToolsAreNotBilledAsDefinitions() {
+        ToolDefinition<ToolExecutor> gateway = definition(McpToolGateway.NAME);
         DefaultTokenizer tokenizer = new DefaultTokenizer(new OpenAiTokenizer());
-        try (McpToolScope scope = McpToolScope.of(List.of(session))) {
-            scope.disclose(List.of(disclosed.name()));
-            DefaultTokenAuditor auditor = new DefaultTokenAuditor(tokenizer,
-                    AgentConfig.builder().maxTokens(1000).build(), new ToolRegistry(List.of()), scope);
-
-            TokenAuditDocument audit = auditor.analysis(execution(List.of(UserMessageEntity.from("task"))));
-
-            int expected = tokenizer.count(List.of(), List.of(disclosed));
-            assertEquals(0, audit.otherTokens().toolDefinitionTokens().getTokenMeta());
-            assertEquals(AuditStatus.SUCCESS, audit.otherTokens().mcpToolDefinitionTokens().getStatus());
-            assertEquals(expected, audit.otherTokens().mcpToolDefinitionTokens().getTokenMeta());
-            assertEquals(expected / 1000.0, audit.otherTokens().mcpToolDefinitionTokens().getRatio());
-        }
-    }
-
-    @Test
-    void countsOnlyTheVisibleDefinitionForEachModelFacingName() {
-        DefaultTokenizer tokenizer = new DefaultTokenizer(new OpenAiTokenizer());
-        ToolDefinition<ToolExecutor> registered = definition("mcp_shared");
-        ToolDefinition<ToolExecutor> remote = definition("mcp_shared", "A shadowed remote tool");
-        ToolDefinition<ToolExecutor> uniqueRemote = definition("mcp_unique");
-        ToolDefinition<ToolExecutor> duplicateRemote = definition("mcp_unique", "A later definition for the same name");
         DefaultTokenAuditor auditor = new DefaultTokenAuditor(tokenizer,
-                AgentConfig.builder().maxTokens(1000).build(), new ToolRegistry(List.of(registered)),
-                execution -> List.of(remote, uniqueRemote, duplicateRemote));
-        Execution execution = execution(List.of());
+                AgentConfig.builder().maxTokens(1000).build(), new ToolRegistry(List.of(gateway)));
+        Execution execution = execution(List.of(UserMessageEntity.from("task")));
+        execution.getAgentRequest().setToolList(List.of(McpToolGateway.DISCOVERY_TOOL));
 
         TokenAuditDocument audit = auditor.analysis(execution);
 
-        assertCount(audit.otherTokens().toolDefinitionTokens(), tokenizer.count(List.of(), List.of(registered)));
-        assertCount(audit.otherTokens().mcpToolDefinitionTokens(), tokenizer.count(List.of(), List.of(uniqueRemote)));
+        assertCount(audit.otherTokens().toolDefinitionTokens(), tokenizer.count(List.of(), List.of(gateway)));
+        assertCount(audit.otherTokens().mcpToolDefinitionTokens(), 0);
     }
 
     private DefaultTokenAuditor auditor(DefaultTokenizer tokenizer) {
         return new DefaultTokenAuditor(tokenizer, AgentConfig.builder().maxTokens(1000).build(),
-                new ToolRegistry(List.of()), McpToolScope.EMPTY);
+                new ToolRegistry(List.of()));
     }
 
     private Execution execution(List<Message> messages) {

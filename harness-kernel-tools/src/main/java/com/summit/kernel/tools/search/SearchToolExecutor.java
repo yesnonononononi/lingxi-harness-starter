@@ -3,6 +3,7 @@ package com.summit.kernel.tools.search;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.summit.core.mcp.McpToolGateway;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.tool.*;
 import lombok.NonNull;
@@ -11,20 +12,20 @@ import java.util.*;
 import java.util.function.Supplier;
 
 /**
- * Finds the tools callable in this run by keyword, returns them flat, and discloses the remote ones.
+ * Finds the tools callable in this run by keyword and returns them flat, schemas included.
  *
  * <p>Two sources: the process-wide {@link ToolRegistry} and this request's {@link McpToolScope}.
  * Remote tool names only exist after the server handshake, so they cannot be pre-declared in the
  * request's tool list — the model looks one up here instead.
  *
- * <p>The name-and-schema pair is the second disclosure step: a hit is recorded on the scope and the
- * tool becomes callable from the next model round on. Static tools pass through the same call and
- * are ignored by the ledger, being already declared.
+ * <p>A lookup changes nothing: remote tools are never declared on their own but called through
+ * {@link McpToolGateway}, so the model-facing tool list stays the same however much is looked up.
+ * Each hit says whether it is remote, which is how the model knows to call it through the gateway.
  */
 public class SearchToolExecutor implements ToolExecutor {
 
     /** Tool name; referenced by the assembled prompt, so a replacement must keep it. */
-    public static final String NAME = "search_tool";
+    public static final String NAME = McpToolGateway.DISCOVERY_TOOL;
 
     private static final int MIN_MATCHES = 1;
 
@@ -51,18 +52,17 @@ public class SearchToolExecutor implements ToolExecutor {
     private ToolExecuteResult search(ToolExecution toolExecution) throws JsonProcessingException {
         String keyword = keywordOf(toolExecution).toLowerCase(Locale.ROOT).strip();
 
+        Set<String> remote = remoteNames(toolExecution);
         List<ToolDefinition<?>> matched = callableTools(toolExecution).values().stream()
                 .filter(tool -> matches(tool, keyword))
                 .sorted(Comparator.comparing(ToolDefinition::name))
                 .toList();
 
-        // Disclose before answering: the model may call any returned remote tool on its next turn.
-        toolExecution.requireMcpToolScope().disclose(matched.stream().map(ToolDefinition::name).toList());
 
         List<SearchedTool> tools = matched.stream()
                 .limit(maxMatches)
                 .map(tool -> new SearchedTool(tool.name(), normalize(tool.description()),
-                        normalize(tool.parametersJsonSchema()), tool.readOnly()))
+                        normalize(tool.parametersJsonSchema()), tool.readOnly(), remote.contains(tool.name())))
                 .toList();
 
         SearchToolResult result = new SearchToolResult(
@@ -91,6 +91,18 @@ public class SearchToolExecutor implements ToolExecutor {
         scope.getTools().forEach(tool -> tools.putIfAbsent(tool.name(), tool));
 
         return tools;
+    }
+
+    /** Names of the scope tools that won no collision with a static tool: only these go through the gateway. */
+    private Set<String> remoteNames(ToolExecution toolExecution) {
+        ToolRegistry registry = toolRegistry.get();
+        Set<String> names = new HashSet<>();
+        toolExecution.requireMcpToolScope().getTools().forEach(tool -> {
+            if (registry == null || registry.getTool(tool.name()) == null) {
+                names.add(tool.name());
+            }
+        });
+        return names;
     }
 
     private static boolean matches(ToolDefinition<?> tool, String keyword) {
@@ -139,7 +151,10 @@ public class SearchToolExecutor implements ToolExecutor {
     ) {
     }
 
-    /** A hit including its schema — the schema is what makes the tool callable next round. */
-    private record SearchedTool(String name, String description, String parameters, boolean readOnly) {
+    /**
+     * A hit including its schema. {@code remote} hits are called through the gateway, with this
+     * {@code name} and arguments following {@code parameters}; the others are called directly.
+     */
+    private record SearchedTool(String name, String description, String parameters, boolean readOnly, boolean remote) {
     }
 }

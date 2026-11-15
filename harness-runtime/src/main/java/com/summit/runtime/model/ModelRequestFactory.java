@@ -147,6 +147,6 @@ public class ModelRequestFactory {
 
     private List<ToolDefinition<?>> availableTools(List<String> allowedTools) {
         return ModelToolVisibility.select(context.getToolExecutionManager().toolRegistry().getTools().values(),
-                context.getMcpToolScope().disclosedTools(), allowedTools).all();
+                allowedTools);
     }
 }

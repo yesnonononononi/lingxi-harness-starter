@@ -103,9 +103,11 @@ class PrunedContextWireAcceptanceTest {
                     "pruning an active group must not change one byte of the Anthropic request: "
                             + before + " vs " + after);
 
-            JsonNode thinking = anthropicBlock(after, "thinking");
-            assertNotNull(thinking, "the thinking block survives: " + after);
-            assertEquals("signed", thinking.path("signature").asText());
+            // The block carries no provenance, so it is not replayed: a signature saved without the
+            // request it was signed against can never be proven still valid, and a stale one is a
+            // 400 the provider does not retry. The turn itself survives, only the thinking goes.
+            assertNull(anthropicBlock(after, "thinking"),
+                    "a thinking block without a saved binding must not be replayed: " + after);
             JsonNode toolUse = anthropicBlock(after, "tool_use");
             assertNotNull(toolUse, "the pending tool call is still there: " + after);
             assertEquals("call-1", toolUse.path("id").asText());

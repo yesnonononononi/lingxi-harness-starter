@@ -12,7 +12,6 @@ import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.MessageType;
 import com.summit.core.conversation.message.content.Content;
-import com.summit.core.mcp.McpToolScope;
 import com.summit.core.tool.ToolDefinition;
 import com.summit.core.tool.ToolRegistry;
 import com.summit.runtime.agent.AgentConfig;
@@ -24,7 +23,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Callable;
-import java.util.function.Function;
 
 @Slf4j
 public class DefaultTokenAuditor implements TokenAuditor {
@@ -41,23 +39,13 @@ public class DefaultTokenAuditor implements TokenAuditor {
     private final Tokenizer tokenizer;
     private final AgentConfig agentConfig;
     private final ToolRegistry toolRegistry;
-    private final Function<Execution, List<ToolDefinition<?>>> mcpToolDefinitions;
     private final ToolTokenAuditor toolAuditor;
 
-    public DefaultTokenAuditor(Tokenizer tokenizer, AgentConfig agentConfig, ToolRegistry toolRegistry,
-                               Function<Execution, List<ToolDefinition<?>>> mcpToolDefinitions) {
+    public DefaultTokenAuditor(Tokenizer tokenizer, AgentConfig agentConfig, ToolRegistry toolRegistry) {
         this.tokenizer = tokenizer;
         this.agentConfig = agentConfig;
         this.toolRegistry = toolRegistry;
-        this.mcpToolDefinitions = mcpToolDefinitions;
         this.toolAuditor = new ToolTokenAuditor(tokenizer, agentConfig);
-    }
-
-    /** Direct callers may bind one scope; shared auditors resolve definitions per execution. */
-    public DefaultTokenAuditor(Tokenizer tokenizer, AgentConfig agentConfig, ToolRegistry toolRegistry,
-                               McpToolScope mcpToolScope) {
-        this(tokenizer, agentConfig, toolRegistry,
-                execution -> (mcpToolScope == null ? McpToolScope.EMPTY : mcpToolScope).disclosedTools());
     }
 
     @Override
@@ -130,19 +118,12 @@ public class DefaultTokenAuditor implements TokenAuditor {
             return new DefinitionAudits(failed(TOOL_DEF_LABEL, failure), failed(MCP_DEF_LABEL, failure));
         }
 
-        ModelToolVisibility.Selection selection;
-        try {
-            selection = ModelToolVisibility.select(registered, mcpToolDefinitions.apply(execution), allowed);
-        } catch (Exception failure) {
-            return new DefinitionAudits(
-                    runAudit(TOOL_DEF_LABEL, true,
-                            () -> countDefinitions(ModelToolVisibility.select(registered, List.of(), allowed).registered())),
-                    failed(MCP_DEF_LABEL, failure));
-        }
-
-        DocumentElement<Integer> mcp = runAudit(MCP_DEF_LABEL, true, () -> countDefinitions(selection.mcp()));
+        // No remote tool is ever declared on its own: every one is called through the gateway, which
+        // is a registered definition. Remote schemas are paid for inside lookup results, i.e. in the
+        // tool messages, so the remote definition bucket is empty by construction.
         return new DefinitionAudits(
-                runAudit(TOOL_DEF_LABEL, true, () -> countDefinitions(selection.registered())), mcp);
+                runAudit(TOOL_DEF_LABEL, true, () -> countDefinitions(ModelToolVisibility.select(registered, allowed))),
+                countOf(0));
     }
 
     private DocumentElement<Integer> countDefinitions(List<ToolDefinition<?>> definitions) {

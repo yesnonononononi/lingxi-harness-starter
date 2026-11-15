@@ -183,7 +183,7 @@ class LoopCheckpointPolicyTest {
         AgentConfig config = AgentConfig.builder().maxIterations(5).build();
         DefaultRuntimeLifeStyleManager lifecycle = new DefaultRuntimeLifeStyleManager(events,
                 new ExecutionTokenAuditRecorder(new DefaultTokenAuditor(tokenizer, config,
-                        new ToolRegistry(List.of()), McpToolScope.EMPTY), events));
+                        new ToolRegistry(List.of())), events));
         DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
         ToolExecutionManager tools = new ToolExecutionManager() {
             public List<ToolExecuteResult> execute(ToolExecuteCommand command) {

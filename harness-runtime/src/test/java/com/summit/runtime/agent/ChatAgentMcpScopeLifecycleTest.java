@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -112,7 +113,7 @@ class ChatAgentMcpScopeLifecycleTest {
     }
 
     @Test
-    void retainedDefinitionsFollowDisclosureAndDisappearAfterTerminalRelease() {
+    void aResumedAttemptReusesTheVerySameScopeAndATerminalStateReleasesIt() {
         ToolDefinition<ToolExecutor> visible = ToolDefinition.<ToolExecutor>builder()
                 .id("visible").name("visible").description("Visible tool").parametersJsonSchema("{}")
                 .maxOutput(64).timeout(5L).executor(ignored -> ToolExecuteResult.success("ok")).build();
@@ -120,12 +121,16 @@ class ChatAgentMcpScopeLifecycleTest {
                 .id("hidden").name("hidden").description("Hidden tool").parametersJsonSchema("{}")
                 .maxOutput(64).timeout(5L).executor(ignored -> ToolExecuteResult.success("ok")).build();
         AtomicInteger attempts = new AtomicInteger();
+        AtomicReference<McpToolScope> firstAttempt = new AtomicReference<>();
         RuntimeFactory factory = (invoker, workspace, scope) -> execution -> {
             if (attempts.incrementAndGet() == 1) {
-                scope.disclose(List.of(visible.name()));
+                firstAttempt.set(scope);
+                // Every tool of the scope stays callable: nothing is withheld until a lookup.
+                assertEquals(List.of("hidden", "visible"), scope.getTools().stream()
+                        .map(ToolDefinition::name).sorted().toList());
                 execution.setExecutionState(ExecutionState.SUSPENDED);
             } else {
-                assertEquals(List.of(visible), scope.disclosedTools());
+                assertSame(firstAttempt.get(), scope, "a resume must reuse the scope its suspension kept");
                 execution.setExecutionState(ExecutionState.COMPLETED);
             }
             return execution;
@@ -133,25 +138,22 @@ class ChatAgentMcpScopeLifecycleTest {
         TestAgent agent = new TestAgent(factory, config -> {
             opened.incrementAndGet();
             return McpToolScope.of(List.of(new McpSession() {
-                public String name() { return "disclosure-server"; }
+                public String name() { return "scope-server"; }
                 public List<ToolDefinition<? extends ToolExecutor>> tools() { return List.of(visible, hidden); }
                 public void close() { closed.incrementAndGet(); }
             }));
         });
-        Execution execution = request("disclosed");
+        Execution execution = request("retained");
 
-        assertTrue(agent.disclosedMcpToolDefinitions(execution.getId()).isEmpty());
         agent.execute(execution);
-        assertEquals(List.of(visible), agent.disclosedMcpToolDefinitions(execution.getId()));
-        assertTrue(agent.disclosedMcpToolDefinitions("other-execution").isEmpty());
         assertEquals(1, opened.get());
-        assertEquals(0, closed.get());
+        assertEquals(0, closed.get(), "a suspension keeps its scope");
 
         agent.execute(execution);
 
+        assertEquals(2, attempts.get());
         assertEquals(1, opened.get());
-        assertEquals(1, closed.get());
-        assertTrue(agent.disclosedMcpToolDefinitions(execution.getId()).isEmpty());
+        assertEquals(1, closed.get(), "the terminal state releases the scope");
     }
 
     @Test

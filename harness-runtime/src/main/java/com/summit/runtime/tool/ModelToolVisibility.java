@@ -1,43 +1,29 @@
 package com.summit.runtime.tool;
 
+import com.summit.core.mcp.McpToolGateway;
 import com.summit.core.tool.ToolDefinition;
 
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
- * Selects model-facing declarations from the registry and one MCP disclosure snapshot.
- * Execution admission is separate and can allow calls to MCP tools that have not been disclosed.
+ * Selects the model-facing declarations from the static registry.
+ *
+ * <p>The result depends on the registry and the request whitelist only — never on the request's MCP
+ * scope or on what the model has looked up — so it stays identical for every round of a run and the
+ * provider's prefix cache survives tool discovery. Remote tools are reached through
+ * {@link McpToolGateway}, which is declared wherever the whitelist exposes it.</p>
  */
 public final class ModelToolVisibility {
     private ModelToolVisibility() {}
 
-    public static Selection select(Collection<? extends ToolDefinition<?>> registered,
-                                   List<ToolDefinition<?>> disclosed, List<String> allowed) {
-        Map<String, ToolDefinition<?>> mcpByName = new LinkedHashMap<>();
-        for (ToolDefinition<?> tool : disclosed) {
-            mcpByName.putIfAbsent(tool.name(), tool);
-        }
-
-        List<ToolDefinition<?>> visibleRegistered = new ArrayList<>();
-        for (ToolDefinition<?> tool : registered) {
-            // Disclosure admits the name, but a registered definition owns any collision.
-            if (mcpByName.remove(tool.name()) != null || tool.allowedFor(allowed)) {
-                visibleRegistered.add(tool);
-            }
-        }
-        return new Selection(List.copyOf(visibleRegistered), List.copyOf(mcpByName.values()));
-    }
-
-    public record Selection(List<ToolDefinition<?>> registered, List<ToolDefinition<?>> mcp) {
-        public List<ToolDefinition<?>> all() {
-            List<ToolDefinition<?>> tools = new ArrayList<>(registered.size() + mcp.size());
-            tools.addAll(registered);
-            tools.addAll(mcp);
-            return List.copyOf(tools);
-        }
+    public static List<ToolDefinition<?>> select(Collection<? extends ToolDefinition<?>> registered,
+                                                 List<String> allowed) {
+        boolean gatewayExposed = McpToolGateway.admittedBy(allowed);
+        return registered.stream()
+                .filter(tool -> tool.allowedFor(allowed)
+                        || (gatewayExposed && McpToolGateway.isGateway(tool.name())))
+                .<ToolDefinition<?>>map(tool -> tool)
+                .toList();
     }
 }

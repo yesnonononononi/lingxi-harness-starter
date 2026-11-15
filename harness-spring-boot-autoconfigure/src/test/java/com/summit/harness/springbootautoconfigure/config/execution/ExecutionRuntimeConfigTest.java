@@ -98,37 +98,6 @@ class ExecutionRuntimeConfigTest {
                     .parametersJsonSchema("{\"type\":\"object\"}").maxOutput(64).timeout(5L)
                     .executor(ignored -> ToolExecuteResult.success("ok")).build();
             context.registerBean(ToolRegistry.class, () -> new ToolRegistry(List.of(definition)));
-            ToolDefinition<ToolExecutor> mcpOne = ToolDefinition.<ToolExecutor>builder()
-                    .id("mcp-one").name("mcp-one").description("First disclosed tool")
-                    .parametersJsonSchema(definition.parametersJsonSchema()).maxOutput(64).timeout(5L)
-                    .executor(ignored -> ToolExecuteResult.success("ok")).build();
-            ToolDefinition<ToolExecutor> mcpTwo = ToolDefinition.<ToolExecutor>builder()
-                    .id("mcp-two").name("mcp-two").description("Second disclosed tool")
-                    .parametersJsonSchema(definition.parametersJsonSchema()).maxOutput(64).timeout(5L)
-                    .executor(ignored -> ToolExecuteResult.success("ok")).build();
-            AtomicInteger scopeReads = new AtomicInteger();
-            context.registerBean("mcpAgent", ChatAgent.class, () -> new ChatAgent(
-                    context.getBean(RuntimeFactory.class), null, null, null, null, null, null, null, null) {
-                @Override
-                public String id() { return "mcp-agent"; }
-
-                @Override
-                public List<ToolDefinition<?>> disclosedMcpToolDefinitions(String executionId) {
-                    scopeReads.incrementAndGet();
-                    return "audit-run".equals(executionId) ? List.of(mcpOne) : List.of();
-                }
-            });
-            context.registerBean("otherMcpAgent", ChatAgent.class, () -> new ChatAgent(
-                    context.getBean(RuntimeFactory.class), null, null, null, null, null, null, null, null) {
-                @Override
-                public String id() { return "other-mcp-agent"; }
-
-                @Override
-                public List<ToolDefinition<?>> disclosedMcpToolDefinitions(String executionId) {
-                    scopeReads.incrementAndGet();
-                    return "other-run".equals(executionId) ? List.of(mcpOne, mcpTwo) : List.of();
-                }
-            });
             context.registerBean(Tokenizer.class, () -> new DefaultTokenizer() {
                 @Override
                 public int count(List<Message> messages, List<ToolDefinition<?>> tools) {
@@ -144,7 +113,6 @@ class ExecutionRuntimeConfigTest {
                 }
             });
             context.refresh();
-            assertEquals(0, scopeReads.get());
 
             Execution execution = Execution.create(AgentRequest.builder()
                     .contextSpec(ContextSpec.builder()
@@ -161,20 +129,8 @@ class ExecutionRuntimeConfigTest {
             assertEquals(0.17, event.contextAudit().userTokens().getRatio());
             assertEquals(11, event.contextAudit().otherTokens().toolDefinitionTokens().getTokenMeta());
             assertEquals(0.11, event.contextAudit().otherTokens().toolDefinitionTokens().getRatio());
-            assertEquals(11, event.contextAudit().otherTokens().mcpToolDefinitionTokens().getTokenMeta());
-            assertEquals(0.11, event.contextAudit().otherTokens().mcpToolDefinitionTokens().getRatio());
-            Execution other = Execution.create(AgentRequest.builder()
-                    .contextSpec(ContextSpec.builder()
-                            .context(List.of(UserMessageEntity.from("other task")))
-                            .build())
-                    .executionId("other-run").build(), "other-mcp-agent");
-            other.startChecked();
-            other.completeChecked();
-            context.getBean(RuntimeLifeStyleManager.class).onComplete(other);
-            assertEquals(2, events.size());
-            AgentTokenAuditRecordedEvent otherEvent = assertInstanceOf(AgentTokenAuditRecordedEvent.class, events.getLast());
-            assertEquals(0, otherEvent.contextAudit().otherTokens().toolDefinitionTokens().getTokenMeta());
-            assertEquals(22, otherEvent.contextAudit().otherTokens().mcpToolDefinitionTokens().getTokenMeta());
+            // No remote tool is declared on its own, so the remote bucket is empty by construction.
+            assertEquals(0, event.contextAudit().otherTokens().mcpToolDefinitionTokens().getTokenMeta());
         }
     }
 

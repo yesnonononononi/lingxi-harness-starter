@@ -20,7 +20,7 @@ import org.springframework.context.annotation.Bean;
  * {@code @ConditionalOnMissingBean} keeps it replaceable — an application that wants a different
  * lookup policy declares its own {@code searchToolDefinition} and this one backs off. That
  * implementation must keep {@link SearchToolExecutor#NAME} as its tool name, since the model's
- * prompt and the disclosure ledger both refer to it by that name.</p>
+ * prompt refers to it by that name and it is what exposes the call gateway.</p>
  *
  * <p>Deliberately no ordering against the registry: the definition is collected through
  * {@code ObjectProvider} at call time, so it does not matter whether the registry is built before or
@@ -53,8 +53,9 @@ public class SearchToolAutoConfiguration {
                 .description("""
                         Look up the tools callable in this run and return their names, descriptions and
                         parameter schemas. Remote (MCP) tools are listed in the system prompt by name and
-                        description only: search for one here to get its schema, and it becomes callable
-                        from your next turn on. An empty keyword lists every callable tool.
+                        description only and are never declared as tools of their own: search for one here to
+                        get its schema, then call it through call_mcp_tool with that exact name. An empty
+                        keyword lists every callable tool; each hit says whether it is remote.
                         """)
                 .parametersJsonSchema("""
                         {

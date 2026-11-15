@@ -31,12 +31,12 @@ class ContextDynamicAssemblerSectionsTest {
 
     private static final String MCP_BODY = """
             Remote tools are hosted by MCP servers; the counts below are how many each one contributed.
-            Their parameter schemas are deliberately left out of this prompt. Call `list_mcp_tools` with
-            a server name to list that server's tools (name and description), or `search_tool` with a
-            keyword to get one tool's schema directly. A tool found either way becomes callable from your
-            next turn on. A server holding more tools than one listing shows is listed in successive
-            windows: pass `start` and `end` to read a later one, and keep going while the result reports
-            `hasMore`.
+            They are never declared as tools of their own and their parameter schemas are deliberately
+            left out of this prompt: call `list_mcp_tools` with a server name to list that server's tools
+            (name and description), or `search_tool` with a keyword to get one tool's schema directly,
+            then call it through `call_mcp_tool`. A server holding more tools than one listing shows is
+            listed in successive windows: pass `start` and `end` to read a later one, and keep going while
+            the result reports `hasMore`.
             """;
 
     private static final String MCP_SECTION_BODY = MCP_BODY + "\n- github - GitHub remote tools - 1 tools";

@@ -1,4 +1,5 @@
 com.summit.kernel.tools.search.SearchToolAutoConfiguration
 com.summit.kernel.tools.mcp.ListMcpToolsAutoConfiguration
+com.summit.kernel.tools.mcp.CallMcpToolAutoConfiguration
 com.summit.kernel.tools.compact.ContextCompactToolAutoConfiguration
 com.summit.kernel.tools.skill.ReadSkillToolAutoConfiguration

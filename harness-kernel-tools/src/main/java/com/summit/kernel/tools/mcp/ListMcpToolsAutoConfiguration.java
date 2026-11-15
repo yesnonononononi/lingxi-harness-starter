@@ -40,9 +40,9 @@ public class ListMcpToolsAutoConfiguration {
                         The system prompt shows one line per MCP server with how many tools it has; call this with
                         that server's name to see which tools they are. A server with more tools than one window can
                         hold is listed in successive windows: pass start and end to read a later one, and keep calling
-                        while the result's hasMore is true. Returns no parameter schema, so it does not make anything
-                        callable — use search_tool once you have picked a tool name. Omitting the name lists the tools
-                        of every connected server.
+                        while the result's hasMore is true. Returns no parameter schema: use search_tool for
+                        the schema of a tool you have picked, then call_mcp_tool to call it. Omitting the name
+                        lists the tools of every connected server.
                         """)
                 .parametersJsonSchema("""
                         {

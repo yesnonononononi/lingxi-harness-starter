@@ -17,7 +17,6 @@ import com.summit.core.runtime.RuntimeFactory;
 import com.summit.core.runtime.loop.ExecutionControl;
 import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.runtime.workspace.Workspace;
-import com.summit.core.tool.ToolDefinition;
 import com.summit.core.workspace.BasicWorkspaceSpec;
 import com.summit.core.workspace.WorkspaceResolver;
 import com.summit.core.workspace.WorkspaceSpec;
@@ -27,7 +26,6 @@ import lombok.experimental.SuperBuilder;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 import java.util.Map;
-import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 
@@ -254,11 +252,6 @@ public abstract class ChatAgent implements Agent {
         return mcpScopes.computeIfAbsent(execution.getId(), ignored -> scopeMcpProvider.openScope(mcpConfig, workspace));
     }
 
-    /** Returns the retained execution's model-visible MCP definitions without opening connections. */
-    public List<ToolDefinition<?>> disclosedMcpToolDefinitions(String executionId) {
-        McpToolScope scope = executionId == null ? null : mcpScopes.get(executionId);
-        return scope == null ? List.of() : scope.disclosedTools();
-    }
 
     /**
      * Closes the MCP scope once the execution can no longer continue; a suspension keeps it.

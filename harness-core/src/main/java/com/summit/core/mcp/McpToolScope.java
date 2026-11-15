@@ -16,9 +16,9 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <h2>Progressive disclosure</h2>
  *
- * <p>Discovery is not disclosure. The prompt publishes one count per server; a tool becomes
- * callable only once {@link #disclose} records it, and only {@link #disclosedTools()} enters a
- * model request's tool list.</p>
+ * <p>No tool of a scope is ever declared to the model on its own. The prompt publishes one count
+ * per server, the lookup entries hand out names and schemas, and every call goes through
+ * {@link McpToolGateway}, so the model-facing tool list never depends on what was looked up.</p>
  */
 @Slf4j
 public final class McpToolScope implements AutoCloseable {
@@ -38,10 +38,6 @@ public final class McpToolScope implements AutoCloseable {
      */
     private final Map<String, String> serverDescriptions = new ConcurrentHashMap<>();
     private final List<McpSession> sessions = new ArrayList<>();
-    /**
-     * Names of this scope's tools already disclosed to the model.
-     */
-    private final Set<String> disclosed = ConcurrentHashMap.newKeySet();
 
     private McpToolScope() {
     }
@@ -107,41 +103,9 @@ public final class McpToolScope implements AutoCloseable {
     }
 
     /**
-     * Marks the named tools of this request as disclosed to the model. Names this scope does not
-     * hold are ignored: the caller also matches process-wide tools, which need no disclosure.
-     */
-    public void disclose(Collection<String> names) {
-        if (names == null || names.isEmpty()) {
-            return;
-        }
-        names.forEach(name -> {
-            if (name != null && tools.containsKey(name)) {
-                disclosed.add(name);
-            }
-        });
-    }
-
-    /**
-     * Whether the named tool of this request has been disclosed to the model.
-     */
-    public boolean isDisclosed(String name) {
-        return name != null && disclosed.contains(name);
-    }
-
-    /**
-     * The disclosed tools, name-ordered; only these may enter a model request's tool list.
-     */
-    public List<ToolDefinition<?>> disclosedTools() {
-        return tools.values().stream()
-                .filter(tool -> disclosed.contains(tool.name()))
-                .sorted(Comparator.comparing(ToolDefinition::name))
-                .toList();
-    }
-
-    /**
      * The servers of this request as prompt summaries, server-ordered — one entry each, carrying the
-     * description its configuration declared and the number of tools it contributed, disclosed or
-     * not. This is what tells the model which servers exist before any tool is unlocked.
+     * description its configuration declared and the number of tools it contributed. This is what
+     * tells the model which servers exist before it looks any tool up.
      */
     public List<McpResume> resumes() {
         Map<String, Integer> counts = new TreeMap<>();
@@ -199,7 +163,6 @@ public final class McpToolScope implements AutoCloseable {
         tools.clear();
         toolServers.clear();
         serverDescriptions.clear();
-        disclosed.clear();
         List<McpSession> toClose = new ArrayList<>(sessions);
         sessions.clear();
         toClose.stream().filter(McpSession::requireAutoClose).forEach(this::closeQuietly);

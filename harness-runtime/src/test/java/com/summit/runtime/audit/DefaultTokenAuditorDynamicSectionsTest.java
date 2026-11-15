@@ -104,7 +104,7 @@ class DefaultTokenAuditorDynamicSectionsTest {
 
     private DefaultTokenAuditor auditor(DefaultTokenizer tokenizer) {
         return new DefaultTokenAuditor(tokenizer, AgentConfig.builder().maxTokens(1000).build(),
-                new ToolRegistry(List.of()), McpToolScope.EMPTY);
+                new ToolRegistry(List.of()));
     }
 
     private Execution execution(List<Message> messages, List<String> requestMemory) {

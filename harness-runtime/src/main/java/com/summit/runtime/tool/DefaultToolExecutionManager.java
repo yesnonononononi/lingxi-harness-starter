@@ -5,6 +5,7 @@ import com.summit.core.conversation.event.ToolCallEndEvent;
 import com.summit.core.conversation.event.ToolCallStartEvent;
 import com.summit.core.interceptor.InterceptorProcessor;
 import com.summit.core.interceptor.InvocationContext;
+import com.summit.core.mcp.McpToolGateway;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.tool.*;
@@ -66,7 +67,10 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
      * setting, and a serial batch must not be failed by unboxing a value it never consults.</p>
      */
     @Override
-    public List<ToolExecuteResult> execute(ToolExecuteCommand toolExecuteCommand) {
+    public List<ToolExecuteResult> execute(ToolExecuteCommand command) {
+        // Normalized before anything reads a call: concurrency, resolution, admission, truncation and
+        // events must all see the remote tool a gateway call names, never the gateway itself.
+        ToolExecuteCommand toolExecuteCommand = unwrapGatewayCalls(command);
         List<ToolCallRequest> requests = toolExecuteCommand.requests();
         List<ToolExecuteResult> result = new ArrayList<>();
 
@@ -183,14 +187,33 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
     }
 
     /**
+     * Rewrites each gateway call into the call of the remote tool it names (see {@link McpToolGateway}).
+     * Only a run that exposes the gateway gets its calls rewritten; an unresolvable or unexposed
+     * gateway call stays as it is and is answered by the gateway definition or rejected by admission.
+     */
+    private ToolExecuteCommand unwrapGatewayCalls(ToolExecuteCommand command) {
+        List<ToolCallRequest> requests = command.requests();
+        if (requests == null || requests.stream().noneMatch(request -> McpToolGateway.isGateway(request.name()))
+                || !McpToolGateway.admittedBy(command.allowedTools())) {
+            return command;
+        }
+        ToolRegistry registry = toolExecutionContext.toolRegistry();
+        return command.withRequests(requests.stream()
+                .map(request -> McpToolGateway.unwrap(request, command.mcpToolScope(), registry))
+                .toList());
+    }
+
+    /**
      * Whether a call is admitted under the run's whitelist: either the whitelist names the tool, or
      * the tool belongs to this request's own {@link com.summit.core.mcp.McpToolScope} — a discovered
      * name cannot be written into a list authored before the servers were contacted, so scope
      * membership stands in for that entry. A {@code null} or empty whitelist admits no static tool.
+     * The gateway is admitted wherever it is exposed to the model.
      */
     private boolean admissible(ToolDefinition<?> tool, ToolExecuteCommand command) {
         return this.toolExecutionContext.allowToolExecution(tool, command.allowedTools())
-                || command.mcpToolScope().getTool(tool.name()) != null;
+                || command.mcpToolScope().getTool(tool.name()) != null
+                || (McpToolGateway.isGateway(tool.name()) && McpToolGateway.admittedBy(command.allowedTools()));
     }
 
 

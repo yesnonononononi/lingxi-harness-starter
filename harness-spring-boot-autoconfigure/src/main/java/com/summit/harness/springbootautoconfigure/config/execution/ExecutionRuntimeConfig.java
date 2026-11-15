@@ -14,7 +14,6 @@ import com.summit.core.tool.ToolExecutionManager;
 import com.summit.core.tool.ToolRegistry;
 import com.summit.core.transaction.RuntimeTransactionalSupport;
 import com.summit.runtime.agent.AgentConfig;
-import com.summit.runtime.agent.ChatAgent;
 import com.summit.runtime.audit.DefaultTokenAuditor;
 import com.summit.runtime.audit.ExecutionTokenAuditRecorder;
 import com.summit.runtime.compact.DefaultContextPruner;
@@ -170,12 +169,9 @@ public class ExecutionRuntimeConfig {
     @Bean
     @ConditionalOnProperty(prefix = "lingxi.agent.runtime.token-audit", name = "enabled", havingValue = "true")
     public ExecutionTokenAuditRecorder executionTokenAuditRecorder(Tokenizer tokenizer, AgentConfig agentConfig,
-                                                                   RuntimeEventPublisher runtimeEventPublisher, ToolRegistry toolRegistry,
-                                                                   ObjectProvider<ChatAgent> agents) {
-        return new ExecutionTokenAuditRecorder(new DefaultTokenAuditor(tokenizer, agentConfig, toolRegistry,
-                execution -> agents.orderedStream()
-                        .flatMap(agent -> agent.disclosedMcpToolDefinitions(execution.getId()).stream())
-                        .toList()), runtimeEventPublisher);
+                                                                   RuntimeEventPublisher runtimeEventPublisher, ToolRegistry toolRegistry) {
+        return new ExecutionTokenAuditRecorder(new DefaultTokenAuditor(tokenizer, agentConfig, toolRegistry),
+                runtimeEventPublisher);
     }
 
     @Bean

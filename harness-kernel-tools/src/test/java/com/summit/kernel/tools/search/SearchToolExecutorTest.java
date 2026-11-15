@@ -20,8 +20,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * <ol>
  *   <li><b>两层覆盖。</b>检索必须同时看到进程级静态注册表与请求级 MCP scope。只查注册表的实现
  *       能通过前半部分断言却永远搜不到 MCP 工具 —— 那正是「MCP 连上了但模型看不到工具」的原形。</li>
- *   <li><b>命中即披露。</b>命中远端工具必须把它记进 {@link McpToolScope}，否则模型拿到了 schema
- *       却在下一轮仍然看不到这个工具 —— 检索成了只读的空转。</li>
+ *   <li><b>命中不改工具表。</b>检索只把名字、描述和 schema 交给模型，并标明哪条要走
+ *       {@code call_mcp_tool}；它绝不往模型请求的工具表里加东西 —— 加了就是每轮换前缀。</li>
  *   <li><b>返回条数受配置约束。</b>条数上限是配置项，不是常量；截断的同时必须报出真实全量。</li>
  * </ol>
  */
@@ -86,6 +86,7 @@ class SearchToolExecutorTest {
                 "多行描述压平成一行，避免撑坏 JSON 之外的可读性");
         assertEquals("{\"type\":\"object\"}", item.get("parameters").asText());
         assertTrue(item.get("readOnly").asBoolean());
+        assertFalse(item.get("remote").asBoolean(), "静态工具直接调用，不走网关");
     }
 
     @Test
@@ -176,67 +177,72 @@ class SearchToolExecutorTest {
         assertEquals("built-in read", body.get("tools").get(0).get("description").asText());
     }
 
-    // --- 披露：检索的第二个作用 --------------------------------------------------------------
+    // --- 远端标记：检索只给信息，不动工具表 ------------------------------------------------
 
     @Test
-    @DisplayName("命中的远端工具被披露，随后才允许进入模型请求")
-    void matchedRemoteToolsAreDisclosed() {
-        McpToolScope scope = scopeOf(mcpTool("mcp_github_get_me"), mcpTool("mcp_github_list_repos"));
-
-        executorWith(List.of(staticTool("read_file")))
-                .execute(execution("{\"keyword\":\"github\"}", scope));
-
-        assertTrue(scope.isDisclosed("mcp_github_get_me"));
-        assertTrue(scope.isDisclosed("mcp_github_list_repos"));
-        assertEquals(List.of("mcp_github_get_me", "mcp_github_list_repos"),
-                scope.disclosedTools().stream().map(ToolDefinition::name).toList());
-    }
-
-    @Test
-    @DisplayName("只披露命中的那些：没搜到的远端工具仍然不可见")
-    void onlyTheMatchedRemoteToolsAreDisclosed() {
-        McpToolScope scope = scopeOf(mcpTool("mcp_github_get_me"), mcpTool("mcp_slack_post"));
-
-        executorWith(List.of()).execute(execution("{\"keyword\":\"github\"}", scope));
-
-        assertTrue(scope.isDisclosed("mcp_github_get_me"));
-        assertFalse(scope.isDisclosed("mcp_slack_post"),
-                "未被检索命中的远端工具必须保持未披露");
-    }
-
-    @Test
-    @DisplayName("静态工具命中不会污染披露账本：它本来就已声明")
-    void staticHitsDoNotEnterTheLedger() {
+    @DisplayName("远端命中带 remote=true，静态命中带 remote=false")
+    void marksRemoteHitsWithoutDeclaringAnything() throws Exception {
         McpToolScope scope = scopeOf(mcpTool("mcp_github_get_me"));
 
-        executorWith(List.of(staticTool("read_file")))
-                .execute(execution("{\"keyword\":\"read_file\"}", scope));
+        JsonNode tools = objectMapper.readTree(executorWith(List.of(staticTool("read_file")))
+                .execute(execution("", scope)).getToolOutput()).get("tools");
 
-        assertEquals(List.of(), scope.disclosedTools());
-        assertFalse(scope.isDisclosed("read_file"));
+        assertEquals("mcp_github_get_me", tools.get(0).get("name").asText());
+        assertTrue(tools.get(0).get("remote").asBoolean(), "远端命中的模型必须知道要经 call_mcp_tool 调用");
+        assertEquals("read_file", tools.get(1).get("name").asText());
+        assertFalse(tools.get(1).get("remote").asBoolean(), "静态命中直接调用");
     }
 
     @Test
-    @DisplayName("空 scope 上披露是安全的空操作，共享的 EMPTY 实例不会被写坏")
-    void disclosingOnTheSharedEmptyScopeIsHarmless() {
-        executorWith(List.of(staticTool("read_file")))
-                .execute(execution("", McpToolScope.EMPTY));
+    @DisplayName("被静态工具遮蔽的同名远端工具不算远端：真正执行的是静态那一份")
+    void aShadowedRemoteToolIsNotMarkedRemote() throws Exception {
+        ToolDefinition<?> builtIn = ToolDefinition.builder()
+                .id("read_file").name("read_file").maxOutput(100).timeout(5L)
+                .description("built-in read")
+                .concurrentPolicy(ConcurrentPolicy.READ_ONLY)
+                .executor(execution -> ToolExecuteResult.success("built-in"))
+                .build();
+        // 远端也声称提供 read_file：模型实际调到的是静态那一份，所以不能标成远端。
+        ToolDefinition<?> shadowing = ToolDefinition.builder()
+                .id("read_file").name("read_file").maxOutput(100).timeout(5L)
+                .description("remote impostor")
+                .concurrentPolicy(ConcurrentPolicy.READ_ONLY)
+                .executor(execution -> ToolExecuteResult.success("remote"))
+                .build();
 
-        assertEquals(List.of(), McpToolScope.EMPTY.disclosedTools());
+        SearchToolExecutor executor = new SearchToolExecutor(objectMapper,
+                () -> registryOf(builtIn), MAX_MATCHES);
+
+        JsonNode body = objectMapper.readTree(executor.execute(
+                execution("{\"keyword\":\"read\"}", scopeOf(shadowing))).getToolOutput());
+
+        assertEquals(1, body.get("total").asInt());
+        assertEquals("built-in read", body.get("tools").get(0).get("description").asText());
+        assertFalse(body.get("tools").get(0).get("remote").asBoolean(),
+                "遮蔽后执行的是静态工具，标记成远端会让模型绕错路");
+    }
+
+    @Test
+    @DisplayName("空 scope 上检索照旧可用，不会被写坏")
+    void searchingOnTheSharedEmptyScopeIsHarmless() throws Exception {
+        JsonNode body = objectMapper.readTree(executorWith(List.of(staticTool("read_file")))
+                .execute(execution("", McpToolScope.EMPTY)).getToolOutput());
+
+        assertEquals(1, body.get("total").asInt());
+        assertFalse(body.get("tools").get(0).get("remote").asBoolean());
         assertTrue(McpToolScope.EMPTY.isEmpty());
     }
 
     @Test
-    @DisplayName("重复检索同一工具只披露一次，且顺序稳定")
-    void repeatedSearchIsIdempotent() {
+    @DisplayName("重复检索同一批工具结果稳定：检索没有累积状态")
+    void repeatedSearchIsIdempotent() throws Exception {
         McpToolScope scope = scopeOf(mcpTool("mcp_b"), mcpTool("mcp_a"));
 
-        executorWith(List.of()).execute(execution("", scope));
-        executorWith(List.of()).execute(execution("", scope));
+        String first = executorWith(List.of()).execute(execution("", scope)).getToolOutput();
+        String second = executorWith(List.of()).execute(execution("", scope)).getToolOutput();
 
-        assertEquals(List.of("mcp_a", "mcp_b"),
-                scope.disclosedTools().stream().map(ToolDefinition::name).toList(),
-                "账本是集合而非计数器，且顺序按名字稳定");
+        assertEquals(first, second);
+        assertEquals(2, scope.getTools().size(), "检索不得增删 scope 里的工具");
     }
 
     // --- helpers ---------------------------------------------------------------------------

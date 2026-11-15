@@ -63,7 +63,7 @@ class ExecutionTokenAuditRecorderTest {
     @Test
     void unsupportedAttachmentStillPublishesTheRemainingAudit() {
         var auditor = new DefaultTokenAuditor(new DefaultTokenizer(),
-                AgentConfig.builder().maxTokens(1000).build(), new ToolRegistry(List.of()), McpToolScope.EMPTY);
+                AgentConfig.builder().maxTokens(1000).build(), new ToolRegistry(List.of()));
         var execution = execution(ExecutionState.COMPLETED);
         execution.getMessages().add(UserMessageEntity.from(Image.from("unused")));
         var recorder = new ExecutionTokenAuditRecorder(auditor, new RuntimeEventPublisher(List.of(listener)));
@@ -133,7 +133,7 @@ class ExecutionTokenAuditRecorderTest {
                 .id("missing-call").name("read").toolOutput("result").build());
         DefaultTokenAuditor auditor = new DefaultTokenAuditor(
                 new DefaultTokenizer(), AgentConfig.builder().maxTokens(1000).build(),
-                new ToolRegistry(List.of()), McpToolScope.EMPTY);
+                new ToolRegistry(List.of()));
         ExecutionTokenAuditRecorder recorder = new ExecutionTokenAuditRecorder(
                 auditor, new RuntimeEventPublisher(List.of(listener)));
 
@@ -155,7 +155,7 @@ class ExecutionTokenAuditRecorderTest {
         DefaultTokenizer tokenizer = new DefaultTokenizer(new OpenAiTokenizer());
         DefaultTokenAuditor auditor = new DefaultTokenAuditor(tokenizer,
                 AgentConfig.builder().maxTokens(1000).build(),
-                new ToolRegistry(List.of(definition)), McpToolScope.EMPTY);
+                new ToolRegistry(List.of(definition)));
         Execution execution = execution(ExecutionState.COMPLETED);
         execution.getAgentRequest().setToolList(List.of("lookup"));
         execution.getAgentRequest().getContextSpec().setMemory(List.of("project memory"));
