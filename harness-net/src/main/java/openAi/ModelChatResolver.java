@@ -105,21 +105,26 @@ public class ModelChatResolver {
                 .POST(HttpRequest.BodyPublishers.ofString(this.requestBodyFactory.build(chatRequestEntity, modelConfig), StandardCharsets.UTF_8))
                 .build();
         try {
+
             if (stream) {
                 this.streaming(httpClient, httpRequest, signal, streamingModelResponseHandler,modelConfig);
                 return null;
             }
+
             HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+
             String body = response.body();
+
             int statusCode = response.statusCode();
-            switch (statusCode) {
-                case 200 -> {
-                    var responseEntity = responseSerializer.serialize(JSON.readValue(body, ChatCompletionResponse.class));
-                    if (!modelConfig.isReturnThinking()) responseEntity.getAiMessageEntity().setThinking(null);
-                    return responseEntity;
-                }
-                default -> throw statusError(statusCode, body);
+
+            if (statusCode == 200) {
+                var responseEntity = responseSerializer.serialize(JSON.readValue(body, ChatCompletionResponse.class));
+                if (!modelConfig.isReturnThinking()) responseEntity.getAiMessageEntity().setThinking(null);
+                return responseEntity;
             }
+
+            throw statusError(statusCode, body);
+
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
             throw new NonRetriableModelException("Model request interrupted", error);
@@ -136,11 +141,17 @@ public class ModelChatResolver {
     ) throws IOException, InterruptedException {
 
         TreeMap<Integer, StreamingBuffer> toolCallBuffer = new TreeMap<>();
+
         ChatCompletionResponse completionResponse = new ChatCompletionResponse();
+
         StringBuilder text = new StringBuilder();
+
         StringBuilder thinking = new StringBuilder();
+
         checkInterruption(signal, null);
+
         HttpResponse<InputStream> streamHttpResponse;
+
         try {
             streamHttpResponse = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
         } catch (InterruptedException error) {
@@ -148,7 +159,9 @@ public class ModelChatResolver {
             throw new ExecutionInterruptedException(ExecutionInterruptedException.Kind.CANCEL, "Model stream interrupted");
         }
         StreamingHandler streamingHandler = buildStreamingHandler(streamHttpResponse);
+
         String finishReason = null;
+
         if (streamHttpResponse.statusCode() != 200) {
             try (InputStream body = streamHttpResponse.body()) {
                 String errorBody = new String(body.readAllBytes(), StandardCharsets.UTF_8);
