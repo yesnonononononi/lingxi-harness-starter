@@ -2,6 +2,8 @@ package com.summit.core.audit.token;
 
 import com.summit.core.audit.DocumentElement;
 
+import java.util.List;
+
 /**
  * Context estimates and attribution details, not provider-billed usage.
  *
@@ -19,6 +21,13 @@ public record OtherTokens(
         DocumentElement<Integer> dynamicContextTokens,
         /** Joined memory bodies, excluding the section heading and message framing. */
         DocumentElement<Integer> memoryTokens,
+        /**
+         * Per-section slices of the same per-round block, re-counted on the rendered section
+         * bodies. Each type is a {@code ContextSectionKind} name. They do not add up to
+         * {@code dynamicContextTokens}: tokenizers merge tokens across section boundaries and the
+         * section headings belong to no slice, so the whole-block figure stays authoritative.
+         */
+        List<DocumentElement<Integer>> dynamicContextSections,
         /** Non-text user content retained in the current execution, excluding message framing. */
         DocumentElement<Integer> attachmentTokens
 ) {

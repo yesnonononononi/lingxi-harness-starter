@@ -27,6 +27,7 @@ import com.summit.core.tool.ToolDefinition;
 import com.summit.core.tool.ToolExecutor;
 import com.summit.core.tool.ToolExecuteResult;
 import com.summit.runtime.agent.AgentConfig;
+import com.summit.runtime.conversation.ContextDynamicAssembler;
 import com.summit.runtime.conversation.DefaultTokenizer;
 import openAi.OpenAiTokenizer;
 import org.junit.jupiter.api.Test;
@@ -158,6 +159,9 @@ class ExecutionTokenAuditRecorderTest {
         Execution execution = execution(ExecutionState.COMPLETED);
         execution.getAgentRequest().setToolList(List.of("lookup"));
         execution.getAgentRequest().getContextSpec().setMemory(List.of("project memory"));
+        execution.getMessages().add(ContextDynamicAssembler.assemble(
+                ContextSpec.builder().memory(List.of("project memory")).build(),
+                McpToolScope.EMPTY, List.of(), List.of()));
         execution.getMessages().add(UserMessageEntity.from(
                 Image.builder().base64Data("unused").detailLevel(Image.DetailLevel.LOW).build()));
         ExecutionTokenAuditRecorder recorder = new ExecutionTokenAuditRecorder(

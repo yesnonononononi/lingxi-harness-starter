@@ -26,6 +26,7 @@ import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolExecutor;
 import com.summit.core.tool.ToolRegistry;
 import com.summit.runtime.agent.AgentConfig;
+import com.summit.runtime.conversation.ContextDynamicAssembler;
 import com.summit.runtime.conversation.DefaultTokenizer;
 import com.summit.runtime.conversation.DefaultConversationManager;
 import openAi.OpenAiTokenizer;
@@ -124,8 +125,10 @@ class DefaultTokenAuditorTest {
                 return super.countText(text);
             }
         };
-        var execution = execution(List.of(UserMessageEntity.from("task")));
-        execution.getAgentRequest().getContextSpec().setMemory(List.of("broken memory"));
+        UserMessageEntity context = ContextDynamicAssembler.assemble(
+                ContextSpec.builder().memory(List.of("broken memory")).build(),
+                McpToolScope.EMPTY, List.of(), List.of("do the thing"));
+        var execution = execution(List.of(context, UserMessageEntity.from("task")));
 
         var audit = assertDoesNotThrow(() -> auditor(tokenizer).analysis(execution));
 

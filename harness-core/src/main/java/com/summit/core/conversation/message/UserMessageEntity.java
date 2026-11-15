@@ -28,6 +28,9 @@ public class UserMessageEntity implements Message{
     @Builder.Default
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     private Map<String, Boolean> attrs = Map.of();
+    @Builder.Default
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    private List<ContextSectionMark> contextSections = List.of();
     private final MessageType type = MessageType.USER;
 
     public UserMessageEntity(List<Content> content) {
@@ -56,6 +59,15 @@ public class UserMessageEntity implements Message{
         return attrs != null && attrs.containsKey(CONTEXT_CONTRACT);
     }
 
+    public UserMessageEntity withContextSections(List<ContextSectionMark> marks) {
+        this.contextSections = marks == null ? List.of() : List.copyOf(marks);
+        return this;
+    }
+
+    public List<ContextSectionMark> contextSections() {
+        return contextSections == null ? List.of() : contextSections;
+    }
+
     /** A later assistant reply permits removal on a subsequent compaction. */
     public UserMessageEntity retainForCompaction(boolean hasLaterAssistantReply) {
         if (!hasCompactionMarker()) return this;
@@ -64,7 +76,11 @@ public class UserMessageEntity implements Message{
 
         Map<String, Boolean> updated = new HashMap<>(attrs);
         updated.put(COMPACT, true);
-        return new UserMessageEntity(content, updated);
+        return UserMessageEntity.builder()
+                .content(content)
+                .attrs(updated)
+                .contextSections(contextSections())
+                .build();
     }
 
     @Override

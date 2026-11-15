@@ -25,7 +25,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 
 @Slf4j
 public class DefaultTokenAuditor implements TokenAuditor {
@@ -94,11 +93,31 @@ public class DefaultTokenAuditor implements TokenAuditor {
         // something the user typed, and folding it into either one is what made the numbers lie.
         DocumentElement<Integer> dynamicContext = runAudit(DYNAMIC_CONTEXT_LABEL, context.hasHistory(),
                 () -> estimateMessages(context.dynamicContextMessages()));
-        DocumentElement<Integer> memory = runAudit(MEMORY_LABEL, true,
-                () -> auditMemory(execution.getAgentRequest().getContextSpec().getMemory()));
+        List<DocumentElement<Integer>> sections = resolveDynamicSections(context);
+        DocumentElement<Integer> memory = runAudit(MEMORY_LABEL, true, () -> auditMemory(sections));
         DocumentElement<Integer> attachments = runAudit(ATTACHMENT_LABEL, context.hasHistory(),
                 () -> auditAttachments(context.attachments()));
-        return new OtherTokens(definitions.registered(), definitions.mcp(), dynamicContext, memory, attachments);
+        return new OtherTokens(definitions.registered(), definitions.mcp(), dynamicContext, memory, sections, attachments);
+    }
+
+    private List<DocumentElement<Integer>> resolveDynamicSections(AuditContext context) {
+        if (!context.hasHistory()) {
+            return List.of();
+        }
+        List<DocumentElement<Integer>> sections = new ArrayList<>();
+        for (AuditContext.DynamicSectionSpan span : context.dynamicContextSections()) {
+            sections.add(runAudit(span.kind().name(), true, () -> countOf(tokenizer.countText(span.body()))));
+        }
+        return sections;
+    }
+
+    private DocumentElement<Integer> auditMemory(List<DocumentElement<Integer>> sections) {
+        // The very element counted for the MEMORY slice: one source, one number, no re-derivation
+        // from the request — that path drifted whenever the request and the message disagreed.
+        return sections.stream()
+                .filter(element -> MEMORY_LABEL.equals(element.getType()))
+                .findFirst()
+                .orElseGet(() -> countOf(0));
     }
 
     private DefinitionAudits auditDefinitions(Execution execution) {
@@ -136,14 +155,6 @@ public class DefaultTokenAuditor implements TokenAuditor {
             count += tokenizer.count(Objects.requireNonNull(attachment, "User content part must not be null"));
         }
         return countOf(count);
-    }
-
-    private DocumentElement<Integer> auditMemory(List<String> memory) {
-        // Match the body rendered by withMemoryPrompt, including its newline separators.
-        String body = memory == null ? "" : memory.stream()
-                .filter(Objects::nonNull).filter(line -> !line.isBlank())
-                .collect(Collectors.joining("\n"));
-        return countOf(tokenizer.countText(body));
     }
 
     private DocumentElement<Integer> countOf(int count) {

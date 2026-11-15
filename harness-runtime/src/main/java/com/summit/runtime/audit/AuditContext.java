@@ -2,6 +2,8 @@ package com.summit.runtime.audit;
 
 import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.message.AiMessageEntity;
+import com.summit.core.conversation.message.ContextSectionKind;
+import com.summit.core.conversation.message.ContextSectionMark;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.ToolMessageEntity;
@@ -16,17 +18,20 @@ import java.util.Map;
 
 /** Partitions retained history without modifying the execution's messages. */
 record AuditContext(boolean hasHistory, List<AiMessageEntity> assistantHistory, List<Message> userMessages,
-                    List<Message> dynamicContextMessages, List<Message> systemMessages, List<Content> attachments,
+                    List<Message> dynamicContextMessages, List<DynamicSectionSpan> dynamicContextSections,
+                    List<Message> systemMessages, List<Content> attachments,
                     List<ToolCallRequest> toolCalls, List<ToolResult> toolResults) {
 
     static AuditContext fromHistory(List<Message> history) {
         if (history == null) {
-            return new AuditContext(false, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+            return new AuditContext(false, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                    List.of(), List.of());
         }
 
         List<AiMessageEntity> assistantHistory = new ArrayList<>();
         List<Message> userMessages = new ArrayList<>();
         List<Message> dynamicContextMessages = new ArrayList<>();
+        List<DynamicSectionSpan> dynamicContextSections = new ArrayList<>();
         List<Message> systemMessages = new ArrayList<>();
         List<Content> attachments = new ArrayList<>();
         List<ToolCallRequest> toolCalls = new ArrayList<>();
@@ -51,10 +56,9 @@ record AuditContext(boolean hasHistory, List<AiMessageEntity> assistantHistory, 
                     toolResults.add(new ToolResult(tool, call));
                 }
                 case UserMessageEntity user -> {
-                    // The per-round context block is framework-rendered background, not something
-                    // the user said: reporting it as user tokens would blame the wrong party.
                     if (user.hasContextContract()) {
                         dynamicContextMessages.add(withoutAttachments(user, attachments));
+                        dynamicContextSections.addAll(sectionsOf(user));
                     } else {
                         userMessages.add(withoutAttachments(user, attachments));
                     }
@@ -64,8 +68,20 @@ record AuditContext(boolean hasHistory, List<AiMessageEntity> assistantHistory, 
             }
         }
 
-        return new AuditContext(true, assistantHistory, userMessages, dynamicContextMessages, systemMessages,
-                attachments, toolCalls, toolResults);
+        return new AuditContext(true, assistantHistory, userMessages, dynamicContextMessages,
+                dynamicContextSections, systemMessages, attachments, toolCalls, toolResults);
+    }
+
+    /** Slices one context message into the spans it declared, dropping spans the text no longer covers. */
+    private static List<DynamicSectionSpan> sectionsOf(UserMessageEntity user) {
+        String text = user.text();
+        List<DynamicSectionSpan> spans = new ArrayList<>();
+        for (ContextSectionMark mark : user.contextSections()) {
+            int end = mark.start() + mark.length();
+            if (mark.start() < 0 || end > text.length()) continue;
+            spans.add(new DynamicSectionSpan(mark.kind(), text.substring(mark.start(), end)));
+        }
+        return spans;
     }
 
     List<Message> assistantMessages() {
@@ -89,8 +105,17 @@ record AuditContext(boolean hasHistory, List<AiMessageEntity> assistantHistory, 
                 else attachments.add(content);
             }
         }
-        return new UserMessageEntity(text, user.getAttrs());
+        return UserMessageEntity.builder()
+                .content(text)
+                .attrs(user.getAttrs())
+                .contextSections(user.contextSections())
+                .build();
     }
 
-    record ToolResult(ToolMessageEntity message, ToolCallRequest call) {}
+    /** One section body, already cut out of the context message it was rendered into. */
+    record DynamicSectionSpan(ContextSectionKind kind, String body) {
+    }
+
+    record ToolResult(ToolMessageEntity message, ToolCallRequest call) {
+    }
 }

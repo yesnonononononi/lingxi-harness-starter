@@ -1,12 +1,15 @@
 package com.summit.runtime.conversation;
 
 import com.summit.core.agent.ContextSpec;
+import com.summit.core.conversation.message.ContextSectionKind;
+import com.summit.core.conversation.message.ContextSectionMark;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.mcp.McpResume;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.skill.SkillResume;
 import org.jspecify.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -23,31 +26,50 @@ import java.util.Objects;
  * the whole document onto one line — which is what a blanket whitespace normalisation used to do —
  * throws that structure away. Only single-line fields (a description inside a list entry) are
  * collapsed, so one entry cannot break the list.</p>
+ *
+ * <p>Each section is also marked with the span its body occupies in the rendered text, so the audit
+ * can re-count it on its own boundary instead of reporting the block as one opaque figure.</p>
  */
 public class ContextDynamicAssembler {
     public static final String LABEL = "<context>";
+
+    private static final String MCP_TITLE = "\n\n## MCP Tools\n";
+    private static final String SKILL_TITLE = "\n\n## Skill Prompt\n";
+    private static final String MEMORY_TITLE = "\n\n## Memory Prompt\n";
+    private static final String TASK_TITLE = "\n\n## Task Manifest\n";
+
+    private record Section(ContextSectionKind kind, String title, String body) {
+    }
 
     /**
      * The dynamic context of one round, or {@code null} when this request carries no dynamic
      * section at all — a bare-model request must not get an empty user message injected.
      */
     public static @Nullable UserMessageEntity assemble(ContextSpec contextSpec, McpToolScope scope, List<SkillResume> skills, List<String> tasks) {
-        StringBuilder text = new StringBuilder(LABEL);
-        appendSection(text, withMcpToolPrompt(scope));
-        appendSection(text, withSkillPrompt(skills));
-        appendSection(text, withMemoryPrompt(contextSpec.getMemory()));
-        appendSection(text, withTaskPrompt(tasks));
-        if (text.length() == LABEL.length()) {
+        List<Section> sections = new ArrayList<>(4);
+        addSection(sections, ContextSectionKind.MCP, MCP_TITLE, withMcpToolPrompt(scope));
+        addSection(sections, ContextSectionKind.SKILL, SKILL_TITLE, withSkillPrompt(skills));
+        addSection(sections, ContextSectionKind.MEMORY, MEMORY_TITLE, withMemoryPrompt(contextSpec.getMemory()));
+        addSection(sections, ContextSectionKind.TASK, TASK_TITLE, withTaskPrompt(tasks));
+        if (sections.isEmpty()) {
             return null;
         }
-        UserMessageEntity assembled = UserMessageEntity.from(text.toString());
-        assembled.markContextContract();
-        return assembled;
+
+        StringBuilder text = new StringBuilder(LABEL);
+        List<ContextSectionMark> marks = new ArrayList<>(sections.size());
+        for (Section section : sections) {
+            text.append(section.title());
+            int start = text.length();
+            text.append(section.body());
+            marks.add(new ContextSectionMark(section.kind(), start, section.body().length()));
+        }
+        return UserMessageEntity.from(text.toString()).markContextContract().withContextSections(marks);
     }
 
-    private static void appendSection(StringBuilder text, @Nullable String section) {
-        if (section != null && !section.isBlank()) {
-            text.append(section);
+    private static void addSection(List<Section> sections, ContextSectionKind kind, String title,
+                                   @Nullable String body) {
+        if (body != null && !body.isBlank()) {
+            sections.add(new Section(kind, title, body));
         }
     }
 
@@ -55,7 +77,6 @@ public class ContextDynamicAssembler {
         if (skills == null || skills.isEmpty()) return null;
         StringBuilder stringBuilder = new StringBuilder();
 
-        stringBuilder.append("\n\n## Skill Prompt\n");
         stringBuilder.append("Before using a skill, call `read_skill` if you have  with its entry path below. ")
                 .append("Paths refer to the host-side Skill resources, independently of the execution workspace. ")
                 .append("Read referenced files with the same tool, resolving references against the directory of the file that contains them.\n");
@@ -75,7 +96,7 @@ public class ContextDynamicAssembler {
         List<String> bodies = memory.stream().filter(Objects::nonNull)
                 .filter(body -> !body.isBlank()).toList();
         if (bodies.isEmpty()) return null;
-        return "\n\n## Memory Prompt\n" + (String.join("\n", bodies));
+        return String.join("\n", bodies);
     }
 
     private static String withMcpToolPrompt(@Nullable McpToolScope scope) {
@@ -84,22 +105,21 @@ public class ContextDynamicAssembler {
         }
         List<McpResume> mcps = scope.resumes();
 
-        StringBuilder stringBuilder = new StringBuilder();
-
         if (mcps.isEmpty()) {
             return null;
         }
 
-        stringBuilder.append("\n\n## MCP Tools\n")
-                .append("""
-                        Remote tools are hosted by MCP servers; the counts below are how many each one contributed.
-                        Their parameter schemas are deliberately left out of this prompt. Call `list_mcp_tools` with
-                        a server name to list that server's tools (name and description), or `search_tool` with a
-                        keyword to get one tool's schema directly. A tool found either way becomes callable from your
-                        next turn on. A server holding more tools than one listing shows is listed in successive
-                        windows: pass `start` and `end` to read a later one, and keep going while the result reports
-                        `hasMore`.
-                        """);
+        StringBuilder stringBuilder = new StringBuilder();
+
+        stringBuilder.append("""
+                Remote tools are hosted by MCP servers; the counts below are how many each one contributed.
+                Their parameter schemas are deliberately left out of this prompt. Call `list_mcp_tools` with
+                a server name to list that server's tools (name and description), or `search_tool` with a
+                keyword to get one tool's schema directly. A tool found either way becomes callable from your
+                next turn on. A server holding more tools than one listing shows is listed in successive
+                windows: pass `start` and `end` to read a later one, and keep going while the result reports
+                `hasMore`.
+                """);
         for (McpResume mcp : mcps) {
             stringBuilder.append("\n- ").append(mcp.name())
                     .append(" - ").append(descriptionOf(mcp))
@@ -120,7 +140,7 @@ public class ContextDynamicAssembler {
         if (lines.isEmpty()) {
             return null;
         }
-        return "\n\n## Task Manifest\n" + (String.join("\n", lines));
+        return String.join("\n", lines);
     }
 
 
