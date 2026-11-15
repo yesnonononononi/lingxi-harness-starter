@@ -56,6 +56,26 @@ class ReasoningEffortPlanTest {
     }
 
     @Test
+    @DisplayName("adaptive 世代要认得出型号：认不出来就不发 thinking / output_config")
+    void adaptiveThinkingRequiresARecognisableModelName() {
+        assertTrue(ReasoningEffortPlan.adaptiveThinking("claude-sonnet-4-6"));
+        assertTrue(ReasoningEffortPlan.adaptiveThinking("claude-opus-4-7"), "新版命名：4.7 比 4.6 新");
+        assertTrue(ReasoningEffortPlan.adaptiveThinking("claude-5-opus-20260101"), "旧版命名同样要能读出版本");
+        assertFalse(ReasoningEffortPlan.adaptiveThinking("claude-sonnet-4-5"), "4.5 用手动预算");
+        assertFalse(ReasoningEffortPlan.adaptiveThinking("claude-3-5-sonnet-20241022"), "3.x 用手动预算");
+        assertFalse(ReasoningEffortPlan.adaptiveThinking("claude-3-opus-20240229"), "3.x 没写次版本也不能算新一代");
+        // 认不出来的一律不发：中转网关的自定义别名、拼错的名字、OpenAI 型号
+        assertFalse(ReasoningEffortPlan.adaptiveThinking(null));
+        assertFalse(ReasoningEffortPlan.adaptiveThinking("claude"));
+        assertFalse(ReasoningEffortPlan.adaptiveThinking("deepseek/deepseek-v4.1-flash"));
+        assertFalse(ReasoningEffortPlan.adaptiveThinking("gpt-5"));
+        // 认不出来就不该声称支持原生 effort —— 否则 output_config 会被一起发出去
+        assertFalse(ReasoningEffortPlan.supportsNativeEffort(null));
+        assertFalse(ReasoningEffortPlan.supportsNativeEffort("gpt-5"));
+        assertTrue(ReasoningEffortPlan.supportsNativeEffort("claude-sonnet-4-6"));
+    }
+
+    @Test
     @DisplayName("档位与输出上限的交叉校验：思考预算必须小于输出上限")
     void effortAndOutputBudgetAreCrossChecked() {
         // 手动 thinking 的模型才受这条约束

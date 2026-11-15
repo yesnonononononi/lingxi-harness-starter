@@ -23,9 +23,7 @@ record AnthropicModelSettings(String thinkingType, Integer budget, int maxTokens
         String type = normalize(options == null ? null : options.thinkingType());
         Integer budget = options == null ? null : options.thinkingBudgetTokens();
         if (type == null) {
-            type = "none".equals(effort) ? "disabled"
-                    : budget != null ? "enabled"
-                    : effort == null ? null : manualModel ? "enabled" : "adaptive";
+            type = inferredThinkingType(effort, budget, model, manualModel);
         }
         if (type != null && !Set.of("disabled", "enabled", "adaptive").contains(type)) {
             throw new IllegalArgumentException("Unsupported Anthropic thinking type: " + type);
@@ -45,6 +43,22 @@ record AnthropicModelSettings(String thinkingType, Integer budget, int maxTokens
                 ? ReasoningEffortPlan.canonical("anthropic", model, effort) : null;
         return new AnthropicModelSettings(type, budget, maxTokens, options != null && options.promptCache(),
                 cacheTtl(options), options != null && options.promptCacheConversation(), outputEffort);
+    }
+
+    /**
+     * What to send when the caller named no thinking mode.
+     *
+     * <p>A model name this framework cannot classify gets no thinking block at all. An endpoint may
+     * serve anything under any name, and a parameter the provider does not know is a 400 that is
+     * not retried: guessing {@code adaptive} for an unreadable name is how a working chat turns into
+     * a terminal failure after a model is renamed or reached through a relay alias.</p>
+     */
+    private static String inferredThinkingType(String effort, Integer budget, String model, boolean manualModel) {
+        if ("none".equals(effort)) return "disabled";
+        if (budget != null) return "enabled";
+        if (effort == null) return null;
+        if (manualModel) return "enabled";
+        return ReasoningEffortPlan.adaptiveThinking(model) ? "adaptive" : null;
     }
 
     /** Anthropic sends the TTL verbatim inside every cache breakpoint, so only its two values pass. */

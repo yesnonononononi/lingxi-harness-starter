@@ -120,6 +120,24 @@ class ProviderWireContractTest {
         }
     }
 
+    /**
+     * A name the framework cannot classify gets neither the adaptive thinking type nor the native
+     * effort: an endpoint may serve anything under any name, and an unknown parameter is a 400 the
+     * invoker will not retry.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void anthropicSendsNoThinkingForAModelNameItCannotClassify(boolean streaming) throws Exception {
+        try (Endpoint endpoint = new Endpoint()) {
+            call(endpoint, config(endpoint, "deepseek/deepseek-v4.1-flash").reasoningEffort("high").build(),
+                    streaming, List.of(UserMessageEntity.from("question")), true);
+            JsonNode request = endpoint.requests.poll(10, TimeUnit.SECONDS);
+            assertNotNull(request);
+            assertFalse(request.has("thinking"), "认不出的模型名不能赌新版 thinking 协议");
+            assertFalse(request.has("output_config"), "认不出的模型名不能赌 output_config");
+        }
+    }
+
     @Test
     void compactProviderUsesNativeAnthropicWithThinkingDisabled() throws Exception {
         try (Endpoint endpoint = new Endpoint()) {

@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * What a reasoning-effort level actually means on one concrete model.
@@ -25,6 +27,14 @@ public final class ReasoningEffortPlan {
     private ReasoningEffortPlan() {
     }
 
+    /** Newer naming puts the tier first: {@code claude-sonnet-4-6}, {@code claude-opus-4-5}. */
+    private static final Pattern NAMED_VERSION = Pattern.compile("claude-(?:opus|sonnet|haiku)-(\\d+)(?:-(\\d+))?.*");
+    /** Older naming puts the version first: {@code claude-3-5-sonnet-20241022}. */
+    private static final Pattern LEGACY_VERSION = Pattern.compile("claude-(\\d+)(?:-(\\d+))?-.+");
+    /** First generation that accepts {@code thinking.type=adaptive}; everything below is a manual budget. */
+    private static final int ADAPTIVE_MAJOR = 4;
+    private static final int ADAPTIVE_MINOR = 6;
+
     /** Whether effort has to be expressed as an Anthropic thinking budget / native effort. */
     public static boolean anthropicFamily(String provider, String modelName) {
         String normalizedProvider = normalize(provider);
@@ -44,10 +54,50 @@ public final class ReasoningEffortPlan {
                 || model.matches("claude-(opus|sonnet|haiku)-4(?:-(?:0|1|5)(?:-.*)?|-\\d{8})?");
     }
 
+    /**
+     * Whether the model belongs to the generation that expresses thinking as adaptive effort instead
+     * of an explicit token budget.
+     *
+     * <p>Only names whose version can actually be read count. An endpoint may serve anything under
+     * any name — a relay's own alias, a renamed model, a typo — and sending a parameter the provider
+     * does not know is a 400 that is never retried. A name this class cannot classify therefore
+     * gets no thinking block and no {@code output_config} at all, rather than the newest protocol
+     * as a guess.</p>
+     */
+    public static boolean adaptiveThinking(String modelName) {
+        String model = normalize(modelName);
+        if (model == null) return false;
+        int[] version = versionOf(model);
+        if (version == null) return false;
+        int major = version[0];
+        int minor = version[1];
+        return major > ADAPTIVE_MAJOR || (major == ADAPTIVE_MAJOR && minor >= ADAPTIVE_MINOR);
+    }
+
+    /**
+     * Reads {@code major[.minor]} out of either Anthropic naming shape.
+     *
+     * @return {@code {major, minor}} with {@code minor} 0 when the name carries no minor, or
+     *         {@code null} when the name is not a Claude model version at all
+     */
+    private static int[] versionOf(String model) {
+        Matcher named = NAMED_VERSION.matcher(model);
+        if (named.matches()) return version(named);
+        Matcher legacy = LEGACY_VERSION.matcher(model);
+        return legacy.matches() ? version(legacy) : null;
+    }
+
+    private static int[] version(Matcher matched) {
+        int major = Integer.parseInt(matched.group(1));
+        String minor = matched.group(2);
+        return new int[]{major, minor == null ? 0 : Integer.parseInt(minor)};
+    }
+
     /** Whether the model accepts the native effort parameter on top of a manual thinking budget. */
     public static boolean supportsNativeEffort(String modelName) {
         String model = normalize(modelName);
-        return model == null || !manualThinking(model) || model.startsWith("claude-opus-4-5");
+        if (model == null) return false;
+        return adaptiveThinking(model) || model.startsWith("claude-opus-4-5");
     }
 
     /** The value that actually reaches the provider; {@code xhigh}/{@code minimal} collapse on Anthropic. */
