@@ -70,6 +70,9 @@ public class AnthropicModelRequest {
         }
         boolean replayThinking = config.isSendThinking()
                 || (thinking != null && !"disabled".equals(thinking.path("type").asText()));
+        ArrayNode tools = tools(request.getTools(), mapper);
+        if (settings.cachePrefix()) markCacheBoundary(tools, mapper, settings.cacheTtl());
+        String thinkingBinding = AnthropicThinkingBinding.fingerprint(config.getModelName(), tools);
         ArrayNode system = mapper.createArrayNode();
         List<Message> messages = new ArrayList<>();
         ArrayNode toolResults = null;
@@ -102,12 +105,13 @@ public class AnthropicModelRequest {
             } else if (message instanceof AiMessageEntity assistant) {
                 Object saved = assistant.getAttributes() == null ? null
                         : assistant.getAttributes().get(ResponseSerializer.NATIVE_CONTENT_ATTRIBUTE);
-                if (replayThinking && saved != null && mapper.valueToTree(saved) instanceof ArrayNode blocks) {
+                if (replayThinking && saved != null
+                        && AnthropicThinkingBinding.replayable(saved, thinkingBinding, mapper) instanceof ArrayNode blocks
+                        && !blocks.isEmpty()) {
                     messages.add(new Message("assistant", blocks));
                     continue;
                 }
                 ArrayNode blocks = mapper.createArrayNode();
-                if (replayThinking) addLegacyThinking(blocks, assistant);
                 addText(blocks, assistant.getText());
                 if (assistant.getToolCalls() != null) {
                     for (ToolCallRequest call : assistant.getToolCalls()) {
@@ -121,30 +125,13 @@ public class AnthropicModelRequest {
         if (messages.isEmpty()) {
             throw new NonRetriableModelException("Anthropic requires at least one conversation message", null);
         }
-        ArrayNode tools = tools(request.getTools(), mapper);
-        if (settings.cachePrefix()) {
-            markCacheBoundary(system, mapper, settings.cacheTtl());
-            markCacheBoundary(tools, mapper, settings.cacheTtl());
-        }
+        if (settings.cachePrefix()) markCacheBoundary(system, mapper, settings.cacheTtl());
         return builder().model(config.getModelName()).maxTokens(settings.maxTokens())
                 .system(system.isEmpty() ? null : system).messages(messages).tools(tools).thinking(thinking)
                 .outputConfig(settings.outputEffort() == null ? null
                         : mapper.createObjectNode().put("effort", settings.outputEffort()))
                 .cacheControl(settings.cacheAutomatically() ? cacheControl(mapper, settings.cacheTtl()) : null)
                 .build();
-    }
-
-    private static void addLegacyThinking(ArrayNode blocks, AiMessageEntity assistant) {
-        var attributes = assistant.getAttributes();
-        if (attributes == null) return;
-        if (attributes.get("thinking_signature") instanceof String signature && assistant.getThinking() != null) {
-            blocks.addObject().put("type", "thinking").put("thinking", assistant.getThinking()).put("signature", signature);
-        }
-        if (attributes.get("redacted_thinking") instanceof List<?> redacted) {
-            for (Object value : redacted) {
-                if (value instanceof String data) blocks.addObject().put("type", "redacted_thinking").put("data", data);
-            }
-        }
     }
 
     private static void markCacheBoundary(ArrayNode blocks, ObjectMapper mapper, String ttl) {

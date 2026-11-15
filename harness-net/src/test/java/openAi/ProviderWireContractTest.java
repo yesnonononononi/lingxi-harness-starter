@@ -65,8 +65,8 @@ class ProviderWireContractTest {
             assertEquals("reason", first.getAiMessageEntity().getThinking());
             JsonNode nativeContent = new ObjectMapper().valueToTree(first.getAiMessageEntity().getAttributes()
                     .get(anthropic.ResponseSerializer.NATIVE_CONTENT_ATTRIBUTE));
-            assertEquals("signed", nativeContent.at("/0/signature").asText());
-            assertEquals("opaque", nativeContent.at("/1/data").asText());
+            assertEquals("signed", nativeContent.at("/blocks/0/signature").asText(), nativeContent.toString());
+            assertEquals("opaque", nativeContent.at("/blocks/1/data").asText(), nativeContent.toString());
             assertEquals(210, first.getTokenUsage().getTotalTokens());
             assertEquals(180, first.getTokenUsage().getInputTokens().getInputTokens());
             assertEquals(60, first.getTokenUsage().getInputTokens().getCacheHitTokens());
@@ -221,9 +221,82 @@ class ProviderWireContractTest {
         }
     }
 
+    /**
+     * A thinking block is signed against the request that produced it. When the tool list changed
+     * between rounds — an MCP server publishing more tools is enough — replaying the block is a 400
+     * the invoker never retries, so the block goes and the turn stays.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void anthropicDropsThinkingBoundToAnotherToolList(boolean streaming) throws Exception {
+        try (Endpoint endpoint = new Endpoint()) {
+            ModelConfig config = config(endpoint, "claude-sonnet-4-6").reasoningEffort("high").build();
+            ToolDefinition<?> lookup = definition("lookup");
+            ChatRequestEntity firstRequest = ChatRequestEntity.builder()
+                    .messages(List.of(UserMessageEntity.from("question"))).tools(List.of(lookup)).build();
+            ChatResponseEntity first = call(endpoint, config, streaming, firstRequest, true);
+            assertNotNull(endpoint.requests.poll(10, TimeUnit.SECONDS));
+
+            ChatRequestEntity second = ChatRequestEntity.builder()
+                    .tools(List.of(lookup, definition("another")))
+                    .messages(List.of(UserMessageEntity.from("question"), first.getAiMessageEntity(),
+                            ToolMessageEntity.builder().id("call-1").name("lookup").toolOutput("result").build()))
+                    .build();
+            call(endpoint, config, streaming, second, true);
+
+            JsonNode replay = endpoint.requests.poll(10, TimeUnit.SECONDS);
+            assertNotNull(replay);
+            JsonNode content = replay.path("messages").get(1).path("content");
+            assertEquals(1, content.size(), "only the tool_use block may survive: " + content);
+            assertEquals("tool_use", content.get(0).path("type").asText());
+            assertEquals("call-1", content.get(0).path("id").asText());
+        }
+    }
+
+    /**
+     * The mirror image of dropping: while the tool list is unchanged the signed block still belongs
+     * to the request and has to be replayed, or the model loses the reasoning it is continuing.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void anthropicKeepsThinkingWhileTheToolListIsUnchanged(boolean streaming) throws Exception {
+        try (Endpoint endpoint = new Endpoint()) {
+            ModelConfig config = config(endpoint, "claude-sonnet-4-6").reasoningEffort("high").build();
+            ToolDefinition<?> lookup = definition("lookup");
+            ChatResponseEntity first = call(endpoint, config, streaming, ChatRequestEntity.builder()
+                    .messages(List.of(UserMessageEntity.from("question"))).tools(List.of(lookup)).build(), true);
+            assertNotNull(endpoint.requests.poll(10, TimeUnit.SECONDS));
+
+            call(endpoint, config, streaming, ChatRequestEntity.builder()
+                    .tools(List.of(lookup))
+                    .messages(List.of(UserMessageEntity.from("question"), first.getAiMessageEntity(),
+                            ToolMessageEntity.builder().id("call-1").name("lookup").toolOutput("result").build()))
+                    .build(), true);
+
+            JsonNode replay = endpoint.requests.poll(10, TimeUnit.SECONDS);
+            assertNotNull(replay);
+            JsonNode content = replay.path("messages").get(1).path("content");
+            assertEquals("thinking", content.get(0).path("type").asText(), content.toString());
+            assertEquals("signed", content.get(0).path("signature").asText(), content.toString());
+            assertEquals("redacted_thinking", content.get(1).path("type").asText(), content.toString());
+        }
+    }
+
+    private static ToolDefinition<?> definition(String name) {
+        return ToolDefinition.builder()
+                .id(name).name(name).description("Tool " + name)
+                .maxOutput(100).timeout(5L)
+                .executor(execution -> ToolExecuteResult.success("ok"))
+                .build();
+    }
+
     private ChatResponseEntity call(Endpoint endpoint, ModelConfig config, boolean streaming, List<Message> messages,
                                     boolean anthropic) throws Exception {
-        ChatRequestEntity request = ChatRequestEntity.builder().messages(messages).build();
+        return call(endpoint, config, streaming, ChatRequestEntity.builder().messages(messages).build(), anthropic);
+    }
+
+    private ChatResponseEntity call(Endpoint endpoint, ModelConfig config, boolean streaming, ChatRequestEntity request,
+                                    boolean anthropic) throws Exception {
         if (!streaming) {
             com.summit.core.model.chat.ChatModel model = anthropic ? endpoint.anthropic(config) : endpoint.openAi(config);
             return model.chat(request);

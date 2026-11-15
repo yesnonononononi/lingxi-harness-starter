@@ -41,9 +41,11 @@ public class AnthropicChatModel implements ChatModel, StreamingChatModel {
     @Override
     public ChatResponseEntity chat(ChatRequestEntity request) {
         try {
-            HttpResponse<String> response = httpClient.send(buildRequest(request, false), HttpResponse.BodyHandlers.ofString());
+            Built built = buildRequest(request, false);
+            HttpResponse<String> response = httpClient.send(built.http(), HttpResponse.BodyHandlers.ofString());
             checkStatus(response.statusCode(), response.body(), JSON);
-            return ResponseSerializer.serialize(JSON.readTree(response.body()), JSON, modelConfig.isReturnThinking());
+            return ResponseSerializer.serialize(JSON.readTree(response.body()), JSON,
+                    modelConfig.isReturnThinking(), built.thinkingBinding());
         } catch (JsonProcessingException error) {
             throw new NonRetriableModelException("Invalid Anthropic request or response JSON", error);
         } catch (InterruptedException error) {
@@ -56,9 +58,9 @@ public class AnthropicChatModel implements ChatModel, StreamingChatModel {
 
     @Override
     public void chat(ChatRequestEntity request, StreamingChatResponseHandler handler) {
-        HttpRequest httpRequest;
+        Built built;
         try {
-            httpRequest = buildRequest(request, true);
+            built = buildRequest(request, true);
         } catch (JsonProcessingException error) {
             handler.onError(new NonRetriableModelException("Invalid Anthropic request JSON", error));
             return;
@@ -66,10 +68,15 @@ public class AnthropicChatModel implements ChatModel, StreamingChatModel {
             handler.onError(error);
             return;
         }
-        new AnthropicStreaming(httpClient, JSON, handler, modelConfig.isReturnThinking()).start(httpRequest);
+        new AnthropicStreaming(httpClient, JSON, handler, modelConfig.isReturnThinking(), built.thinkingBinding())
+                .start(built.http());
     }
 
-    private HttpRequest buildRequest(ChatRequestEntity request, boolean stream) throws JsonProcessingException {
+    /** A ready-to-send request together with the fingerprint its thinking blocks will be bound to. */
+    private record Built(HttpRequest http, String thinkingBinding) {
+    }
+
+    private Built buildRequest(ChatRequestEntity request, boolean stream) throws JsonProcessingException {
         AnthropicModelRequest body = AnthropicModelRequest.from(request, modelConfig, JSON);
         body.setStream(stream);
         HttpRequest.Builder builder = HttpRequest.newBuilder()
@@ -79,7 +86,8 @@ public class AnthropicChatModel implements ChatModel, StreamingChatModel {
                 .header("Content-Type", "application/json");
         if (stream) builder.header("Accept", "text/event-stream");
         if (modelConfig.getTimeout() != null) builder.timeout(modelConfig.getTimeout());
-        return builder.POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body))).build();
+        HttpRequest http = builder.POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body))).build();
+        return new Built(http, AnthropicThinkingBinding.fingerprint(modelConfig.getModelName(), body.getTools()));
     }
 
     private static URI resolveEndpoint(String baseUrl) {

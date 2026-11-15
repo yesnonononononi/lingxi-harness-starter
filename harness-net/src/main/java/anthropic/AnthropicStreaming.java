@@ -31,15 +31,18 @@ final class AnthropicStreaming implements StreamingHandler {
     private final ObjectMapper mapper;
     private final StreamingChatResponseHandler handler;
     private final boolean returnThinking;
+    private final String thinkingBinding;
     private final AtomicReference<State> state = new AtomicReference<>(State.ACTIVE);
     private final AtomicReference<InputStream> body = new AtomicReference<>();
     private Thread worker;
 
-    AnthropicStreaming(HttpClient client, ObjectMapper mapper, StreamingChatResponseHandler handler, boolean returnThinking) {
+    AnthropicStreaming(HttpClient client, ObjectMapper mapper, StreamingChatResponseHandler handler,
+                       boolean returnThinking, String thinkingBinding) {
         this.client = client;
         this.mapper = mapper;
         this.handler = handler;
         this.returnThinking = returnThinking;
+        this.thinkingBinding = thinkingBinding;
     }
 
     void start(HttpRequest request) {
@@ -224,7 +227,7 @@ final class AnthropicStreaming implements StreamingHandler {
                 throw new RetriableModelException("Anthropic stream stopped with an incomplete message", null);
             }
             response.putArray("content").addAll(completed.values());
-            return ResponseSerializer.serialize(response, mapper, returnThinking);
+            return ResponseSerializer.serialize(response, mapper, returnThinking, thinkingBinding);
         }
     }
 

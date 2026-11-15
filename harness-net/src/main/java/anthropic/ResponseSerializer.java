@@ -16,9 +16,18 @@ import java.util.Map;
 import java.util.Objects;
 
 public class ResponseSerializer {
+    /**
+     * Where the provider's own content blocks are kept on the assistant message.
+     *
+     * <p>The value carries the blocks together with the fingerprint of the request that produced
+     * them: a thinking block is signed against that request and cannot be replayed under another
+     * tool list. Messages saved before the fingerprint existed hold the bare array here and are
+     * therefore never replayed.</p>
+     */
     public static final String NATIVE_CONTENT_ATTRIBUTE = "anthropic_content_blocks";
 
-    static ChatResponseEntity serialize(JsonNode wire, ObjectMapper mapper, boolean returnThinking)
+    static ChatResponseEntity serialize(JsonNode wire, ObjectMapper mapper, boolean returnThinking,
+                                        String thinkingBinding)
             throws JsonProcessingException {
         AnthropicResponse response = mapper.treeToValue(wire, AnthropicResponse.class);
         ChatResponseEntity result = serialize(response);
@@ -33,7 +42,8 @@ public class ResponseSerializer {
         }
         if (response.getContent().stream().anyMatch(block -> block instanceof AnthropicResponse.Thinking
                 || block instanceof AnthropicResponse.RedactedThinking)) {
-            result.getAiMessageEntity().setAttributes(Map.of(NATIVE_CONTENT_ATTRIBUTE, wire.path("content").deepCopy()));
+            result.getAiMessageEntity().setAttributes(Map.of(NATIVE_CONTENT_ATTRIBUTE,
+                    AnthropicThinkingBinding.saved(wire.path("content").deepCopy(), thinkingBinding)));
         }
         return result;
     }
