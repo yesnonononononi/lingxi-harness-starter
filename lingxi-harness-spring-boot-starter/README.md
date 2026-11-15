@@ -72,14 +72,13 @@ Tool timeout, output limits, execution boundary and system prompt all have defau
 ## Skill resources
 
 The default Skill loader scans a host-side directory for `SKILL.md` entries with `name` and
-`description` in YAML frontmatter. Set the directory on each request and explicitly allow the
-reader in the tool whitelist:
+`description` in YAML frontmatter. Set the directory on each request; `read_skill` is a kernel tool
+and needs no entry in the tool whitelist:
 
 ```java
 AgentRequest.builder()
         .messages(List.of(UserMessageEntity.from("Review this project")))
         .skillConfig(new com.summit.core.conf.SkillConfig(java.nio.file.Path.of("D:/skills")))
-        .toolList(List.of("read_skill"))
         .build();
 ```
 

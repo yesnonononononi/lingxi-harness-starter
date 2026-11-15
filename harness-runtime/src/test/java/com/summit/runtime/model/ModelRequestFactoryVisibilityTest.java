@@ -33,8 +33,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Model-visible tools = the whitelisted static tools, plus the gateway when the whitelist exposes
- * it — and nothing else. The request's MCP scope contributes no declaration of its own.
+ * Model-visible tools = the whitelisted static tools, plus the framework kernel tools the registry
+ * holds — and nothing else. The request's MCP scope contributes no declaration of its own.
  *
  * <p>The tool list sits at the head of the prompt, so anything that moves it in the middle of a run
  * invalidates the provider's prefix cache and the signatures bound to it. Remote tools are therefore
@@ -52,22 +52,25 @@ class ModelRequestFactoryVisibilityTest {
                 List.of(remoteTool("mcp_remote"), remoteTool("mcp_other")));
 
         assertEquals(Set.of(), fixture.visible(null),
-                "an unnamed run declares nothing, remote or not");
+                "an unnamed run declares no application tool, remote or not");
         assertEquals(Set.of(), fixture.visible(List.of()),
-                "an empty whitelist admits no static tool either");
+                "an empty whitelist admits no application tool either");
         assertEquals(Set.of("static_tool"), fixture.visible(List.of("static_tool")),
                 "a remote tool is never declared, not even next to its own server");
     }
 
     @Test
-    void theGatewayAppearsOnlyWhenTheWhitelistNamesIt() {
+    void theGatewayIsDeclaredWithoutAnyWhitelistEntry() {
         Fixture fixture = new Fixture(List.of(gateway(), staticTool("static_tool")), List.of());
 
-        assertEquals(Set.of(McpToolGateway.NAME), fixture.visible(List.of(McpToolGateway.NAME)));
-        assertEquals(Set.of("static_tool"), fixture.visible(List.of("static_tool")),
-                "a run that never names the gateway cannot call remote tools");
-        assertEquals(Set.of("static_tool"), fixture.visible(List.of(McpToolGateway.DISCOVERY_TOOL, "static_tool")),
-                "the lookup entry is a tool of its own; it does not imply the gateway");
+        assertEquals(Set.of(McpToolGateway.NAME), fixture.visible(null),
+                "the gateway is a framework kernel tool: naming it is no longer a precondition");
+        assertEquals(Set.of(McpToolGateway.NAME), fixture.visible(List.of()),
+                "an empty whitelist still declares it");
+        assertEquals(Set.of(McpToolGateway.NAME, "static_tool"), fixture.visible(List.of("static_tool")),
+                "the kernel tool rides along with whatever the whitelist does name");
+        assertEquals(Set.of(McpToolGateway.NAME), fixture.visible(List.of(McpToolGateway.DISCOVERY_TOOL)),
+                "the lookup entry is a separate name and implies nothing");
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.summit.kernel.tools.skill;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.skill.SkillToolExecutor;
+import com.summit.core.tool.KernelTools;
 import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolExecution;
 import com.summit.core.tool.ToolExecutor;
@@ -15,7 +16,7 @@ import java.nio.file.Path;
 @RequiredArgsConstructor
 @Slf4j
 public class ReadSkillTool implements SkillToolExecutor {
-    public static final String NAME = "read_skill";
+    public static final String NAME = KernelTools.READ_SKILL;
     private final ObjectMapper objectMapper;
 
     @Override

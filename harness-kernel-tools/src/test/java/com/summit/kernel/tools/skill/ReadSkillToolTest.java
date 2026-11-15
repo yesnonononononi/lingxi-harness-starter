@@ -95,7 +95,8 @@ class ReadSkillToolTest {
             assertTrue(result.isSuccess(), result.getToolOutput());
             assertTrue(result.getToolOutput().contains("[OUTPUT_TRUNCATED]"), result.getToolOutput());
             assertTrue(result.getToolOutput().length() < 400, result.getToolOutput());
-            assertFalse(manager.execute(command(root, List.of())).getFirst().isSuccess());
+            assertTrue(manager.execute(command(root, List.of())).getFirst().isSuccess(),
+                    "read_skill is a kernel tool: an empty whitelist must not take it away");
         }
     }
 

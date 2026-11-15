@@ -144,7 +144,7 @@ AgentRequest request = AgentRequest.builder()
         .build();
 ```
 
-- `toolList` is the static tool allowlist; both `null` and an empty list expose no static tools, including framework built-ins.
+- `toolList` is the static tool allowlist; both `null` and an empty list expose no static tools, except the framework kernel tools. `search_tool`, `list_mcp_tools`, `call_mcp_tool`, `read_skill` and `compact_context` are declared and admitted regardless of the allowlist, because they are properties of running a loop rather than capabilities the application grants; each is switched off through its own `lingxi.agent.runtime.tool.*.enabled` property instead.
 - A tool must already be registered and present in the allowlist. The execution layer still checks permissions; calls that are not found or not authorized return an error result.
 - Tool names must be unique within the static registry. An executor returns `success(...)`, `err(...)`, or `promise(...)`; the framework fills in the tool call ID and tool definition.
 - `timeout` is in seconds; `<= 0` means no framework execution timeout. `maxOutput` is enforced by the default `ToolInterceptor` through `Tokenizer.truncate`; context compaction results do not go through this truncation.
@@ -349,7 +349,7 @@ Configure servers in `AgentRequest.mcpConfig`. The default `AgentScopeMcpProvide
 
 MCP tools live in the request `McpToolScope` and are not registered in the global static `ToolRegistry`. Remote tools are named `mcp_` plus the original name by default; a connection or discovery failure for a single server is logged and that server is skipped. When multiple servers expose tools with the same name, the scope keeps the first one.
 
-Discovery and model visibility are separate: the prompt provides a server summary, `list_mcp_tools` and `search_tool` hand out names and schemas, and every remote call goes through the static `call_mcp_tool` gateway. No remote tool is ever declared in the model request's tool list, so the list stays identical round after round and the provider's prefix cache survives discovery. Authorize `call_mcp_tool` (and `search_tool` for discovery) in the static `toolList`; remote tools are then admitted at the execution layer by scope membership and do not need to be written into the static allowlist in advance. A `call_mcp_tool` invocation is rewritten into the call of the remote tool it names before resolution, so concurrency, timeout, output truncation and tool-call events all report that tool; the model's own transcript keeps the gateway call.
+Discovery and model visibility are separate: the prompt provides a server summary, `list_mcp_tools` and `search_tool` hand out names and schemas, and every remote call goes through the static `call_mcp_tool` gateway. No remote tool is ever declared in the model request's tool list, so the list stays identical round after round and the provider's prefix cache survives discovery. `call_mcp_tool`, `list_mcp_tools` and `search_tool` are kernel tools, so they are declared and admitted without an entry in the static `toolList`; remote tools are then admitted at the execution layer by scope membership and do not need to be written into the static allowlist in advance. A `call_mcp_tool` invocation is rewritten into the call of the remote tool it names before resolution, so concurrency, timeout, output truncation and tool-call events all report that tool; the model's own transcript keeps the gateway call.
 
 Suspension preserves the MCP scope of that execution, and resuming the same execution reuses the scope; the terminal execution path closes request-owned connections in the scope. The cache lives in the current agent process, so connections are re-established when resuming across restarts. Long suspensions require the application to schedule cancellation or continuation; the framework sets no automatic expiry. Shared connections need a custom `ScopeMcpProvider` / `McpSession`, whose lifecycle is managed by the provider.
 
@@ -365,9 +365,10 @@ AgentRequest request = AgentRequest.builder()
         .contextSpec(ContextSpec.builder()
                 .context(List.of(UserMessageEntity.from("Review the code using the project Skill"))).build())
         .skillConfig(new SkillConfig(Path.of("D:/skills")))
-        .toolList(List.of("read_skill"))
         .build();
 ```
+
+`read_skill` is a kernel tool: it is declared and admitted without an entry in `toolList`. It is enabled by default in the kernel tools module and can be disabled via `lingxi.agent.runtime.tool.read-skill.enabled`.
 
 The default `SkillResolver` depends on CommonMark; when that parsing dependency is missing, ordinary requests can still start, while Skills requests need a custom resolver/loader or the dependency added. `read_skill` is enabled by default in the kernel tools module and can be disabled via `lingxi.agent.runtime.tool.read-skill.enabled`. The default reader accesses the Skills host directory independently of the request workspace and does not execute Skill scripts automatically.
 

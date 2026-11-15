@@ -1,6 +1,7 @@
 package com.summit.kernel.tools.compact;
 
 import com.summit.core.tool.ConcurrentPolicy;
+import com.summit.core.tool.KernelTools;
 import com.summit.core.tool.ToolDefinition;
 import com.summit.runtime.agent.AgentConfig;
 import com.summit.runtime.compact.DefaultModelCompacter;
@@ -66,7 +67,7 @@ public class ContextCompactToolAutoConfiguration {
     )
     @ConditionalOnMissingBean(name = "contextCompactToolDefinition")
     public ToolDefinition<DefaultModelCompacter> contextCompactToolDefinition(DefaultModelCompacter compacter) {
-        String name = "compact_context";
+        String name = KernelTools.COMPACT_CONTEXT;
         return ToolDefinition.<DefaultModelCompacter>builder()
                 .executor(compacter)
                 .concurrentPolicy(ConcurrentPolicy.SERIAL_MUTATION)

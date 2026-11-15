@@ -89,45 +89,52 @@ class McpToolGatewayDispatchTest {
     }
 
     @Test
-    void aGatewayCallOfARunThatCannotReachItIsNotRewritten() {
+    void aGatewayCallIsNotRewrittenWhenNoGatewayIsRegistered() {
         AtomicReference<ToolExecution> seen = new AtomicReference<>();
 
-        // The whitelist names neither the gateway nor the lookup entry, so this run could not have
-        // produced the call, and a remote tool must not become reachable through it.
-        try (Fixture fixture = new Fixture(scopeOf(remoteTool(REMOTE, "remote", seen)))) {
+        // Admission can no longer be what blocks a gateway call — the gateway is a kernel tool. What
+        // still gates it is the registry: without a registered gateway definition there is nothing to
+        // rewrite into, so a remote tool must not become reachable through the envelope.
+        try (Fixture fixture = new Fixture(scopeOf(remoteTool(REMOTE, "remote", seen)), false)) {
             ToolExecuteResult result = fixture.run(List.of("something_else"),
                     gatewayCall("call-1", 0, "{\"name\":\"" + REMOTE + "\",\"arguments\":{}}")).getFirst();
 
-            assertTrue(result.getToolOutput().startsWith("Tool '" + GATEWAY + "' is not allowed"),
-                    result.getToolOutput());
+            assertEquals("Tool not found", result.getToolOutput());
             assertNull(seen.get(), "the remote tool must not run");
-            assertEquals(0, fixture.gatewayCalls.get(), "an unreachable gateway must not even run its executor");
+            assertEquals(0, fixture.gatewayCalls.get(), "an unregistered gateway definition is not executed");
         }
     }
 
     @Test
-    void namingOnlyTheLookupEntryDoesNotReachTheGateway() {
+    void theGatewayIsReachableWithoutAnyWhitelistEntry() {
         AtomicReference<ToolExecution> seen = new AtomicReference<>();
 
-        // Discovery and calling are two separate names: whitelisting the lookup allows looking a tool
-        // up, not calling it. Nothing here implies the other.
+        // The gateway is a framework kernel tool: it is declared and admitted by default, so a run
+        // that never mentions it in its tool list can still reach remote tools.
         try (Fixture fixture = new Fixture(scopeOf(remoteTool(REMOTE, "remote", seen)))) {
-            ToolExecuteResult result = fixture.run(List.of(McpToolGateway.DISCOVERY_TOOL),
+            ToolExecuteResult result = fixture.run(List.of(),
                     gatewayCall("call-1", 0, "{\"name\":\"" + REMOTE + "\",\"arguments\":{}}")).getFirst();
 
-            assertTrue(result.getToolOutput().startsWith("Tool '" + GATEWAY + "' is not allowed"),
-                    result.getToolOutput());
-            assertNull(seen.get(), "the lookup entry must not become a way to call a remote tool");
-            assertEquals(0, fixture.gatewayCalls.get());
+            assertEquals("remote:{}", result.getToolOutput());
+            assertEquals(REMOTE, seen.get().getToolDefinition().name(),
+                    "a whitelist entry for the gateway is no longer what makes the call possible");
         }
     }
 
     @Test
-    void anUnresolvableNameIsAnsweredByTheGatewayDefinition() {
+    void discoveryAndCallingAreTwoDistinctNames() {
+        assertNotEquals(McpToolGateway.DISCOVERY_TOOL, GATEWAY,
+                "one name looks a tool up, the other calls it; neither may stand in for the other");
+    }
+
+    @Test
+    void aCallTheScopeCannotResolveIsAnsweredByTheGatewayDefinition() {
         try (Fixture fixture = new Fixture(McpToolScope.EMPTY)) {
             String envelope = "{\"name\":\"mcp_missing\",\"arguments\":{}}";
 
-            ToolExecuteResult result = fixture.run(List.of(McpToolGateway.NAME),
+            // No whitelist entry either: the gateway is a kernel tool, so the rewrite has nothing to
+            // gate on, and the unresolvable name reaches the gateway executor that explains it.
+            ToolExecuteResult result = fixture.run(List.of(),
                     gatewayCall("call-1", 0, envelope)).getFirst();
 
             assertEquals("gateway saw the raw envelope", result.getToolOutput(),
@@ -149,9 +156,13 @@ class McpToolGatewayDispatchTest {
         private final AtomicReference<String> gatewayArgs = new AtomicReference<>();
 
         private Fixture(McpToolScope scope) {
+            this(scope, true);
+        }
+
+        private Fixture(McpToolScope scope, boolean registerGateway) {
             this.scope = scope;
             ToolExecutionContext context = ToolExecutionContext.builder()
-                    .toolRegistry(new ToolRegistry(List.of(gatewayDefinition())))
+                    .toolRegistry(new ToolRegistry(registerGateway ? List.of(gatewayDefinition()) : List.of()))
                     .runtimeEventPublisher(new RuntimeEventPublisher(List.of(listener)))
                     .build();
             this.manager = new DefaultToolExecutionManager(context,

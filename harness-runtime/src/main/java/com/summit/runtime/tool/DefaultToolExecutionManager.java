@@ -188,9 +188,10 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
 
     /**
      * Rewrites each gateway call into the call of the remote tool it names (see {@link McpToolGateway}).
-     * The gate is the one every static tool goes through: the registry holds the gateway and the
-     * request's whitelist names it. Without both, the call is not a call this run could have made, so
-     * it stays as it is and admission refuses it.
+     * The gate is the same one every static tool goes through: the registry holds the gateway and the
+     * run admits it — which it always does, the gateway being a framework kernel tool. Without a
+     * registered gateway, the call is not a call this run could have made, so it stays as it is and
+     * admission refuses it.
      */
     private ToolExecuteCommand unwrapGatewayCalls(ToolExecuteCommand command) {
         List<ToolCallRequest> requests = command.requests();
@@ -208,10 +209,11 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
     }
 
     /**
-     * Whether a call is admitted under the run's whitelist: either the whitelist names the tool, or
-     * the tool belongs to this request's own {@link com.summit.core.mcp.McpToolScope} — a discovered
-     * name cannot be written into a list authored before the servers were contacted, so scope
-     * membership stands in for that entry. A {@code null} or empty whitelist admits no static tool.
+     * Whether a call is admitted under the run's whitelist: either the tool is a framework kernel
+     * tool, the whitelist names it, or the tool belongs to this request's own
+     * {@link com.summit.core.mcp.McpToolScope} — a discovered name cannot be written into a list
+     * authored before the servers were contacted, so scope membership stands in for that entry. A
+     * {@code null} or empty whitelist admits no other static tool.
      */
     private boolean admissible(ToolDefinition<?> tool, ToolExecuteCommand command) {
         return this.toolExecutionContext.allowToolExecution(tool, command.allowedTools())

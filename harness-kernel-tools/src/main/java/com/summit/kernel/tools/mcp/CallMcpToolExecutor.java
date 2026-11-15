@@ -1,6 +1,7 @@
 package com.summit.kernel.tools.mcp;
 
 import com.summit.core.mcp.McpToolGateway;
+import com.summit.core.tool.KernelTools;
 import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolExecution;
 import com.summit.core.tool.ToolExecutor;
@@ -21,7 +22,7 @@ import java.util.function.Supplier;
 public class CallMcpToolExecutor implements ToolExecutor {
 
     /** Model-facing tool name; the prompt and the lookup's {@code remote} flag refer to it. */
-    public static final String NAME = McpToolGateway.NAME;
+    public static final String NAME = KernelTools.CALL_MCP;
 
     /** Resolved lazily: the registry holds this tool, so an eager reference would close a cycle. */
     private final Supplier<ToolRegistry> toolRegistry;

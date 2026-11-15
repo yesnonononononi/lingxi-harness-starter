@@ -25,7 +25,7 @@ import java.util.function.Supplier;
 public class SearchToolExecutor implements ToolExecutor {
 
     /** Tool name; referenced by the assembled prompt, so a replacement must keep it. */
-    public static final String NAME = McpToolGateway.DISCOVERY_TOOL;
+    public static final String NAME = KernelTools.SEARCH;
 
     private static final int MIN_MATCHES = 1;
 

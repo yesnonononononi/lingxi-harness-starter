@@ -11,8 +11,9 @@ import java.util.List;
  * <p>The result depends on the registry and the request whitelist only — never on the request's MCP
  * scope or on what the model has looked up — so it stays identical for every round of a run and the
  * provider's prefix cache survives tool discovery. Remote tools are reached through the
- * {@code call_mcp_tool} gateway, which is an ordinary registered definition: a run that wants remote
- * tools names it in its whitelist like any other tool.</p>
+ * {@code call_mcp_tool} gateway, which is an ordinary registered definition. Framework kernel tools
+ * are exempt from the whitelist (see {@link com.summit.core.tool.KernelTools}): they are declared
+ * here by default and a caller never has to name them.</p>
  */
 public final class ModelToolVisibility {
     private ModelToolVisibility() {}

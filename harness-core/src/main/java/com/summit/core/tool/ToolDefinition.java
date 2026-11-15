@@ -31,11 +31,15 @@ public record ToolDefinition<T extends ToolExecutor>(
     }
     /**
      * Whether this tool is admitted by a request-level tool whitelist. {@code null} and empty both
-     * admit nothing: an absent list must never widen to "every registered tool".
+     * admit no application tool: an absent list must never widen to "every registered tool".
+     *
+     * <p>Framework kernel tools are admitted regardless — see {@link KernelTools}, which explains why
+     * they are not the application's to grant or withhold.</p>
      */
     public boolean allowedFor(List<String> whitelist) {
-        return whitelist != null
-                && whitelist.stream().anyMatch(candidate -> candidate != null && name.equals(candidate.trim()));
+        return KernelTools.isKernel(name)
+                || (whitelist != null
+                && whitelist.stream().anyMatch(candidate -> candidate != null && name.equals(candidate.trim())));
     }
 
 }

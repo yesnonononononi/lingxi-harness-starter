@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.tool.ToolDefinition;
+import com.summit.core.tool.KernelTools;
 import com.summit.core.tool.ToolExecuteResult;
 import com.summit.core.tool.ToolExecution;
 import com.summit.core.tool.ToolExecutor;
@@ -29,7 +30,7 @@ import java.util.List;
 public class ListMcpToolsExecutor implements ToolExecutor {
 
     /** Tool name; referenced by the assembled prompt, so a replacement must keep it. */
-    public static final String NAME = "list_mcp_tools";
+    public static final String NAME = KernelTools.LIST_MCP;
 
     /** Windows are half-open; a size of zero would return nothing at all, so one is the floor. */
     private static final int MIN_WINDOW = 1;
