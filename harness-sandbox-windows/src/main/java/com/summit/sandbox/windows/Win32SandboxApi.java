@@ -5,7 +5,6 @@ import com.sun.jna.Pointer;
 import com.sun.jna.Structure;
 import com.sun.jna.platform.win32.BaseTSD;
 import com.sun.jna.platform.win32.WinBase;
-import com.sun.jna.platform.win32.WinDef;
 import com.sun.jna.platform.win32.WinNT;
 import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.ptr.PointerByReference;
@@ -13,15 +12,29 @@ import com.sun.jna.win32.StdCallLibrary;
 import com.sun.jna.win32.W32APIOptions;
 
 /**
- * JNA bindings for Win32 account lookup, DACL management, Job Objects,
- * DPAPI credentials, UAC elevation, and {@code CreateProcessWithLogonW}.
+ * JNA bindings for Win32 Restricted Tokens, virtual SID conversion, DACL management,
+ * Job Objects, and {@code CreateProcessAsUserW}.
  */
 final class Win32SandboxApi {
     private Win32SandboxApi() {
     }
 
     static final int SE_FILE_OBJECT = 1;
+    static final int SE_KERNEL_OBJECT = 6;
     static final int DACL_SECURITY_INFORMATION = 0x00000004;
+
+    static final int TOKEN_ASSIGN_PRIMARY = 0x0001;
+    static final int TOKEN_DUPLICATE = 0x0002;
+    static final int TOKEN_QUERY = 0x0008;
+    static final int TOKEN_ADJUST_DEFAULT = 0x0080;
+
+    static final int DISABLE_MAX_PRIVILEGE = 0x0001;
+
+    static final int TOKEN_GROUPS_CLASS = 2;
+    static final int TOKEN_DEFAULT_DACL_CLASS = 6;
+
+    static final int SE_GROUP_LOGON_ID = 0xC0000000;
+    static final int GENERIC_ALL = 0x10000000;
 
     static final int SET_ACCESS = 2;
     static final int REVOKE_ACCESS = 4;
@@ -42,7 +55,6 @@ final class Win32SandboxApi {
     // FILE_GENERIC_READ | FILE_GENERIC_WRITE | FILE_GENERIC_EXECUTE | DELETE (0x001301BF)
     static final int FILE_MODIFY_MASK = 0x001301BF;
 
-    static final int LOGON_WITH_PROFILE = 0x00000001;
     static final int CREATE_SUSPENDED = 0x00000004;
     static final int CREATE_UNICODE_ENVIRONMENT = 0x00000400;
     static final int CREATE_NO_WINDOW = 0x08000000;
@@ -50,30 +62,75 @@ final class Win32SandboxApi {
     static final int JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS = 9;
     static final int JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
 
-    static final int SEE_MASK_NOCLOSEPROCESS = 0x00000040;
-    static final int SW_HIDE = 0;
-
     interface Advapi32Ext extends StdCallLibrary {
         Advapi32Ext INSTANCE = Native.load("advapi32", Advapi32Ext.class, W32APIOptions.UNICODE_OPTIONS);
-
-        boolean LookupAccountNameW(
-                String systemName,
-                String accountName,
-                byte[] sid,
-                IntByReference sidSize,
-                char[] referencedDomainName,
-                IntByReference referencedDomainNameSize,
-                IntByReference sidNameUse
-        );
 
         boolean EqualSid(
                 Pointer sid1,
                 Pointer sid2
         );
 
+        int GetLengthSid(
+                Pointer sid
+        );
+
         boolean ConvertStringSidToSidW(
                 String stringSid,
                 PointerByReference sid
+        );
+
+        boolean OpenProcessToken(
+                WinNT.HANDLE processHandle,
+                int desiredAccess,
+                WinNT.HANDLEByReference tokenHandle
+        );
+
+        boolean GetTokenInformation(
+                WinNT.HANDLE tokenHandle,
+                int tokenInformationClass,
+                Pointer tokenInformation,
+                int tokenInformationLength,
+                IntByReference returnLength
+        );
+
+        boolean SetTokenInformation(
+                WinNT.HANDLE tokenHandle,
+                int tokenInformationClass,
+                Pointer tokenInformation,
+                int tokenInformationLength
+        );
+
+        boolean CreateRestrictedToken(
+                WinNT.HANDLE existingTokenHandle,
+                int flags,
+                int disableSidCount,
+                SidAndAttributes[] sidsToDisable,
+                int deletePrivilegeCount,
+                Pointer privilegesToDelete,
+                int restrictedSidCount,
+                SidAndAttributes[] sidsToRestrict,
+                WinNT.HANDLEByReference newTokenHandle
+        );
+
+        int GetSecurityInfo(
+                WinNT.HANDLE handle,
+                int objectType,
+                int securityInfo,
+                PointerByReference owner,
+                PointerByReference group,
+                PointerByReference dacl,
+                PointerByReference sacl,
+                PointerByReference securityDescriptor
+        );
+
+        int SetSecurityInfo(
+                WinNT.HANDLE handle,
+                int objectType,
+                int securityInfo,
+                Pointer owner,
+                Pointer group,
+                Pointer dacl,
+                Pointer sacl
         );
 
         int GetNamedSecurityInfoW(
@@ -92,16 +149,6 @@ final class Win32SandboxApi {
                 ExplicitAccess[] listOfExplicitEntries,
                 Pointer oldAcl,
                 PointerByReference newAcl
-        );
-
-        int SetNamedSecurityInfoW(
-                String objectName,
-                int objectType,
-                int securityInfo,
-                Pointer owner,
-                Pointer group,
-                Pointer dacl,
-                Pointer sacl
         );
 
         boolean InitializeSecurityDescriptor(
@@ -135,13 +182,13 @@ final class Win32SandboxApi {
                 PointerByReference ace
         );
 
-        boolean CreateProcessWithLogonW(
-                String username,
-                String domain,
-                String password,
-                int logonFlags,
+        boolean CreateProcessAsUserW(
+                WinNT.HANDLE tokenHandle,
                 String applicationName,
                 char[] commandLine,
+                WinBase.SECURITY_ATTRIBUTES processAttributes,
+                WinBase.SECURITY_ATTRIBUTES threadAttributes,
+                boolean inheritHandles,
                 int creationFlags,
                 Pointer environment,
                 String currentDirectory,
@@ -152,6 +199,8 @@ final class Win32SandboxApi {
 
     interface Kernel32Ext extends StdCallLibrary {
         Kernel32Ext INSTANCE = Native.load("kernel32", Kernel32Ext.class, W32APIOptions.UNICODE_OPTIONS);
+
+        WinNT.HANDLE GetCurrentProcess();
 
         int GetLastError();
 
@@ -196,12 +245,10 @@ final class Win32SandboxApi {
         );
     }
 
-    interface Shell32Ext extends StdCallLibrary {
-        Shell32Ext INSTANCE = Native.load("shell32", Shell32Ext.class, W32APIOptions.UNICODE_OPTIONS);
+    // JNA Structure subclasses must declare all native C struct fields in exact order
+    // to preserve sizeof() and field memory offsets.
 
-        boolean ShellExecuteExW(ShellExecuteInfo execInfo);
-    }
-
+    @SuppressWarnings("unused")
     @Structure.FieldOrder({"pMultipleTrustee", "MultipleTrusteeOperation", "TrusteeForm", "TrusteeType", "ptstrName"})
     public static class Trustee extends Structure {
         public Pointer pMultipleTrustee;
@@ -214,6 +261,7 @@ final class Win32SandboxApi {
         }
     }
 
+    @SuppressWarnings("unused")
     @Structure.FieldOrder({"grfAccessPermissions", "grfAccessMode", "grfInheritance", "Trustee"})
     public static class ExplicitAccess extends Structure {
         public int grfAccessPermissions;
@@ -225,6 +273,7 @@ final class Win32SandboxApi {
         }
     }
 
+    @SuppressWarnings("unused")
     @Structure.FieldOrder({"AceCount", "AclBytesInUse", "AclBytesFree"})
     public static class AclSizeInformation extends Structure {
         public int AceCount;
@@ -235,6 +284,7 @@ final class Win32SandboxApi {
         }
     }
 
+    @SuppressWarnings("unused")
     @Structure.FieldOrder({"AceType", "AceFlags", "AceSize"})
     public static class AceHeader extends Structure {
         public byte AceType;
@@ -247,6 +297,7 @@ final class Win32SandboxApi {
         }
     }
 
+    @SuppressWarnings("unused")
     @Structure.FieldOrder({"Header", "Mask", "SidStart"})
     public static class AccessAllowedAce extends Structure {
         public AceHeader Header;
@@ -259,6 +310,7 @@ final class Win32SandboxApi {
         }
     }
 
+    @SuppressWarnings("unused")
     @Structure.FieldOrder({
             "PerProcessUserTimeLimit",
             "PerJobUserTimeLimit",
@@ -285,6 +337,7 @@ final class Win32SandboxApi {
         }
     }
 
+    @SuppressWarnings("unused")
     @Structure.FieldOrder({
             "ReadOperationCount",
             "WriteOperationCount",
@@ -305,6 +358,7 @@ final class Win32SandboxApi {
         }
     }
 
+    @SuppressWarnings("unused")
     @Structure.FieldOrder({
             "BasicLimitInformation",
             "IoInfo",
@@ -325,42 +379,22 @@ final class Win32SandboxApi {
         }
     }
 
-    @Structure.FieldOrder({
-            "cbSize",
-            "fMask",
-            "hwnd",
-            "lpVerb",
-            "lpFile",
-            "lpParameters",
-            "lpDirectory",
-            "nShow",
-            "hInstApp",
-            "lpIDList",
-            "lpClass",
-            "hkeyClass",
-            "dwHotKey",
-            "hIconOrMonitor",
-            "hProcess"
-    })
-    public static class ShellExecuteInfo extends Structure {
-        public int cbSize;
-        public int fMask;
-        public WinDef.HWND hwnd;
-        public String lpVerb;
-        public String lpFile;
-        public String lpParameters;
-        public String lpDirectory;
-        public int nShow;
-        public WinDef.HINSTANCE hInstApp;
-        public Pointer lpIDList;
-        public String lpClass;
-        public WinNT.HANDLE hkeyClass;
-        public int dwHotKey;
-        public WinNT.HANDLE hIconOrMonitor;
-        public WinNT.HANDLE hProcess;
+    @SuppressWarnings("unused")
+    @Structure.FieldOrder({"Sid", "Attributes"})
+    public static class SidAndAttributes extends Structure {
+        public Pointer Sid;
+        public int Attributes;
 
-        public ShellExecuteInfo() {
-            this.cbSize = size();
+        public SidAndAttributes() {
+        }
+    }
+
+    @SuppressWarnings("unused")
+    @Structure.FieldOrder({"DefaultDacl"})
+    public static class TokenDefaultDacl extends Structure {
+        public Pointer DefaultDacl;
+
+        public TokenDefaultDacl() {
         }
     }
 }

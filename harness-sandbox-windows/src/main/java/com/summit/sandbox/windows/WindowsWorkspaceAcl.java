@@ -27,27 +27,35 @@ import java.util.concurrent.Future;
  * skipping heavy build/dependency cache directories.
  */
 final class WindowsWorkspaceAcl {
+    private static final int ERROR_FILE_NOT_FOUND = 2;
+    private static final int ERROR_PATH_NOT_FOUND = 3;
+    private static final int ERROR_ACCESS_DENIED = 5;
+    private static final int ERROR_SHARING_VIOLATION = 32;
+
     private static final Set<String> DEFAULT_SKIP_DIRS = Set.of(
             "node_modules", "target", "dist", "build", ".gradle", ".mvn",
-            "__pycache__", ".venv", "venv", ".next", ".nuxt", "out"
+            "__pycache__", ".venv", "venv", ".next", ".nuxt", "out", ".run"
     );
 
     private WindowsWorkspaceAcl() {
     }
 
-    static boolean ensureWorkspacePermission(Path workspaceRoot, String accountName, SandboxMode mode) {
+    static boolean ensureWorkspacePermission(Path workspaceRoot, SandboxMode mode) {
         Path normalized = workspaceRoot.toAbsolutePath().normalize();
         if (!Files.isDirectory(normalized)) {
             throw new IllegalArgumentException("Workspace directory does not exist: " + normalized);
         }
-        Memory sidMemory = WindowsSandboxAccount.lookupSid(accountName)
-                .orElseThrow(() -> new IllegalStateException("Sandbox account not found: " + accountName));
-
+        Memory sidMemory = WindowsSandboxAccount.workspaceSid(normalized, mode);
         int desiredMask = mode == SandboxMode.READ_WRITE
                 ? Win32SandboxApi.FILE_MODIFY_MASK
                 : Win32SandboxApi.FILE_READ_EXECUTE_MASK;
-
         return ensureSidPermission(normalized, sidMemory, desiredMask);
+    }
+
+    static boolean ensureProfilePermission(Path profileDir, SandboxMode mode) {
+        Path normalized = profileDir.toAbsolutePath().normalize();
+        Memory sidMemory = WindowsSandboxAccount.sandboxSid(mode);
+        return ensureSidPermission(normalized, sidMemory, Win32SandboxApi.FILE_MODIFY_MASK);
     }
 
     static boolean ensureSidPermission(Path workspaceRoot, Pointer sidPointer, int desiredMask) {
@@ -74,9 +82,14 @@ final class WindowsWorkspaceAcl {
         return true;
     }
 
-    private static void applyControlledTree(Path root, Pointer sidPointer, int desiredMask, int accessMode) {
+    private static void applyControlledTree(
+            Path root,
+            Pointer sidPointer,
+            int desiredMask,
+            int accessMode
+    ) {
         List<Path> children = collectTargetPaths(root);
-        int threads = Math.min(8, Math.max(4, Runtime.getRuntime().availableProcessors()));
+        int threads = Math.clamp(Runtime.getRuntime().availableProcessors(), 4, 8);
         if (!children.isEmpty()) {
             ExecutorService pool = Executors.newFixedThreadPool(threads);
             try {
@@ -89,7 +102,7 @@ final class WindowsWorkspaceAcl {
                         for (int i = from; i < to; i++) {
                             Path target = children.get(i);
                             boolean isDir = Files.isDirectory(target);
-                            applySinglePathNonPropagating(target, sidPointer, desiredMask, accessMode, isDir);
+                            applySinglePathNonPropagating(target, sidPointer, desiredMask, accessMode, isDir, true);
                         }
                         return null;
                     });
@@ -112,7 +125,7 @@ final class WindowsWorkspaceAcl {
             }
         }
         // Apply root directory last so an interrupted walk never leaves root marked complete.
-        applySinglePathNonPropagating(root, sidPointer, desiredMask, accessMode, true);
+        applySinglePathNonPropagating(root, sidPointer, desiredMask, accessMode, true, false);
     }
 
     private static List<Path> collectTargetPaths(Path root) {
@@ -154,15 +167,7 @@ final class WindowsWorkspaceAcl {
             return false;
         }
         String name = fileName.toString().toLowerCase(Locale.ROOT);
-        if (DEFAULT_SKIP_DIRS.contains(name)) {
-            return true;
-        }
-        if ("objects".equals(name)) {
-            Path parent = dir.getParent();
-            Path parentName = parent != null ? parent.getFileName() : null;
-            return parentName != null && ".git".equalsIgnoreCase(parentName.toString());
-        }
-        return false;
+        return DEFAULT_SKIP_DIRS.contains(name);
     }
 
     private static boolean hasRootMatchingAce(Path root, Pointer sidPointer, int desiredMask) {
@@ -226,7 +231,8 @@ final class WindowsWorkspaceAcl {
             Pointer sidPointer,
             int desiredMask,
             int accessMode,
-            boolean isDirectory
+            boolean isDirectory,
+            boolean skipOnChildInaccessible
     ) {
         String path = target.toString();
         PointerByReference daclRef = new PointerByReference();
@@ -242,6 +248,9 @@ final class WindowsWorkspaceAcl {
                 sdRef
         );
         if (getStatus != 0) {
+            if (skipOnChildInaccessible && isIgnorableChildAclError(getStatus)) {
+                return;
+            }
             throw new IllegalStateException("GetNamedSecurityInfoW failed: win32=" + getStatus + ", path=" + path);
         }
 
@@ -295,6 +304,9 @@ final class WindowsWorkspaceAcl {
             if (!Win32SandboxApi.Advapi32Ext.INSTANCE.SetFileSecurityW(
                     path, Win32SandboxApi.DACL_SECURITY_INFORMATION, sdMem)) {
                 int err = Win32SandboxApi.Kernel32Ext.INSTANCE.GetLastError();
+                if (skipOnChildInaccessible && isIgnorableChildAclError(err)) {
+                    return;
+                }
                 throw new IllegalStateException("SetFileSecurityW failed: win32=" + err + ", path=" + path);
             }
         } finally {
@@ -305,6 +317,13 @@ final class WindowsWorkspaceAcl {
                 Win32SandboxApi.Kernel32Ext.INSTANCE.LocalFree(existingSd);
             }
         }
+    }
+
+    private static boolean isIgnorableChildAclError(int win32Error) {
+        return win32Error == ERROR_ACCESS_DENIED
+                || win32Error == ERROR_FILE_NOT_FOUND
+                || win32Error == ERROR_PATH_NOT_FOUND
+                || win32Error == ERROR_SHARING_VIOLATION;
     }
 
     private static boolean hasExactInheritableAllowAce(Pointer dacl, Pointer targetSid, int desiredMask) {

@@ -63,9 +63,7 @@ final class WindowsWorkspaceCommands implements WorkspaceCommands {
                 environment,
                 Duration.ofMillis(Math.max(1L, unit.toMillis(timeout))),
                 charset,
-                maxChars,
-                WindowsSandboxAccount.usernameFor(mode),
-                WindowsSandboxCredentialStore.defaultCredentialFile(mode)
+                maxChars
         );
     }
 

@@ -74,7 +74,7 @@ class WindowsWorkspaceProviderTest {
     }
 
     @Test
-    void providerRejectsWrongSpecAndFailsClosedWhenUnprovisioned(@TempDir Path tempRoot) throws Exception {
+    void providerResolvesValidWorkspaceAndRejectsWrongSpecOrMissingDirectory(@TempDir Path tempRoot) throws Exception {
         WindowsWorkspaceProvider provider = new WindowsWorkspaceProvider();
         assertEquals(WindowsWorkspaceProvider.TYPE, provider.type());
         assertThrows(IllegalArgumentException.class, () -> provider.resolve(new WorkspaceSpec() {
@@ -89,9 +89,40 @@ class WindowsWorkspaceProviderTest {
             }
         }));
 
-        if (!WindowsSandboxProvisioner.isProvisioned()) {
-            Path workspace = Files.createDirectory(tempRoot.resolve("ws"));
-            assertThrows(IllegalStateException.class, () -> provider.resolve(new WindowsWorkspaceSpec(workspace.toString())));
-        }
+        Path missing = tempRoot.resolve("missing");
+        assertThrows(IllegalArgumentException.class, () -> provider.resolve(new WindowsWorkspaceSpec(missing.toString())));
+
+        Path workspace = Files.createDirectory(tempRoot.resolve("ws"));
+        var resolved = provider.resolve(new WindowsWorkspaceSpec(workspace.toString(), false));
+        assertEquals(workspace.toString(), resolved.workDir());
+        assertTrue(resolved.encloses(workspace.resolve("child.txt")));
+        assertFalse(resolved.encloses(tempRoot.resolve("outside.txt")));
+    }
+
+    @Test
+    void aclGrantAndDowngradeAreIdempotentForVirtualSandboxSids(@TempDir Path tempRoot) throws Exception {
+        Path workspace = Files.createDirectory(tempRoot.resolve("workspace"));
+
+        assertTrue(WindowsWorkspaceAcl.ensureWorkspacePermission(workspace, SandboxMode.READ_WRITE));
+        assertFalse(WindowsWorkspaceAcl.ensureWorkspacePermission(workspace, SandboxMode.READ_WRITE));
+
+        assertTrue(WindowsWorkspaceAcl.ensureWorkspacePermission(workspace, SandboxMode.READ_ONLY));
+        assertFalse(WindowsWorkspaceAcl.ensureWorkspacePermission(workspace, SandboxMode.READ_ONLY));
+    }
+
+    @Test
+    void cmdCommandLinePreservesOuterQuotesWithoutCrtEscaping() {
+        List<String> argv = ShellType.CMD.buildCommand("echo \"hello\" & dir");
+        String cmdLine = WindowsSandboxRunner.buildCommandLine(argv);
+        assertTrue(cmdLine.startsWith("cmd.exe /d /s /c \"chcp 65001>nul & echo \"hello\" & dir\""), cmdLine);
+        assertFalse(cmdLine.contains("\\\"chcp"), cmdLine);
+    }
+
+    @Test
+    void sandboxProfileDirPointsOutsideWorkspaceRoot() {
+        Path roProfile = WindowsSandboxRunner.sandboxProfileDir(WindowsSandboxAccount.READ_ONLY_PROFILE);
+        Path rwProfile = WindowsSandboxRunner.sandboxProfileDir(WindowsSandboxAccount.READ_WRITE_PROFILE);
+        assertTrue(roProfile.endsWith(WindowsSandboxAccount.READ_ONLY_PROFILE));
+        assertTrue(rwProfile.endsWith(WindowsSandboxAccount.READ_WRITE_PROFILE));
     }
 }

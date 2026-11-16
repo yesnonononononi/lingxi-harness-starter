@@ -6,7 +6,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Workspace specification for the native Windows dual-account sandbox provider.
+ * Workspace specification for the native Windows restricted-token sandbox provider.
  */
 public record WindowsWorkspaceSpec(
         String workDir,
