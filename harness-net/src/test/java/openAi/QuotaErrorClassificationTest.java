@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -141,6 +142,8 @@ class QuotaErrorClassificationTest {
         assertInstanceOf(NonRetriableModelException.class, failure);
         assertTrue(failure.getMessage().contains("invalid_request_error"), failure.getMessage());
         assertTrue(failure.getMessage().contains("adaptive is not supported"), failure.getMessage());
+        assertTrue(failure.getMessage().contains("model=claude-sonnet-4-6"), failure.getMessage());
+        assertTrue(failure.getMessage().contains("endpoint=" + baseUrl + "/messages"), failure.getMessage());
     }
 
     @Test
@@ -165,7 +168,7 @@ class QuotaErrorClassificationTest {
         NonRetriableModelException failure = assertThrows(NonRetriableModelException.class, this::anthropicCall);
 
         assertTrue(failure.getMessage().endsWith(detail), "the provider's text is reported whole, never trimmed here");
-        assertTrue(failure.getMessage().startsWith("Anthropic request failed with HTTP 400: "),
+        assertTrue(failure.getMessage().startsWith("Anthropic request failed with HTTP 400 [model=claude-sonnet-4-6, endpoint="),
                 failure.getMessage());
     }
 
@@ -176,7 +179,39 @@ class QuotaErrorClassificationTest {
 
         NonRetriableModelException failure = assertThrows(NonRetriableModelException.class, this::anthropicCall);
 
-        assertEquals("Anthropic request failed with HTTP 400", failure.getMessage());
+        assertEquals("Anthropic request failed with HTTP 400 [model=claude-sonnet-4-6, endpoint="
+                + baseUrl + "/messages]", failure.getMessage());
+    }
+
+    /**
+     * A refusal such as {@code permission_error: the provider refused this request} names neither the
+     * model nor the endpoint that refused it, which is the first thing anyone asks when one machine
+     * talks to a relay and the API. The message has to answer it without the request body to hand.
+     */
+    @Test
+    void anthropicRefusalNamesTheModelAndEndpointItCalled() {
+        status.set(403);
+        body.set("{\"type\":\"error\",\"error\":{\"type\":\"permission_error\","
+                + "\"message\":\"The provider refused this request. The refused request wasn't charged.\"}}");
+
+        NonRetriableModelException failure = assertThrows(NonRetriableModelException.class, this::anthropicCall);
+
+        assertEquals("Anthropic request failed with HTTP 403 [model=claude-sonnet-4-6, endpoint="
+                        + baseUrl + "/messages]: permission_error: The provider refused this request. "
+                        + "The refused request wasn't charged.", failure.getMessage());
+    }
+
+    /** The endpoint travels in the message, never the query: a relay may put its credential there. */
+    @Test
+    void anthropicNeverEchoesTheQueryString() {
+        baseUrl = baseUrl + "?api_key=secret";
+        status.set(403);
+        body.set("{\"type\":\"error\",\"error\":{\"type\":\"permission_error\",\"message\":\"refused\"}}");
+
+        NonRetriableModelException failure = assertThrows(NonRetriableModelException.class, this::anthropicCall);
+
+        assertTrue(failure.getMessage().contains("endpoint=http://127.0.0.1:"), failure.getMessage());
+        assertFalse(failure.getMessage().contains("secret"), failure.getMessage());
     }
 
     @Test

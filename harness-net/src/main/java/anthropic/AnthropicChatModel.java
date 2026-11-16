@@ -43,7 +43,7 @@ public class AnthropicChatModel implements ChatModel, StreamingChatModel {
         try {
             Built built = buildRequest(request, false);
             HttpResponse<String> response = httpClient.send(built.http(), HttpResponse.BodyHandlers.ofString());
-            checkStatus(response.statusCode(), response.body(), JSON);
+            checkStatus(response.statusCode(), response.body(), JSON, built.target());
             return ResponseSerializer.serialize(JSON.readTree(response.body()), JSON,
                     modelConfig.isReturnThinking(), built.thinkingBinding());
         } catch (JsonProcessingException error) {
@@ -68,12 +68,13 @@ public class AnthropicChatModel implements ChatModel, StreamingChatModel {
             handler.onError(error);
             return;
         }
-        new AnthropicStreaming(httpClient, JSON, handler, modelConfig.isReturnThinking(), built.thinkingBinding())
+        new AnthropicStreaming(httpClient, JSON, handler, modelConfig.isReturnThinking(), built.thinkingBinding(),
+                built.target())
                 .start(built.http());
     }
 
-    /** A ready-to-send request together with the fingerprint its thinking blocks will be bound to. */
-    private record Built(HttpRequest http, String thinkingBinding) {
+    /** A ready-to-send request: its HTTP form, its thinking fingerprint and how to name it in a log. */
+    private record Built(HttpRequest http, String thinkingBinding, String target) {
     }
 
     private Built buildRequest(ChatRequestEntity request, boolean stream) throws JsonProcessingException {
@@ -87,7 +88,22 @@ public class AnthropicChatModel implements ChatModel, StreamingChatModel {
         if (stream) builder.header("Accept", "text/event-stream");
         if (modelConfig.getTimeout() != null) builder.timeout(modelConfig.getTimeout());
         HttpRequest http = builder.POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body))).build();
-        return new Built(http, AnthropicThinkingBinding.fingerprint(modelConfig.getModelName(), body.getTools()));
+        return new Built(http, AnthropicThinkingBinding.fingerprint(modelConfig.getModelName(), body.getTools()),
+                target(modelConfig.getModelName(), http.uri()));
+    }
+
+    /**
+     * How a failure names what it called: a provider message like {@code permission_error: the request
+     * was refused} says nothing about which model on which endpoint answered it, and reaching several
+     * relays from one installation makes that the only question worth asking.
+     *
+     * <p>The query string is dropped, not echoed: a relay may carry its credential there.</p>
+     */
+    static String target(String modelName, URI uri) {
+        String host = uri.getHost();
+        String endpoint = host == null ? uri.getRawPath()
+                : uri.getScheme() + "://" + host + (uri.getPort() < 0 ? "" : ":" + uri.getPort()) + uri.getRawPath();
+        return "model=" + modelName + ", endpoint=" + endpoint;
     }
 
     private static URI resolveEndpoint(String baseUrl) {
@@ -117,17 +133,18 @@ public class AnthropicChatModel implements ChatModel, StreamingChatModel {
      * @param status HTTP status of the response
      * @param body   response body, carrying the provider's error type and message; may be null
      * @param json   mapper that reads the error document
+     * @param target model and endpoint the request went to, so a bare provider refusal stays locatable
      */
-    static void checkStatus(int status, String body, ObjectMapper json) {
+    static void checkStatus(int status, String body, ObjectMapper json, String target) {
         ProviderError error = ProviderError.read(body, json);
         if (status == 429 && error.isQuota()) {
-            throw new NonRetriableModelException(error.describe(status), null);
+            throw new NonRetriableModelException(error.describe(status, target), null);
         }
         if (status == 408 || status == 429 || status >= 500) {
-            throw new RetriableModelException(error.describe(status), null);
+            throw new RetriableModelException(error.describe(status, target), null);
         }
         if (status != 200) {
-            throw new NonRetriableModelException(error.describe(status), null);
+            throw new NonRetriableModelException(error.describe(status, target), null);
         }
     }
 
@@ -169,9 +186,10 @@ public class AnthropicChatModel implements ChatModel, StreamingChatModel {
          * <p>Verbatim on purpose — a rejected request body is only ever explained once, and the log
          * appender already handles how much of a line it keeps.</p>
          */
-        String describe(int status) {
+        String describe(int status, String target) {
             String detail = detail();
-            String prefix = "Anthropic request failed with HTTP " + status;
+            String prefix = "Anthropic request failed with HTTP " + status
+                    + (target == null || target.isBlank() ? "" : " [" + target + "]");
             return detail.isEmpty() ? prefix : prefix + ": " + detail;
         }
 

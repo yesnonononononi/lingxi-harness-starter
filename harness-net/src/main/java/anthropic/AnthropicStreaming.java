@@ -32,17 +32,19 @@ final class AnthropicStreaming implements StreamingHandler {
     private final StreamingChatResponseHandler handler;
     private final boolean returnThinking;
     private final String thinkingBinding;
+    private final String target;
     private final AtomicReference<State> state = new AtomicReference<>(State.ACTIVE);
     private final AtomicReference<InputStream> body = new AtomicReference<>();
     private Thread worker;
 
     AnthropicStreaming(HttpClient client, ObjectMapper mapper, StreamingChatResponseHandler handler,
-                       boolean returnThinking, String thinkingBinding) {
+                       boolean returnThinking, String thinkingBinding, String target) {
         this.client = client;
         this.mapper = mapper;
         this.handler = handler;
         this.returnThinking = returnThinking;
         this.thinkingBinding = thinkingBinding;
+        this.target = target;
     }
 
     void start(HttpRequest request) {
@@ -82,7 +84,7 @@ final class AnthropicStreaming implements StreamingHandler {
                     // Read the error document: a 429 carrying a billing code is terminal, and that
                     // decision cannot be made from the status alone.
                     String errorBody = new String(input.readAllBytes(), StandardCharsets.UTF_8);
-                    AnthropicChatModel.checkStatus(response.statusCode(), errorBody, mapper);
+                    AnthropicChatModel.checkStatus(response.statusCode(), errorBody, mapper, target);
                 }
                 result = read(input);
             } finally {
