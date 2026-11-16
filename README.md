@@ -90,13 +90,7 @@ The local directory must already exist and is checked on every resolution. Its n
 
 To customize an execution environment, register a `WorkspaceProvider` bean with a unique `type()` and implement `resolve(WorkspaceSpec)` to return your own `Workspace` and `WorkspaceBridge`. `WorkspaceResolver` routes each request to that provider without caching resource records. Providers own container provisioning, reuse, persistence, recovery and cleanup; the framework does not close or destroy the returned workspace when a request completes. The default local provider runs commands on the host without OS sandbox isolation.
 
-The optional `harness-sandbox-mxc` module supplies `MxcWorkspaceProvider` for Linux
-Bubblewrap and native Windows BaseContainer execution through Microsoft MXC. Register the provider and
-explicitly select it with `MxcWorkspaceSpec`; an unavailable backend fails resolution.
-Network access is denied by default; explicit security policy can permit outbound access
-and deny private paths. Ingress and host loopback remain denied.
-See the [MXC adapter guide](harness-sandbox-mxc/README.md) for deployment,
-filesystem semantics, limits, and validation. The former SRT adapter has been removed.
+The optional `harness-sandbox-windows` module supplies `WindowsWorkspaceProvider` for native Windows dual-account sandbox execution. Register the provider and explicitly select it with `WindowsWorkspaceSpec`; an unprovisioned sandbox fails resolution.
 
 `WorkspaceBridge` implementations provide six operations: `exists`, `createDirectories`, `deleteFile`, `readString`, `writeString`, and `execute`. Writing creates missing files; there is no separate `createFile` operation. `readLines` defaults to splitting the text returned by `readString`, so line parsing does not need a separate environment adapter.
 
@@ -104,7 +98,7 @@ filesystem semantics, limits, and validation. The former SRT adapter has been re
 
 `ProcessRunner.run(...)` is a stateless convenience API: each call creates an independent `CancellableProcessRunner`. Callers that need cancellation retain their own `CancellableProcessRunner` and call its instance `run(...)` and `cancel()` methods. Each instance allows one active command and can be reused after that call returns. Both APIs share the same stdin, output, timeout, and process-tree cleanup implementation.
 
-For background execution, `WorkspaceCommands.startCommand(...)` returns a `CommandHandler` on Local and MXC workspaces. Its bounded `outputSnapshot()` contains command text, `isDone()` observes completion, and repeated `await()` calls return the same collected result. Timeout and cleanup run independently of waiting callers. `stop()` returns a `StopResult` only after settlement and propagates cleanup failures. MXC uses framed output and token-based cancellation under the same workspace policy as synchronous commands.
+For background execution, `WorkspaceCommands.startCommand(...)` returns a `CommandHandler` on Local and Windows sandbox workspaces. Its bounded `outputSnapshot()` contains command text, `isDone()` observes completion, and repeated `await()` calls return the same collected result. Timeout and cleanup run independently of waiting callers. `stop()` returns a `StopResult` only after settlement and propagates cleanup failures.
 
 `allowOutsideWorkspace` defaults to `false` and is passed to tools with the request. Custom tools should use the workspace path resolution, `encloses` checks, and the bridge; when a tool uses host file APIs or starts processes directly, the framework does not automatically convert those operations into workspace operations.
 
