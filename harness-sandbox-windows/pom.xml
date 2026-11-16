@@ -30,4 +30,37 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <properties>
+        <pitest.version>1.21.1</pitest.version>
+        <pitest.junit5.version>1.2.3</pitest.junit5.version>
+    </properties>
+
+    <build>
+        <plugins>
+            <!-- Mutation testing: never bound to a lifecycle phase, it only runs on an explicit
+                 `mvn pitest:mutationCoverage`. Only the file backend is mutated: it answers the type
+                 and listing questions the tools rely on, and its enclosure checks guard the boundary. -->
+            <plugin>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-maven</artifactId>
+                <version>${pitest.version}</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.pitest</groupId>
+                        <artifactId>pitest-junit5-plugin</artifactId>
+                        <version>${pitest.junit5.version}</version>
+                    </dependency>
+                </dependencies>
+                <configuration>
+                    <targetClasses>
+                        <param>com.summit.sandbox.windows.WindowsWorkspaceFiles</param>
+                    </targetClasses>
+                    <targetTests>
+                        <param>com.summit.sandbox.windows.WindowsWorkspaceFilesTest</param>
+                    </targetTests>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>

@@ -11,6 +11,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -63,6 +64,16 @@ class WorkspaceFilesWalkTest {
     }
 
     @Test
+    void isDirectoryAnswersTheTypeQuestionFromMetadataAlone() throws IOException {
+        Files.writeString(root.resolve("a.txt"), "a");
+        Files.createDirectories(root.resolve("sub"));
+
+        assertTrue(files.isDirectory(root.resolve("sub")));
+        assertFalse(files.isDirectory(root.resolve("a.txt")), "a file is not a directory");
+        assertFalse(files.isDirectory(root.resolve("missing")), "absence is a false answer, not an error");
+    }
+
+    @Test
     void unsupportedBackendsMustFailLoudly() {
         WorkspaceFiles unsupported = new WorkspaceFiles() {
             @Override
@@ -86,6 +97,11 @@ class WorkspaceFilesWalkTest {
             @Override
             public byte[] readBytes(Path path) {
                 return new byte[0];
+            }
+
+            @Override
+            public boolean isDirectory(Path path) {
+                return false;
             }
 
             @Override

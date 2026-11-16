@@ -12,6 +12,11 @@
 
     <artifactId>harness-core</artifactId>
 
+    <properties>
+        <pitest.version>1.21.1</pitest.version>
+        <pitest.junit5.version>1.2.3</pitest.junit5.version>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>
@@ -37,5 +42,34 @@
         </dependency>
 
     </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Mutation testing: never bound to a lifecycle phase, it only runs on an explicit
+                 `mvn pitest:mutationCoverage`. The target is the file backend whose answers other
+                 modules act on; a wrong "is it a directory" or a wrong exception type there changes
+                 behaviour in every tool built on top of it. -->
+            <plugin>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-maven</artifactId>
+                <version>${pitest.version}</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.pitest</groupId>
+                        <artifactId>pitest-junit5-plugin</artifactId>
+                        <version>${pitest.junit5.version}</version>
+                    </dependency>
+                </dependencies>
+                <configuration>
+                    <targetClasses>
+                        <param>com.summit.core.runtime.workspace.LocalWorkspaceFiles</param>
+                    </targetClasses>
+                    <targetTests>
+                        <param>com.summit.core.runtime.workspace.WorkspaceFilesWalkTest</param>
+                    </targetTests>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 
 </project>

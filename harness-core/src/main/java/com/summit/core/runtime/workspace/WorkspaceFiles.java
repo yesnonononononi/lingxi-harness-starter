@@ -20,6 +20,18 @@ public interface WorkspaceFiles {
     boolean exists(Path path);
 
     /**
+     * Returns whether the given path is a directory, without following symbolic links.
+     *
+     * <p>Answers the type question directly, from one metadata lookup. Callers must not infer it from
+     * {@link #list} or {@link #readString} failing: an exception there means the call failed, not that
+     * the path is of another type, and the type carried by its message is not part of the contract.</p>
+     *
+     * <p>A missing path is {@code false}; any other IO failure propagates as {@link IOException},
+     * because "the backend could not tell" must not be reported as "it is a file".</p>
+     */
+    boolean isDirectory(Path path) throws IOException;
+
+    /**
      * Creates the directory and all non-existing parents.
      */
     void createDirectories(Path path) throws IOException;
@@ -65,6 +77,10 @@ public interface WorkspaceFiles {
      * <p>A backend that cannot enumerate its namespace must throw
      * {@link UnsupportedOperationException} instead of returning an empty list: callers cannot tell an
      * unsupported workspace from an empty directory, and would report "no matches" for a full one.</p>
+     *
+     * <p>Implementations must reject a non-directory path with
+     * {@link java.nio.file.NotDirectoryException}, the type {@code java.nio.file.Files.list} raises,
+     * so no caller has to match on a message string.</p>
      */
     default List<Entry> list(Path directory) throws IOException {
         throw new UnsupportedOperationException(

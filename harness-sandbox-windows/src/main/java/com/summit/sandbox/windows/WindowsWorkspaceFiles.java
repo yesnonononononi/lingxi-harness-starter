@@ -7,7 +7,10 @@ import java.nio.charset.Charset;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.NotDirectoryException;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -29,6 +32,16 @@ final class WindowsWorkspaceFiles implements WorkspaceFiles {
     public boolean exists(Path path) {
         Path resolved = resolveEnclosed(path);
         return Files.exists(resolved, LinkOption.NOFOLLOW_LINKS);
+    }
+
+    @Override
+    public boolean isDirectory(Path path) throws IOException {
+        Path resolved = resolveEnclosed(path);
+        try {
+            return Files.readAttributes(resolved, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS).isDirectory();
+        } catch (NoSuchFileException missing) {
+            return false;
+        }
     }
 
     @Override
@@ -65,7 +78,7 @@ final class WindowsWorkspaceFiles implements WorkspaceFiles {
     public List<Entry> list(Path directory) throws IOException {
         Path resolved = resolveEnclosed(directory);
         if (!Files.isDirectory(resolved, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("Not a directory: " + resolved);
+            throw new NotDirectoryException(resolved.toString());
         }
         List<Entry> entries = new ArrayList<>();
         try (Stream<Path> stream = Files.list(resolved)) {

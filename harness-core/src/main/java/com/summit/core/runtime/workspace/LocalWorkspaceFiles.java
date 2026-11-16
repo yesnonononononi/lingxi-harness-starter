@@ -4,7 +4,9 @@ import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -12,6 +14,15 @@ public final class LocalWorkspaceFiles implements WorkspaceFiles {
     @Override
     public boolean exists(Path path) {
         return Files.exists(path);
+    }
+
+    @Override
+    public boolean isDirectory(Path path) throws IOException {
+        try {
+            return Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS).isDirectory();
+        } catch (NoSuchFileException missing) {
+            return false;
+        }
     }
 
     @Override
