@@ -278,6 +278,7 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
                 .attributes(command.attributes())
                 .eventMetaData(command.eventMetaData())
                 .allowOutsideWorkspace(command.allowOutsideWorkspace())
+                .workspaceOptions(command.workspaceOptions())
                 .mcpToolScope(command.mcpToolScope())
                 .build();
     }

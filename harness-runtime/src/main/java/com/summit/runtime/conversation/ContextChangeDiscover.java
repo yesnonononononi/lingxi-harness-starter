@@ -1,13 +1,17 @@
 package com.summit.runtime.conversation;
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.conversation.message.ContextSectionKind;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.skill.SkillResume;
 import org.jspecify.annotations.Nullable;
 
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 /**
  * Decides where this round's dynamic context belongs.
@@ -49,17 +53,25 @@ public final class ContextChangeDiscover {
      */
     public static Layout layout(List<Message> messages, AgentRequest request, McpToolScope scope,
                                 List<SkillResume> skills) {
-        UserMessageEntity contract = ContextDynamicAssembler.assemble(
-                request.getContextSpec(), scope, skills, request.getTask());
-
         int insertIndex = insertIndexOf(messages);
-        if (contract == null) {
+        Map<ContextSectionKind, String> desired = ContextDynamicAssembler.renderSections(
+                request.getContextSpec(), scope, skills, request.getWorkspaceOptions(), request.getTask());
+        Map<ContextSectionKind, String> baseline = ContextDynamicAssembler.latestSections(messages, insertIndex);
+
+        Map<ContextSectionKind, String> changed = new EnumMap<>(ContextSectionKind.class);
+        for (ContextSectionKind kind : ContextSectionKind.values()) {
+            String current = desired.get(kind);
+            String previous = baseline.get(kind);
+            String effectivePrevious = ContextDynamicAssembler.CLEARED_BODY.equals(previous) ? null : previous;
+            if (!Objects.equals(current, effectivePrevious)) {
+                changed.put(kind, current != null ? current : ContextDynamicAssembler.CLEARED_BODY);
+            }
+        }
+
+        if (changed.isEmpty()) {
             return Layout.unchanged(insertIndex);
         }
-        if (insertIndex > 0 && sameContract(messages.get(insertIndex - 1), contract)) {
-            return Layout.unchanged(insertIndex);
-        }
-        return new Layout(true, insertIndex, contract);
+        return new Layout(true, insertIndex, ContextDynamicAssembler.assembleSections(changed));
     }
 
     /**
@@ -75,11 +87,5 @@ public final class ContextChangeDiscover {
             }
         }
         return messages.size();
-    }
-
-    private static boolean sameContract(Message previous, UserMessageEntity contract) {
-        return previous instanceof UserMessageEntity user
-                && user.hasContextContract()
-                && user.text().equals(contract.text());
     }
 }

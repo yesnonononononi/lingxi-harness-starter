@@ -324,6 +324,9 @@ public class DefaultConversationManager implements ConversationManager {
 
 
     private List<Message> retainCompactionInputs(List<Message> current) {
+        Map<ContextSectionKind, String> surviving = ContextDynamicAssembler.latestSections(current, current.size());
+        surviving.values().removeIf(ContextDynamicAssembler.CLEARED_BODY::equals);
+
         List<Message> retained = new ArrayList<>(current.size());
         boolean hasLaterAssistantReply = false;
         boolean keptDynamicContext = false;
@@ -332,11 +335,14 @@ public class DefaultConversationManager implements ConversationManager {
             if (message instanceof AiMessageEntity) hasLaterAssistantReply = true;
             if (message instanceof UserMessageEntity compactionCandidate
                     && compactionCandidate.hasContextContract()) {
-                // Dynamic context is rebuilt every round, so one copy is enough: reverse order meets
-                // the newest first, and the older ones are dropped instead of piling up per turn.
+                // Dynamic context is appended incrementally by category; compaction folds the
+                // latest surviving section per category into one consolidated <context> message.
                 if (!keptDynamicContext) {
                     keptDynamicContext = true;
-                    retained.add(compactionCandidate);
+                    UserMessageEntity consolidated = consolidateDynamicContext(compactionCandidate, surviving);
+                    if (consolidated != null) {
+                        retained.add(consolidated);
+                    }
                 }
                 continue;
             }
@@ -345,6 +351,24 @@ public class DefaultConversationManager implements ConversationManager {
             if (candidate != null) retained.add(candidate);
         }
         return retained.reversed();
+    }
+
+    private static UserMessageEntity consolidateDynamicContext(UserMessageEntity newest,
+                                                                 Map<ContextSectionKind, String> surviving) {
+        if (newest.contextSections().isEmpty()) {
+            return newest;
+        }
+        if (surviving.isEmpty()) {
+            return null;
+        }
+        if (newest.contextSections().size() == surviving.size()) {
+            UserMessageEntity rebuilt = ContextDynamicAssembler.assembleSections(surviving);
+            if (rebuilt != null && newest.text().equals(rebuilt.text())) {
+                return newest;
+            }
+            return rebuilt;
+        }
+        return ContextDynamicAssembler.assembleSections(surviving);
     }
 
     private List<Message> retainableTail(List<Message> messages) {

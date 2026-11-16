@@ -4,6 +4,7 @@ import com.summit.core.conf.ModelRetryConfig;
 import com.summit.core.conf.SensitiveDataSpec;
 import com.summit.core.conf.SkillConfig;
 import com.summit.core.model.image.ImageGenerationOptions;
+import com.summit.core.workspace.WorkspaceOptions;
 import com.summit.core.workspace.WorkspaceSpec;
 import lombok.Builder;
 import lombok.Data;
@@ -36,6 +37,9 @@ public class AgentRequest {
     private List<String> toolList;
     /** Optional managed workspace specification. When absent, the runtime uses the local process working directory. */
     private final WorkspaceSpec workspaceSpec;
+
+    /** Volatile per-request workspace controls (access tier, environment variables), separate from static {@link #workspaceSpec}. */
+    private WorkspaceOptions workspaceOptions;
 
     /** Only the reference is persisted; the application resolves the exact MCP configuration revision. */
     private SensitiveDataSpec mcpConfigSpec;

@@ -277,6 +277,7 @@ public class AgentLoopStepRunner {
                             .allowOutsideWorkspace(params.isAllowOutsideWorkspace())
                             .mcpToolScope(context.getMcpToolScope())
                             .skillConfig(request.getSkillConfig())
+                            .workspaceOptions(request.getWorkspaceOptions())
                             .signal(signal)
                             .build()
             );

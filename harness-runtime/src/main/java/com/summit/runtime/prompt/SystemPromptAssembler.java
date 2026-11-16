@@ -1,16 +1,14 @@
 package com.summit.runtime.prompt;
 
 import com.summit.core.conversation.message.SystemMessageEntity;
+import com.summit.core.prompt.EnvironmentFormatter;
 import com.summit.core.prompt.PromptAssembler;
 import com.summit.core.runtime.RuntimeEnvironment;
 import com.summit.core.runtime.workspace.Workspace;
 import lombok.Getter;
 import org.jspecify.annotations.Nullable;
 
-import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.TreeMap;
 
 /**
  * Assembles the stable leading system message of one execution: where the agent runs, and the
@@ -28,20 +26,6 @@ public class SystemPromptAssembler implements PromptAssembler {
     private String systemPrompt;
 
     private final StringBuilder stringBuilder = new StringBuilder();
-
-    /**
-     * Environment variables listed verbatim before the rest is collapsed into a count.
-     */
-    private static final int MAX_ENV_ENTRIES = 40;
-    /**
-     * Value length after which an environment variable value is truncated.
-     */
-    private static final int MAX_ENV_VALUE_LENGTH = 200;
-    /**
-     * Key fragments whose value never reaches the model.
-     */
-    private static final List<String> SENSITIVE_KEY_MARKERS =
-            List.of("KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "PRIVATE");
 
     /**
      * Starts a fresh assembly over the given workspace.
@@ -103,39 +87,10 @@ public class SystemPromptAssembler implements PromptAssembler {
      * Appends the environment variables exposed to the workspace, with secret-looking values redacted.
      */
     private void appendEnvironmentVariables(@Nullable Map<String, String> envs) {
-        if (envs == null || envs.isEmpty()) {
-            return;
+        String formatted = EnvironmentFormatter.formatEntries(envs, "  ");
+        if (formatted != null) {
+            stringBuilder.append("\n- Environment variables exposed to this workspace:\n").append(formatted);
         }
-        Map<String, String> sorted = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        envs.forEach((key, value) -> {
-            if (key != null && !key.isBlank()) {
-                sorted.put(key, value);
-            }
-        });
-        if (sorted.isEmpty()) {
-            return;
-        }
-        stringBuilder.append("\n- Environment variables exposed to this workspace:");
-        int printed = 0;
-        for (Map.Entry<String, String> entry : sorted.entrySet()) {
-            if (printed >= MAX_ENV_ENTRIES) {
-                stringBuilder.append("\n  - ... (").append(sorted.size() - printed).append(" more)");
-                break;
-            }
-            stringBuilder.append("\n  - ").append(entry.getKey()).append('=')
-                    .append(value(entry.getKey(), entry.getValue()));
-            printed++;
-        }
-    }
-
-    private static String value(String key, @Nullable String value) {
-        String upper = key.toUpperCase(Locale.ROOT);
-        if (SENSITIVE_KEY_MARKERS.stream().anyMatch(upper::contains)) {
-            return "<redacted>";
-        }
-        String text = value == null ? "" : value;
-        return text.length() <= MAX_ENV_VALUE_LENGTH
-                ? text : text.substring(0, MAX_ENV_VALUE_LENGTH) + "... (truncated)";
     }
 
     private static boolean isBlank(@Nullable String text) {

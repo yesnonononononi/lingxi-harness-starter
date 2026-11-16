@@ -3,14 +3,20 @@ package com.summit.runtime.conversation;
 import com.summit.core.agent.ContextSpec;
 import com.summit.core.conversation.message.ContextSectionKind;
 import com.summit.core.conversation.message.ContextSectionMark;
+import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.mcp.McpResume;
 import com.summit.core.mcp.McpToolScope;
+import com.summit.core.prompt.EnvironmentFormatter;
 import com.summit.core.skill.SkillResume;
+import com.summit.core.workspace.WorkspaceAccessMode;
+import com.summit.core.workspace.WorkspaceOptions;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -32,45 +38,119 @@ import java.util.Objects;
  */
 public class ContextDynamicAssembler {
     public static final String LABEL = "<context>";
+    public static final String CLEARED_BODY = "(none)";
 
     private static final String MCP_TITLE = "\n\n## MCP Tools\n";
     private static final String SKILL_TITLE = "\n\n## Skill Prompt\n";
     private static final String MEMORY_TITLE = "\n\n## Memory Prompt\n";
+    private static final String PERMISSION_TITLE = "\n\n## Workspace Permission\n";
+    private static final String ENVIRONMENT_TITLE = "\n\n## Workspace Environment\n";
     private static final String TASK_TITLE = "\n\n## Task Manifest\n";
-
-    private record Section(ContextSectionKind kind, String title, String body) {
-    }
 
     /**
      * The dynamic context of one round, or {@code null} when this request carries no dynamic
      * section at all — a bare-model request must not get an empty user message injected.
      */
     public static @Nullable UserMessageEntity assemble(ContextSpec contextSpec, McpToolScope scope, List<SkillResume> skills, List<String> tasks) {
-        List<Section> sections = new ArrayList<>(4);
-        addSection(sections, ContextSectionKind.MCP, MCP_TITLE, withMcpToolPrompt(scope));
-        addSection(sections, ContextSectionKind.SKILL, SKILL_TITLE, withSkillPrompt(skills));
-        addSection(sections, ContextSectionKind.MEMORY, MEMORY_TITLE, withMemoryPrompt(contextSpec.getMemory()));
-        addSection(sections, ContextSectionKind.TASK, TASK_TITLE, withTaskPrompt(tasks));
-        if (sections.isEmpty()) {
+        return assemble(contextSpec, scope, skills, null, tasks);
+    }
+
+    /**
+     * Renders all non-empty dynamic sections (including volatile workspace options) into one
+     * {@code <context>} message, or {@code null} when nothing is present.
+     */
+    public static @Nullable UserMessageEntity assemble(ContextSpec contextSpec, McpToolScope scope,
+                                                       List<SkillResume> skills,
+                                                       @Nullable WorkspaceOptions workspaceOptions,
+                                                       List<String> tasks) {
+        return assembleSections(renderSections(contextSpec, scope, skills, workspaceOptions, tasks));
+    }
+
+    /** Renders each non-empty dynamic category into its section body, keyed by {@link ContextSectionKind}. */
+    public static Map<ContextSectionKind, String> renderSections(ContextSpec contextSpec, McpToolScope scope,
+                                                                 List<SkillResume> skills,
+                                                                 @Nullable WorkspaceOptions workspaceOptions,
+                                                                 List<String> tasks) {
+        Map<ContextSectionKind, String> sections = new EnumMap<>(ContextSectionKind.class);
+        putIfPresent(sections, ContextSectionKind.MCP, withMcpToolPrompt(scope));
+        putIfPresent(sections, ContextSectionKind.SKILL, withSkillPrompt(skills));
+        putIfPresent(sections, ContextSectionKind.MEMORY, withMemoryPrompt(contextSpec == null ? null : contextSpec.getMemory()));
+        putIfPresent(sections, ContextSectionKind.PERMISSION, withPermissionPrompt(workspaceOptions));
+        putIfPresent(sections, ContextSectionKind.ENVIRONMENT, withEnvironmentPrompt(workspaceOptions));
+        putIfPresent(sections, ContextSectionKind.TASK, withTaskPrompt(tasks));
+        return sections;
+    }
+
+    /** Assembles the given section bodies in canonical {@link ContextSectionKind} order, or {@code null} if empty. */
+    public static @Nullable UserMessageEntity assembleSections(Map<ContextSectionKind, String> bodies) {
+        if (bodies == null || bodies.isEmpty()) {
             return null;
         }
-
         StringBuilder text = new StringBuilder(LABEL);
-        List<ContextSectionMark> marks = new ArrayList<>(sections.size());
-        for (Section section : sections) {
-            text.append(section.title());
+        List<ContextSectionMark> marks = new ArrayList<>(bodies.size());
+        for (ContextSectionKind kind : ContextSectionKind.values()) {
+            String body = bodies.get(kind);
+            if (body == null || body.isBlank()) {
+                continue;
+            }
+            text.append(titleFor(kind));
             int start = text.length();
-            text.append(section.body());
-            marks.add(new ContextSectionMark(section.kind(), start, section.body().length()));
+            text.append(body);
+            marks.add(new ContextSectionMark(kind, start, body.length()));
+        }
+        if (marks.isEmpty()) {
+            return null;
         }
         return UserMessageEntity.from(text.toString()).markContextContract().withContextSections(marks);
     }
 
-    private static void addSection(List<Section> sections, ContextSectionKind kind, String title,
-                                   @Nullable String body) {
-        if (body != null && !body.isBlank()) {
-            sections.add(new Section(kind, title, body));
+    /**
+     * Collects the latest rendered body for each {@link ContextSectionKind} from {@code messages[0..endExclusive)}.
+     * Shared by per-round diffing and compaction merging so baseline extraction lives in one place.
+     */
+    public static Map<ContextSectionKind, String> latestSections(List<Message> messages, int endExclusive) {
+        Map<ContextSectionKind, String> latest = new EnumMap<>(ContextSectionKind.class);
+        int limit = Math.min(endExclusive, messages.size());
+        for (int i = 0; i < limit; i++) {
+            if (!(messages.get(i) instanceof UserMessageEntity user) || !user.hasContextContract()) {
+                continue;
+            }
+            String text = user.text();
+            for (ContextSectionMark mark : user.contextSections()) {
+                int end = mark.start() + mark.length();
+                if (mark.start() >= 0 && end <= text.length()) {
+                    latest.put(mark.kind(), text.substring(mark.start(), end));
+                }
+            }
         }
+        return latest;
+    }
+
+    private static void putIfPresent(Map<ContextSectionKind, String> sections, ContextSectionKind kind,
+                                     @Nullable String body) {
+        if (body != null && !body.isBlank()) {
+            sections.put(kind, body);
+        }
+    }
+
+    private static String titleFor(ContextSectionKind kind) {
+        return switch (kind) {
+            case MCP -> MCP_TITLE;
+            case SKILL -> SKILL_TITLE;
+            case MEMORY -> MEMORY_TITLE;
+            case PERMISSION -> PERMISSION_TITLE;
+            case ENVIRONMENT -> ENVIRONMENT_TITLE;
+            case TASK -> TASK_TITLE;
+        };
+    }
+
+    private static @Nullable String withPermissionPrompt(@Nullable WorkspaceOptions options) {
+        WorkspaceAccessMode mode = options == null ? null : options.getAccessMode();
+        return mode == null ? null : "Access mode: " + mode.name();
+    }
+
+    private static @Nullable String withEnvironmentPrompt(@Nullable WorkspaceOptions options) {
+        return options == null ? null : EnvironmentFormatter.formatEntries(options.getEnvironment(), "");
     }
 
     private static String withSkillPrompt(List<SkillResume> skills) {

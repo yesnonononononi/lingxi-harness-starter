@@ -5,5 +5,7 @@ public enum ContextSectionKind {
     MCP,
     SKILL,
     MEMORY,
+    PERMISSION,
+    ENVIRONMENT,
     TASK
 }

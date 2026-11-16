@@ -5,6 +5,7 @@ import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.workspace.Workspace;
+import com.summit.core.workspace.WorkspaceOptions;
 import lombok.Builder;
 
 import java.util.List;
@@ -25,6 +26,7 @@ public record ToolExecuteCommand(List<ToolCallRequest> requests,
                                  boolean allowOutsideWorkspace,
                                  McpToolScope mcpToolScope,
                                  SkillConfig skillConfig,
+                                 WorkspaceOptions workspaceOptions,
                                  ExecutionControlSignal signal
 ) {
 
@@ -45,7 +47,7 @@ public record ToolExecuteCommand(List<ToolCallRequest> requests,
     /** This batch with its calls replaced; every other field is carried over unchanged. */
     public ToolExecuteCommand withRequests(List<ToolCallRequest> newRequests) {
         return new ToolExecuteCommand(newRequests, executionId, workspace, attributes, eventMetaData, allowedTools,
-                responseId, allowOutsideWorkspace, mcpToolScope, skillConfig, signal);
+                responseId, allowOutsideWorkspace, mcpToolScope, skillConfig, workspaceOptions, signal);
     }
 
     /**

@@ -4,6 +4,7 @@ import com.summit.core.conf.SkillConfig;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.workspace.Workspace;
+import com.summit.core.workspace.WorkspaceOptions;
 import lombok.Builder;
 import lombok.Data;
 
@@ -40,6 +41,9 @@ public class ToolExecution {
     /** Per-request switch copied from {@code AgentRuntimeParameters#isAllowOutsideWorkspace()}. */
     @Builder.Default
     private boolean allowOutsideWorkspace = false;
+
+    /** Volatile per-request workspace controls (access tier, environment overrides). */
+    private WorkspaceOptions workspaceOptions;
 
     /**
      * The MCP tools declared by this call's request, for a tool that must enumerate the callable

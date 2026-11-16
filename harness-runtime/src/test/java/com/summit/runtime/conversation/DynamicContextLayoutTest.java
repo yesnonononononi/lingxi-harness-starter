@@ -5,10 +5,13 @@ import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.conversation.message.AiMessageEntity;
+import com.summit.core.conversation.message.ContextSectionKind;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.mcp.McpToolScope;
+import com.summit.core.workspace.WorkspaceAccessMode;
+import com.summit.core.workspace.WorkspaceOptions;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -18,6 +21,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -170,6 +174,96 @@ class DynamicContextLayoutTest {
         } finally {
             logger.detachAppender(appender);
         }
+    }
+
+    @Test
+    @DisplayName("多轮按类别增量追加：未变类别不重复塞入，跨轮未变也不重复插入")
+    void multiTurnAppendsOnlyChangedCategories() {
+        AgentRequest round1Request = AgentRequest.builder()
+                .contextSpec(ContextSpec.builder().memory(List.of("mem v1")).build())
+                .workspaceOptions(WorkspaceOptions.builder()
+                        .accessMode(WorkspaceAccessMode.READ_ONLY)
+                        .environment(Map.of("ENV_A", "1", "API_TOKEN", "secret"))
+                        .build())
+                .task(List.of("step 1"))
+                .build();
+
+        List<Message> history = new ArrayList<>(List.of(UserMessageEntity.from("turn 1")));
+        Execution execution = execution(history, round1Request);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+
+        // Simulate assistant reply and turn 2 with identical context
+        execution.getMessages().add(AiMessageEntity.builder().text("reply 1").build());
+        execution.getMessages().add(UserMessageEntity.from("turn 2"));
+        List<Message> beforeUnchanged = execution.getMessages();
+        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+        assertSame(beforeUnchanged, execution.getMessages(),
+                "multi-turn with unchanged sections must not re-insert <context>");
+
+        // Now change only accessMode and clear task; memory and environment stay unchanged
+        execution.setAgentRequest(AgentRequest.builder()
+                .contextSpec(ContextSpec.builder().memory(List.of("mem v1")).build())
+                .workspaceOptions(WorkspaceOptions.builder()
+                        .accessMode(WorkspaceAccessMode.READ_WRITE)
+                        .environment(Map.of("ENV_A", "1", "API_TOKEN", "secret"))
+                        .build())
+                .build());
+        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+
+        UserMessageEntity delta = assertInstanceOf(UserMessageEntity.class,
+                execution.getMessages().get(execution.getMessages().size() - 2));
+        assertTrue(delta.hasContextContract());
+        assertEquals(List.of(ContextSectionKind.PERMISSION, ContextSectionKind.TASK),
+                delta.contextSections().stream().map(m -> m.kind()).toList());
+        assertTrue(delta.text().contains("Access mode: READ_WRITE"));
+        assertTrue(delta.text().contains("## Task Manifest\n(none)"));
+        assertFalse(delta.text().contains("## Memory Prompt"));
+        assertFalse(delta.text().contains("## Workspace Environment"));
+
+        // Turn 3 with task still empty must not re-emit (none)
+        execution.getMessages().add(AiMessageEntity.builder().text("reply 2").build());
+        execution.getMessages().add(UserMessageEntity.from("turn 3"));
+        List<Message> beforeTurn3 = execution.getMessages();
+        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+        assertSame(beforeTurn3, execution.getMessages(), "already-cleared section is not emitted again");
+    }
+
+    @Test
+    @DisplayName("压缩合并：多轮增量追加的不同类别在压缩后合并为一条完整上下文")
+    void compactionMergesLatestSectionsAcrossIncrementalContextMessages() {
+        UserMessageEntity first = ContextDynamicAssembler.assemble(
+                ContextSpec.builder().memory(List.of("mem v1")).build(),
+                McpToolScope.EMPTY, List.of(),
+                WorkspaceOptions.builder().accessMode(WorkspaceAccessMode.READ_ONLY).build(),
+                List.of("old task"));
+        UserMessageEntity second = ContextDynamicAssembler.assemble(
+                ContextSpec.builder().build(),
+                McpToolScope.EMPTY, List.of(),
+                WorkspaceOptions.builder().accessMode(WorkspaceAccessMode.READ_WRITE).build(),
+                null);
+
+        List<Message> history = new ArrayList<>(List.of(
+                SystemMessageEntity.builder().text("SYS").build(),
+                first,
+                UserMessageEntity.from("q1"),
+                AiMessageEntity.builder().text("a1").build(),
+                second,
+                UserMessageEntity.from("q2")));
+
+        Execution execution = execution(history, AgentRequest.builder().build());
+        conversations.rebuildContext("summary", execution);
+
+        List<UserMessageEntity> remaining = execution.getMessages().stream()
+                .filter(UserMessageEntity.class::isInstance)
+                .map(UserMessageEntity.class::cast)
+                .filter(UserMessageEntity::hasContextContract)
+                .toList();
+        assertEquals(1, remaining.size());
+        String merged = remaining.getFirst().text();
+        assertTrue(merged.contains("## Memory Prompt\nmem v1"), merged);
+        assertTrue(merged.contains("## Workspace Permission\nAccess mode: READ_WRITE"), merged);
+        assertFalse(merged.contains("READ_ONLY"), merged);
+        assertTrue(merged.contains("## Task Manifest\nold task"), merged);
     }
 
     private static long liveContextBlocks(Execution execution) {

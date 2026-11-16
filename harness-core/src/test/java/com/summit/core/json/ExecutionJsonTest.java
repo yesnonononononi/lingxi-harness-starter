@@ -9,6 +9,8 @@ import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.message.*;
 import com.summit.core.conversation.message.content.*;
 import com.summit.core.workspace.BasicWorkspaceSpec;
+import com.summit.core.workspace.WorkspaceAccessMode;
+import com.summit.core.workspace.WorkspaceOptions;
 import com.summit.core.workspace.WorkspaceSpec;
 import org.junit.jupiter.api.Test;
 
@@ -166,6 +168,19 @@ class ExecutionJsonTest {
         Execution restored = custom.readValue(json, Execution.class);
         assertEquals(original.getAgentRequest().getWorkspaceSpec(), restored.getAgentRequest().getWorkspaceSpec());
         assertThrows(InvalidTypeIdException.class, () -> mapper.readValue(json, Execution.class));
+    }
+
+    @Test
+    void restoresWorkspaceOptions() throws Exception {
+        Execution original = Execution.builder().agentRequest(AgentRequest.builder()
+                .workspaceOptions(WorkspaceOptions.builder()
+                        .accessMode(WorkspaceAccessMode.READ_ONLY)
+                        .environment(Map.of("FOO", "bar"))
+                        .build())
+                .build()).build();
+
+        Execution restored = mapper.readValue(mapper.writeValueAsString(original), Execution.class);
+        assertEquals(original.getAgentRequest().getWorkspaceOptions(), restored.getAgentRequest().getWorkspaceOptions());
     }
 
     @Test
