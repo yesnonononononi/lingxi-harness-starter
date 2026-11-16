@@ -3,6 +3,7 @@ package com.summit.runtime.tool;
 import com.summit.core.tool.ToolDefinition;
 
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -22,6 +23,7 @@ public final class ModelToolVisibility {
                                                  List<String> allowed) {
         return registered.stream()
                 .filter(tool -> tool.allowedFor(allowed))
+                .sorted(Comparator.comparing(ToolDefinition::name))
                 .<ToolDefinition<?>>map(tool -> tool)
                 .toList();
     }

@@ -11,4 +11,8 @@ public interface WorkspaceProvider {
      * belong to the provider; the framework neither stores resources nor destroys them.
      */
     Workspace resolve(WorkspaceSpec spec);
+
+    default Workspace resolve(WorkspaceSpec spec, WorkspaceOptions options) {
+        return resolve(spec);
+    }
 }

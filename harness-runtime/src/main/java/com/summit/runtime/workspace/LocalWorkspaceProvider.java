@@ -1,6 +1,7 @@
 package com.summit.runtime.workspace;
 
 import com.summit.core.runtime.workspace.Workspace;
+import com.summit.core.workspace.WorkspaceOptions;
 import com.summit.core.workspace.WorkspaceProvider;
 import com.summit.core.workspace.WorkspaceRef;
 import com.summit.core.workspace.WorkspaceSpec;
@@ -19,10 +20,17 @@ public final class LocalWorkspaceProvider implements WorkspaceProvider {
 
     @Override
     public Workspace resolve(WorkspaceSpec spec) {
+        return resolve(spec, null);
+    }
+
+    @Override
+    public Workspace resolve(WorkspaceSpec spec, WorkspaceOptions options) {
         if (!TYPE.equalsIgnoreCase(spec.provider().trim())) {
             throw new IllegalArgumentException("unsupported workspace provider: " + spec.provider());
         }
-        Path root = Path.of(spec.workDir()).toAbsolutePath().normalize();
+        String effectiveWorkDir = options != null && options.getWorkDir() != null && !options.getWorkDir().isBlank()
+                ? options.getWorkDir() : spec.workDir();
+        Path root = Path.of(effectiveWorkDir).toAbsolutePath().normalize();
         if (!Files.isDirectory(root)) {
             throw new IllegalArgumentException("local workspace directory does not exist: " + root);
         }

@@ -6,4 +6,8 @@ import com.summit.core.runtime.workspace.Workspace;
 @FunctionalInterface
 public interface WorkspaceResolver {
     Workspace resolve(WorkspaceSpec spec);
+
+    default Workspace resolve(WorkspaceSpec spec, WorkspaceOptions options) {
+        return resolve(spec);
+    }
 }

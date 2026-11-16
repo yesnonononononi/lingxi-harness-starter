@@ -1,6 +1,7 @@
 package com.summit.runtime.workspace;
 
 import com.summit.core.runtime.workspace.Workspace;
+import com.summit.core.workspace.WorkspaceOptions;
 import com.summit.core.workspace.WorkspaceProvider;
 import com.summit.core.workspace.WorkspaceResolver;
 import com.summit.core.workspace.WorkspaceSpec;
@@ -28,12 +29,17 @@ public final class DefaultWorkspaceResolver implements WorkspaceResolver {
 
     @Override
     public Workspace resolve(WorkspaceSpec spec) {
+        return resolve(spec, null);
+    }
+
+    @Override
+    public Workspace resolve(WorkspaceSpec spec, WorkspaceOptions options) {
         Objects.requireNonNull(spec, "workspace spec");
         WorkspaceProvider provider = providers.get(normalize(spec.provider()));
         if (provider == null) {
             throw new IllegalArgumentException("workspace provider is not installed: " + spec.provider());
         }
-        return Objects.requireNonNull(provider.resolve(spec), "resolved workspace");
+        return Objects.requireNonNull(provider.resolve(spec, options), "resolved workspace");
     }
 
     private static String normalize(String type) {

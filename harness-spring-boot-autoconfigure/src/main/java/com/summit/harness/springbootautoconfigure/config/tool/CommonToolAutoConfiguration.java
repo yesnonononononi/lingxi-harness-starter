@@ -7,6 +7,7 @@ import com.summit.core.tool.*;
 import com.summit.harness.springbootautoconfigure.properties.tool.ToolProperties;
 import com.summit.harness.springbootautoconfigure.toolHelper.ToolRegister;
 import com.summit.runtime.tool.DefaultToolExecutionManager;
+import com.summit.runtime.tool.WorkspaceAccessToolPolicy;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -39,6 +40,12 @@ public class CommonToolAutoConfiguration {
 
 
 
+
+    @Bean
+    @ConditionalOnMissingBean
+    public WorkspaceAccessToolPolicy workspaceAccessToolPolicy() {
+        return new WorkspaceAccessToolPolicy();
+    }
 
     @Bean
     @ConditionalOnMissingBean(ToolExecutionManager.class)

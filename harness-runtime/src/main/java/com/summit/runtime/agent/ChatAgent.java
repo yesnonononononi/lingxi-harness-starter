@@ -18,6 +18,7 @@ import com.summit.core.runtime.loop.ExecutionControl;
 import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.workspace.BasicWorkspaceSpec;
+import com.summit.core.workspace.WorkspaceOptions;
 import com.summit.core.workspace.WorkspaceResolver;
 import com.summit.core.workspace.WorkspaceSpec;
 import com.summit.runtime.workspace.LocalWorkspaceProvider;
@@ -214,12 +215,14 @@ public abstract class ChatAgent implements Agent {
      * reuse and cleanup; completing a request never destroys the returned workspace.</p>
      */
     protected Workspace resolveWorkspace(AgentRequest request) {
-
+        WorkspaceOptions options = request.getWorkspaceOptions();
         WorkspaceSpec spec = request.getWorkspaceSpec();
         if (spec == null) {
-            spec = new BasicWorkspaceSpec(LocalWorkspaceProvider.TYPE, System.getProperty("user.dir"));
+            String workDir = options != null && options.getWorkDir() != null && !options.getWorkDir().isBlank()
+                    ? options.getWorkDir() : System.getProperty("user.dir");
+            spec = new BasicWorkspaceSpec(LocalWorkspaceProvider.TYPE, workDir);
         }
-        return workspaceResolver.resolve(spec);
+        return workspaceResolver.resolve(spec, options);
     }
 
 

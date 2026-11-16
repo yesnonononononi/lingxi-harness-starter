@@ -5,6 +5,8 @@ import com.summit.core.runtime.workspace.OsType;
 import com.summit.core.runtime.workspace.ShellType;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.runtime.workspace.WorkspaceBridge;
+import com.summit.core.workspace.WorkspaceAccessMode;
+import com.summit.core.workspace.WorkspaceOptions;
 import com.summit.core.workspace.WorkspaceProvider;
 import com.summit.core.workspace.WorkspaceRef;
 import com.summit.core.workspace.WorkspaceSpec;
@@ -34,23 +36,39 @@ public final class WindowsWorkspaceProvider implements WorkspaceProvider {
 
     @Override
     public Workspace resolve(WorkspaceSpec spec) {
+        return resolve(spec, null);
+    }
+
+    @Override
+    public Workspace resolve(WorkspaceSpec spec, WorkspaceOptions options) {
         if (!(spec instanceof WindowsWorkspaceSpec(
                 String workDir, String scope, Map<String, String> environment, boolean writable
         ))) {
             throw new IllegalArgumentException("WindowsWorkspaceProvider requires a WindowsWorkspaceSpec");
         }
-        Path root = Path.of(workDir).toAbsolutePath().normalize();
+        String effectiveWorkDir = options != null && options.getWorkDir() != null && !options.getWorkDir().isBlank()
+                ? options.getWorkDir() : workDir;
+        Path root = Path.of(effectiveWorkDir).toAbsolutePath().normalize();
         if (!Files.isDirectory(root)) {
             throw new IllegalArgumentException("Workspace directory does not exist: " + root);
         }
 
-        SandboxMode mode = writable ? SandboxMode.READ_WRITE : SandboxMode.READ_ONLY;
+        boolean effectiveWritable = options != null && options.getAccessMode() != null
+                ? options.getAccessMode() == WorkspaceAccessMode.READ_WRITE
+                : writable;
+        Map<String, String> effectiveEnv = new LinkedHashMap<>(environment);
+        if (options != null && options.getEnvironment() != null) {
+            effectiveEnv.putAll(options.getEnvironment());
+        }
+
+        SandboxMode mode = effectiveWritable ? SandboxMode.READ_WRITE : SandboxMode.READ_ONLY;
         WindowsWorkspaceAcl.ensureWorkspacePermission(root, mode);
 
-        WindowsWorkspaceBridge bridge = new WindowsWorkspaceBridge(root, mode, environment);
+        Map<String, String> frozenEnv = Map.copyOf(effectiveEnv);
+        WindowsWorkspaceBridge bridge = new WindowsWorkspaceBridge(root, mode, frozenEnv);
         String rootStr = root.toString();
         String id = WorkspaceRef.derived(TYPE, scope + "|" + rootStr + "|" + mode.name()).id();
-        return new ResolvedWorkspace(id, rootStr, mode, bridge, environment);
+        return new ResolvedWorkspace(id, rootStr, mode, bridge, frozenEnv);
     }
 
     private record ResolvedWorkspace(
