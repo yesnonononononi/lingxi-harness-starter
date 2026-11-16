@@ -106,7 +106,7 @@ class ConversationConfigContextTest {
                 .contextSpec(ContextSpec.builder()
                         .context(List.of(UserMessageEntity.from("hello")))
                         .build())
-                .toolList(List.of("demo"))
+                .toolSpec(com.summit.core.agent.ToolSpec.builder().toolList(List.of("demo")).build())
                 .build();
         return Execution.builder().id("execution-1").agentRequest(request)
                 .messages(new ArrayList<>(request.getContextSpec().getContext())).build();

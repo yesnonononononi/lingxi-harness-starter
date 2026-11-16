@@ -3,6 +3,7 @@ package com.summit.runtime.conversation;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
+import com.summit.core.agent.ToolSpec;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.ContextSectionKind;
@@ -309,6 +310,42 @@ class DynamicContextLayoutTest {
 
         SystemMessageEntity leading = assertInstanceOf(SystemMessageEntity.class, execution.getMessages().getFirst());
         assertEquals("## Business Prompt\nv2", leading.getText());
+    }
+
+    @Test
+    @DisplayName("黑名单工具仅进入 <context> 并按类别增量变更，不进入系统提示词")
+    void forbiddenToolsRenderInDynamicContextAndDiffIncrementally() {
+        AgentRequest turn1 = AgentRequest.builder()
+                .contextSpec(ContextSpec.builder().systemPrompt("role").build())
+                .toolSpec(ToolSpec.builder()
+                        .toolList(List.of("read_file", "edit_file"))
+                        .forbiddenTools(List.of("edit_file"))
+                        .build())
+                .build();
+        Execution execution = execution(new ArrayList<>(List.of(UserMessageEntity.from("q1"))), turn1);
+
+        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+
+        SystemMessageEntity system = assertInstanceOf(SystemMessageEntity.class, execution.getMessages().getFirst());
+        assertFalse(system.getText().contains("edit_file"), "blacklist must not enter system prompt");
+        UserMessageEntity ctx1 = assertInstanceOf(UserMessageEntity.class, execution.getMessages().get(1));
+        assertTrue(ctx1.text().contains("## Forbidden Tools\nedit_file"));
+
+        execution.getMessages().add(AiMessageEntity.builder().text("a1").build());
+        execution.getMessages().add(UserMessageEntity.from("q2"));
+        execution.setAgentRequest(AgentRequest.builder()
+                .contextSpec(ContextSpec.builder().systemPrompt("role").build())
+                .toolSpec(ToolSpec.builder()
+                        .toolList(List.of("read_file", "edit_file"))
+                        .forbiddenTools(List.of())
+                        .build())
+                .build());
+
+        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+
+        UserMessageEntity ctx2 = assertInstanceOf(UserMessageEntity.class,
+                execution.getMessages().get(execution.getMessages().size() - 2));
+        assertTrue(ctx2.text().contains("## Forbidden Tools\n(none)"));
     }
 
     private static long warningCount(ListAppender<ILoggingEvent> appender) {

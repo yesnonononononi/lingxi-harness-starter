@@ -1,5 +1,6 @@
 package com.summit.core.tool;
 
+import com.summit.core.agent.ToolSpec;
 import com.summit.core.conf.SkillConfig;
 import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.mcp.McpToolScope;
@@ -22,6 +23,7 @@ public record ToolExecuteCommand(List<ToolCallRequest> requests,
                                  Map<String, Object> attributes,
                                  Map<String, Object> eventMetaData,
                                  List<String> allowedTools,
+                                 ToolSpec toolSpec,
                                  String responseId,
                                  boolean allowOutsideWorkspace,
                                  McpToolScope mcpToolScope,
@@ -44,10 +46,14 @@ public record ToolExecuteCommand(List<ToolCallRequest> requests,
         return mcpToolScope == null ? McpToolScope.EMPTY : mcpToolScope;
     }
 
+    public ToolSpec effectiveToolSpec() {
+        return toolSpec != null ? toolSpec : ToolSpec.builder().toolList(allowedTools).build();
+    }
+
     /** This batch with its calls replaced; every other field is carried over unchanged. */
     public ToolExecuteCommand withRequests(List<ToolCallRequest> newRequests) {
         return new ToolExecuteCommand(newRequests, executionId, workspace, attributes, eventMetaData, allowedTools,
-                responseId, allowOutsideWorkspace, mcpToolScope, skillConfig, workspaceOptions, signal);
+                toolSpec, responseId, allowOutsideWorkspace, mcpToolScope, skillConfig, workspaceOptions, signal);
     }
 
     /**

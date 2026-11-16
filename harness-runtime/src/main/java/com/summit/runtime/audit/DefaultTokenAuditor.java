@@ -113,7 +113,7 @@ public class DefaultTokenAuditor implements TokenAuditor {
         List<String> allowed;
         try {
             registered = toolRegistry.getToolDefinitionList();
-            allowed = execution.getAgentRequest().getToolList();
+            allowed = execution.getAgentRequest().toolSpecOrDefault().getToolList();
         } catch (Exception failure) {
             return new DefinitionAudits(failed(TOOL_DEF_LABEL, failure), failed(MCP_DEF_LABEL, failure));
         }

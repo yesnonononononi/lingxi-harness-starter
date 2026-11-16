@@ -157,7 +157,7 @@ class ExecutionTokenAuditRecorderTest {
                 AgentConfig.builder().maxTokens(1000).build(),
                 new ToolRegistry(List.of(definition)));
         Execution execution = execution(ExecutionState.COMPLETED);
-        execution.getAgentRequest().setToolList(List.of("lookup"));
+        execution.getAgentRequest().getToolSpec().setToolList(List.of("lookup"));
         execution.getAgentRequest().getContextSpec().setMemory(List.of("project memory"));
         execution.getMessages().add(ContextDynamicAssembler.assemble(
                 ContextSpec.builder().memory(List.of("project memory")).build(),

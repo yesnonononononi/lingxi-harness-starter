@@ -1,5 +1,6 @@
 package com.summit.runtime.tool;
 
+import com.summit.core.agent.ToolSpec;
 import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.conversation.event.ToolCallEndEvent;
@@ -89,5 +90,22 @@ class WorkspaceAccessToolPolicyTest {
 
         assertTrue(rwResults.getFirst().isSuccess());
         assertTrue(writeInvoked.get());
+
+        writeInvoked.set(false);
+        endEvents.clear();
+        List<ToolExecuteResult> blacklistedResults = manager.execute(ToolExecuteCommand.builder()
+                .executionId("exec-3")
+                .workspace(workspace)
+                .toolSpec(ToolSpec.builder()
+                        .toolList(whitelist)
+                        .forbiddenTools(List.of("edit_file"))
+                        .build())
+                .workspaceOptions(WorkspaceOptions.builder().accessMode(WorkspaceAccessMode.READ_WRITE).build())
+                .requests(List.of(new ToolCallRequest("c5", "edit_file", 0, "{}")))
+                .build());
+
+        assertFalse(blacklistedResults.getFirst().isSuccess());
+        assertFalse(writeInvoked.get(), "blacklisted tool must be rejected before execution");
+        assertEquals(ToolCallStatus.REJECTED, endEvents.getFirst().getResultStatus());
     }
 }

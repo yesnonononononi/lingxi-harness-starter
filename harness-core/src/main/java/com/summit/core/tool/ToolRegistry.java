@@ -92,7 +92,7 @@ public class ToolRegistry {
         if (execution == null) {
             return List.of();
         }
-        List<String> allowed = execution.getAgentRequest().getToolList();
+        List<String> allowed = execution.getAgentRequest().toolSpecOrDefault().getToolList();
         if (allowed == null || allowed.isEmpty()) {
             return List.of();
         }

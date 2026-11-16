@@ -1,6 +1,7 @@
 package com.summit.runtime.conversation;
 
 import com.summit.core.agent.ContextSpec;
+import com.summit.core.agent.ToolSpec;
 import com.summit.core.conversation.message.ContextSectionKind;
 import com.summit.core.conversation.message.ContextSectionMark;
 import com.summit.core.conversation.message.Message;
@@ -46,6 +47,7 @@ public class ContextDynamicAssembler {
     private static final String WORK_DIR_TITLE = "\n\n## Working Directory\n";
     private static final String PERMISSION_TITLE = "\n\n## Workspace Permission\n";
     private static final String ENVIRONMENT_TITLE = "\n\n## Workspace Environment\n";
+    private static final String FORBIDDEN_TOOLS_TITLE = "\n\n## Forbidden Tools\n";
     private static final String TASK_TITLE = "\n\n## Task Manifest\n";
 
     /**
@@ -64,13 +66,34 @@ public class ContextDynamicAssembler {
                                                        List<SkillResume> skills,
                                                        @Nullable WorkspaceOptions workspaceOptions,
                                                        List<String> tasks) {
-        return assembleSections(renderSections(contextSpec, scope, skills, workspaceOptions, tasks));
+        return assemble(contextSpec, scope, skills, workspaceOptions, null, tasks);
+    }
+
+    /**
+     * Renders all non-empty dynamic sections (including volatile workspace options and tool blacklist)
+     * into one {@code <context>} message, or {@code null} when nothing is present.
+     */
+    public static @Nullable UserMessageEntity assemble(ContextSpec contextSpec, McpToolScope scope,
+                                                       List<SkillResume> skills,
+                                                       @Nullable WorkspaceOptions workspaceOptions,
+                                                       @Nullable ToolSpec toolSpec,
+                                                       List<String> tasks) {
+        return assembleSections(renderSections(contextSpec, scope, skills, workspaceOptions, toolSpec, tasks));
     }
 
     /** Renders each non-empty dynamic category into its section body, keyed by {@link ContextSectionKind}. */
     public static Map<ContextSectionKind, String> renderSections(ContextSpec contextSpec, McpToolScope scope,
                                                                  List<SkillResume> skills,
                                                                  @Nullable WorkspaceOptions workspaceOptions,
+                                                                 List<String> tasks) {
+        return renderSections(contextSpec, scope, skills, workspaceOptions, null, tasks);
+    }
+
+    /** Renders each non-empty dynamic category into its section body, keyed by {@link ContextSectionKind}. */
+    public static Map<ContextSectionKind, String> renderSections(ContextSpec contextSpec, McpToolScope scope,
+                                                                 List<SkillResume> skills,
+                                                                 @Nullable WorkspaceOptions workspaceOptions,
+                                                                 @Nullable ToolSpec toolSpec,
                                                                  List<String> tasks) {
         Map<ContextSectionKind, String> sections = new EnumMap<>(ContextSectionKind.class);
         putIfPresent(sections, ContextSectionKind.MCP, withMcpToolPrompt(scope));
@@ -79,6 +102,7 @@ public class ContextDynamicAssembler {
         putIfPresent(sections, ContextSectionKind.WORK_DIR, withWorkDirPrompt(workspaceOptions));
         putIfPresent(sections, ContextSectionKind.PERMISSION, withPermissionPrompt(workspaceOptions));
         putIfPresent(sections, ContextSectionKind.ENVIRONMENT, withEnvironmentPrompt(workspaceOptions));
+        putIfPresent(sections, ContextSectionKind.FORBIDDEN_TOOLS, withForbiddenToolsPrompt(toolSpec));
         putIfPresent(sections, ContextSectionKind.TASK, withTaskPrompt(tasks));
         return sections;
     }
@@ -143,8 +167,21 @@ public class ContextDynamicAssembler {
             case WORK_DIR -> WORK_DIR_TITLE;
             case PERMISSION -> PERMISSION_TITLE;
             case ENVIRONMENT -> ENVIRONMENT_TITLE;
+            case FORBIDDEN_TOOLS -> FORBIDDEN_TOOLS_TITLE;
             case TASK -> TASK_TITLE;
         };
+    }
+
+    private static @Nullable String withForbiddenToolsPrompt(@Nullable ToolSpec toolSpec) {
+        if (toolSpec == null || toolSpec.getForbiddenTools() == null || toolSpec.getForbiddenTools().isEmpty()) {
+            return null;
+        }
+        List<String> names = toolSpec.getForbiddenTools().stream()
+                .filter(Objects::nonNull)
+                .map(String::strip)
+                .filter(name -> !name.isEmpty())
+                .toList();
+        return names.isEmpty() ? null : String.join(", ", names);
     }
 
     private static @Nullable String withWorkDirPrompt(@Nullable WorkspaceOptions options) {

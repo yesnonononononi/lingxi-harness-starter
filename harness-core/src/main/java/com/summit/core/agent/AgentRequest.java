@@ -33,8 +33,9 @@ public class AgentRequest {
      * orchestration from it.
      */
     private List<String> task;
-    /** Optional request-level whitelist of tool names. A {@code null} list keeps all registered tools unavailable; an empty list exposes no tools. Applications retain final authority over every model-visible capability. */
-    private List<String> toolList;
+    /** Tool admission specification (static whitelist and dynamic per-round blacklist). */
+    @Builder.Default
+    private ToolSpec toolSpec = ToolSpec.builder().build();
     /** Optional managed workspace specification. When absent, the runtime uses the local process working directory. */
     private final WorkspaceSpec workspaceSpec;
 
@@ -63,5 +64,9 @@ public class AgentRequest {
 
     public AgentRuntimeParameters runtimeParametersOrDefault() {
         return runtimeParameters != null ? runtimeParameters : AgentRuntimeParameters.builder().build();
+    }
+
+    public ToolSpec toolSpecOrDefault() {
+        return toolSpec != null ? toolSpec : ToolSpec.builder().build();
     }
 }

@@ -118,7 +118,7 @@ class ExecutionRuntimeConfigTest {
                     .contextSpec(ContextSpec.builder()
                             .context(List.of(UserMessageEntity.from("task")))
                             .build())
-                    .executionId("audit-run").toolList(List.of("lookup")).build(), "a-1");
+                    .executionId("audit-run").toolSpec(com.summit.core.agent.ToolSpec.builder().toolList(List.of("lookup")).build()).build(), "a-1");
             execution.startChecked();
             execution.completeChecked();
             context.getBean(RuntimeLifeStyleManager.class).onComplete(execution);

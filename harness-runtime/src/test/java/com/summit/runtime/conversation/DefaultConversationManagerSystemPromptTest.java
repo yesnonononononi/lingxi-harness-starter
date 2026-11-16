@@ -3,6 +3,7 @@ package com.summit.runtime.conversation;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
+import com.summit.core.agent.ToolSpec;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.conf.SensitiveDataSpec;
 import com.summit.core.conversation.message.Message;
@@ -83,7 +84,7 @@ class DefaultConversationManagerSystemPromptTest {
                                 .context(List.of(UserMessageEntity.from("帮我看看这个仓库")))
                                 .systemPrompt("You are LingXi, a coding agent. Reply in the user's language.")
                                 .build())
-                        .toolList(List.of("read_file", "edit_file", "search_tool"))
+                        .toolSpec(ToolSpec.builder().toolList(List.of("read_file", "edit_file", "search_tool")).build())
                         .mcpConfigSpec(SensitiveDataSpec.builder().id(99L).version(3).build())
                         .build(),
                 sandbox(),
@@ -116,7 +117,7 @@ class DefaultConversationManagerSystemPromptTest {
                                 .systemPrompt("你是一名后端工程师。")
                                 .build())
                         .task(List.of("请只回复一个词：ok"))
-                        .toolList(List.of("read_file"))
+                        .toolSpec(ToolSpec.builder().toolList(List.of("read_file")).build())
                         .build(),
                 sandbox(),
                 McpToolScope.EMPTY);

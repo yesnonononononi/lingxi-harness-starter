@@ -56,7 +56,7 @@ class ModelConfigurationTest {
                 .contextSpec(ContextSpec.builder()
                         .context(messages)
                         .build())
-                .toolList(List.of("lookup")).build(), "test");
+                .toolSpec(com.summit.core.agent.ToolSpec.builder().toolList(List.of("lookup")).build()).build(), "test");
         var hiddenExecution = Execution.create(AgentRequest.builder()
                 .contextSpec(ContextSpec.builder()
                         .context(messages)

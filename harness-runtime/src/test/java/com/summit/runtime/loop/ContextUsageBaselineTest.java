@@ -146,11 +146,11 @@ class ContextUsageBaselineTest {
         ToolRegistry registry = new ToolRegistry(List.of(tool));
         ContextUsageReporter usage = new ContextUsageReporter(tokenizer, 1000, null, 5, () -> registry);
         Execution execution = execution();
-        execution.getAgentRequest().setToolList(List.of("read"));
+        execution.getAgentRequest().getToolSpec().setToolList(List.of("read"));
         usage.baseline(execution);
         execution.getMessages().add(UserMessageEntity.from("input"));
         assertEquals(tokenizer.count(execution.getMessages(), List.of(tool)), usage.baseline(execution).getTotalTokens());
-        execution.getAgentRequest().setToolList(List.of());
+        execution.getAgentRequest().getToolSpec().setToolList(List.of());
         assertEquals(tokenizer.expected(execution.getMessages()), usage.baseline(execution).getTotalTokens());
     }
 

@@ -55,7 +55,7 @@ public final class ContextChangeDiscover {
                                 List<SkillResume> skills) {
         int insertIndex = insertIndexOf(messages);
         Map<ContextSectionKind, String> desired = ContextDynamicAssembler.renderSections(
-                request.getContextSpec(), scope, skills, request.getWorkspaceOptions(), request.getTask());
+                request.getContextSpec(), scope, skills, request.getWorkspaceOptions(), request.getToolSpec(), request.getTask());
         Map<ContextSectionKind, String> baseline = ContextDynamicAssembler.latestSections(messages, insertIndex);
 
         Map<ContextSectionKind, String> changed = new EnumMap<>(ContextSectionKind.class);

@@ -1,5 +1,6 @@
 package com.summit.runtime.tool;
 
+import com.summit.core.agent.ToolSpec;
 import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.event.ToolCallEndEvent;
 import com.summit.core.conversation.event.ToolCallStartEvent;
@@ -200,7 +201,7 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
         }
         ToolRegistry registry = toolExecutionContext.toolRegistry();
         ToolDefinition<?> gateway = registry.getTool(McpToolGateway.NAME);
-        if (gateway == null || !toolExecutionContext.allowToolExecution(gateway, command.allowedTools())) {
+        if (gateway == null || !toolExecutionContext.allowToolExecution(gateway, command.effectiveToolSpec())) {
             return command;
         }
         return command.withRequests(requests.stream()
@@ -216,7 +217,11 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
      * {@code null} or empty whitelist admits no other static tool.
      */
     private boolean admissible(ToolDefinition<?> tool, ToolExecuteCommand command) {
-        return this.toolExecutionContext.allowToolExecution(tool, command.allowedTools())
+        ToolSpec spec = command.effectiveToolSpec();
+        if (tool.isForbidden(spec.getForbiddenTools())) {
+            return false;
+        }
+        return this.toolExecutionContext.allowToolExecution(tool, spec)
                 || command.mcpToolScope().getTool(tool.name()) != null;
     }
 

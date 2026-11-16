@@ -1,5 +1,6 @@
 package com.summit.core.tool;
 
+import com.summit.core.agent.ToolSpec;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import lombok.Builder;
 
@@ -15,5 +16,10 @@ public record ToolExecutionContext(RuntimeEventPublisher runtimeEventPublisher,
     /** Checks whether the given tool may be executed under the request's tool whitelist. */
     public boolean allowToolExecution(ToolDefinition<?> tool, List<String> allowedTools) {
         return tool != null && tool.allowedFor(allowedTools);
+    }
+
+    /** Checks whether the given tool may be executed under the request's {@link ToolSpec} (whitelist + blacklist). */
+    public boolean allowToolExecution(ToolDefinition<?> tool, ToolSpec toolSpec) {
+        return tool != null && tool.allowedFor(toolSpec);
     }
 }

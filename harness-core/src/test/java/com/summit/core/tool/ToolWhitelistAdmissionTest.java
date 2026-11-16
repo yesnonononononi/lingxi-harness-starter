@@ -1,5 +1,6 @@
 package com.summit.core.tool;
 
+import com.summit.core.agent.ToolSpec;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -22,7 +23,7 @@ class ToolWhitelistAdmissionTest {
     void kernelToolsAreAdmittedWithoutAnyWhitelist() {
         for (String name : List.of(KernelTools.SEARCH, KernelTools.LIST_MCP, KernelTools.CALL_MCP,
                 KernelTools.READ_SKILL, KernelTools.COMPACT_CONTEXT)) {
-            assertTrue(definition(name).allowedFor(null), name);
+            assertTrue(definition(name).allowedFor((List<String>) null), name);
             assertTrue(definition(name).allowedFor(List.of()), name);
             assertTrue(definition(name).allowedFor(List.of("something_else")), name);
         }
@@ -32,11 +33,18 @@ class ToolWhitelistAdmissionTest {
     void applicationToolsStillRequireAnExplicitEntry() {
         ToolDefinition<ToolExecutor> tool = definition("project_info");
 
-        assertFalse(tool.allowedFor(null));
+        assertFalse(tool.allowedFor((List<String>) null));
         assertFalse(tool.allowedFor(List.of()));
         assertFalse(tool.allowedFor(List.of("other")));
         assertTrue(tool.allowedFor(List.of("project_info")));
         assertTrue(tool.allowedFor(List.of(" other ", " project_info ")));
+
+        ToolSpec blacklisted = ToolSpec.builder()
+                .toolList(List.of("project_info"))
+                .forbiddenTools(List.of(" project_info "))
+                .build();
+        assertFalse(tool.allowedFor(blacklisted));
+        assertTrue(tool.allowedFor(blacklisted.getToolList()), "static model visibility keeps blacklisted tools");
     }
 
     @Test

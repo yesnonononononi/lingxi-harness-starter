@@ -257,7 +257,7 @@ class ResponseIdentityPropagationTest {
                     .contextSpec(ContextSpec.builder()
                             .context(messages)
                             .build())
-                    .toolList(List.of("test")).build();
+                    .toolSpec(com.summit.core.agent.ToolSpec.builder().toolList(List.of("test")).build()).build();
             request.runtimeParametersOrDefault().setEventMetaData(METADATA);
             execution = Execution.builder().id("execution-1").agentId("agent-1").agentRequest(request)
                     .messages(new ArrayList<>(messages)).tokenUsage(TokenUsageEntity.empty()).build();

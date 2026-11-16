@@ -315,7 +315,7 @@ class DefaultTokenAuditorTest {
                 AgentConfig.builder().maxTokens(1000).build(),
                 new ToolRegistry(List.of(allowed, excluded)));
         Execution execution = execution(List.of(UserMessageEntity.from("long history ".repeat(1000))));
-        execution.getAgentRequest().setToolList(List.of("lookup"));
+        execution.getAgentRequest().getToolSpec().setToolList(List.of("lookup"));
 
         TokenAuditDocument audit = auditor.analysis(execution);
         DocumentElement<Integer> definitions = audit.otherTokens().toolDefinitionTokens();
@@ -328,7 +328,7 @@ class DefaultTokenAuditorTest {
         assertEquals(0, audit.otherTokens().mcpToolDefinitionTokens().getTokenMeta());
         execution.setMessages(List.of(UserMessageEntity.from("short")));
         assertEquals(expected, auditor.analysis(execution).otherTokens().toolDefinitionTokens().getTokenMeta());
-        execution.getAgentRequest().setToolList(List.of());
+        execution.getAgentRequest().getToolSpec().setToolList(List.of());
         assertEquals(0, auditor.analysis(execution).otherTokens().toolDefinitionTokens().getTokenMeta());
     }
 
@@ -344,7 +344,7 @@ class DefaultTokenAuditorTest {
         DefaultTokenAuditor auditor = new DefaultTokenAuditor(tokenizer,
                 AgentConfig.builder().maxTokens(1000).build(), new ToolRegistry(List.of(gateway)));
         Execution execution = execution(List.of(UserMessageEntity.from("task")));
-        execution.getAgentRequest().setToolList(List.of(McpToolGateway.NAME));
+        execution.getAgentRequest().getToolSpec().setToolList(List.of(McpToolGateway.NAME));
 
         TokenAuditDocument audit = auditor.analysis(execution);
 

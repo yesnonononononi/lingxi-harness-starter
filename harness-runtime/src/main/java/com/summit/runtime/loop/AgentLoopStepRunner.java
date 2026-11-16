@@ -274,6 +274,7 @@ public class AgentLoopStepRunner {
                             .responseId(responseId)
                             .requests(aiMessage.getToolCalls())
                             .allowedTools(configuredTools())
+                            .toolSpec(request.toolSpecOrDefault())
                             .allowOutsideWorkspace(params.isAllowOutsideWorkspace())
                             .mcpToolScope(context.getMcpToolScope())
                             .skillConfig(request.getSkillConfig())
@@ -284,7 +285,7 @@ public class AgentLoopStepRunner {
         }
 
         private @Nullable List<String> configuredTools() {
-            return execution.getAgentRequest().getToolList();
+            return execution.getAgentRequest().toolSpecOrDefault().getToolList();
         }
 
         // -----------------------------------------------------------------------------------

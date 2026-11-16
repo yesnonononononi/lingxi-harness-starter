@@ -100,7 +100,8 @@ class ExecutionJsonTest {
                                 .context(messages)
                                 .systemPrompt("system")
                                 .build())
-                        .executionId("exec-1").task(Collections.singletonList("task")).toolList(List.of("search"))
+                        .executionId("exec-1").task(Collections.singletonList("task"))
+                        .toolSpec(ToolSpec.builder().toolList(List.of("search")).build())
                         .workspaceSpec(new BasicWorkspaceSpec("local", "/tmp/work", "tenant", Map.of("x", "y")))
                         .runtimeParameters(AgentRuntimeParameters.builder().allowOutsideWorkspace(true)
                                 .attributes(Map.of("attempt", 2, "labels", List.of("a", "b"))).build())
@@ -173,6 +174,10 @@ class ExecutionJsonTest {
     @Test
     void restoresWorkspaceOptions() throws Exception {
         Execution original = Execution.builder().agentRequest(AgentRequest.builder()
+                .toolSpec(ToolSpec.builder()
+                        .toolList(List.of("read_file", "edit_file"))
+                        .forbiddenTools(List.of("edit_file"))
+                        .build())
                 .workspaceOptions(WorkspaceOptions.builder()
                         .workDir("/workspace")
                         .accessMode(WorkspaceAccessMode.READ_ONLY)
@@ -181,6 +186,7 @@ class ExecutionJsonTest {
                 .build()).build();
 
         Execution restored = mapper.readValue(mapper.writeValueAsString(original), Execution.class);
+        assertEquals(original.getAgentRequest().getToolSpec(), restored.getAgentRequest().getToolSpec());
         assertEquals(original.getAgentRequest().getWorkspaceOptions(), restored.getAgentRequest().getWorkspaceOptions());
     }
 

@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.summit.core.agent.AgentRequest;
 import com.summit.core.agent.ContextSpec;
 import com.summit.core.agent.Execution;
+import com.summit.core.agent.ToolSpec;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
@@ -205,7 +206,7 @@ class ModelRequestFactoryVisibilityTest {
                         .contextSpec(ContextSpec.builder()
                                 .context(List.of(UserMessageEntity.from("task")))
                                 .build())
-                        .toolList(whitelist)
+                        .toolSpec(ToolSpec.builder().toolList(whitelist).build())
                         .build())
                 .build();
     }

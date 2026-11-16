@@ -1,6 +1,7 @@
 package com.summit.core.tool;
 
 
+import com.summit.core.agent.ToolSpec;
 import lombok.Builder;
 import lombok.NonNull;
 
@@ -40,6 +41,19 @@ public record ToolDefinition<T extends ToolExecutor>(
         return KernelTools.isKernel(name)
                 || (whitelist != null
                 && whitelist.stream().anyMatch(candidate -> candidate != null && name.equals(candidate.trim())));
+    }
+
+    /** Evaluates both static whitelist visibility and per-round blacklist exclusion. */
+    public boolean allowedFor(ToolSpec toolSpec) {
+        List<String> whitelist = toolSpec == null ? null : toolSpec.getToolList();
+        List<String> blacklist = toolSpec == null ? null : toolSpec.getForbiddenTools();
+        return !isForbidden(blacklist) && allowedFor(whitelist);
+    }
+
+    /** Whether this tool is explicitly named in the given per-round blacklist. */
+    public boolean isForbidden(List<String> blacklist) {
+        return blacklist != null
+                && blacklist.stream().anyMatch(candidate -> candidate != null && name.equals(candidate.trim()));
     }
 
 }

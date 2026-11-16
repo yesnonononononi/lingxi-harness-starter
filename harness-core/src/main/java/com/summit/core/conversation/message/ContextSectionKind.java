@@ -8,5 +8,6 @@ public enum ContextSectionKind {
     WORK_DIR,
     PERMISSION,
     ENVIRONMENT,
+    FORBIDDEN_TOOLS,
     TASK
 }
