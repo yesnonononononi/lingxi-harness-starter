@@ -95,17 +95,11 @@ class DefaultConversationManagerSystemPromptTest {
                 ## Execution environment
                 - Commands run in the assigned workspace environment, not necessarily on the host machine.
                 - Reported OS: LINUX; shell: BASH; charset: UTF-8.
-                - Working directory: /workspace
                 - This workspace is isolated; host tools and files are available only when explicitly exposed.
-                - Environment variables exposed to this workspace:
-                  - HOME=/root
-                  - LANG=en_US.UTF-8
-                  - MCP_APIKEY=<redacted>
-                  - PATH=/usr/local/bin:/usr/bin
 
                 ## Business Prompt
                 You are LingXi, a coding agent. Reply in the user's language.""", prompt.system(),
-                "the cacheable half holds the environment and the application's own prompt, nothing else");
+                "the cacheable half holds the static environment and the application's own prompt, nothing else");
 
         assertTrue(prompt.dynamic().startsWith("<context>\n\n## MCP Tools\n"), prompt.dynamic());
         assertTrue(prompt.dynamic().contains("`hasMore`."), "the disclosure instructions survive");
@@ -167,7 +161,8 @@ class DefaultConversationManagerSystemPromptTest {
 
         assertTrue(prompt.system().startsWith("## Execution environment"), "环境段是首段，且不带前导空行");
         assertTrue(prompt.system().contains("- Reported OS: LINUX; shell: BASH; charset: UTF-8."));
-        assertTrue(prompt.system().contains("- Working directory: /workspace"));
+        assertFalse(prompt.system().contains("Working directory"), "易变的 workDir 已迁入动态上下文");
+        assertFalse(prompt.system().contains("MCP_APIKEY"), "易变的环境变量已迁入动态上下文");
     }
 
     /**

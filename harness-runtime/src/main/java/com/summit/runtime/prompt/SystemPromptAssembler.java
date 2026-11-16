@@ -1,14 +1,11 @@
 package com.summit.runtime.prompt;
 
 import com.summit.core.conversation.message.SystemMessageEntity;
-import com.summit.core.prompt.EnvironmentFormatter;
 import com.summit.core.prompt.PromptAssembler;
 import com.summit.core.runtime.RuntimeEnvironment;
 import com.summit.core.runtime.workspace.Workspace;
 import lombok.Getter;
 import org.jspecify.annotations.Nullable;
-
-import java.util.Map;
 
 /**
  * Assembles the stable leading system message of one execution: where the agent runs, and the
@@ -47,14 +44,12 @@ public class SystemPromptAssembler implements PromptAssembler {
                 .append("\n- Commands run in the assigned workspace environment, not necessarily on the host machine.")
                 .append("\n- Reported OS: ").append(text(environment == null ? null : environment.osType()))
                 .append("; shell: ").append(text(environment == null ? null : environment.shellType()))
-                .append("; charset: ").append(text(environment == null ? null : environment.charset())).append('.')
-                .append("\n- Working directory: ").append(workspace.workDir());
+                .append("; charset: ").append(text(environment == null ? null : environment.charset())).append('.');
 
         if (environment != null) {
             started.stringBuilder.append(environment.isolated()
                     ? "\n- This workspace is isolated; host tools and files are available only when explicitly exposed."
                     : "\n- This workspace is not isolated; host tools and files are reachable.");
-            started.appendEnvironmentVariables(environment.envs());
         }
         return started;
     }
@@ -81,16 +76,6 @@ public class SystemPromptAssembler implements PromptAssembler {
         return SystemMessageEntity.builder()
                 .text(this.systemPrompt)
                 .build();
-    }
-
-    /**
-     * Appends the environment variables exposed to the workspace, with secret-looking values redacted.
-     */
-    private void appendEnvironmentVariables(@Nullable Map<String, String> envs) {
-        String formatted = EnvironmentFormatter.formatEntries(envs, "  ");
-        if (formatted != null) {
-            stringBuilder.append("\n- Environment variables exposed to this workspace:\n").append(formatted);
-        }
     }
 
     private static boolean isBlank(@Nullable String text) {

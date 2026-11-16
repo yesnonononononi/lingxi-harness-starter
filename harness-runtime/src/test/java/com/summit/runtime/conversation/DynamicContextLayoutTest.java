@@ -43,13 +43,13 @@ class DynamicContextLayoutTest {
     void insertingNeverRewritesTheHistoryPrefix() {
         UserMessageEntity previousContext = contextOf("OLD CONTEXT");
         List<Message> history = new ArrayList<>(List.of(
-                SystemMessageEntity.builder().text("SYS").build(),
+                SystemMessageEntity.builder().text("## Business Prompt\nSYS").build(),
                 previousContext,
                 UserMessageEntity.from("first question"),
                 AiMessageEntity.builder().text("first answer").build(),
                 UserMessageEntity.from("second question")));
 
-        Execution execution = execution(history, requestWithMemory("mem v2"));
+        Execution execution = execution(history, requestWithMemory("SYS", "mem v2"));
 
         conversations.startConversation(execution, null, McpToolScope.EMPTY);
 
@@ -69,11 +69,11 @@ class DynamicContextLayoutTest {
     @Test
     @DisplayName("上下文没有变化：不插入、不换列表，缓存前缀继续有效")
     void unchangedContextIsNotReinserted() {
-        AgentRequest request = requestWithMemory("mem v1");
+        AgentRequest request = requestWithMemory("SYS", "mem v1");
         UserMessageEntity sameContext = ContextDynamicAssembler.assemble(
                 request.getContextSpec(), McpToolScope.EMPTY, List.of(), request.getTask());
         List<Message> history = new ArrayList<>(List.of(
-                SystemMessageEntity.builder().text("SYS").build(),
+                SystemMessageEntity.builder().text("## Business Prompt\nSYS").build(),
                 sameContext,
                 UserMessageEntity.from("question")));
 
@@ -182,6 +182,7 @@ class DynamicContextLayoutTest {
         AgentRequest round1Request = AgentRequest.builder()
                 .contextSpec(ContextSpec.builder().memory(List.of("mem v1")).build())
                 .workspaceOptions(WorkspaceOptions.builder()
+                        .workDir("/repo-a")
                         .accessMode(WorkspaceAccessMode.READ_ONLY)
                         .environment(Map.of("ENV_A", "1", "API_TOKEN", "secret"))
                         .build())
@@ -200,10 +201,11 @@ class DynamicContextLayoutTest {
         assertSame(beforeUnchanged, execution.getMessages(),
                 "multi-turn with unchanged sections must not re-insert <context>");
 
-        // Now change only accessMode and clear task; memory and environment stay unchanged
+        // Now change only workDir, accessMode and clear task; memory and environment stay unchanged
         execution.setAgentRequest(AgentRequest.builder()
                 .contextSpec(ContextSpec.builder().memory(List.of("mem v1")).build())
                 .workspaceOptions(WorkspaceOptions.builder()
+                        .workDir("/repo-b")
                         .accessMode(WorkspaceAccessMode.READ_WRITE)
                         .environment(Map.of("ENV_A", "1", "API_TOKEN", "secret"))
                         .build())
@@ -213,8 +215,9 @@ class DynamicContextLayoutTest {
         UserMessageEntity delta = assertInstanceOf(UserMessageEntity.class,
                 execution.getMessages().get(execution.getMessages().size() - 2));
         assertTrue(delta.hasContextContract());
-        assertEquals(List.of(ContextSectionKind.PERMISSION, ContextSectionKind.TASK),
+        assertEquals(List.of(ContextSectionKind.WORK_DIR, ContextSectionKind.PERMISSION, ContextSectionKind.TASK),
                 delta.contextSections().stream().map(m -> m.kind()).toList());
+        assertTrue(delta.text().contains("## Working Directory\n/repo-b"));
         assertTrue(delta.text().contains("Access mode: READ_WRITE"));
         assertTrue(delta.text().contains("## Task Manifest\n(none)"));
         assertFalse(delta.text().contains("## Memory Prompt"));
@@ -281,9 +284,31 @@ class DynamicContextLayoutTest {
     }
 
     private static AgentRequest requestWithMemory(String memory) {
+        return requestWithMemory(null, memory);
+    }
+
+    private static AgentRequest requestWithMemory(String systemPrompt, String memory) {
         return AgentRequest.builder()
-                .contextSpec(ContextSpec.builder().memory(List.of(memory)).build())
+                .contextSpec(ContextSpec.builder().systemPrompt(systemPrompt).memory(List.of(memory)).build())
                 .build();
+    }
+
+    @Test
+    @DisplayName("业务主动修改系统提示词时，框架诚实更新首条 SystemMessageEntity")
+    void updatesLeadingSystemMessageWhenBusinessPromptChanges() {
+        List<Message> history = new ArrayList<>(List.of(
+                SystemMessageEntity.builder().text("## Business Prompt\nv1").build(),
+                UserMessageEntity.from("q1"),
+                AiMessageEntity.builder().text("a1").build(),
+                UserMessageEntity.from("q2")));
+        Execution execution = execution(history, AgentRequest.builder()
+                .contextSpec(ContextSpec.builder().systemPrompt("v2").build())
+                .build());
+
+        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+
+        SystemMessageEntity leading = assertInstanceOf(SystemMessageEntity.class, execution.getMessages().getFirst());
+        assertEquals("## Business Prompt\nv2", leading.getText());
     }
 
     private static long warningCount(ListAppender<ILoggingEvent> appender) {

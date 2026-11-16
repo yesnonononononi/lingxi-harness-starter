@@ -43,6 +43,7 @@ public class ContextDynamicAssembler {
     private static final String MCP_TITLE = "\n\n## MCP Tools\n";
     private static final String SKILL_TITLE = "\n\n## Skill Prompt\n";
     private static final String MEMORY_TITLE = "\n\n## Memory Prompt\n";
+    private static final String WORK_DIR_TITLE = "\n\n## Working Directory\n";
     private static final String PERMISSION_TITLE = "\n\n## Workspace Permission\n";
     private static final String ENVIRONMENT_TITLE = "\n\n## Workspace Environment\n";
     private static final String TASK_TITLE = "\n\n## Task Manifest\n";
@@ -75,6 +76,7 @@ public class ContextDynamicAssembler {
         putIfPresent(sections, ContextSectionKind.MCP, withMcpToolPrompt(scope));
         putIfPresent(sections, ContextSectionKind.SKILL, withSkillPrompt(skills));
         putIfPresent(sections, ContextSectionKind.MEMORY, withMemoryPrompt(contextSpec == null ? null : contextSpec.getMemory()));
+        putIfPresent(sections, ContextSectionKind.WORK_DIR, withWorkDirPrompt(workspaceOptions));
         putIfPresent(sections, ContextSectionKind.PERMISSION, withPermissionPrompt(workspaceOptions));
         putIfPresent(sections, ContextSectionKind.ENVIRONMENT, withEnvironmentPrompt(workspaceOptions));
         putIfPresent(sections, ContextSectionKind.TASK, withTaskPrompt(tasks));
@@ -138,10 +140,16 @@ public class ContextDynamicAssembler {
             case MCP -> MCP_TITLE;
             case SKILL -> SKILL_TITLE;
             case MEMORY -> MEMORY_TITLE;
+            case WORK_DIR -> WORK_DIR_TITLE;
             case PERMISSION -> PERMISSION_TITLE;
             case ENVIRONMENT -> ENVIRONMENT_TITLE;
             case TASK -> TASK_TITLE;
         };
+    }
+
+    private static @Nullable String withWorkDirPrompt(@Nullable WorkspaceOptions options) {
+        String workDir = options == null ? null : options.getWorkDir();
+        return workDir == null || workDir.isBlank() ? null : workDir.strip();
     }
 
     private static @Nullable String withPermissionPrompt(@Nullable WorkspaceOptions options) {

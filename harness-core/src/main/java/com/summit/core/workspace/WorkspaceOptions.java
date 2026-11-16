@@ -19,6 +19,7 @@ import java.util.Map;
 @NoArgsConstructor
 @AllArgsConstructor
 public class WorkspaceOptions {
+    private String workDir;
     private WorkspaceAccessMode accessMode;
 
     @Builder.Default

@@ -174,6 +174,7 @@ class ExecutionJsonTest {
     void restoresWorkspaceOptions() throws Exception {
         Execution original = Execution.builder().agentRequest(AgentRequest.builder()
                 .workspaceOptions(WorkspaceOptions.builder()
+                        .workDir("/workspace")
                         .accessMode(WorkspaceAccessMode.READ_ONLY)
                         .environment(Map.of("FOO", "bar"))
                         .build())

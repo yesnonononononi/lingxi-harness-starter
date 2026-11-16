@@ -113,17 +113,23 @@ public class DefaultConversationManager implements ConversationManager {
         List<Message> rebuilt = new ArrayList<>(current);
         boolean changed = false;
 
-        // A session with no assistant turn yet is a fresh one: it gets the (cacheable) system
-        // prompt, and its accounting starts from zero.
+        // Fresh session accounting starts from zero.
         if (rebuilt.stream().noneMatch(AiMessageEntity.class::isInstance)) {
             execution.setTokenUsage(TokenUsageEntity.empty());
-            if (rebuilt.isEmpty() || !(rebuilt.getFirst() instanceof SystemMessageEntity)) {
-                rebuilt.addFirst(buildSystemMessage(agentRequest, workspace));
-                changed = true;
-            }
         }
         if (execution.getTokenUsage() == null) {
             execution.setTokenUsage(TokenUsageEntity.empty());
+        }
+
+        // Cache protection is best-effort: when the business prompt or static workspace is unchanged,
+        // keep the leading SystemMessageEntity untouched; when it changes, honestly apply it.
+        SystemMessageEntity expectedSystem = buildSystemMessage(agentRequest, workspace);
+        if (rebuilt.isEmpty() || !(rebuilt.getFirst() instanceof SystemMessageEntity currentSystem)) {
+            rebuilt.addFirst(expectedSystem);
+            changed = true;
+        } else if (!Objects.equals(currentSystem.getText(), expectedSystem.getText())) {
+            rebuilt.set(0, expectedSystem);
+            changed = true;
         }
 
         // Everything that varies per round goes behind the cached prefix, right before the user
