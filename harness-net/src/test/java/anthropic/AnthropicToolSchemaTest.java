@@ -66,6 +66,37 @@ class AnthropicToolSchemaTest {
         assertEquals("id", schema.at("/required/0").asText());
     }
 
+    /**
+     * An {@code allOf} is satisfied only when every branch is: each branch's requirements hold, so a
+     * field demanded by one branch alone stays mandatory. Intersecting them (the {@code oneOf} rule)
+     * would drop it and let the model call the tool without an argument the tool cannot work without.
+     */
+    @Test
+    void keepsEveryFieldAnyAllOfBranchRequires() throws Exception {
+        JsonNode schema = AnthropicToolSchema.inputSchema("""
+                {"allOf":[
+                  {"properties":{"path":{"type":"string"}},"required":["path"]},
+                  {"properties":{"path":{"type":"string"},"recursive":{"type":"boolean"}},"required":["path","recursive"]}]}
+                """, mapper);
+
+        assertEquals(2, schema.path("required").size(), schema.toString());
+        assertEquals("path", schema.at("/required/0").asText());
+        assertEquals("recursive", schema.at("/required/1").asText());
+        assertEquals("boolean", schema.at("/properties/recursive/type").asText());
+    }
+
+    @Test
+    void dropsNoRequiredKeyWhenAnAllOfBranchDeclaresNone() throws Exception {
+        JsonNode schema = AnthropicToolSchema.inputSchema("""
+                {"allOf":[
+                  {"properties":{"path":{"type":"string"}},"required":["path"]},
+                  {"properties":{"hint":{"type":"string"}}}]}
+                """, mapper);
+
+        assertEquals(1, schema.path("required").size(), schema.toString());
+        assertEquals("path", schema.at("/required/0").asText());
+    }
+
     @Test
     void keepsThePropertiesDeclaredNextToTheUnion() throws Exception {
         JsonNode schema = AnthropicToolSchema.inputSchema(

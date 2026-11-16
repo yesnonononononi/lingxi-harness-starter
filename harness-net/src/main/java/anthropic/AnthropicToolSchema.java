@@ -22,8 +22,10 @@ import java.util.List;
  * Anthropic is guaranteed to reject. Nested unions are untouched: the restriction is on the root
  * only.</p>
  *
- * <p>Folding keeps the union's properties and the fields every branch demands. A field required by
- * one branch alone is not required: only one branch applies, so it cannot be mandatory up front.</p>
+ * <p>Folding keeps the union's properties. Which of them stay required depends on the keyword: a
+ * {@code oneOf}/{@code anyOf} branch applies alone, so only a field every branch demands is mandatory
+ * up front; {@code allOf} branches hold simultaneously, so every branch's requirements apply and the
+ * demanded names are unioned — intersecting them there would silently drop mandatory arguments.</p>
  */
 @Slf4j
 final class AnthropicToolSchema {
@@ -63,9 +65,10 @@ final class AnthropicToolSchema {
         ObjectNode properties = folded.putObject("properties");
         copyProperties(root.path("properties"), properties);
         List<String> required = null;
+        boolean everyBranchApplies = "allOf".equals(keyword);
         for (JsonNode branch : branches) {
             copyProperties(branch.path("properties"), properties);
-            required = demandedByEveryBranch(required, branch.path("required"));
+            required = demanded(required, branch.path("required"), everyBranchApplies);
         }
         if (required != null && !required.isEmpty()) {
             ArrayNode names = folded.putArray("required");
@@ -79,13 +82,25 @@ final class AnthropicToolSchema {
         if (source.isObject()) source.fields().forEachRemaining(field -> target.set(field.getKey(), field.getValue()));
     }
 
-    private static List<String> demandedByEveryBranch(List<String> current, JsonNode required) {
+    /**
+     * @param current           names demanded so far, {@code null} before the first branch
+     * @param required          the {@code required} array of this branch
+     * @param everyBranchApplies {@code allOf}: requirements accumulate; otherwise only the surviving
+     *                           intersection is required
+     */
+    private static List<String> demanded(List<String> current, JsonNode required, boolean everyBranchApplies) {
         List<String> names = new ArrayList<>();
         for (JsonNode name : required) {
             if (name.isTextual()) names.add(name.asText());
         }
         if (current == null) return names;
-        current.retainAll(names);
+        if (!everyBranchApplies) {
+            current.retainAll(names);
+            return current;
+        }
+        for (String name : names) {
+            if (!current.contains(name)) current.add(name);
+        }
         return current;
     }
 }
