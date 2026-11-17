@@ -46,15 +46,16 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The closing sequence of a run: one transaction around the snapshot, the control slot, the usage
- * broadcast and the terminal callback, and a terminal notification delivered only afterwards.
+ * The closing sequence of a run: one transaction around the snapshot and the control slot, then the
+ * usage broadcast and the terminal notification delivered only once that transaction committed — and
+ * neither of them delivered at all when it rolls back.
  */
 class RuntimeProcessorTemplateFinalizeTest {
 
     private final List<String> trail = new ArrayList<>();
 
     @Test
-    void snapshotAndControlSlotReleaseCommitTogetherAndTheTerminalEventWaits() {
+    void snapshotAndControlSlotReleaseCommitTogetherAndTheNotificationsWait() {
         Execution result = runtime(new RecordingRepository(false), new RecordingSupport()).execute(execution());
 
         assertEquals(ExecutionState.COMPLETED, result.getExecutionState());
@@ -67,10 +68,18 @@ class RuntimeProcessorTemplateFinalizeTest {
                 "The snapshot is what a rolled back finalize is allowed to discard first, actual: " + trail);
         assertTrue(inside(begin, commit, "unregister"),
                 "Releasing the control slot belongs to the snapshot it closes, actual: " + trail);
-        assertTrue(inside(begin, commit, "publish"),
-                "The usage broadcast is part of the same durable step, actual: " + trail);
+        assertFalse(inside(begin, commit, "publish"),
+                "The usage broadcast describes a closed run and must not ride the transaction, actual: " + trail);
+        // One update per round from ContextUsageReporter#afterRound, one closing broadcast: the
+        // closing one is the last and lands after the commit.
+        assertEquals(2, publishes(),
+                "The closing broadcast is the one that must not ride the transaction, actual: " + trail);
+        assertTrue(trail.lastIndexOf("publish") > commit,
+                "The usage broadcast lands only after the snapshot committed, actual: " + trail);
         assertTrue(trail.indexOf("complete") > commit,
                 "A terminal notification must not be delivered before the commit, actual: " + trail);
+        assertTrue(trail.indexOf("complete") > trail.lastIndexOf("publish"),
+                "The terminal notification stays the last thing the application observes, actual: " + trail);
     }
 
     @Test
@@ -92,6 +101,8 @@ class RuntimeProcessorTemplateFinalizeTest {
                 "The primary finalize failure must not be replaced: " + thrown);
         assertTrue(trail.contains("tx:rollback"),
                 "A failed finalize must leave the transaction rolled back, actual: " + trail);
+        assertEquals(1, publishes(),
+                "A rolled-back finalize must not broadcast context usage: only the per-round update survives, actual: " + trail);
         assertFalse(trail.contains("complete"),
                 "A rolled-back finalize must not deliver the completion notification, actual: " + trail);
     }
@@ -101,6 +112,8 @@ class RuntimeProcessorTemplateFinalizeTest {
         Execution result = runtime(new RecordingRepository(false), null).execute(execution());
 
         assertEquals(ExecutionState.COMPLETED, result.getExecutionState());
+        assertTrue(trail.contains("publish"),
+                "A context without a transaction manager still broadcasts usage, actual: " + trail);
         assertTrue(trail.contains("complete"), "A run without a transaction manager still closes, actual: " + trail);
         assertFalse(trail.contains("tx:begin"), "No transaction is opened when none was configured, actual: " + trail);
     }
@@ -108,6 +121,11 @@ class RuntimeProcessorTemplateFinalizeTest {
     private boolean inside(int begin, int commit, String step) {
         int index = trail.lastIndexOf(step);
         return index > begin && index < commit;
+    }
+
+    /** Number of context-update events delivered; the closing one is not distinguishable by phase. */
+    private long publishes() {
+        return trail.stream().filter("publish"::equals).count();
     }
 
     private RuntimeProcessorTemplate runtime(RecordingRepository repository, RecordingSupport support) {

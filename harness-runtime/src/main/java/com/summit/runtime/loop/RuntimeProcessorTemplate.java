@@ -107,12 +107,16 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
             // execution that had already run once. Snapshot isolation is already guaranteed by
             // save(), which serializes the execution into a value copy, so no read-only view is needed.
 
-            // END: fill context state with the execution. Usage reporting and the snapshot land in
-            // one transaction; the terminal notification runs only after that transaction commits.
+            // END: fill context state with the execution. Only the closing snapshot and the
+            // control-slot release are transactional; everything the application can observe — the
+            // usage broadcast, the onRunEnd interceptors, the terminal notification — is delivered
+            // afterwards, in this order, and skipped entirely when the snapshot rolled back.
             Throwable throwable = RuntimeUtil.runAll(
                     () -> execution.fillContextUsage(this.context.getUsage().report(execution)),
                     () -> {
                         this.finalizeWithTransaction(execution, control);
+                        this.context.getUsage().publish(execution);
+                        this.notifyRunEnd(execution);
                         this.notifyTerminal(pe);
                     }
             );
@@ -130,29 +134,29 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
 
 
     /**
-     * The closing snapshot, the control-slot release, the usage broadcast and the terminal callback
-     * commit together: a run whose snapshot did not land must not have released its slot or told the
-     * application it finished.
+     * The closing snapshot and the control-slot release commit together: a run whose snapshot did
+     * not land must not have released its slot.
      *
      * <p><b>The order is load-bearing and must stay {@code save → unregister}.</b> An application
      * repository decides whether a save closes the execution's bookkeeping by asking the registry
      * whether a control slot still exists; releasing the slot first makes every terminal save look
      * like a startup failure and runs the closure work twice.</p>
      *
-     * <p>{@code fillContextUsage} stays outside the transaction: usage attribution is arithmetic on
-     * the live execution and has nothing to roll back, and {@code unregister} removes an in-process
-     * slot that no transaction manager can restore.</p>
+     * <p><b>Only persistence lives in here.</b> The usage broadcast, the {@code onRunEnd}
+     * interceptors and the terminal notification all run after this method returns, so none of them
+     * can be observed for a run whose snapshot rolled back — the callback throws out of here and the
+     * caller's following lines never run. {@code fillContextUsage} stays outside as well: usage
+     * attribution is arithmetic on the live execution and has nothing to roll back, and
+     * {@code unregister} removes an in-process slot that no transaction manager can restore.</p>
      *
-     * <p>The caller delivers the terminal notification <em>after</em> this method returns — see
-     * {@link #notifyTerminal}, which is the only exit for a terminal notification precisely because
-     * a callback registered inside the commit would be silently dropped.</p>
+     * <p>{@code unregister} still belongs to the same transaction as the snapshot even though an
+     * in-process slot cannot be restored: the two must share one failure boundary, or a save that
+     * rolls back would have already released the slot that told the application to close the run.</p>
      */
     private void finalizeWithTransaction(Execution execution, ExecutionControlSignal control) {
         this.context.getRuntimeTransactionalSupport().execute(() -> {
             this.save(execution);
             this.context.getExecutionRepository().unregister(control);
-            this.context.getUsage().publish(execution);
-            this.notifyRunEnd(execution);
             return null;
         });
     }
@@ -175,9 +179,7 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
     }
 
     private void save(Execution execution) {
-        if (context.getExecutionRepository() != null) {
-            context.getExecutionRepository().save(execution);
-        }
+        context.getExecutionRepository().save(execution);
     }
 
     private void notifyLifecycle(Runnable notification) {
@@ -197,12 +199,7 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
     private void notifyTerminal(Runnable notification) {
         if (notification == null) return;
         Runnable delivery = () -> this.notifyLifecycle(notification);
-        ExecutionRepository repository = this.context.getExecutionRepository();
-        if (repository == null) {
-            delivery.run();
-            return;
-        }
-        repository.afterCommit(delivery);
+        this.context.getExecutionRepository().afterCommit(delivery);
     }
 
     private void notifyFailureObservers(Execution execution, Exception cause) {
