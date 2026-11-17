@@ -41,27 +41,35 @@ public final class WindowsWorkspaceProvider implements WorkspaceProvider {
 
     @Override
     public Workspace resolve(WorkspaceSpec spec, WorkspaceOptions options) {
+
         if (!(spec instanceof WindowsWorkspaceSpec(
-                String workDir, String scope, Map<String, String> environment, boolean writable
-        ))) {
-            throw new IllegalArgumentException("WindowsWorkspaceProvider requires a WindowsWorkspaceSpec");
-        }
+                String workDir, String scope, Map<String, String> environment
+        ))) throw new IllegalArgumentException("WindowsWorkspaceProvider requires a WindowsWorkspaceSpec");
+
+
+
         String effectiveWorkDir = options != null && options.getWorkDir() != null && !options.getWorkDir().isBlank()
                 ? options.getWorkDir() : workDir;
+
         Path root = Path.of(effectiveWorkDir).toAbsolutePath().normalize();
+
         if (!Files.isDirectory(root)) {
             throw new IllegalArgumentException("Workspace directory does not exist: " + root);
         }
 
-        boolean effectiveWritable = options != null && options.getAccessMode() != null
-                ? options.getAccessMode() == WorkspaceAccessMode.READ_WRITE
-                : writable;
+        WorkspaceAccessMode workspaceAccessMode = options != null && options.getAccessMode() != null
+                ? options.getAccessMode()
+                : WorkspaceAccessMode.READ_WRITE;
+
+
         Map<String, String> effectiveEnv = new LinkedHashMap<>(environment);
+
         if (options != null && options.getEnvironment() != null) {
             effectiveEnv.putAll(options.getEnvironment());
         }
 
-        SandboxMode mode = effectiveWritable ? SandboxMode.READ_WRITE : SandboxMode.READ_ONLY;
+        SandboxMode mode = SandboxMode.mappingForWorkspace(workspaceAccessMode);
+
         WindowsWorkspaceAcl.ensureWorkspacePermission(root, mode);
 
         Map<String, String> frozenEnv = Map.copyOf(effectiveEnv);
@@ -95,11 +103,12 @@ public final class WindowsWorkspaceProvider implements WorkspaceProvider {
 
         @Override
         public Path resolve(String value) {
+            Path path = Path.of(workDir);
             if (value == null || value.isBlank()) {
-                return Path.of(workDir);
+                return path;
             }
             Path target = Path.of(value);
-            return (target.isAbsolute() ? target : Path.of(workDir).resolve(target)).toAbsolutePath().normalize();
+            return (target.isAbsolute() ? target : path.resolve(target)).toAbsolutePath().normalize();
         }
 
         @Override

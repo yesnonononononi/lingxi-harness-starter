@@ -20,7 +20,8 @@ import java.util.Map;
 @AllArgsConstructor
 public class WorkspaceOptions {
     private String workDir;
-    private WorkspaceAccessMode accessMode;
+    @Builder.Default
+    private WorkspaceAccessMode accessMode = WorkspaceAccessMode.READ_WRITE;
 
     @Builder.Default
     private Map<String, String> environment = Map.of();

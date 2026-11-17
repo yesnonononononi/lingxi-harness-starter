@@ -15,7 +15,7 @@ public final class WindowsWorkspaceBridge implements WorkspaceBridge {
     private final WindowsWorkspaceCommands commands;
 
     WindowsWorkspaceBridge(Path workspaceRoot, SandboxMode mode, Map<String, String> environment) {
-        this.files = new WindowsWorkspaceFiles(workspaceRoot, mode == SandboxMode.READ_WRITE);
+        this.files = new WindowsWorkspaceFiles(workspaceRoot, mode);
         this.commands = new WindowsWorkspaceCommands(workspaceRoot, mode, environment);
     }
 

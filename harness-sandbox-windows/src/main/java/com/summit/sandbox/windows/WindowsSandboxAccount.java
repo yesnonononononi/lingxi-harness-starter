@@ -26,11 +26,11 @@ final class WindowsSandboxAccount {
     }
 
     static String profileFor(SandboxMode mode) {
-        return mode == SandboxMode.READ_WRITE ? READ_WRITE_PROFILE : READ_ONLY_PROFILE;
+        return mode.writable() ? READ_WRITE_PROFILE : READ_ONLY_PROFILE;
     }
 
     static String sidStringFor(SandboxMode mode) {
-        return mode == SandboxMode.READ_WRITE ? READ_WRITE_SID : READ_ONLY_SID;
+        return mode.writable() ? READ_WRITE_SID : READ_ONLY_SID;
     }
 
     static Memory sandboxSid(SandboxMode mode) {
@@ -48,7 +48,7 @@ final class WindowsSandboxAccount {
             ByteBuffer buf = ByteBuffer.wrap(digest);
             String sub1 = Integer.toUnsignedString(buf.getInt(0));
             String sub2 = Integer.toUnsignedString(buf.getInt(4));
-            int rid = mode == SandboxMode.READ_WRITE ? 2 : 1;
+            int rid = mode.writable() ? 2 : 1;
             return "S-1-5-99-" + sub1 + "-" + sub2 + "-" + rid;
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 not available", e);

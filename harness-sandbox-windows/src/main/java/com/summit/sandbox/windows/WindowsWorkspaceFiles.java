@@ -4,12 +4,7 @@ import com.summit.core.runtime.workspace.WorkspaceFiles;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
-import java.nio.file.AccessDeniedException;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
-import java.nio.file.NoSuchFileException;
-import java.nio.file.NotDirectoryException;
-import java.nio.file.Path;
+import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,11 +16,11 @@ import java.util.stream.Stream;
  */
 final class WindowsWorkspaceFiles implements WorkspaceFiles {
     private final Path workspaceRoot;
-    private final boolean writable;
+    private final SandboxMode sandboxMode;
 
-    WindowsWorkspaceFiles(Path workspaceRoot, boolean writable) {
+    WindowsWorkspaceFiles(Path workspaceRoot, SandboxMode sandboxMode) {
         this.workspaceRoot = Objects.requireNonNull(workspaceRoot, "workspaceRoot").toAbsolutePath().normalize();
-        this.writable = writable;
+        this.sandboxMode = sandboxMode;
     }
 
     @Override
@@ -104,7 +99,7 @@ final class WindowsWorkspaceFiles implements WorkspaceFiles {
     }
 
     private void requireWritable(Path path) throws AccessDeniedException {
-        if (!writable) {
+        if (!this.sandboxMode.writable()) {
             throw new AccessDeniedException(String.valueOf(path), null, "Workspace is mounted read-only");
         }
     }
@@ -114,7 +109,7 @@ final class WindowsWorkspaceFiles implements WorkspaceFiles {
         Path candidate = path.isAbsolute()
                 ? path.toAbsolutePath().normalize()
                 : workspaceRoot.resolve(path).toAbsolutePath().normalize();
-        if (!candidate.startsWith(workspaceRoot)) {
+        if (!candidate.startsWith(workspaceRoot) && this.sandboxMode != SandboxMode.FULL_FILESYSTEM_ACCESS) {
             throw new IllegalArgumentException("Path escapes workspace root: " + path);
         }
         return candidate;

@@ -46,7 +46,7 @@ final class WindowsWorkspaceAcl {
             throw new IllegalArgumentException("Workspace directory does not exist: " + normalized);
         }
         Memory sidMemory = WindowsSandboxAccount.workspaceSid(normalized, mode);
-        int desiredMask = mode == SandboxMode.READ_WRITE
+        int desiredMask = mode.writable()
                 ? Win32SandboxApi.FILE_MODIFY_MASK
                 : Win32SandboxApi.FILE_READ_EXECUTE_MASK;
         return ensureSidPermission(normalized, sidMemory, desiredMask);

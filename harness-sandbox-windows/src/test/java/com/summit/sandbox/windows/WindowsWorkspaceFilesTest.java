@@ -32,7 +32,7 @@ class WindowsWorkspaceFilesTest {
     @Test
     void isDirectoryAnswersFromMetadataWithoutListing() throws Exception {
         Path workspace = Files.createDirectory(tempRoot.resolve("ws"));
-        WindowsWorkspaceFiles files = new WindowsWorkspaceFiles(workspace, true);
+        WindowsWorkspaceFiles files = new WindowsWorkspaceFiles(workspace, SandboxMode.READ_WRITE);
         Path nested = Path.of("sub/hello.txt");
         files.writeString(nested, "world", StandardCharsets.UTF_8);
 
@@ -45,7 +45,7 @@ class WindowsWorkspaceFilesTest {
     void isDirectoryKeepsTheWorkspaceEnclosure() throws Exception {
         Path workspace = Files.createDirectory(tempRoot.resolve("ws"));
         Path outside = Files.createDirectory(tempRoot.resolve("outside"));
-        WindowsWorkspaceFiles files = new WindowsWorkspaceFiles(workspace, true);
+        WindowsWorkspaceFiles files = new WindowsWorkspaceFiles(workspace, SandboxMode.READ_WRITE);
 
         assertThrows(IllegalArgumentException.class, () -> files.isDirectory(outside));
     }
@@ -53,7 +53,7 @@ class WindowsWorkspaceFilesTest {
     @Test
     void readOnlyBackendRefusesEveryMutation() throws Exception {
         Path workspace = Files.createDirectory(tempRoot.resolve("ws"));
-        WindowsWorkspaceFiles files = new WindowsWorkspaceFiles(workspace, false);
+        WindowsWorkspaceFiles files = new WindowsWorkspaceFiles(workspace, SandboxMode.READ_ONLY);
         Path nested = Path.of("sub/hello.txt");
 
         assertThrows(AccessDeniedException.class, () -> files.writeString(nested, "world", StandardCharsets.UTF_8));
@@ -64,7 +64,7 @@ class WindowsWorkspaceFilesTest {
     @Test
     void listRejectsAFileWithNotDirectoryException() throws Exception {
         Path workspace = Files.createDirectory(tempRoot.resolve("ws"));
-        WindowsWorkspaceFiles files = new WindowsWorkspaceFiles(workspace, true);
+        WindowsWorkspaceFiles files = new WindowsWorkspaceFiles(workspace, SandboxMode.READ_WRITE);
         Path nested = Path.of("sub/hello.txt");
         files.writeString(nested, "world", StandardCharsets.UTF_8);
 

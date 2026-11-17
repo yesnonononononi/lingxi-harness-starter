@@ -11,8 +11,7 @@ import java.util.Objects;
 public record WindowsWorkspaceSpec(
         String workDir,
         String scope,
-        Map<String, String> environment,
-        boolean writable
+        Map<String, String> environment
 ) implements WorkspaceSpec {
     public WindowsWorkspaceSpec {
         if (workDir == null || workDir.isBlank()) {
@@ -28,12 +27,9 @@ public record WindowsWorkspaceSpec(
     }
 
     public WindowsWorkspaceSpec(String workDir) {
-        this(workDir, "", Map.of(), true);
+        this(workDir, "", Map.of());
     }
 
-    public WindowsWorkspaceSpec(String workDir, boolean writable) {
-        this(workDir, "", Map.of(), writable);
-    }
 
     @Override
     public String provider() {
