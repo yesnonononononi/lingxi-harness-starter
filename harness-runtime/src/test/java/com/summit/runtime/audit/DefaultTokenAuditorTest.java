@@ -125,9 +125,12 @@ class DefaultTokenAuditorTest {
                 return super.countText(text);
             }
         };
-        UserMessageEntity context = ContextDynamicAssembler.assemble(
-                ContextSpec.builder().memory(List.of("broken memory")).build(),
-                McpToolScope.EMPTY, List.of(), List.of("do the thing"));
+        UserMessageEntity context = ContextDynamicAssembler.builder()
+                .contextSpec(ContextSpec.builder().memory(List.of("broken memory")).build())
+                .scope(McpToolScope.EMPTY)
+                .skills(List.of())
+                .tasks(List.of("do the thing"))
+                .build();
         var execution = execution(List.of(context, UserMessageEntity.from("task")));
 
         var audit = assertDoesNotThrow(() -> auditor(tokenizer).analysis(execution));

@@ -27,11 +27,12 @@ class DefaultTokenAuditorDynamicSectionsTest {
 
     @Test
     void reportsEverySectionAsItsOwnSlice() {
-        UserMessageEntity context = ContextDynamicAssembler.assemble(
-                ContextSpec.builder().memory(List.of("mem line")).build(),
-                McpToolScope.EMPTY,
-                List.of(new SkillResume("demo", "Demo skill", "/skills/demo/SKILL.md")),
-                List.of("do the thing"));
+        UserMessageEntity context = ContextDynamicAssembler.builder()
+                .contextSpec(ContextSpec.builder().memory(List.of("mem line")).build())
+                .scope(McpToolScope.EMPTY)
+                .skills(List.of(new SkillResume("demo", "Demo skill", "/skills/demo/SKILL.md")))
+                .tasks(List.of("do the thing"))
+                .build();
         Execution execution = execution(List.of(context), List.of("mem line"));
 
         var sections = auditor().analysis(execution).otherTokens().dynamicContextSections();
@@ -48,11 +49,12 @@ class DefaultTokenAuditorDynamicSectionsTest {
 
     @Test
     void sectionsStayBelowTheWholeBlockBecauseHeadingsAndBoundariesCostTokens() {
-        UserMessageEntity context = ContextDynamicAssembler.assemble(
-                ContextSpec.builder().memory(List.of("mem line one", "mem line two")).build(),
-                McpToolScope.EMPTY,
-                List.of(new SkillResume("demo", "Demo skill", "/skills/demo/SKILL.md")),
-                List.of("do the thing", "and another one"));
+        UserMessageEntity context = ContextDynamicAssembler.builder()
+                .contextSpec(ContextSpec.builder().memory(List.of("mem line one", "mem line two")).build())
+                .scope(McpToolScope.EMPTY)
+                .skills(List.of(new SkillResume("demo", "Demo skill", "/skills/demo/SKILL.md")))
+                .tasks(List.of("do the thing", "and another one"))
+                .build();
         Execution execution = execution(List.of(context), List.of("mem line one", "mem line two"));
 
         var otherTokens = auditor().analysis(execution).otherTokens();
@@ -65,8 +67,12 @@ class DefaultTokenAuditorDynamicSectionsTest {
 
     @Test
     void memoryFollowsTheMessageNotTheRequest() {
-        UserMessageEntity taskOnly = ContextDynamicAssembler.assemble(
-                ContextSpec.builder().build(), McpToolScope.EMPTY, List.of(), List.of("do the thing"));
+        UserMessageEntity taskOnly = ContextDynamicAssembler.builder()
+                .contextSpec(ContextSpec.builder().build())
+                .scope(McpToolScope.EMPTY)
+                .skills(List.of())
+                .tasks(List.of("do the thing"))
+                .build();
         Execution execution = execution(List.of(taskOnly), List.of("memory the request still carries"));
 
         var otherTokens = auditor().analysis(execution).otherTokens();
@@ -86,9 +92,12 @@ class DefaultTokenAuditorDynamicSectionsTest {
                 return super.countText(text);
             }
         };
-        UserMessageEntity context = ContextDynamicAssembler.assemble(
-                ContextSpec.builder().memory(List.of("mem line")).build(), McpToolScope.EMPTY,
-                List.of(), List.of("do the thing"));
+        UserMessageEntity context = ContextDynamicAssembler.builder()
+                .contextSpec(ContextSpec.builder().memory(List.of("mem line")).build())
+                .scope(McpToolScope.EMPTY)
+                .skills(List.of())
+                .tasks(List.of("do the thing"))
+                .build();
         Execution execution = execution(List.of(context), List.of("mem line"));
 
         var otherTokens = auditor(failing).analysis(execution).otherTokens();

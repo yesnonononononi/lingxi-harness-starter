@@ -159,9 +159,12 @@ class ExecutionTokenAuditRecorderTest {
         Execution execution = execution(ExecutionState.COMPLETED);
         execution.getAgentRequest().getToolSpec().setToolList(List.of("lookup"));
         execution.getAgentRequest().getContextSpec().setMemory(List.of("project memory"));
-        execution.getMessages().add(ContextDynamicAssembler.assemble(
-                ContextSpec.builder().memory(List.of("project memory")).build(),
-                McpToolScope.EMPTY, List.of(), List.of()));
+        execution.getMessages().add(ContextDynamicAssembler.builder()
+                .contextSpec(ContextSpec.builder().memory(List.of("project memory")).build())
+                .scope(McpToolScope.EMPTY)
+                .skills(List.of())
+                .tasks(List.of())
+                .build());
         execution.getMessages().add(UserMessageEntity.from(
                 Image.builder().base64Data("unused").detailLevel(Image.DetailLevel.LOW).build()));
         ExecutionTokenAuditRecorder recorder = new ExecutionTokenAuditRecorder(

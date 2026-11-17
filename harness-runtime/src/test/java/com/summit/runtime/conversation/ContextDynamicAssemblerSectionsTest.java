@@ -91,9 +91,12 @@ class ContextDynamicAssemblerSectionsTest {
 
     @Test
     void oneSectionYieldsOneMark() {
-        UserMessageEntity message = ContextDynamicAssembler.assemble(
-                ContextSpec.builder().memory(List.of("only memory")).build(),
-                McpToolScope.EMPTY, List.of(), List.of());
+        UserMessageEntity message = ContextDynamicAssembler.builder()
+                .contextSpec(ContextSpec.builder().memory(List.of("only memory")).build())
+                .scope(McpToolScope.EMPTY)
+                .skills(List.of())
+                .tasks(List.of())
+                .build();
 
         assertNotNull(message);
         assertEquals(1, message.contextSections().size());
@@ -103,8 +106,40 @@ class ContextDynamicAssemblerSectionsTest {
 
     @Test
     void noSectionYieldsNoMessage() {
-        assertNull(ContextDynamicAssembler.assemble(
-                ContextSpec.builder().memory(List.of()).build(), McpToolScope.EMPTY, List.of(), List.of()));
+        assertNull(ContextDynamicAssembler.builder()
+                .contextSpec(ContextSpec.builder().memory(List.of()).build())
+                .scope(McpToolScope.EMPTY)
+                .skills(List.of())
+                .tasks(List.of())
+                .build());
+    }
+
+    @Test
+    void nullSkillDescriptionDoesNotThrow() {
+        UserMessageEntity message = ContextDynamicAssembler.builder()
+                .skills(List.of(new SkillResume("demo", null, "/skills/demo/SKILL.md")))
+                .build();
+
+        assertNotNull(message);
+        assertTrue(message.text().contains("\n- demo: \n  Entry path: /skills/demo/SKILL.md"));
+    }
+
+    @Test
+    void normalizesWhitespaceBeforeTruncatingDescriptions() {
+        String longContent = "   \n  " + "a".repeat(295) + "   \t  " + "b".repeat(50);
+        UserMessageEntity message;
+        try (McpToolScope scope = scopeOf(List.of(remoteTool("mcp_github_get_me", "desc")), longContent)) {
+            message = ContextDynamicAssembler.builder()
+                    .scope(scope)
+                    .skills(List.of(new SkillResume("demo", longContent, "/skills/demo/SKILL.md")))
+                    .build();
+        }
+
+        assertNotNull(message);
+        String expectedDesc = "a".repeat(295) + " " + "b".repeat(4);
+        assertEquals(300, expectedDesc.length());
+        assertTrue(message.text().contains("\n- demo: " + expectedDesc + "\n"));
+        assertTrue(message.text().contains("\n- github - " + expectedDesc + " - 1 tools"));
     }
 
     private static String bodyOf(UserMessageEntity message, ContextSectionMark mark) {
@@ -114,11 +149,12 @@ class ContextDynamicAssemblerSectionsTest {
     private static UserMessageEntity assembleAllSections() {
         UserMessageEntity message;
         try (McpToolScope scope = scopeOf(List.of(remoteTool("mcp_github_get_me", "Get the GitHub user")))) {
-            message = ContextDynamicAssembler.assemble(
-                    ContextSpec.builder().memory(List.of("mem line")).build(),
-                    scope,
-                    List.of(new SkillResume("demo", "Demo skill", "/skills/demo/SKILL.md")),
-                    List.of("do the thing"));
+            message = ContextDynamicAssembler.builder()
+                    .contextSpec(ContextSpec.builder().memory(List.of("mem line")).build())
+                    .scope(scope)
+                    .skills(List.of(new SkillResume("demo", "Demo skill", "/skills/demo/SKILL.md")))
+                    .tasks(List.of("do the thing"))
+                    .build();
         }
         assertNotNull(message);
         return message;
@@ -135,6 +171,10 @@ class ContextDynamicAssemblerSectionsTest {
     }
 
     private static McpToolScope scopeOf(List<ToolDefinition<?>> tools) {
+        return scopeOf(tools, "GitHub remote tools");
+    }
+
+    private static McpToolScope scopeOf(List<ToolDefinition<?>> tools, String description) {
         List<ToolDefinition<? extends ToolExecutor>> scoped = new ArrayList<>(tools);
         return McpToolScope.of(List.of(new McpSession() {
             @Override
@@ -144,7 +184,7 @@ class ContextDynamicAssemblerSectionsTest {
 
             @Override
             public String description() {
-                return "GitHub remote tools";
+                return description;
             }
 
             @Override

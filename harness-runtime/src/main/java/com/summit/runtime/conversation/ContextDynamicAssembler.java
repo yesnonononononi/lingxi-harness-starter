@@ -12,6 +12,7 @@ import com.summit.core.prompt.EnvironmentFormatter;
 import com.summit.core.skill.SkillResume;
 import com.summit.core.workspace.WorkspaceAccessMode;
 import com.summit.core.workspace.WorkspaceOptions;
+import lombok.Builder;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -50,29 +51,14 @@ public class ContextDynamicAssembler {
     private static final String FORBIDDEN_TOOLS_TITLE = "\n\n## Forbidden Tools\n";
     private static final String TASK_TITLE = "\n\n## Task Manifest\n";
 
-    /**
-     * The dynamic context of one round, or {@code null} when this request carries no dynamic
-     * section at all — a bare-model request must not get an empty user message injected.
-     */
-    public static @Nullable UserMessageEntity assemble(ContextSpec contextSpec, McpToolScope scope, List<SkillResume> skills, List<String> tasks) {
-        return assemble(contextSpec, scope, skills, null, tasks);
-    }
 
-    /**
-     * Renders all non-empty dynamic sections (including volatile workspace options) into one
-     * {@code <context>} message, or {@code null} when nothing is present.
-     */
-    public static @Nullable UserMessageEntity assemble(ContextSpec contextSpec, McpToolScope scope,
-                                                       List<SkillResume> skills,
-                                                       @Nullable WorkspaceOptions workspaceOptions,
-                                                       List<String> tasks) {
-        return assemble(contextSpec, scope, skills, workspaceOptions, null, tasks);
-    }
+    private static final int MAX_DESC_LENGTH = 300;
 
     /**
      * Renders all non-empty dynamic sections (including volatile workspace options and tool blacklist)
      * into one {@code <context>} message, or {@code null} when nothing is present.
      */
+    @Builder(builderMethodName = "builder", builderClassName = "AssembleBuilder")
     public static @Nullable UserMessageEntity assemble(ContextSpec contextSpec, McpToolScope scope,
                                                        List<SkillResume> skills,
                                                        @Nullable WorkspaceOptions workspaceOptions,
@@ -82,14 +68,7 @@ public class ContextDynamicAssembler {
     }
 
     /** Renders each non-empty dynamic category into its section body, keyed by {@link ContextSectionKind}. */
-    public static Map<ContextSectionKind, String> renderSections(ContextSpec contextSpec, McpToolScope scope,
-                                                                 List<SkillResume> skills,
-                                                                 @Nullable WorkspaceOptions workspaceOptions,
-                                                                 List<String> tasks) {
-        return renderSections(contextSpec, scope, skills, workspaceOptions, null, tasks);
-    }
-
-    /** Renders each non-empty dynamic category into its section body, keyed by {@link ContextSectionKind}. */
+    @Builder(builderMethodName = "sectionsBuilder", builderClassName = "SectionsBuilder")
     public static Map<ContextSectionKind, String> renderSections(ContextSpec contextSpec, McpToolScope scope,
                                                                  List<SkillResume> skills,
                                                                  @Nullable WorkspaceOptions workspaceOptions,
@@ -207,7 +186,7 @@ public class ContextDynamicAssembler {
                 .append("Read referenced files with the same tool, resolving references against the directory of the file that contains them.\n");
 
         for (SkillResume skill : skills) {
-            stringBuilder.append("\n- ").append(skill.name()).append(": ").append(normalize(skill.description()));
+            stringBuilder.append("\n- ").append(skill.name()).append(": ").append(descriptionTruncate(skill.description()));
             if (skill.path() != null && !skill.path().isBlank()) {
                 stringBuilder.append("\n  Entry path: ").append(skill.path());
             }
@@ -273,8 +252,24 @@ public class ContextDynamicAssembler {
      * One server's declared description, or a placeholder when its configuration declares none.
      */
     private static String descriptionOf(McpResume mcp) {
-        String description = normalize(mcp.description());
+        String description = descriptionTruncate(mcp.description());
         return description.isEmpty() ? "no description" : description;
+    }
+
+    /**
+     * Normalizes whitespace first so leading/repeated blanks do not consume the length budget,
+     * then truncates to {@link #MAX_DESC_LENGTH} without splitting a UTF-16 surrogate pair.
+     */
+    private static String descriptionTruncate(@Nullable String desc) {
+        String normalized = normalize(desc);
+        if (normalized.length() <= MAX_DESC_LENGTH) {
+            return normalized;
+        }
+        int end = MAX_DESC_LENGTH;
+        if (Character.isHighSurrogate(normalized.charAt(end - 1))) {
+            end--;
+        }
+        return normalized.substring(0, end);
     }
 
     /**

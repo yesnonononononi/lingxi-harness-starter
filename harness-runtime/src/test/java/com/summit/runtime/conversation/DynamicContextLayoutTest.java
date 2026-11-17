@@ -71,8 +71,12 @@ class DynamicContextLayoutTest {
     @DisplayName("上下文没有变化：不插入、不换列表，缓存前缀继续有效")
     void unchangedContextIsNotReinserted() {
         AgentRequest request = requestWithMemory("SYS", "mem v1");
-        UserMessageEntity sameContext = ContextDynamicAssembler.assemble(
-                request.getContextSpec(), McpToolScope.EMPTY, List.of(), request.getTask());
+        UserMessageEntity sameContext = ContextDynamicAssembler.builder()
+                .contextSpec(request.getContextSpec())
+                .scope(McpToolScope.EMPTY)
+                .skills(List.of())
+                .tasks(request.getTask())
+                .build();
         List<Message> history = new ArrayList<>(List.of(
                 SystemMessageEntity.builder().text("## Business Prompt\nSYS").build(),
                 sameContext,
@@ -235,16 +239,19 @@ class DynamicContextLayoutTest {
     @Test
     @DisplayName("压缩合并：多轮增量追加的不同类别在压缩后合并为一条完整上下文")
     void compactionMergesLatestSectionsAcrossIncrementalContextMessages() {
-        UserMessageEntity first = ContextDynamicAssembler.assemble(
-                ContextSpec.builder().memory(List.of("mem v1")).build(),
-                McpToolScope.EMPTY, List.of(),
-                WorkspaceOptions.builder().accessMode(WorkspaceAccessMode.READ_ONLY).build(),
-                List.of("old task"));
-        UserMessageEntity second = ContextDynamicAssembler.assemble(
-                ContextSpec.builder().build(),
-                McpToolScope.EMPTY, List.of(),
-                WorkspaceOptions.builder().accessMode(WorkspaceAccessMode.READ_WRITE).build(),
-                null);
+        UserMessageEntity first = ContextDynamicAssembler.builder()
+                .contextSpec(ContextSpec.builder().memory(List.of("mem v1")).build())
+                .scope(McpToolScope.EMPTY)
+                .skills(List.of())
+                .workspaceOptions(WorkspaceOptions.builder().accessMode(WorkspaceAccessMode.READ_ONLY).build())
+                .tasks(List.of("old task"))
+                .build();
+        UserMessageEntity second = ContextDynamicAssembler.builder()
+                .contextSpec(ContextSpec.builder().build())
+                .scope(McpToolScope.EMPTY)
+                .skills(List.of())
+                .workspaceOptions(WorkspaceOptions.builder().accessMode(WorkspaceAccessMode.READ_WRITE).build())
+                .build();
 
         List<Message> history = new ArrayList<>(List.of(
                 SystemMessageEntity.builder().text("SYS").build(),
