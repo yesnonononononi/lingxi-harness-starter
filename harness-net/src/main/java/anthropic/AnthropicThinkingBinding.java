@@ -17,9 +17,11 @@ import java.util.Map;
  * <p>Anthropic signs every thinking block against the request that produced it and answers a replay
  * whose prefix differs with {@code Invalid signature in thinking block ... The tools list differs
  * from the one this block was created with} — a 400 that is never retried, so the conversation is
- * over. A tool list does change between rounds in a live session (an MCP server finishes its
- * handshake and publishes more tools), so the fingerprint of model and tools is stored next to the
- * blocks and checked before they are replayed.</p>
+ * over. The tool list is constant inside one run (remote tools are reached through the gateway, never
+ * declared), so what remains able to change it is the caller: a request that builds a different
+ * {@code toolList}, or a run/session replaying history written under another tool set. The
+ * fingerprint of model and tools is stored next to the blocks and checked before they are replayed,
+ * because none of that is something this layer can prevent.</p>
  *
  * <p>A block saved by an older version carries no fingerprint, and a signature without provenance
  * can never be proven still valid: it is dropped rather than sent on the chance that the prefix
