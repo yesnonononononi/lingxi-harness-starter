@@ -88,15 +88,16 @@ public class ToolRegistry {
     }
 
 
-    public List<ToolDefinition<?>> registeredTools(Execution execution){
+    /**
+     * The static tools this execution's model is served. An empty whitelist means "no application
+     * tool", not "no tool": framework kernel tools are admitted regardless, so the answer here must
+     * match what {@link ToolVisibility} hands the provider.
+     */
+    public List<ToolDefinition<?>> registeredTools(Execution execution) {
         if (execution == null) {
             return List.of();
         }
         List<String> allowed = execution.getAgentRequest().toolSpecOrDefault().getToolList();
-        if (allowed == null || allowed.isEmpty()) {
-            return List.of();
-        }
-        return List.copyOf(this.getToolDefinitionList().stream()
-                .filter(tool -> tool.allowedFor(allowed)).toList());
+        return ToolVisibility.select(getToolDefinitionList(), allowed);
     }
 }

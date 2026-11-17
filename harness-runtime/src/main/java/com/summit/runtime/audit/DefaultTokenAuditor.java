@@ -14,8 +14,8 @@ import com.summit.core.conversation.message.MessageType;
 import com.summit.core.conversation.message.content.Content;
 import com.summit.core.tool.ToolDefinition;
 import com.summit.core.tool.ToolRegistry;
+import com.summit.core.tool.ToolVisibility;
 import com.summit.runtime.agent.AgentConfig;
-import com.summit.runtime.tool.ModelToolVisibility;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
@@ -122,7 +122,7 @@ public class DefaultTokenAuditor implements TokenAuditor {
         // is a registered definition. Remote schemas are paid for inside lookup results, i.e. in the
         // tool messages, so the remote definition bucket is empty by construction.
         return new DefinitionAudits(
-                runAudit(TOOL_DEF_LABEL, true, () -> countDefinitions(ModelToolVisibility.select(registered, allowed))),
+                runAudit(TOOL_DEF_LABEL, true, () -> countDefinitions(ToolVisibility.select(registered, allowed))),
                 countOf(0));
     }
 

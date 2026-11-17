@@ -10,8 +10,8 @@ import com.summit.core.model.ModelInvocationUsage;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.utils.RetryUtil;
 import com.summit.core.tool.ToolDefinition;
+import com.summit.core.tool.ToolVisibility;
 import com.summit.runtime.context.RuntimeContext;
-import com.summit.runtime.tool.ModelToolVisibility;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -152,7 +152,7 @@ public class ModelRequestFactory {
     }
 
     private List<ToolDefinition<?>> availableTools(List<String> allowedTools) {
-        return ModelToolVisibility.select(context.getToolExecutionManager().toolRegistry().getTools().values(),
+        return ToolVisibility.select(context.getToolExecutionManager().toolRegistry().getTools().values(),
                 allowedTools);
     }
 }

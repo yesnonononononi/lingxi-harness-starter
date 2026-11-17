@@ -30,30 +30,40 @@ public record ToolDefinition<T extends ToolExecutor>(
     public boolean readOnly(){
         return concurrentPolicy != null &&  concurrentPolicy.equals(ConcurrentPolicy.READ_ONLY);
     }
+
     /**
-     * Whether this tool is admitted by a request-level tool whitelist. {@code null} and empty both
-     * admit no application tool: an absent list must never widen to "every registered tool".
+     * Whether this tool belongs in the model-facing declarations of a request carrying this
+     * whitelist — the only test that decides what the provider is told, so a run's tool list stays
+     * identical round after round and its prefix cache survives.
      *
-     * <p>Framework kernel tools are admitted regardless — see {@link KernelTools}, which explains why
-     * they are not the application's to grant or withhold.</p>
+     * <p>{@code null} and empty both admit no application tool: an absent list must never widen to
+     * "every registered tool". Framework kernel tools are admitted regardless — see
+     * {@link KernelTools}, which explains why they are not the application's to grant or withhold.</p>
      */
-    public boolean allowedFor(List<String> whitelist) {
+    public boolean visibleToModel(List<String> whitelist) {
         return KernelTools.isKernel(name)
                 || (whitelist != null
                 && whitelist.stream().anyMatch(candidate -> candidate != null && name.equals(candidate.trim())));
     }
 
-    /** Evaluates both static whitelist visibility and per-round blacklist exclusion. */
-    public boolean allowedFor(ToolSpec toolSpec) {
+    /**
+     * Whether this tool may actually run: visible under the whitelist and not named by the
+     * per-round blacklist. Execution is the only thing the blacklist touches — it never changes
+     * {@link #visibleToModel(List)}, which is what keeps the prompt prefix cacheable.
+     */
+    public boolean executableUnder(ToolSpec toolSpec) {
         List<String> whitelist = toolSpec == null ? null : toolSpec.getToolList();
-        List<String> blacklist = toolSpec == null ? null : toolSpec.getForbiddenTools();
-        return !isForbidden(blacklist) && allowedFor(whitelist);
+        return !forbiddenBy(toolSpec) && visibleToModel(whitelist);
     }
 
-    /** Whether this tool is explicitly named in the given per-round blacklist. */
-    public boolean isForbidden(List<String> blacklist) {
-        return blacklist != null
-                && blacklist.stream().anyMatch(candidate -> candidate != null && name.equals(candidate.trim()));
+    /** Whether the request's per-round blacklist names this tool. */
+    public boolean forbiddenBy(ToolSpec toolSpec) {
+        return toolSpec != null && names(toolSpec.getForbiddenTools());
+    }
+
+    private boolean names(List<String> candidates) {
+        return candidates != null
+                && candidates.stream().anyMatch(candidate -> candidate != null && name.equals(candidate.trim()));
     }
 
 }

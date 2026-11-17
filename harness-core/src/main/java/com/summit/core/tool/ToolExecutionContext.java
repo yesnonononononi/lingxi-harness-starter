@@ -4,8 +4,6 @@ import com.summit.core.agent.ToolSpec;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import lombok.Builder;
 
-import java.util.List;
-
 /** Startup-time tooling context. Deliberately holds NO workspace: the workspace is per-request, supplied by the {@code AgentRequest} and carried through {@link ToolExecuteCommand}. */
 @Builder
 public record ToolExecutionContext(RuntimeEventPublisher runtimeEventPublisher,
@@ -13,13 +11,11 @@ public record ToolExecutionContext(RuntimeEventPublisher runtimeEventPublisher,
                                    Integer concurrentToolLimit
 ) {
 
-    /** Checks whether the given tool may be executed under the request's tool whitelist. */
-    public boolean allowToolExecution(ToolDefinition<?> tool, List<String> allowedTools) {
-        return tool != null && tool.allowedFor(allowedTools);
-    }
-
-    /** Checks whether the given tool may be executed under the request's {@link ToolSpec} (whitelist + blacklist). */
+    /**
+     * Whether the given tool may be executed under the request's {@link ToolSpec} — the whitelist and
+     * the per-round blacklist together. Model visibility alone is {@link ToolDefinition#visibleToModel}.
+     */
     public boolean allowToolExecution(ToolDefinition<?> tool, ToolSpec toolSpec) {
-        return tool != null && tool.allowedFor(toolSpec);
+        return tool != null && tool.executableUnder(toolSpec);
     }
 }

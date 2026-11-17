@@ -214,11 +214,13 @@ public class DefaultToolExecutionManager implements ToolExecutionManager, AutoCl
      * tool, the whitelist names it, or the tool belongs to this request's own
      * {@link com.summit.core.mcp.McpToolScope} — a discovered name cannot be written into a list
      * authored before the servers were contacted, so scope membership stands in for that entry. A
-     * {@code null} or empty whitelist admits no other static tool.
+     * {@code null} or empty whitelist admits no other static tool. The per-round blacklist is checked
+     * first and applies to remote tools too: it is the caller's only way to switch a tool off without
+     * changing the declarations the prefix cache is built from.
      */
     private boolean admissible(ToolDefinition<?> tool, ToolExecuteCommand command) {
         ToolSpec spec = command.effectiveToolSpec();
-        if (tool.isForbidden(spec.getForbiddenTools())) {
+        if (tool.forbiddenBy(spec)) {
             return false;
         }
         return this.toolExecutionContext.allowToolExecution(tool, spec)
