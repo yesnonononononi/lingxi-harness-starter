@@ -26,6 +26,7 @@ import org.junit.jupiter.api.Test;
 
 import java.net.URI;
 import java.util.ArrayList;
+import com.summit.core.conversation.event.ContextEventPublisher;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.IntStream;
@@ -59,7 +60,7 @@ class CompactionStateMachineTest {
     private final List<ChatRequestEntity> requests = new ArrayList<>();
     private StubContextTokenizer tokenizer = new StubContextTokenizer(OVER_THRESHOLD);
     private DefaultConversationManager conversations =
-            new DefaultConversationManager(ContextAttachmentProvider.NONE);
+            DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
 
     @Test
     void imageWindowHonorsConfiguredHighAndLowWatermarks() {
@@ -291,7 +292,7 @@ class CompactionStateMachineTest {
     /** Case 7: a rebuild advances the summary generation and invalidates the current prune. */
     @Test
     void summaryRebuildResetsPruneGeneration() {
-        conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         Execution execution = execution();
         execution.setCompactionState(
                 CompactionState.none().withSummaryGeneration(2).withPruneGeneration(1));
@@ -306,7 +307,7 @@ class CompactionStateMachineTest {
     /** Case 8 (P0-1 regression): two rebuilds later the attempt counter and the latch are intact. */
     @Test
     void rebuildDoesNotResetAttemptsOrUnavailable() {
-        conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         Execution execution = execution();
         execution.setCompactionState(new CompactionState(1, 1, true, 1));
 
@@ -344,16 +345,16 @@ class CompactionStateMachineTest {
 
     /** A checker wired exactly like the runtime does, with the scripted tokenizer. */
     private BoundaryChecker checker(ChatModel model, Integer maxSummaryAttempts) {
-        conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         ContextUsageReporter usage = new ContextUsageReporter(tokenizer, 100_000,
-                new RuntimeEventPublisher(List.of()), 1) {
+                new ContextEventPublisher(List.of()), 1) {
             @Override public int countInput(Execution execution, List<Message> messages) {
                 return 0; // These state-machine cases script the trigger; pruning size is tested separately.
             }
         };
         DefaultModelCompacter modelCompacter = DefaultModelCompacter.builder().models(ignored -> model)
                 .conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations, new ContextEventPublisher(List.of()))).build();
         AgentConfig agentConfig = AgentConfig.builder()
                 .maxTokens(100_000)
                 .maxSummaryAttempts(maxSummaryAttempts)

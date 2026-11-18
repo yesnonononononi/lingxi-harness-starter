@@ -35,6 +35,8 @@ import com.summit.runtime.model.DefaultChatModelInvoker;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import com.summit.core.conversation.event.ContextEventPublisher;
+import com.summit.core.conversation.event.ContextListener;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Callable;
@@ -129,13 +131,15 @@ class RuntimeProcessorTemplateFinalizeTest {
     }
 
     private RuntimeProcessorTemplate runtime(RecordingRepository repository, RecordingSupport support) {
-        RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(new RuntimeListener() {
+        ContextEventPublisher contextEvents = new ContextEventPublisher(List.of(new ContextListener() {
             @Override public int order() { return 0; }
             @Override
-            public void onContextUpdate(ContextUpdateEvent event) {
+            public void onContextUpdated(ContextUpdateEvent event) {
                 trail.add("publish");
             }
-
+        }));
+        RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(new RuntimeListener() {
+            @Override public int order() { return 0; }
             @Override
             public void onExecutionCompleted(ExecutionCompleteEvent event) {
                 trail.add("complete");
@@ -146,7 +150,7 @@ class RuntimeProcessorTemplateFinalizeTest {
         DefaultRuntimeLifeStyleManager lifecycle = new DefaultRuntimeLifeStyleManager(events,
                 new ExecutionTokenAuditRecorder(new DefaultTokenAuditor(tokenizer, config,
                         new ToolRegistry(List.of())), events));
-        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        DefaultConversationManager conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         ToolExecutionManager tools = new ToolExecutionManager() {
             public List<ToolExecuteResult> execute(ToolExecuteCommand command) {
                 return List.of(ToolExecuteResult.success("tool result"));
@@ -165,7 +169,7 @@ class RuntimeProcessorTemplateFinalizeTest {
                         List.of(new DefaultLoopInterceptor())))
                 .runtimeBoundaryChecker(new BoundaryChecker(config, tokenizer, conversations, null, null, null, null))
                 .toolExecutionManager(tools).invoker(new DefaultChatModelInvoker(model()))
-                .usage(new ContextUsageReporter(tokenizer, 100_000, events, 1));
+                .usage(new ContextUsageReporter(tokenizer, 100_000, contextEvents, 1));
         if (support != null) context.runtimeTransactionalSupport(support);
         return new RuntimeProcessorTemplate(context.build());
     }

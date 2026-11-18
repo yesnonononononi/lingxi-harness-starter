@@ -43,7 +43,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class DefaultConversationManagerSystemPromptTest {
 
     private final DefaultConversationManager conversations =
-            new DefaultConversationManager(ContextAttachmentProvider.NONE);
+            DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
 
     @Test
     void memoryIsRenderedOnceBeforeTheTaskAndBlankEntriesAreOmitted() {

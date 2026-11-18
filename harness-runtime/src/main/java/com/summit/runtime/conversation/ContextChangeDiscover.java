@@ -1,17 +1,15 @@
 package com.summit.runtime.conversation;
 
 import com.summit.core.agent.AgentRequest;
+import com.summit.core.conversation.ChangedDiff;
 import com.summit.core.conversation.message.ContextSectionKind;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.skill.SkillResume;
-import org.jspecify.annotations.Nullable;
+import lombok.NonNull;
 
-import java.util.EnumMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 
 /**
  * Decides where this round's dynamic context belongs.
@@ -32,6 +30,8 @@ public final class ContextChangeDiscover {
     private ContextChangeDiscover() {
     }
 
+
+
     /**
      * The placement of this round's dynamic context.
      *
@@ -39,10 +39,14 @@ public final class ContextChangeDiscover {
      * the one worth optimising for: an unchanged context costs no token, no cache miss and no
      * allocation.</p>
      */
-    public record Layout(boolean insert, int insertIndex, @Nullable UserMessageEntity contract) {
+    public record Layout(boolean insert,
+                         int insertIndex,
+                         UserMessageEntity newContext,
+                         @NonNull Map<ContextSectionKind, ChangedDiff> changedKindByLocation
+    ) {
 
         static Layout unchanged(int insertIndex) {
-            return new Layout(false, insertIndex, null);
+            return new Layout(false, insertIndex,null, Map.of());
         }
     }
 
@@ -53,25 +57,36 @@ public final class ContextChangeDiscover {
      */
     public static Layout layout(List<Message> messages, AgentRequest request, McpToolScope scope,
                                 List<SkillResume> skills) {
+
         int insertIndex = insertIndexOf(messages);
+
         Map<ContextSectionKind, String> desired = ContextDynamicAssembler.renderSections(
                 request.getContextSpec(), scope, skills, request.getWorkspaceOptions(), request.getToolSpec(), request.getTask());
+
         Map<ContextSectionKind, String> baseline = ContextDynamicAssembler.latestSections(messages, insertIndex);
+        Map<ContextSectionKind, ChangedDiff> changedKindByLocation = new HashMap<>();
 
         Map<ContextSectionKind, String> changed = new EnumMap<>(ContextSectionKind.class);
+
         for (ContextSectionKind kind : ContextSectionKind.values()) {
+
             String current = desired.get(kind);
+
             String previous = baseline.get(kind);
+
             String effectivePrevious = ContextDynamicAssembler.CLEARED_BODY.equals(previous) ? null : previous;
+
             if (!Objects.equals(current, effectivePrevious)) {
-                changed.put(kind, current != null ? current : ContextDynamicAssembler.CLEARED_BODY);
+                String newContent = Objects.requireNonNullElse(current, ContextDynamicAssembler.CLEARED_BODY);
+                changed.put(kind, newContent);
+                changedKindByLocation.put(kind, new ChangedDiff(effectivePrevious, newContent));
             }
         }
 
         if (changed.isEmpty()) {
             return Layout.unchanged(insertIndex);
         }
-        return new Layout(true, insertIndex, ContextDynamicAssembler.assembleSections(changed));
+        return new Layout(true, insertIndex, ContextDynamicAssembler.assembleSections(changed),changedKindByLocation);
     }
 
     /**

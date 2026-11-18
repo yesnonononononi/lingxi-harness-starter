@@ -3,8 +3,8 @@ package com.summit.core.runtime.loop;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextUsageMetric;
 import com.summit.core.compact.Tokenizer;
+import com.summit.core.conversation.event.ContextEventPublisher;
 import com.summit.core.conversation.event.ContextUpdateEvent;
-import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.TokenUsageEntity;
 import com.summit.core.tool.ToolDefinition;
@@ -18,7 +18,7 @@ import java.util.function.Supplier;
 public class ContextUsageReporter {
     public final Tokenizer tokenizer;
     private final int maxTokens;
-    private final RuntimeEventPublisher publisher;
+    private final ContextEventPublisher publisher;
     /**
      * Resolver of the process-wide tool registry, never the registry itself.
      *
@@ -51,7 +51,7 @@ public class ContextUsageReporter {
      * @param publisher      sink of the context-update events
      * @param reportInterval rounds between two notifications, floored at one
      */
-    public ContextUsageReporter(Tokenizer tokenizer, int maxTokens, RuntimeEventPublisher publisher,
+    public ContextUsageReporter(Tokenizer tokenizer, int maxTokens, ContextEventPublisher publisher,
                                 int reportInterval) {
         this(tokenizer, maxTokens, publisher, reportInterval, () -> null);
     }
@@ -64,7 +64,7 @@ public class ContextUsageReporter {
      * @param toolRegistry   resolver of the process-wide tool registry, invoked on every usage
      *                       calculation; may answer null when the application publishes no tools
      */
-    public ContextUsageReporter(Tokenizer tokenizer, int maxTokens, RuntimeEventPublisher publisher,
+    public ContextUsageReporter(Tokenizer tokenizer, int maxTokens, ContextEventPublisher publisher,
                                 int reportInterval, Supplier<ToolRegistry> toolRegistry) {
         this.tokenizer = tokenizer;
         this.toolRegistry = toolRegistry == null ? () -> null : toolRegistry;
@@ -155,7 +155,7 @@ public class ContextUsageReporter {
         if (phase == ContextUpdateEvent.Phase.SQUEEZE_COMPLETED) rebuildBaseline(execution);
         try {
             if (publisher == null) return;
-            publisher.onContextUpdate(new ContextUpdateEvent(
+            publisher.onContextUpdated(new ContextUpdateEvent(
                     execution.getId(),
                     phase,
                     band,

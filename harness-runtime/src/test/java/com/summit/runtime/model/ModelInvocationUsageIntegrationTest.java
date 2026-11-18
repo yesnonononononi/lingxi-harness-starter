@@ -49,6 +49,9 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
+import com.summit.core.conversation.event.AgentEventPublisher;
+import com.summit.core.conversation.event.ContextEventPublisher;
+import com.summit.core.runtime.AgentStreamListener;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletionException;
@@ -459,20 +462,25 @@ class ModelInvocationUsageIntegrationTest {
             RuntimeListener listener = new RuntimeListener() {
                 @Override public int order() { return 0; }
                 public void onInvokeRetry(InvokeRetryEvent event) { retryNotice.accept(event); }
-                public void onPartialText(AgentPartialTextEvent event) { text.add(event.content()); }
                 public void onExecutionCompleted(ExecutionCompleteEvent event) { terminalUsage.set(event.getTokenInfo()); }
                 public void onExecutionError(ExecutionErrorEvent event) { terminalUsage.set(event.getTokenInfo()); }
                 public void onExecutionCancelled(ExecutionCancelledEvent event) { terminalUsage.set(event.getTokenInfo()); }
             };
-            RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(listener)) {
+            AgentStreamListener streamListener = new AgentStreamListener() {
+                @Override public int order() { return 0; }
+                public void onPartialText(AgentPartialTextEvent event) { text.add(event.content()); }
+            };
+            AgentEventPublisher agentEvents = new AgentEventPublisher(List.of(streamListener)) {
+                @Override
                 public void onCompleteText(AgentCompleteTextEvent event) {
                     publication.accept(event);
                     super.onCompleteText(event);
                 }
             };
+            RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(listener));
             DefaultRuntimeLifeStyleManager lifecycle = new DefaultRuntimeLifeStyleManager(events);
             DefaultTokenizer tokenizer = new DefaultTokenizer();
-            DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+            DefaultConversationManager conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
             ToolExecutionManager tools = new ToolExecutionManager() {
                 public List<ToolExecuteResult> execute(ToolExecuteCommand command) { return List.of(); }
                 public ToolRegistry toolRegistry() { return new ToolRegistry(List.of()); }
@@ -484,8 +492,8 @@ class ModelInvocationUsageIntegrationTest {
                     .runtimeLifeStyleManager(lifecycle)
                     .runtimeBoundaryChecker(new BoundaryChecker(AgentConfig.builder().maxIterations(4).build(),
                             tokenizer, conversations, null, null, null, null))
-                    .usage(new ContextUsageReporter(tokenizer, 1_024_000, events, 1))
-                    .runtimeEventPublisher(events).toolExecutionManager(tools)
+                    .usage(new ContextUsageReporter(tokenizer, 1_024_000, new ContextEventPublisher(List.of()), 1))
+                    .runtimeEventPublisher(events).agentEventPublisher(agentEvents).toolExecutionManager(tools)
                     .responseIdGenerator(previous -> Integer.toString(previous == null ? 1 : Integer.parseInt(previous) + 1))
                     .invoker(attempts -> invoker.invoke(() -> {
                         ModelChatCommand command = attempts.get();

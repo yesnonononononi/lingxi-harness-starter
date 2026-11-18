@@ -9,7 +9,11 @@ import com.summit.core.conf.SensitiveDataProvider;
 import com.summit.core.compact.CompactSummaryApplier;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ConversationTranscriptSink;
+import com.summit.core.conversation.event.AgentEventPublisher;
+import com.summit.core.conversation.event.ContextEventPublisher;
+import com.summit.core.conversation.event.ContextListener;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.runtime.AgentStreamListener;
 import com.summit.core.model.chat.ChatModel;
 import com.summit.core.model.ModelProviderRegistry;
 import com.summit.core.prompt.PromptAssembler;
@@ -66,9 +70,28 @@ public class ConversationConfig {
     }
 
     @Bean
+    @ConditionalOnMissingBean(ContextEventPublisher.class)
+    public ContextEventPublisher contextEventPublisher(List<ContextListener> contextListeners){
+        return new ContextEventPublisher(contextListeners);
+    }
+
+    /**
+     * The streaming surface. Separate from {@link RuntimeEventPublisher} so a renderer subscribes to
+     * per-token events without also receiving every lifecycle fact, and so an auditor is not woken at
+     * token frequency.
+     */
+    @Bean
+    @ConditionalOnMissingBean(AgentEventPublisher.class)
+    public AgentEventPublisher agentEventPublisher(List<AgentStreamListener> agentStreamListeners){
+        return new AgentEventPublisher(agentStreamListeners);
+    }
+
+
+    @Bean
     @ConditionalOnMissingBean(CompactSummaryApplier.class)
-    public CompactSummaryApplier compactSummaryApplier(ConversationManager conversationManager){
-        return new DefaultCompactSummaryApplier(conversationManager);
+    public CompactSummaryApplier compactSummaryApplier(ConversationManager conversationManager,
+                                                       ContextEventPublisher contextEventPublisher){
+        return new DefaultCompactSummaryApplier(conversationManager, contextEventPublisher);
     }
 
 
@@ -111,7 +134,7 @@ public class ConversationConfig {
     @Bean
     @ConditionalOnMissingBean
     public ContextUsageReporter contextUsageReporter(
-            Tokenizer tokenizer, AgentConfig config, RuntimeEventPublisher publisher,
+            Tokenizer tokenizer, AgentConfig config, ContextEventPublisher publisher,
             AgentChatProperties agentChatProperties, ObjectProvider<ToolRegistry> toolRegistry) {
         return new ContextUsageReporter(tokenizer, config.maxTokens(), publisher,
                 agentChatProperties.getUsageReportInterval(), toolRegistry::getIfAvailable);

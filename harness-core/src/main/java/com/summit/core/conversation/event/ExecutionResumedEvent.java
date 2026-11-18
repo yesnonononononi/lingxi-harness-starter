@@ -1,38 +1,26 @@
 package com.summit.core.conversation.event;
 
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.ToString;
 
-
-import java.time.Instant;
 import java.util.Map;
 
-
-public class ExecutionResumedEvent implements AgentEvent{
-    private final String executionId;
-    private final Map<String, Object> metaData;
-    private final Instant timestamp = Instant.now();
+/** Published when a suspended execution is resumed and starts a new turn. */
+@Getter
+@EqualsAndHashCode(callSuper = true)
+@ToString(callSuper = true)
+public class ExecutionResumedEvent extends AbstractEvent implements RuntimeEvent {
 
     public ExecutionResumedEvent(String executionId, Map<String, Object> metaData) {
-        this.executionId = executionId;
-        this.metaData = metaData == null ? Map.of() : Map.copyOf(metaData);
+        super(executionId, metaData);
     }
 
     /** Compatibility constructor for callers without selected event metadata. */
     public ExecutionResumedEvent(String executionId) {
-        this(executionId, Map.of());
-    }
-    @Override
-    public String executionId() {
-        return executionId;
+        super(executionId);
     }
 
-    @Override
-    public Instant timestamp() {
-        return timestamp;
-    }
-    @Override
-    public Map<String, Object> eventMetaData() {
-        return metaData;
-    }
     @Override
     public String type() {
         return RuntimeEventType.EXECUTION_RESUME.type();

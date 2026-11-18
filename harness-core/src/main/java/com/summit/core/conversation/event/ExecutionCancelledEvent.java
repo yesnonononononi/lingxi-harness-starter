@@ -1,28 +1,26 @@
 package com.summit.core.conversation.event;
 
-
+import lombok.EqualsAndHashCode;
 import lombok.Getter;
+import lombok.ToString;
 
-import java.time.Instant;
 import java.util.Map;
 
 /**
- * Published when an agent-loop execution is cancelled (externally stopped
- * or interrupted) rather than completing on its own.
+ * Published when an agent-loop execution is cancelled (externally stopped or interrupted) rather than
+ * completing on its own.
  */
-
 @Getter
-public class ExecutionCancelledEvent implements AgentEvent {
-    private final String executionId;
-    /** Usage accumulated before the cancellation; {@code null} = not collected (≠ zero). */
+@EqualsAndHashCode(callSuper = true)
+@ToString(callSuper = true)
+public class ExecutionCancelledEvent extends AbstractEvent implements RuntimeEvent {
+
+    /** Usage accumulated before the cancellation; {@code null} = not collected. */
     private final TokenInfo tokenInfo;
-    private final Instant timestamp = Instant.now();
-    private final Map<String, Object> metaData;
 
     public ExecutionCancelledEvent(String executionId, TokenInfo tokenInfo, Map<String, Object> metaData) {
-        this.executionId = executionId;
+        super(executionId, metaData);
         this.tokenInfo = tokenInfo;
-        this.metaData = metaData == null ? Map.of() : Map.copyOf(metaData);
     }
 
     /** Compatibility constructor for callers without token usage. */
@@ -34,19 +32,7 @@ public class ExecutionCancelledEvent implements AgentEvent {
     public ExecutionCancelledEvent(String executionId) {
         this(executionId, null, Map.of());
     }
-    @Override
-    public String executionId() {
-        return executionId;
-    }
 
-    @Override
-    public Instant timestamp() {
-        return timestamp;
-    }
-    @Override
-    public Map<String, Object> eventMetaData() {
-        return metaData;
-    }
     @Override
     public String type() {
         return RuntimeEventType.EXECUTION_CANCELLED.type();

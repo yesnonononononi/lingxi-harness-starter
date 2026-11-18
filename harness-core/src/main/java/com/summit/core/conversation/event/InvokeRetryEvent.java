@@ -9,7 +9,7 @@ import java.util.concurrent.TimeUnit;
 
 @Builder
 @Getter
-public class InvokeRetryEvent implements AgentEvent{
+public class InvokeRetryEvent implements RuntimeEvent{
     private String executionId;
     private String responseId;
     @Builder.Default

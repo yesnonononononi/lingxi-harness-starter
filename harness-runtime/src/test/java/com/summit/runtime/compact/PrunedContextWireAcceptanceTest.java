@@ -36,6 +36,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import com.summit.core.conversation.event.ContextEventPublisher;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -278,7 +279,7 @@ class PrunedContextWireAcceptanceTest {
         Execution execution = Execution.create(
                 AgentRequest.builder().contextSpec(ContextSpec.builder().systemPrompt("system").context(messages).build()).build(), "test");
         execution.setMessages(new ArrayList<>(messages));
-        new DefaultConversationManager(ContextAttachmentProvider.NONE)
+        DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build()
                 .rebuildContext("压缩后的摘要", execution);
         return execution.getMessages();
     }
@@ -289,7 +290,7 @@ class PrunedContextWireAcceptanceTest {
                 .build();
         DefaultContextPruner pruner = new DefaultContextPruner(config,
                 new ContextUsageReporter(new DefaultTokenizer(), MAX_TOKENS,
-                        new RuntimeEventPublisher(List.of()), 1));
+                        new ContextEventPublisher(List.of()), 1));
         List<Message> copy = new ArrayList<>(messages);
         Execution execution = Execution.builder().id("execution-1")
                 .agentRequest(AgentRequest.builder().contextSpec(ContextSpec.builder().context(copy).build()).build())

@@ -2,12 +2,13 @@ package com.summit.runtime.model;
 
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.event.AgentCompleteTextEvent;
+import com.summit.core.conversation.event.AgentEventPublisher;
 import com.summit.core.conversation.event.AgentPartialTextEvent;
 import com.summit.core.conversation.event.AgentPartialThinkingEvent;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.model.streaming.StreamingHandler;
-import com.summit.core.runtime.RuntimeListener;
+import com.summit.core.runtime.AgentStreamListener;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.loop.suspension.ExecutionInterruptedException;
 import org.junit.jupiter.api.Test;
@@ -99,7 +100,7 @@ class StreamingModelResponseTerminalTest {
         CountDownLatch release = new CountDownLatch(1);
         AtomicBoolean futureDoneDuringEvent = new AtomicBoolean(true);
         Fixture fixture = new Fixture(null);
-        RuntimeListener listener = new RuntimeListener() {
+        AgentStreamListener listener = new AgentStreamListener() {
             @Override public int order() { return 0; }
             @Override
             public void onCompleteText(AgentCompleteTextEvent event) {
@@ -109,7 +110,7 @@ class StreamingModelResponseTerminalTest {
             }
         };
         StreamingModelResponseBehaveDecider handler = fixture.createHandler(null,
-                new RuntimeEventPublisher(List.of(listener)));
+                new AgentEventPublisher(List.of(listener)));
         ExecutorService worker = Executors.newSingleThreadExecutor();
         try {
             Future<?> finishing = worker.submit(() -> handler.onFinalResponse(response("done")));
@@ -246,18 +247,18 @@ class StreamingModelResponseTerminalTest {
         private final StreamingModelResponseBehaveDecider handler;
 
         private Fixture(ExecutionControlSignal control) {
-            RuntimeListener listener = new RuntimeListener() {
+            AgentStreamListener listener = new AgentStreamListener() {
                 @Override public int order() { return 0; }
                 public void onPartialText(AgentPartialTextEvent event) { events.add("text"); }
                 public void onPartialThinking(AgentPartialThinkingEvent event) { events.add("thinking"); }
                 public void onCompleteText(AgentCompleteTextEvent event) { events.add("complete"); }
             };
-            handler = createHandler(control, new RuntimeEventPublisher(List.of(listener)));
+            handler = createHandler(control, new AgentEventPublisher(List.of(listener)));
         }
 
         private StreamingModelResponseBehaveDecider createHandler(ExecutionControlSignal control,
-                                                                 RuntimeEventPublisher publisher) {
-            return new StreamingModelResponseBehaveDecider(publisher,
+                                                                 AgentEventPublisher agentEvents) {
+            return new StreamingModelResponseBehaveDecider(new RuntimeEventPublisher(List.of()), agentEvents,
                     StreamingModelResponseBehaveDecider.StreamingResponseContext.builder().executionId("execution")
                             .agentId("agent").responseId("response").future(future).build(), control);
         }

@@ -31,6 +31,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
+import com.summit.core.conversation.event.AgentEventPublisher;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -259,6 +260,7 @@ class ModelProviderRegistrationTest {
                 ExecutionControlSignal signal = new ExecutionControlSignal("idle-stream");
                 StreamingModelResponseBehaveDecider handler = new StreamingModelResponseBehaveDecider(
                         new RuntimeEventPublisher(List.of()),
+                        new AgentEventPublisher(List.of()),
                         StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
                                 .executionId("idle-stream").responseId("1").future(new CompletableFuture<>()).build(),
                         signal);

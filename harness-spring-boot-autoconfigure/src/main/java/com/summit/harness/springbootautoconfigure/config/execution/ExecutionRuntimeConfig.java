@@ -5,6 +5,8 @@ import com.summit.core.compact.CompactSummaryApplier;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ResponseIdGenerator;
+import com.summit.core.conversation.event.AgentEventPublisher;
+import com.summit.core.conversation.event.ContextEventPublisher;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.runtime.RuntimeFactory;
 import com.summit.core.runtime.RuntimeListener;
@@ -64,14 +66,18 @@ public class ExecutionRuntimeConfig {
                                                 List<ExecutionFailureObserver> failureObservers,
                                                 ResponseIdGenerator responseIdGenerator,
                                                 CompactSummaryApplier compactSummaryApplier,
-                                                RuntimeTransactionalSupport runtimeTransactionalSupport) {
+                                                RuntimeTransactionalSupport runtimeTransactionalSupport,
+                                                ContextEventPublisher contextEventPublisher,
+                                                AgentEventPublisher agentEventPublisher) {
         return DefaultRuntimeFactory.builder()
                 .toolExecutionManager(defaultToolExecutionManager)
                 .runtimeEventPublisher(defaultRuntimeListener)
+                .agentEventPublisher(agentEventPublisher)
                 .responseIdGenerator(responseIdGenerator)
                 .conversationManager(conversationManager)
                 .compactSummaryApplier(compactSummaryApplier)
                 .usage(usage)
+                .contextEventPublisher(contextEventPublisher)
                 .transactionalSupport(runtimeTransactionalSupport)
                 .tokenizer(tokenizer)
                 .loopInterceptorProcessor(loopInterceptorProcessor)

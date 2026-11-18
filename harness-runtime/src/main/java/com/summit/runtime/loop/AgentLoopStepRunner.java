@@ -249,7 +249,7 @@ public class AgentLoopStepRunner {
         }
 
         private void publishAiMessage(ChatResponseEntity response) {
-            context.getRuntimeEventPublisher().onAiMessage(new AgentMessageEvent(
+            context.getAgentEventPublisher().onAiMessage(new AgentMessageEvent(
                     response,
                     execution.getId(),
                     response.getResponseId(),

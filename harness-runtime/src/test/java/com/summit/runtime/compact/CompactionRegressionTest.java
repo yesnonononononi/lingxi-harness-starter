@@ -23,6 +23,8 @@ import com.summit.runtime.loop.BoundaryChecker;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import com.summit.core.conversation.event.ContextEventPublisher;
+import com.summit.core.conversation.event.ContextListener;
 import java.util.List;
 import java.util.Optional;
 
@@ -41,18 +43,18 @@ class CompactionRegressionTest {
 
     private final DefaultTokenizer tokenizer = new DefaultTokenizer();
     private final ContextUsageReporter usage = new ContextUsageReporter(tokenizer, 100_000,
-            new RuntimeEventPublisher(List.of()), 1);
+            new ContextEventPublisher(List.of()), 1);
 
     @Test
     void automaticAndToolCompactionUseTheSamePromptAndProtectedAttachment() {
         List<ChatRequestEntity> requests = new ArrayList<>();
-        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        DefaultConversationManager conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         DefaultModelCompacter compacter = DefaultModelCompacter.builder().models(ignored -> request -> {
             requests.add(request);
             return ChatResponseEntity.builder().aiMessageEntity(AiMessageEntity.builder()
                     .text("{\"summary\":\"summary\"}").build()).build();
         }).conversationManager(conversations).contextAttachmentProvider(id -> Optional.of("protected state"))
-                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations, new ContextEventPublisher(List.of()))).build();
         ArrayList<Message> history = new ArrayList<Message>(List.of(
                 SystemMessageEntity.builder().text("system").build(), UserMessageEntity.from("history")));
         Execution execution = Execution.builder().id("e").messages(history)
@@ -81,7 +83,7 @@ class CompactionRegressionTest {
 
     @Test
     void automaticCompactionUsesTheInjectedSummaryApplier() {
-        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        DefaultConversationManager conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         Execution execution = executionWith(UserMessageEntity.from("history"));
         List<String> outputs = new ArrayList<>();
         DefaultModelCompacter compacter = DefaultModelCompacter.builder()
@@ -161,12 +163,12 @@ class CompactionRegressionTest {
     void modelCompactionClosesTheSqueezePairOnFailureAndHandsOverToPrune() {
         List<ContextUpdateEvent> events = new ArrayList<>();
         List<Integer> modelCalls = new ArrayList<>();
-        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        DefaultConversationManager conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         DefaultModelCompacter compacter = DefaultModelCompacter.builder().models(ignored -> request -> {
             modelCalls.add(1);
             throw new IllegalStateException("model unavailable");
         }).conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(capturingReporter(events)).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
+                .usage(capturingReporter(events)).summaryApplier(new DefaultCompactSummaryApplier(conversations, new ContextEventPublisher(List.of()))).build();
 
         Execution execution = executionWith(
                 SystemMessageEntity.builder().text("system").build(),
@@ -210,10 +212,10 @@ class CompactionRegressionTest {
 
     /** Reporter wired to a capturing listener: the tests assert on the emitted event sequence. */
     private ContextUsageReporter capturingReporter(List<ContextUpdateEvent> events) {
-        return new ContextUsageReporter(tokenizer, 100_000, new RuntimeEventPublisher(List.of(new RuntimeListener() {
+        return new ContextUsageReporter(tokenizer, 100_000, new ContextEventPublisher(List.of(new ContextListener() {
             @Override public int order() { return 0; }
             @Override
-            public void onContextUpdate(ContextUpdateEvent event) {
+            public void onContextUpdated(ContextUpdateEvent event) {
                 events.add(event);
             }
         })), 1);

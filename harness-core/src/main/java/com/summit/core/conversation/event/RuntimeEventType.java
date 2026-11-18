@@ -123,6 +123,25 @@ public enum RuntimeEventType {
         }
     },
 
+    /**
+     * The context of this round was rewritten: the dynamic sections behind the cached prefix, or the
+     * leading system prompt.
+     */
+    CONTEXT_CHANGED{
+        @Override
+        public String type() {
+            return "CONTEXT_CHANGED";
+        }
+    },
+
+    /** The whole context was rebuilt from a summary, which necessarily breaks the cached prefix. */
+    CONTEXT_REBUILT{
+        @Override
+        public String type() {
+            return "CONTEXT_REBUILT";
+        }
+    },
+
     INVOKE_RETRY{
         @Override
         public String type() {

@@ -24,6 +24,7 @@ import openAi.OpenAiTokenizer;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import com.summit.core.conversation.event.ContextEventPublisher;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -103,8 +104,8 @@ class ContextUsageBaselineTest {
     @Test
     void notificationFailureCannotPreventRebuildingButTokenizerFailureEscapes() {
         AtomicInteger notifications = new AtomicInteger();
-        RuntimeEventPublisher publisher = new RuntimeEventPublisher(List.of()) {
-            @Override public void onContextUpdate(ContextUpdateEvent event) {
+        ContextEventPublisher publisher = new ContextEventPublisher(List.of()) {
+            @Override public void onContextUpdated(ContextUpdateEvent event) {
                 notifications.incrementAndGet();
                 throw new IllegalStateException("notification unavailable");
             }
@@ -182,14 +183,14 @@ class ContextUsageBaselineTest {
         Execution execution = history();
         TokenUsageEntity baseline = usage.baseline(execution);
         AtomicInteger attempts = new AtomicInteger();
-        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        DefaultConversationManager conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         DefaultModelCompacter compacter = DefaultModelCompacter.builder().models(ignored -> request -> {
             int attempt = attempts.incrementAndGet();
             String summary = alwaysOversized || attempt == 1 ? "x".repeat(6000) : "short summary";
             return ChatResponseEntity.builder().aiMessageEntity(AiMessageEntity.builder()
                     .text("{\"summary\":\"" + summary + "\"}").build()).build();
         }).conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations, new ContextEventPublisher(List.of()))).build();
         BoundaryChecker checker = new BoundaryChecker(config(2), tokenizer, conversations,
                 new DefaultContextPruner(config(2), usage), compacter, usage, null);
         if (alwaysOversized) {

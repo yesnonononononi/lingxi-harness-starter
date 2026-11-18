@@ -36,6 +36,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.ArrayList;
+import com.summit.core.conversation.event.ContextEventPublisher;
+import com.summit.core.conversation.event.ContextListener;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -271,7 +273,7 @@ class DefaultContextPrunerTest {
         AgentConfig config = AgentConfig.builder().maxTokens(2_000).build();
         DefaultContextPruner pruner = new DefaultContextPruner(config, reporter(2_000));
         BoundaryChecker checker = new BoundaryChecker(config, tokenizer,
-                new DefaultConversationManager(id -> Optional.empty()), pruner, null, null, null);
+                DefaultConversationManager.builder().contextAttachmentProvider(id -> Optional.empty()).build(), pruner, null, null, null);
         Execution execution = history("{}", "old output".repeat(2_000), "tiny latest result");
 
         checker.before(TokenUsageEntity.empty(), execution);
@@ -294,13 +296,13 @@ class DefaultContextPrunerTest {
     void terminalOverflowEscapesTheSummaryFailureFallback() {
         AtomicInteger modelCalls = new AtomicInteger();
         AgentConfig config = AgentConfig.builder().maxTokens(1_000).build();
-        DefaultConversationManager conversations = new DefaultConversationManager(id -> Optional.empty());
+        DefaultConversationManager conversations = DefaultConversationManager.builder().contextAttachmentProvider(id -> Optional.empty()).build();
         ContextUsageReporter usage = reporter(1_000);
         DefaultModelCompacter compacter = DefaultModelCompacter.builder().models(ignored -> request -> {
             modelCalls.incrementAndGet();
             throw new IllegalStateException("offline model failure");
         }).conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations, new ContextEventPublisher(List.of()))).build();
         BoundaryChecker checker = new BoundaryChecker(config, tokenizer, conversations,
                 new DefaultContextPruner(config, usage), compacter, null, null);
         Execution execution = history("{}", "old output", "latest output".repeat(1_000));
@@ -396,7 +398,7 @@ class DefaultContextPrunerTest {
     void irreducibleOverflowStopsTheActualLoopBeforeInvokingTheMainModel() {
         AtomicInteger mainCalls = new AtomicInteger();
         AgentConfig config = AgentConfig.builder().maxTokens(1_000).build();
-        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        DefaultConversationManager conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         BoundaryChecker checker = new BoundaryChecker(config, tokenizer, conversations,
                 new DefaultContextPruner(config, reporter(1_000)), null, null, null);
 
@@ -577,14 +579,14 @@ class DefaultContextPrunerTest {
     void successfulSummariesStillOverTheHardBudgetCannotEscapeToTheMainModel() {
         AtomicInteger summaryCalls = new AtomicInteger();
         AgentConfig config = AgentConfig.builder().maxTokens(1_000).maxSummaryAttempts(2).build();
-        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        DefaultConversationManager conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         ContextUsageReporter usage = reporter(1_000);
         DefaultModelCompacter summaries = DefaultModelCompacter.builder().models(ignored -> request -> {
             summaryCalls.incrementAndGet();
             return ChatResponseEntity.builder().aiMessageEntity(AiMessageEntity.builder()
                     .text("{\"summary\":\"usable summary\"}").build()).build();
         }).conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations, new ContextEventPublisher(List.of()))).build();
 
         BoundaryChecker checker = new BoundaryChecker(config, tokenizer, conversations,
                 new DefaultContextPruner(config, usage), summaries, null, null);
@@ -631,10 +633,10 @@ class DefaultContextPrunerTest {
     }
 
     private ContextUsageReporter reporter(int budget) {
-        return new ContextUsageReporter(tokenizer, budget, new RuntimeEventPublisher(List.of(new RuntimeListener() {
+        return new ContextUsageReporter(tokenizer, budget, new ContextEventPublisher(List.of(new ContextListener() {
             @Override public int order() { return 0; }
             @Override
-            public void onContextUpdate(ContextUpdateEvent event) {
+            public void onContextUpdated(ContextUpdateEvent event) {
                 events.add(event);
             }
         })), 1);

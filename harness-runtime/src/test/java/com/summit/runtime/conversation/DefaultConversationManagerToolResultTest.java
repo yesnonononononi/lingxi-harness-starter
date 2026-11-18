@@ -30,7 +30,7 @@ class DefaultConversationManagerToolResultTest {
                 .messages(new ArrayList<>()).build();
         AiMessageEntity ai = AiMessageEntity.builder().text("calling tool").build();
 
-        new DefaultConversationManager(ContextAttachmentProvider.NONE).addMessage(LoopMessages.builder()
+        DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build().addMessage(LoopMessages.builder()
                 .execution(execution).response(ChatResponseEntity.builder().aiMessageEntity(ai).build())
                 .toolExecuteResults(List.of(result)).build());
 
@@ -62,7 +62,7 @@ class DefaultConversationManagerToolResultTest {
 
         Execution execution = Execution.builder().id("execution-1").agentRequest(AgentRequest.builder().build())
                 .messages(new ArrayList<>()).build();
-        new DefaultConversationManager(ContextAttachmentProvider.NONE).addMessage(LoopMessages.builder()
+        DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build().addMessage(LoopMessages.builder()
                 .execution(execution)
                 .response(ChatResponseEntity.builder()
                         .aiMessageEntity(AiMessageEntity.builder().text("calling tools").build()).build())

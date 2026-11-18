@@ -299,6 +299,7 @@ class ModelInvocationAttemptTest {
                     (StreamingModelResponseBehaveDecider) original.streamingChatResponseHandler();
             StreamingModelResponseBehaveDecider customHandler = new StreamingModelResponseBehaveDecider(
                     original.runtimeEventPublisher(),
+                    original.agentEventPublisher(),
                     StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
                             .executionId(originalHandler.getStreamingResponseContext().executionId())
                             .agentId(originalHandler.getStreamingResponseContext().agentId())
@@ -319,6 +320,7 @@ class ModelInvocationAttemptTest {
                     .streaming(original.streaming())
                     .thinking(original.thinking())
                     .runtimeEventPublisher(original.runtimeEventPublisher())
+                .agentEventPublisher(original.agentEventPublisher())
                     .retryConfig(original.retryConfig())
                     .invocationUsage(original.invocationUsage())
                     .beforeAttempt(original.beforeAttempt())
@@ -387,10 +389,10 @@ class ModelInvocationAttemptTest {
                 public ToolRegistry toolRegistry() { return registry; }
             };
             factory = new ModelRequestFactory(RuntimeContext.builder()
-                    .conversationManager(new DefaultConversationManager(ContextAttachmentProvider.NONE))
+                    .conversationManager(DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build())
                     .toolExecutionManager(tools).runtimeEventPublisher(new RuntimeEventPublisher(List.of(listeners)))
                     .runtimeBoundaryChecker(new BoundaryChecker(AgentConfig.builder().maxIterations(10).build(),
-                            new DefaultTokenizer(), new DefaultConversationManager(ContextAttachmentProvider.NONE), null, null, null, null))
+                            new DefaultTokenizer(), DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build(), null, null, null, null))
                     .responseIdGenerator(previous -> Integer.toString(ids.incrementAndGet())).build());
         }
 

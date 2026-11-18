@@ -47,7 +47,7 @@ class DefaultTokenAuditorTest {
                 .memory(java.util.Arrays.asList("project conventions", null, "  ", "user preferences"))
                 .build()).build();
         var execution = Execution.create(request, "agent");
-        var conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE, tokenizer);
+        var conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).tokenizer(tokenizer).build();
         conversations.startConversation(execution, null, McpToolScope.EMPTY);
         conversations.startConversation(execution, null, McpToolScope.EMPTY);
 

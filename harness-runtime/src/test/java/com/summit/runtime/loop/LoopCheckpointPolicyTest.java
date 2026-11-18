@@ -42,6 +42,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import com.summit.core.conversation.event.ContextEventPublisher;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -184,7 +185,7 @@ class LoopCheckpointPolicyTest {
         DefaultRuntimeLifeStyleManager lifecycle = new DefaultRuntimeLifeStyleManager(events,
                 new ExecutionTokenAuditRecorder(new DefaultTokenAuditor(tokenizer, config,
                         new ToolRegistry(List.of())), events));
-        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        DefaultConversationManager conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         ToolExecutionManager tools = new ToolExecutionManager() {
             public List<ToolExecuteResult> execute(ToolExecuteCommand command) {
                 return List.of(ToolExecuteResult.success("tool result"));
@@ -199,7 +200,7 @@ class LoopCheckpointPolicyTest {
                         List.of(new DefaultLoopInterceptor(), application)))
                 .runtimeBoundaryChecker(new BoundaryChecker(config, tokenizer, conversations, null, null, null, null))
                 .toolExecutionManager(tools).invoker(new DefaultChatModelInvoker(model))
-                .usage(new ContextUsageReporter(tokenizer, 100_000, events, 1)).build());
+                .usage(new ContextUsageReporter(tokenizer, 100_000, new ContextEventPublisher(List.of()), 1)).build());
     }
 
     private Execution execution() {

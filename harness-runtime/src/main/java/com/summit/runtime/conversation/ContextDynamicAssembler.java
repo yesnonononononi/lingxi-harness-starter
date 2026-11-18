@@ -54,9 +54,15 @@ public class ContextDynamicAssembler {
 
     private static final int MAX_DESC_LENGTH = 300;
 
+
+
     /**
-     * Renders all non-empty dynamic sections (including volatile workspace options and tool blacklist)
-     * into one {@code <context>} message, or {@code null} when nothing is present.
+     * Renders all non-empty dynamic sections (including volatile workspace options and tool
+     * blacklist) into one {@code <context>} message, or {@code null} when nothing is present.
+     *
+     * <p>The one call for "give me this round's block". {@link #renderSections} and
+     * {@link #assembleSections} stay separate for the runtime, which has to diff the sections before
+     * rendering anything — not an overload of this method, but the two halves it is built from.</p>
      */
     @Builder(builderMethodName = "builder", builderClassName = "AssembleBuilder")
     public static @Nullable UserMessageEntity assemble(ContextSpec contextSpec, McpToolScope scope,

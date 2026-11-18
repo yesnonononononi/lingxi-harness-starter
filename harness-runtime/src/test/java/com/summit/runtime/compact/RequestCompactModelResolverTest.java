@@ -26,6 +26,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import com.summit.core.conversation.event.ContextEventPublisher;
 import java.util.List;
 import java.util.Map;
 
@@ -169,11 +170,11 @@ class RequestCompactModelResolverTest {
         Execution tool = Execution.create(request(2, 1), "test");
         executions.save(tool);
         ContextUsageReporter usage = new ContextUsageReporter(new DefaultTokenizer(), 10_000,
-                new RuntimeEventPublisher(List.of()), 1);
-        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+                new ContextEventPublisher(List.of()), 1);
+        DefaultConversationManager conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         DefaultModelCompacter compacter = DefaultModelCompacter.builder().models(resolver::resolve).executions(executions)
                 .conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations, new ContextEventPublisher(List.of()))).build();
 
         assertTrue(compacter.compact(new ContextCompactRequest(automatic, null)));
         assertTrue(compacter.execute(ToolExecution.builder().executionId(tool.getId()).args("history").build()).isSuccess());

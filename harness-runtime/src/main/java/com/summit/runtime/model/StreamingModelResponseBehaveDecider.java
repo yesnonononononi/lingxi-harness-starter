@@ -60,6 +60,7 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
     }
 
     private final RuntimeEventPublisher runtimeEventPublisher;
+    private final AgentEventPublisher agentEventPublisher;
     private final StreamingResponseContext streamingResponseContext;
 
     /**
@@ -72,9 +73,10 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
 
     public StreamingModelResponseBehaveDecider(
             RuntimeEventPublisher runtimeEventPublisher,
+            AgentEventPublisher agentEventPublisher,
             StreamingResponseContext streamingResponseContext,
             ExecutionControlSignal control) {
-        this(runtimeEventPublisher, streamingResponseContext, control,
+        this(runtimeEventPublisher, agentEventPublisher, streamingResponseContext, control,
                 DEFAULT_ACTIVE_WINDOW, DEFAULT_HEARTBEAT_INTERVAL);
     }
 
@@ -86,11 +88,13 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
      */
     public StreamingModelResponseBehaveDecider(
             RuntimeEventPublisher runtimeEventPublisher,
+            AgentEventPublisher agentEventPublisher,
             StreamingResponseContext streamingResponseContext,
             ExecutionControlSignal control,
             Duration activeWindow,
             Duration heartbeatInterval) {
         this.runtimeEventPublisher = runtimeEventPublisher;
+        this.agentEventPublisher = agentEventPublisher;
         this.streamingResponseContext = Objects.requireNonNull( streamingResponseContext, "streamingResponseContext must not be null");
         this.control = control;
 
@@ -127,7 +131,7 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
         int offset = responseOffset;
         responseOffset += partialResponse.length();
 
-        this.runtimeEventPublisher.onPartialText(
+        this.agentEventPublisher.onPartialText(
                 AgentPartialTextEvent.builder()
                         .content(partialResponse)
                         .offset(offset)
@@ -147,7 +151,7 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
         ping();
         thinkingOffset += partialThinking.length();
 
-        this.runtimeEventPublisher.onPartialThinking(
+        this.agentEventPublisher.onPartialThinking(
                 AgentPartialThinkingEvent.builder()
                         .responseId(streamingResponseContext.responseId())
                         .agentId(streamingResponseContext.agentId())
@@ -220,7 +224,7 @@ public class StreamingModelResponseBehaveDecider implements StreamingModelRespon
                 return;
             }
             completeResponse.setResponseId(streamingResponseContext.responseId());
-            this.runtimeEventPublisher.onCompleteText(
+            this.agentEventPublisher.onCompleteText(
                     AgentCompleteTextEvent.builder()
                             .agentId(streamingResponseContext.agentId())
                             .responseId(streamingResponseContext.responseId())

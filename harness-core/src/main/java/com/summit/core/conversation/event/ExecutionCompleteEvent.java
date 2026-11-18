@@ -1,41 +1,27 @@
 package com.summit.core.conversation.event;
 
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.ToString;
 
-import lombok.Data;
-
-import java.time.Instant;
 import java.util.Map;
 
-@Data
-public class ExecutionCompleteEvent implements AgentEvent{
-    private final String executionId;
-    private final TokenInfo tokenInfo;
-    private final Instant timestamp = Instant.now();
-    private final Map<String, Object> metaData;
+/** Published when an agent-loop execution finishes normally, carrying its accumulated usage. */
+@Getter
+@EqualsAndHashCode(callSuper = true)
+@ToString(callSuper = true)
+public class ExecutionCompleteEvent extends AbstractEvent implements RuntimeEvent {
 
+    private final TokenInfo tokenInfo;
 
     public ExecutionCompleteEvent(String executionId, TokenInfo tokenInfo, Map<String, Object> metaData) {
-        this.executionId = executionId;
+        super(executionId, metaData);
         this.tokenInfo = tokenInfo;
-        this.metaData = metaData == null ? Map.of() : Map.copyOf(metaData);
     }
 
     /** Compatibility constructor for callers without selected event metadata. */
     public ExecutionCompleteEvent(String executionId, TokenInfo tokenInfo) {
         this(executionId, tokenInfo, Map.of());
-    }
-    @Override
-    public Map<String, Object> eventMetaData() {
-        return metaData;
-    }
-    @Override
-    public String executionId() {
-        return executionId;
-    }
-
-    @Override
-    public Instant timestamp() {
-        return timestamp;
     }
 
     @Override

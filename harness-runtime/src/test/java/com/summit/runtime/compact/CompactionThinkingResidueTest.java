@@ -23,6 +23,7 @@ import com.summit.runtime.loop.control.InMemoryActiveExecutionRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import com.summit.core.conversation.event.ContextEventPublisher;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -67,12 +68,12 @@ class CompactionThinkingResidueTest {
             }
         });
         ChatModel compactModel = providers.create(ModelConfig.builder().modelName("compact").provider("default").build());
-        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        DefaultConversationManager conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         return DefaultModelCompacter.builder().models(ignored -> compactModel)
                 .executions(new InMemoryActiveExecutionRegistry()).conversationManager(conversations)
                 .contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(new ContextUsageReporter(new DefaultTokenizer(), 10_000, new RuntimeEventPublisher(List.of()), 1))
-                .summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
+                .usage(new ContextUsageReporter(new DefaultTokenizer(), 10_000, new ContextEventPublisher(List.of()), 1))
+                .summaryApplier(new DefaultCompactSummaryApplier(conversations, new ContextEventPublisher(List.of()))).build();
     }
 
     private AgentRequest request() {

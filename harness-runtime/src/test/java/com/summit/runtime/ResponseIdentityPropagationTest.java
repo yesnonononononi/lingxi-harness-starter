@@ -37,6 +37,8 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import com.summit.core.runtime.AgentStreamListener;
+import com.summit.core.conversation.event.AgentEventPublisher;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -69,7 +71,7 @@ class ResponseIdentityPropagationTest {
                     .executionControl(new DefaultExecutionController(() -> null, repository, publisher, lifecycle))
                     .loopInterceptorProcessor(fixture.context.getLoopInterceptorProcessor())
                     .boundaryChecker(fixture.context.getRuntimeBoundaryChecker()).tokenizer(tokenizer)
-                    .usage(new ContextUsageReporter(tokenizer, 100000, publisher, 5)).build();
+                    .usage(new ContextUsageReporter(tokenizer, 100000, fixture.context.getContextEventPublisher(), 5)).build();
             fixture.execution.setExecutionState(ExecutionState.CREATED);
 
             factory.createRuntime(fixture.context.getInvoker(), workspace(), McpToolScope.EMPTY)
@@ -276,6 +278,7 @@ class ResponseIdentityPropagationTest {
                     .contextAttachmentProvider(ContextAttachmentProvider.NONE)
                     .build();
             RuntimeEventPublisher publisher = new RuntimeEventPublisher(List.of(events));
+            AgentEventPublisher agentPublisher = new AgentEventPublisher(List.of(events));
             ToolDefinition<?> definition = ToolDefinition.builder().id("test").name("test").timeout(0L)
                     .maxOutput(1000).concurrentPolicy(ConcurrentPolicy.READ_ONLY).executor(call -> {
                         if ("fail".equals(call.getArgs())) throw new IllegalStateException("tool failed");
@@ -294,7 +297,8 @@ class ResponseIdentityPropagationTest {
             context = RuntimeContext.builder().conversationManager(conversations).workspace(workspace())
                     .tokenizer(new DefaultTokenizer())
                     .responseIdGenerator(generator)
-                    .runtimeEventPublisher(publisher).toolExecutionManager(tools)
+                    .runtimeEventPublisher(publisher).agentEventPublisher(agentPublisher)
+                    .toolExecutionManager(tools)
                     .loopInterceptorProcessor(new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor())))
                     .runtimeBoundaryChecker(new BoundaryChecker(AgentConfig.builder().maxIterations(4).build(),
                             new DefaultTokenizer(), conversations, null, null, null, null))
@@ -314,7 +318,7 @@ class ResponseIdentityPropagationTest {
         public void close() { tools.close(); }
     }
 
-    private static final class Capture implements RuntimeListener {
+    private static final class Capture implements RuntimeListener, AgentStreamListener {
         @Override public int order() { return 0; }
         private final List<String> streamedIds = new ArrayList<>();
         private final List<AgentMessageEvent> messages = new CopyOnWriteArrayList<>();

@@ -19,6 +19,8 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import com.summit.core.conversation.event.AgentEventPublisher;
+import com.summit.core.runtime.AgentStreamListener;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -42,7 +44,7 @@ class StreamingModelResponseBehaveDeciderTest {
     void publishesIndependentUtf16StartOffsetsForTextAndThinking() throws Exception {
         RecordingListener listener = new RecordingListener();
         StreamingModelResponseBehaveDecider handler = decider(
-                new CompletableFuture<>(), null, new RuntimeEventPublisher(List.of(listener)));
+                new CompletableFuture<>(), null, new AgentEventPublisher(List.of(listener)));
         RecordingTransport transport = new RecordingTransport();
 
         handler.onPartialResponse("A\uD83D\uDE00", transport);
@@ -72,13 +74,14 @@ class StreamingModelResponseBehaveDeciderTest {
     @Test
     void newResponseHandlerStartsBothOffsetsAtZero() {
         RecordingListener listener = new RecordingListener();
-        RuntimeEventPublisher publisher = new RuntimeEventPublisher(List.of(listener));
+        AgentEventPublisher publisher = new AgentEventPublisher(List.of(listener));
         RecordingTransport transport = new RecordingTransport();
         StreamingModelResponseBehaveDecider first = decider(new CompletableFuture<>(), null, publisher);
         first.onPartialResponse("previous text", transport);
         first.onPartialThinking("previous thinking", transport);
 
         StreamingModelResponseBehaveDecider next = new StreamingModelResponseBehaveDecider(
+                new RuntimeEventPublisher(List.of()),
                 publisher, StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
                         .executionId("execution-1").agentId("chatAgent").responseId("1234567890123456790")
                         .future(new CompletableFuture<>()).build(), null);
@@ -206,7 +209,7 @@ class StreamingModelResponseBehaveDeciderTest {
         ExecutionControlSignal control = new ExecutionControlSignal("execution-1");
         RecordingListener listener = new RecordingListener();
         StreamingModelResponseBehaveDecider handler =
-                decider(future, control, new RuntimeEventPublisher(List.of(listener)));
+                decider(future, control, new AgentEventPublisher(List.of(listener)));
         RecordingTransport transport = new RecordingTransport();
 
         control.requireCancel();
@@ -275,9 +278,9 @@ class StreamingModelResponseBehaveDeciderTest {
     @Test
     void publishesToolCallPrepareOncePerToolCallWithMetadataAndResponseIdentity() throws Exception {
         RecordingListener listener = new RecordingListener();
-        RuntimeEventPublisher publisher = new RuntimeEventPublisher(List.of(listener));
         StreamingModelResponseBehaveDecider handler = new StreamingModelResponseBehaveDecider(
-                publisher,
+                new RuntimeEventPublisher(List.of(listener)),
+                new AgentEventPublisher(List.of(listener)),
                 StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
                         .executionId("execution-1")
                         .agentId("chatAgent")
@@ -325,7 +328,7 @@ class StreamingModelResponseBehaveDeciderTest {
         RecordingListener listener = new RecordingListener();
         CompletableFuture<ChatResponseEntity> future = new CompletableFuture<>();
         ExecutionControlSignal control = new ExecutionControlSignal("execution-1");
-        StreamingModelResponseBehaveDecider handler = decider(future, control, new RuntimeEventPublisher(List.of(listener)));
+        StreamingModelResponseBehaveDecider handler = decider(future, control, new AgentEventPublisher(List.of(listener)));
         RecordingTransport transport = new RecordingTransport();
 
         control.requireCancel();
@@ -340,6 +343,7 @@ class StreamingModelResponseBehaveDeciderTest {
         CompletableFuture<ChatResponseEntity> future = new CompletableFuture<>();
         StreamingModelResponseBehaveDecider handler = new StreamingModelResponseBehaveDecider(
                 new RuntimeEventPublisher(List.of()),
+                new AgentEventPublisher(List.of()),
                 StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
                         .executionId("execution-1")
                         .agentId("chatAgent")
@@ -374,6 +378,7 @@ class StreamingModelResponseBehaveDeciderTest {
 
         StreamingModelResponseBehaveDecider deciderA = new StreamingModelResponseBehaveDecider(
                 new RuntimeEventPublisher(List.of()),
+                new AgentEventPublisher(List.of()),
                 StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
                         .executionId("exec-a")
                         .agentId("chatAgent")
@@ -385,6 +390,7 @@ class StreamingModelResponseBehaveDeciderTest {
                 Duration.ofMillis(15));
         StreamingModelResponseBehaveDecider deciderB = new StreamingModelResponseBehaveDecider(
                 new RuntimeEventPublisher(List.of()),
+                new AgentEventPublisher(List.of()),
                 StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
                         .executionId("exec-b")
                         .agentId("chatAgent")
@@ -436,6 +442,7 @@ class StreamingModelResponseBehaveDeciderTest {
         CompletableFuture<ChatResponseEntity> future = new CompletableFuture<>();
         StreamingModelResponseBehaveDecider handler = new StreamingModelResponseBehaveDecider(
                 new RuntimeEventPublisher(List.of()),
+                new AgentEventPublisher(List.of()),
                 StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
                         .executionId("execution-1")
                         .agentId("chatAgent")
@@ -467,13 +474,14 @@ class StreamingModelResponseBehaveDeciderTest {
 
     private static StreamingModelResponseBehaveDecider decider(
             CompletableFuture<ChatResponseEntity> future, ExecutionControlSignal control) {
-        return decider(future, control, new RuntimeEventPublisher(List.of()));
+        return decider(future, control, new AgentEventPublisher(List.of()));
     }
 
     private static StreamingModelResponseBehaveDecider decider(
             CompletableFuture<ChatResponseEntity> future, ExecutionControlSignal control,
-            RuntimeEventPublisher publisher) {
+            AgentEventPublisher publisher) {
         return new StreamingModelResponseBehaveDecider(
+                new RuntimeEventPublisher(List.of()),
                 publisher,
                 StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
                         .executionId("execution-1").agentId("chatAgent").responseId("1234567890123456789").future(future).build(),
@@ -505,7 +513,7 @@ class StreamingModelResponseBehaveDeciderTest {
         }
     }
 
-    private static final class RecordingListener implements RuntimeListener {
+    private static final class RecordingListener implements AgentStreamListener, RuntimeListener {
         @Override public int order() { return 0; }
         private final List<String> partialTexts = new ArrayList<>();
         private final List<AgentPartialTextEvent> textEvents = new ArrayList<>();

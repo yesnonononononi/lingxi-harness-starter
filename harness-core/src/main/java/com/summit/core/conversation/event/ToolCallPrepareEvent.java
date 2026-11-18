@@ -12,7 +12,7 @@ import java.util.Map;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class ToolCallPrepareEvent implements AgentEvent{
+public class ToolCallPrepareEvent implements RuntimeEvent{
     private String executionId;
     private String toolCallId;
     private String agentId;

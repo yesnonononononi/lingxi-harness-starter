@@ -19,6 +19,7 @@ import com.summit.runtime.prompt.SystemPromptAssembler;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import com.summit.core.conversation.event.ContextEventPublisher;
 import java.util.List;
 import java.util.Optional;
 
@@ -41,7 +42,7 @@ class SummaryRebuildContractTest {
 
     @Test
     void consecutiveRebuildsPreservePendingInputUntilALaterReply() {
-        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        DefaultConversationManager conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         AiMessageEntity earlierReply = AiMessageEntity.builder().text("earlier reply").build();
         UserMessageEntity notification = UserMessageEntity.from("incoming mail").markPendingCompaction();
         Execution execution = execution(SystemMessageEntity.builder().text("system").build(),
@@ -69,7 +70,7 @@ class SummaryRebuildContractTest {
     /** Case 10 (P0-2 regression): every user message survives the rebuild, in original order. */
     @Test
     void summaryRebuildKeepsAllUserMessages() {
-        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        DefaultConversationManager conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         // The trailing assistant messages carry no thinking, so retainableTail() keeps nothing:
         // without premise B every user message but the newest one disappears here.
         Execution execution = execution(
@@ -90,17 +91,17 @@ class SummaryRebuildContractTest {
     @Test
     void summaryInputIncludesPreviousSummarySystemMessage() {
         List<ChatRequestEntity> requests = new ArrayList<>();
-        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        DefaultConversationManager conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         StubContextTokenizer tokenizer = new StubContextTokenizer(OVER_THRESHOLD);
         ContextUsageReporter usage = new ContextUsageReporter(tokenizer, 100_000,
-                new RuntimeEventPublisher(List.of()), 1);
+                new ContextEventPublisher(List.of()), 1);
         DefaultModelCompacter compacter = DefaultModelCompacter.builder().models(ignored -> request -> {
             requests.add(request);
             return ChatResponseEntity.builder()
                     .aiMessageEntity(AiMessageEntity.builder().text(SUMMARY_JSON).build())
                     .build();
         }).conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations, new ContextEventPublisher(List.of()))).build();
         Execution execution = execution(
                 SystemMessageEntity.builder().text("LEADING-SYSTEM-PROMPT").build(),
                 UserMessageEntity.from("history the first round compresses"));
@@ -120,7 +121,7 @@ class SummaryRebuildContractTest {
     @Test
     void summaryRebuildKeepsLeadingSystemAndAttachment() {
         DefaultConversationManager conversations =
-                new DefaultConversationManager(executionId -> Optional.of("ATTACHMENT-STATE-42"));
+                DefaultConversationManager.builder().contextAttachmentProvider(executionId -> Optional.of("ATTACHMENT-STATE-42")).build();
         Execution execution = execution(
                 SystemMessageEntity.builder().text("LEADING").build(),
                 UserMessageEntity.from("user-one"));
@@ -164,7 +165,7 @@ class SummaryRebuildContractTest {
      */
     @Test
     void summaryRebuildKeepsAllUserMessagesEvenWhenTrailingTurnAnswered() {
-        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        DefaultConversationManager conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         Execution execution = execution(
                 SystemMessageEntity.builder().text("LEADING").build(),
                 UserMessageEntity.from("user-one"),
@@ -217,7 +218,7 @@ class SummaryRebuildContractTest {
     /** A summary rebuild strips the stale thinking signature from the trailing assistant turn. */
     @Test
     void summaryRebuildStripsTheStaleThinkingSignatureFromTheTrailingTurn() {
-        DefaultConversationManager conversations = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        DefaultConversationManager conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         Execution execution = execution(
                 SystemMessageEntity.builder().text("LEADING").build(),
                 UserMessageEntity.from("continue"),

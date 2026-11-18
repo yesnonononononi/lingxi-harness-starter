@@ -26,6 +26,8 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import com.summit.core.conversation.event.ContextChangedEvent;
+import com.summit.core.conversation.event.ContextRebuiltEvent;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -182,7 +184,7 @@ class ModelRequestFactoryVisibilityTest {
 
     private static ConversationManager conversations() {
         return new ConversationManager() {
-            public void startConversation(Execution execution, Workspace workspace, McpToolScope scope) { }
+            public java.util.Optional<ContextChangedEvent> startConversation(Execution execution, Workspace workspace, McpToolScope scope) { return java.util.Optional.empty(); }
 
             public void addMessage(LoopMessages loopMessages) { }
 
@@ -190,7 +192,7 @@ class ModelRequestFactoryVisibilityTest {
 
             public TokenUsageEntity tokenUsage(Execution execution) { return TokenUsageEntity.empty(); }
 
-            public void rebuildContext(String summary, Execution execution) { }
+            public java.util.Optional<ContextRebuiltEvent> rebuildContext(String summary, Execution execution) { return java.util.Optional.empty(); }
 
             public void appendSystemMessage(Execution execution, SystemMessageEntity entity) { }
 

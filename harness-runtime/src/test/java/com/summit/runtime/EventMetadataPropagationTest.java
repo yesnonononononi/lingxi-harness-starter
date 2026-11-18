@@ -31,6 +31,11 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.util.HashMap;
+import com.summit.core.conversation.event.AgentEventPublisher;
+import com.summit.core.conversation.event.ContextEventPublisher;
+import com.summit.core.conversation.event.ContextListener;
+import com.summit.core.conversation.event.Event;
+import com.summit.core.runtime.AgentStreamListener;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -43,6 +48,8 @@ class EventMetadataPropagationTest {
     private static final Map<String, Object> METADATA = Map.of("turnId", "9007199254740995");
     private final CapturingListener listener = new CapturingListener();
     private final RuntimeEventPublisher publisher = new RuntimeEventPublisher(List.of(listener));
+    private final ContextEventPublisher contextPublisher = new ContextEventPublisher(List.of(listener));
+    private final AgentEventPublisher agentPublisher = new AgentEventPublisher(List.of(listener));
 
     /** 本用例不涉及中断，传一个不触碰传输层的空句柄，而不是把 null 当作合法参数。 */
     private static final StreamingHandler NOOP_TRANSPORT = new StreamingHandler() {
@@ -66,7 +73,7 @@ class EventMetadataPropagationTest {
         lifecycle.onComplete(execution);
         lifecycle.onCancel(execution);
         lifecycle.onError(execution, new IllegalStateException("failed"));
-        ContextUsageReporter usage = new ContextUsageReporter(new DefaultTokenizer(), 1000, publisher, 1);
+        ContextUsageReporter usage = new ContextUsageReporter(new DefaultTokenizer(), 1000, contextPublisher, 1);
         for (ContextUpdateEvent.Phase phase : ContextUpdateEvent.Phase.values()) {
             usage.publish(execution, phase, "");
         }
@@ -84,7 +91,7 @@ class EventMetadataPropagationTest {
             public ToolRegistry toolRegistry() { return new ToolRegistry(List.of()); }
         };
         RuntimeContext context = RuntimeContext.builder()
-                .runtimeEventPublisher(publisher).toolExecutionManager(tools)
+                .runtimeEventPublisher(publisher).agentEventPublisher(agentPublisher).toolExecutionManager(tools)
                 .conversationManager(DefaultConversationManager.builder()
                         .conversationTranscriptSink((id, ai, toolMessages, responseId, metadata) -> { })
                         .contextAttachmentProvider(ContextAttachmentProvider.NONE)
@@ -183,7 +190,7 @@ class EventMetadataPropagationTest {
 
         assertEquals(METADATA, parameters.getEventMetaData());
     }
-    private void assertMetadata(AgentEvent event, Map<String, Object> expected) {
+    private void assertMetadata(Event event, Map<String, Object> expected) {
         assertEquals(expected, event.eventMetaData(), event.type());
         assertFalse(event.eventMetaData().containsKey("private"), event.type());
     }
@@ -224,9 +231,9 @@ class EventMetadataPropagationTest {
         };
     }
 
-    private static class CapturingListener implements RuntimeListener {
+    private static class CapturingListener implements RuntimeListener, AgentStreamListener, ContextListener {
         @Override public int order() { return 0; }
-        private final List<AgentEvent> events = new CopyOnWriteArrayList<>();
+        private final List<Event> events = new CopyOnWriteArrayList<>();
         public void onExecutionStart(ExecutionStartEvent event) { events.add(event); }
         public void onExecutionSuspended(ExecutionSuspendedEvent event) { events.add(event); }
         public void onExecutionResumed(ExecutionResumedEvent event) { events.add(event); }
@@ -236,7 +243,7 @@ class EventMetadataPropagationTest {
         public void onPartialText(AgentPartialTextEvent event) { events.add(event); }
         public void onPartialThinking(AgentPartialThinkingEvent event) { events.add(event); }
         public void onCompleteText(AgentCompleteTextEvent event) { events.add(event); }
-        public void onContextUpdate(ContextUpdateEvent event) { events.add(event); }
+        public void onContextUpdated(ContextUpdateEvent event) { events.add(event); }
         public void onToolCall(ToolCallStartEvent event) { events.add(event); }
         public void onToolCallOutput(ToolCallEndEvent event) { events.add(event); }
     }

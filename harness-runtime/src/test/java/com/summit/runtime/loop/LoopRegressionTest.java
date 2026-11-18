@@ -33,6 +33,10 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import com.summit.core.conversation.event.ContextEventPublisher;
+import com.summit.core.conversation.event.ContextListener;
+import com.summit.core.runtime.AgentStreamListener;
+import com.summit.core.conversation.event.AgentEventPublisher;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -42,6 +46,26 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 class LoopRegressionTest {
+
+    /** Listener surface for the tests that watch the run, its stream and its context at once. */
+    private abstract static class AllListeners
+            implements RuntimeListener, AgentStreamListener, ContextListener {
+        @Override public int order() { return 0; }
+    }
+
+    /** Context surface of a listener that also watches the context; empty when it does not. */
+    private static AgentEventPublisher agentEvents(RuntimeListener listener) {
+        return listener instanceof AgentStreamListener streamListener
+                ? new AgentEventPublisher(List.of(streamListener))
+                : new AgentEventPublisher(List.of());
+    }
+
+    private static ContextEventPublisher contextEvents(RuntimeListener listener) {
+        return listener instanceof ContextListener contextListener
+                ? new ContextEventPublisher(List.of(contextListener))
+                : new ContextEventPublisher(List.of());
+    }
+
     private final InMemoryActiveExecutionRegistry repository = new InMemoryActiveExecutionRegistry();
     private final DefaultTokenizer tokenizer = new DefaultTokenizer();
     private final AtomicInteger transcripts = new AtomicInteger();
@@ -62,9 +86,8 @@ class LoopRegressionTest {
                 return InterceptorResult.NONE;
             }
         };
-        RuntimeListener listener = new RuntimeListener() {
-            @Override public int order() { return 0; }
-            public void onContextUpdate(ContextUpdateEvent event) { notifications.add("usage"); }
+        RuntimeListener listener = new AllListeners() {
+            public void onContextUpdated(ContextUpdateEvent event) { notifications.add("usage"); }
             public void onExecutionError(ExecutionErrorEvent event) {
                 assertEquals(ExecutionState.FAILED, execution.getExecutionState());
                 assertTrue(repository.findById(execution.getId()).isEmpty());
@@ -111,7 +134,7 @@ class LoopRegressionTest {
                 .toolExecutionManager(tools).runtimeEventPublisher(events)
                 .loopInterceptorProcessor(new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor())))
                 .runtimeBoundaryChecker(boundaryChecker(3))
-                .usage(new ContextUsageReporter(tokenizer, 1_024_000, events, 1))
+                .usage(new ContextUsageReporter(tokenizer, 1_024_000, new ContextEventPublisher(List.of()), 1))
                 .invoker(new DefaultChatModelInvoker(request -> response(rounds.getAndIncrement() == 0))).build();
         ExecutionControlSignal control = repository.register(execution.getId());
         try {
@@ -130,8 +153,7 @@ class LoopRegressionTest {
         AtomicReference<AgentMessageEvent> received = new AtomicReference<>();
 
         runtime(command -> response(false), List.of(), LoopInterceptor.NOOP, 1,
-                new RuntimeListener() {
-                    @Override public int order() { return 0; }
+                new AllListeners() {
                     public void onAiMessage(AgentMessageEvent event) {
                         received.set(event);
                     }
@@ -186,6 +208,8 @@ class LoopRegressionTest {
                                              RuntimeListener listener, RuntimeLifeStyleManager lifecycle,
                                              RuntimeBoundaryChecker checker) {
         RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(listener));
+        AgentEventPublisher agentEvents = agentEvents(listener);
+        ContextEventPublisher contextEvents = contextEvents(listener);
         RuntimeLifeStyleManager notifications = lifecycle == null ? new DefaultRuntimeLifeStyleManager(events) : lifecycle;
         return new RuntimeProcessorTemplate(RuntimeContext.builder().conversationManager(conversations)
                 .executionRepository(repository)
@@ -193,8 +217,9 @@ class LoopRegressionTest {
                 .loopInterceptorProcessor(interceptorProcessor)
                 .runtimeLifeStyleManager(notifications)
                 .runtimeBoundaryChecker(checker)
-                .usage(new ContextUsageReporter(tokenizer, 1_024_000, events, 1))
-                .runtimeEventPublisher(events).toolExecutionManager(tools).invoker(invoker).build());
+                .usage(new ContextUsageReporter(tokenizer, 1_024_000, contextEvents, 1))
+                .runtimeEventPublisher(events).agentEventPublisher(agentEvents)
+                .toolExecutionManager(tools).invoker(invoker).build());
     }
 
     @Test
@@ -237,8 +262,7 @@ class LoopRegressionTest {
                 return InterceptorResult.NONE;
             }
         };
-        RuntimeListener listener = new RuntimeListener() {
-            @Override public int order() { return 0; }
+        RuntimeListener listener = new AllListeners() {
             public void onAiMessage(AgentMessageEvent event) { aiEvents.incrementAndGet(); }
             @Override
             public void onExecutionCompleted(ExecutionCompleteEvent event) {
@@ -430,8 +454,7 @@ class LoopRegressionTest {
             }
         };
         Execution execution = execution();
-        runtime(command -> response(false), List.of(), interceptor, 1, new RuntimeListener() {
-            @Override public int order() { return 0; }
+        runtime(command -> response(false), List.of(), interceptor, 1, new AllListeners() {
             public void onAiMessage(AgentMessageEvent event) { repository.requireSuspend("e"); }
         }).execute(execution);
         assertEquals(ExecutionState.SUSPENDED, execution.getExecutionState());
@@ -607,9 +630,8 @@ class LoopRegressionTest {
         AtomicInteger updates = new AtomicInteger();
         Execution execution = execution();
         runtime(command -> { calls.incrementAndGet(); return response(false); }, List.of(), LoopInterceptor.NOOP,
-                1, new RuntimeListener() {
-                    @Override public int order() { return 0; }
-                    public void onContextUpdate(ContextUpdateEvent event) { updates.incrementAndGet(); }
+                1, new AllListeners() {
+                    public void onContextUpdated(ContextUpdateEvent event) { updates.incrementAndGet(); }
                 }).execute(execution);
         assertEquals(ExecutionState.COMPLETED, execution.getExecutionState());
         assertEquals(1, calls.get());
@@ -811,7 +833,7 @@ class LoopRegressionTest {
                 .runtimeEventPublisher(events).runtimeLifeStyleManager(lifecycle)
                 .executionRepository(repository)
                 .executionControl(new DefaultExecutionController(() -> null, repository, events, lifecycle))
-                .usage(new ContextUsageReporter(tokenizer, 1_024_000, events, 1))
+                .usage(new ContextUsageReporter(tokenizer, 1_024_000, new ContextEventPublisher(List.of()), 1))
                 .loopInterceptorProcessor(new DefaultLoopInterceptorProcessor(List.of(new DefaultLoopInterceptor(), observer)))
                 .boundaryChecker(boundaryChecker(2)).build();
 
@@ -1462,6 +1484,7 @@ class LoopRegressionTest {
     private DeferredRuntime deferredRuntime(ChatModel model, LoopInterceptor interceptor, RuntimeListener listener) {
         DeferredCommitRepository deferred = new DeferredCommitRepository(repository);
         RuntimeEventPublisher events = new RuntimeEventPublisher(List.of(listener));
+        ContextEventPublisher contextEvents = contextEvents(listener);
         RuntimeLifeStyleManager notifications = new DefaultRuntimeLifeStyleManager(events);
         ToolExecutionManager tools = new ToolExecutionManager() {
             public List<ToolExecuteResult> execute(ToolExecuteCommand command) { return List.of(); }
@@ -1475,7 +1498,7 @@ class LoopRegressionTest {
                         List.of(new DefaultLoopInterceptor(), interceptor)))
                 .runtimeLifeStyleManager(notifications)
                 .runtimeBoundaryChecker(boundaryChecker(1))
-                .usage(new ContextUsageReporter(tokenizer, 1_024_000, events, 1))
+                .usage(new ContextUsageReporter(tokenizer, 1_024_000, contextEvents, 1))
                 .runtimeEventPublisher(events).toolExecutionManager(tools)
                 .invoker(new DefaultChatModelInvoker(model)).build());
         return new DeferredRuntime(template, deferred);

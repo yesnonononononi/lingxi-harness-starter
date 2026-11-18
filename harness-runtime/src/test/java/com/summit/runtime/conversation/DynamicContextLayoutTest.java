@@ -37,7 +37,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class DynamicContextLayoutTest {
 
     private final DefaultConversationManager conversations =
-            new DefaultConversationManager(ContextAttachmentProvider.NONE);
+            DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
 
     @Test
     @DisplayName("多轮续跑：历史一条不动，新动态上下文插在本轮用户消息之前")

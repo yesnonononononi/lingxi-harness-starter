@@ -5,12 +5,19 @@ import com.summit.core.agent.Execution;
 import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conf.SkillConfig;
+import com.summit.core.conversation.ChangedDiff;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.api.ConversationTranscriptSink;
+import com.summit.core.conversation.event.AgentEvent;
+import com.summit.core.conversation.event.ContextChangedEvent;
+import com.summit.core.conversation.event.ContextChangeReason;
+import com.summit.core.conversation.event.ContextEventPublisher;
+import com.summit.core.conversation.event.ContextRebuiltEvent;
 import com.summit.core.conversation.message.*;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.prompt.PromptAssembler;
+import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.runtime.loop.LoopMessages;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.skill.SkillLoader;
@@ -20,6 +27,7 @@ import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
 import java.util.*;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 
 /**
@@ -32,29 +40,23 @@ public class DefaultConversationManager implements ConversationManager {
             you may can see all user messages of the history, after that, lastest turn message
             Continue the work from there: do not repeat steps that are already marked as completed.
             """;
-
     /**
      * Fraction of the context cap the trailing turn may occupy before {@link #retainableTail} shrinks
      * it down to its last assistant message. Kept as a named policy constant instead of a literal
      * buried in the method; a full Spring-configurable binding is tracked separately.
      */
     private static final double TAIL_COMPACT_THRESHOLD = 0.20;
+    private static final int PREFIX_CHANGED_PARTIAL_TEXT_MAX_LENGTH = 100;
 
-    private final Tokenizer tokenizer;
-    private final int maxTokens;
     /**
      * Fallback context cap for the convenience constructors; the Spring bean passes the real one.
      */
     private static final int DEFAULT_MAX_TOKENS = 1_024_000;
     /**
      * How many live per-round context blocks may sit in an uncompacted history before the manager
-     * starts complaining. See {@link #warnWhenContextPilesUp}.
+     * starts complaining.
      */
     private static final int DEFAULT_MAX_LIVE_CONTEXT_BLOCKS = 4;
-    private final int maxLiveContextBlocks;
-    private final ContextAttachmentProvider contextAttachmentProvider;
-    private final ConversationTranscriptSink conversationTranscriptSink;
-    private final SkillLoader skillLoader;
     /**
      * Factory of the assembler that renders each execution's leading system message.
      *
@@ -65,15 +67,12 @@ public class DefaultConversationManager implements ConversationManager {
      */
     private final Supplier<PromptAssembler> promptAssemblerFactory;
 
-    /** Convenience entry point for the common case: no transcript sink, default tokenizer. */
-    public DefaultConversationManager(ContextAttachmentProvider contextAttachmentProvider) {
-        this(null, 0, 0, contextAttachmentProvider, null, null, null);
-    }
-
-    /** Convenience entry point for callers that only swap the tokenizer. */
-    public DefaultConversationManager(ContextAttachmentProvider contextAttachmentProvider, Tokenizer tokenizer) {
-        this(tokenizer, 0, 0, contextAttachmentProvider, null, null, null);
-    }
+    private final Tokenizer tokenizer;
+    private final int maxTokens;
+    private final int maxLiveContextBlocks;
+    private final ContextAttachmentProvider contextAttachmentProvider;
+    private final ConversationTranscriptSink conversationTranscriptSink;
+    private final SkillLoader skillLoader;
 
     /**
      * Collects the collaborators this manager needs, replacing six overloads whose argument order
@@ -89,29 +88,30 @@ public class DefaultConversationManager implements ConversationManager {
                                        ContextAttachmentProvider contextAttachmentProvider,
                                        ConversationTranscriptSink conversationTranscriptSink,
                                        Supplier<PromptAssembler> promptAssemblerFactory,
-                                       SkillLoader skillLoader) {
-        this.tokenizer = tokenizer == null ? new DefaultTokenizer() : tokenizer;
+                                       SkillLoader skillLoader
+    ) {
         this.maxTokens = maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS;
-        this.maxLiveContextBlocks = maxLiveContextBlocks > 0
-                ? maxLiveContextBlocks : DEFAULT_MAX_LIVE_CONTEXT_BLOCKS;
-
-        this.contextAttachmentProvider = contextAttachmentProvider == null
-                ? ContextAttachmentProvider.NONE : contextAttachmentProvider;
+        this.maxLiveContextBlocks = maxLiveContextBlocks > 0 ? maxLiveContextBlocks : DEFAULT_MAX_LIVE_CONTEXT_BLOCKS;
+        this.tokenizer = tokenizer == null ? new DefaultTokenizer() : tokenizer;
         this.conversationTranscriptSink = conversationTranscriptSink;
-        this.promptAssemblerFactory = promptAssemblerFactory == null
-                ? SystemPromptAssembler::new : promptAssemblerFactory;
+        // "Every parameter is optional" has to hold for this one too: a caller that only wants the
+        // defaults must not get an NPE on the first startConversation.
+        this.promptAssemblerFactory =
+                promptAssemblerFactory == null ? SystemPromptAssembler::new : promptAssemblerFactory;
+        this.contextAttachmentProvider = contextAttachmentProvider;
         this.skillLoader = skillLoader;
+
     }
 
 
     @Override
-    public void startConversation(Execution execution, Workspace workspace, McpToolScope mcpToolScope) {
+    public Optional<ContextChangedEvent> startConversation(Execution execution, Workspace workspace, McpToolScope mcpToolScope) {
         AgentRequest agentRequest = execution.getAgentRequest();
         McpToolScope scope = mcpToolScope == null ? McpToolScope.EMPTY : mcpToolScope;
 
         List<Message> current = execution.getMessages() == null ? new ArrayList<>() : execution.getMessages();
         List<Message> rebuilt = new ArrayList<>(current);
-        boolean changed = false;
+        Set<ContextChangeReason> reasons = EnumSet.noneOf(ContextChangeReason.class);
 
         // Fresh session accounting starts from zero.
         if (rebuilt.stream().noneMatch(AiMessageEntity.class::isInstance)) {
@@ -126,29 +126,61 @@ public class DefaultConversationManager implements ConversationManager {
         SystemMessageEntity expectedSystem = buildSystemMessage(agentRequest, workspace);
         if (rebuilt.isEmpty() || !(rebuilt.getFirst() instanceof SystemMessageEntity currentSystem)) {
             rebuilt.addFirst(expectedSystem);
-            changed = true;
+            reasons.add(ContextChangeReason.SYSTEM_PROMPT_INSERTED);
         } else if (!Objects.equals(currentSystem.getText(), expectedSystem.getText())) {
             rebuilt.set(0, expectedSystem);
-            changed = true;
+            reasons.add(ContextChangeReason.SYSTEM_PROMPT_REPLACED);
         }
 
         // Everything that varies per round goes behind the cached prefix, right before the user
         // turn. When it has not changed, history is left untouched so the prefix keeps hitting.
         ContextChangeDiscover.Layout layout = ContextChangeDiscover.layout(
                 rebuilt, agentRequest, scope, loadSkill(agentRequest.getSkillConfig()));
+
+        Map<ContextSectionKind, ChangedDiff> changedInfo = layout.changedKindByLocation();
+
         if (layout.insert()) {
-            rebuilt.add(layout.insertIndex(), layout.contract());
-            changed = true;
-            // Only a round that actually appended can push the count over a threshold; evaluating
-            // it outside this branch made an unchanged history at the limit warn on every round.
-            warnWhenContextPilesUp(execution, rebuilt);
+            rebuilt.add(layout.insertIndex(), layout.newContext());
+            reasons.add(ContextChangeReason.DYNAMIC_SECTIONS_CHANGED);
         }
+
+        int liveBlocks = liveContextBlocks(rebuilt);
 
         // Replacing the list is what tells the incremental token baseline that its snapshot is
         // stale; leaving the reference alone when nothing changed keeps that baseline valid.
-        if (changed) {
-            execution.setMessages(rebuilt);
+        if (reasons.isEmpty()) {
+            return Optional.empty();
         }
+
+        execution.setMessages(rebuilt);
+
+        int currentLiveBlocks = liveBlocks;
+        warnWhenContextPilesUp(execution, currentLiveBlocks);
+
+        // Truncated in one pass instead of mutating the discover's map: that map may be an immutable
+        // empty one, and rewriting entries in place only works as long as the implementation happens
+        // to be mutable.
+        Map<ContextSectionKind, ChangedDiff> truncated = changedInfo.entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey,
+                        entry -> new ChangedDiff(
+                                diffTruncated(entry.getValue().oldContent()),
+                                diffTruncated(entry.getValue().newContent()))));
+
+        return Optional.of(ContextChangedEvent.builder()
+                .executionId(execution.getId())
+                .metaData(execution.eventMetaData())
+                .reasons(reasons)
+                .changedSections(truncated)
+                .currentLiveBlocks(currentLiveBlocks)
+                .maxLiveBlocks(maxLiveContextBlocks)
+                .build());
+    }
+
+    /** Live per-round context blocks in the history: one per round that appended, plus any rebuild kept. */
+    private static int liveContextBlocks(List<Message> messages) {
+        return (int) messages.stream()
+                .filter(message -> message instanceof UserMessageEntity user && user.hasContextContract())
+                .count();
     }
 
     @Override
@@ -217,8 +249,8 @@ public class DefaultConversationManager implements ConversationManager {
 
 
     @Override
-    public void rebuildContext(String summary, Execution execution) {
-        if (summary == null || summary.isBlank()) return;
+    public Optional<ContextRebuiltEvent> rebuildContext(String summary, Execution execution) {
+        if (summary == null || summary.isBlank()) return Optional.empty();
 
         List<Message> current = execution.getMessages();
         List<Message> attachment = new ArrayList<>();
@@ -258,8 +290,43 @@ public class DefaultConversationManager implements ConversationManager {
         // generation and invalidates any prune, but says nothing about the attempt budget or the
         // "summarization is closed" latch — resetting those here is the P0-1 regression.
         execution.setCompactionState(execution.getCompactionState().afterSummaryRebuild());
+
+        return Optional.of(ContextRebuiltEvent.builder()
+                .executionId(execution.getId())
+                .metaData(execution.eventMetaData())
+                .summaryGeneration(execution.getCompactionState().summaryGeneration())
+                .messageCount(rebuilt.size())
+                .build());
     }
 
+
+    /**
+     * Truncated for transport. A null side is normal, not a bug: the "old" side of a section that
+     * did not exist before is null, which is every section of a first round.
+     */
+    private String diffTruncated(String raw) {
+        if (raw == null) return null;
+        return raw.substring(0, Math.min(PREFIX_CHANGED_PARTIAL_TEXT_MAX_LENGTH, raw.length()));
+    }
+
+    /**
+     * Warns when the count crosses the limit and again on every further multiple, so a long
+     * uncompacted session logs a handful of lines instead of one per round.
+     *
+     * <p>Kept here rather than delegated to a listener: a deployment that registers no
+     * {@code ContextListener} would otherwise lose the guard entirely, and this is the only place
+     * that knows an append actually happened.</p>
+     */
+    private void warnWhenContextPilesUp(Execution execution, int live) {
+        boolean crossed = live > maxLiveContextBlocks
+                && (live == maxLiveContextBlocks + 1 || live % maxLiveContextBlocks == 0);
+        if (crossed) {
+            log.warn("Uncompacted history holds {} dynamic context blocks (limit {}): the per-round "
+                            + "context is piling up. Lower compactionThreshold or enable the context "
+                            + "pruner. executionId: {}",
+                    live, maxLiveContextBlocks, execution.getId());
+        }
+    }
 
     /**
      * Builds the leading system message: where the agent runs, who it is, the remote tools it may
@@ -282,32 +349,6 @@ public class DefaultConversationManager implements ConversationManager {
                 .startWithWorkspace(workspace)
                 .withBusinessPrompt(businessPromptOf(request))
                 .complete();
-    }
-
-    /**
-     * Reports an uncompacted history that keeps growing context blocks.
-     *
-     * <p>Appending is what protects the cache, so this never rewrites history on its own. If the
-     * count keeps climbing, compaction is not running often enough for the amount of dynamic
-     * content this agent produces — the two knobs are {@code compactionThreshold} (trigger earlier)
-     * and the pruner, both owned by the compaction strategy, not by this manager.</p>
-     *
-     * <p>It warns when the count crosses the limit and again on every further multiple, so a long
-     * uncompacted session logs a handful of lines instead of one per round.</p>
-     */
-    private void warnWhenContextPilesUp(Execution execution, List<Message> messages) {
-        int live = 0;
-        for (Message message : messages) {
-            if (message instanceof UserMessageEntity user && user.hasContextContract()) live++;
-        }
-        boolean crossed = live > maxLiveContextBlocks
-                && (live == maxLiveContextBlocks + 1 || live % maxLiveContextBlocks == 0);
-        if (crossed) {
-            log.warn("Uncompacted history holds {} dynamic context blocks (limit {}): the per-round "
-                            + "context is piling up. Lower compactionThreshold or enable the context "
-                            + "pruner. executionId: {}",
-                    live, maxLiveContextBlocks, execution.getId());
-        }
     }
 
 
@@ -360,7 +401,7 @@ public class DefaultConversationManager implements ConversationManager {
     }
 
     private static UserMessageEntity consolidateDynamicContext(UserMessageEntity newest,
-                                                                 Map<ContextSectionKind, String> surviving) {
+                                                               Map<ContextSectionKind, String> surviving) {
         if (newest.contextSections().isEmpty()) {
             return newest;
         }
@@ -415,7 +456,7 @@ public class DefaultConversationManager implements ConversationManager {
 
         for (int i = result.size() - 1; i >= 0; i--) {
             Message message = result.get(i);
-            if (message instanceof AiMessageEntity aiMessageEntity) {
+            if (message instanceof AiMessageEntity) {
                 lastAiMessageIndex = i;
                 break;
             }

@@ -10,6 +10,7 @@ import com.summit.runtime.loop.DefaultRuntimeLifeStyleManager;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import com.summit.core.conversation.event.Event;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -21,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class DefaultRuntimeLifeStyleManagerSuspensionEventTest {
 
-    private final List<AgentEvent> published = new ArrayList<>();
+    private final List<Event> published = new ArrayList<>();
     private final DefaultRuntimeLifeStyleManager manager = new DefaultRuntimeLifeStyleManager(
             new RuntimeEventPublisher(List.of(recordingListener())));
 

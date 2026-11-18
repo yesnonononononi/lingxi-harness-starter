@@ -5,6 +5,8 @@ import com.summit.core.compact.CompactSummaryApplier;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ResponseIdGenerator;
+import com.summit.core.conversation.event.AgentEventPublisher;
+import com.summit.core.conversation.event.ContextEventPublisher;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.model.ModelInvoker;
@@ -30,6 +32,10 @@ import java.util.List;
 @Getter
 @SuperBuilder
 public class RuntimeContext {
+    /** Shared empty surfaces: a run without listeners publishes into nothing, never into a null. */
+    private static final ContextEventPublisher EMPTY_CONTEXT_EVENTS = new ContextEventPublisher(List.of());
+    private static final AgentEventPublisher EMPTY_AGENT_EVENTS = new AgentEventPublisher(List.of());
+
     private final RuntimeLifeStyleManager runtimeLifeStyleManager;
     private final List<ExecutionFailureObserver> failureObservers;
     private final RuntimeBoundaryChecker runtimeBoundaryChecker;
@@ -41,11 +47,13 @@ public class RuntimeContext {
     private final Workspace workspace;
     private final ConversationManager conversationManager;
     private final RuntimeEventPublisher runtimeEventPublisher;
+    private final AgentEventPublisher agentEventPublisher;
     private final ResponseIdGenerator responseIdGenerator;
     private final ToolExecutionManager toolExecutionManager;
     private final ContextUsageReporter usage;
     private final Tokenizer tokenizer;
     private final RuntimeTransactionalSupport runtimeTransactionalSupport;
+    private final ContextEventPublisher contextEventPublisher;
 
     /**
      * MCP tools declared by this request. Request-scoped by construction and closed by the runtime
@@ -93,7 +101,24 @@ public class RuntimeContext {
     /** Direct builder users retain the default summary application behavior. */
     public CompactSummaryApplier getCompactSummaryApplier() {
         return compactSummaryApplier == null
-                ? new DefaultCompactSummaryApplier(conversationManager) : compactSummaryApplier;
+                ? new DefaultCompactSummaryApplier(conversationManager, getContextEventPublisher())
+                : compactSummaryApplier;
+    }
+
+    /**
+     * The context event surface, never {@code null}.
+     *
+     * <p>Same convention as the other collaborators here: a context assembled outside Spring has no
+     * listeners to notify, and "nobody is listening" must not turn into an NPE on the run's own
+     * notification path.</p>
+     */
+    public ContextEventPublisher getContextEventPublisher() {
+        return contextEventPublisher == null ? EMPTY_CONTEXT_EVENTS : contextEventPublisher;
+    }
+
+    /** Same convention for the streaming surface: a context with no renderer still runs. */
+    public AgentEventPublisher getAgentEventPublisher() {
+        return agentEventPublisher == null ? EMPTY_AGENT_EVENTS : agentEventPublisher;
     }
 
 }

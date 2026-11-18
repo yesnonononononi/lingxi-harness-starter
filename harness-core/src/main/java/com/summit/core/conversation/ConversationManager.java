@@ -2,6 +2,9 @@ package com.summit.core.conversation;
 
 import com.summit.core.agent.CompactionState;
 import com.summit.core.agent.Execution;
+import com.summit.core.conversation.event.AgentEvent;
+import com.summit.core.conversation.event.ContextChangedEvent;
+import com.summit.core.conversation.event.ContextRebuiltEvent;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
 import com.summit.core.conversation.message.TokenUsageEntity;
@@ -10,11 +13,16 @@ import com.summit.core.runtime.loop.LoopMessages;
 import com.summit.core.runtime.workspace.Workspace;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 public interface ConversationManager {
 
     /**
-     * Opens the context of one execution and lays down its leading system message.
+     * Opens the context of one execution: lays down its leading system message and this round's
+     * dynamic context.
      *
      * <p>The MCP scope is passed in rather than looked up: it is per-execution request data that
      * only the runtime holds, while this manager is a singleton shared by every execution. The
@@ -22,8 +30,15 @@ public interface ConversationManager {
      * {@link com.summit.core.mcp.McpToolScope}. An implementation with no use for it may
      * ignore the argument; a request without MCP servers passes the shared empty scope, so the
      * "no remote tools" case needs no special handling.</p>
+     *
+     * <p>What was changed is <em>returned</em>, not published: whether a context fact may be
+     * observed before its snapshot is durable is the runtime's decision, and only the runtime holds
+     * the repository that answers it. Publishing from here would either force a repository into
+     * this manager or let an application audit a context that a failed save is about to discard.</p>
+     *
+     * @return the change this call applied, or empty when the context was left exactly as it was
      */
-    void startConversation(Execution execution, Workspace workspace, McpToolScope mcpToolScope);
+    Optional<ContextChangedEvent> startConversation(Execution execution, Workspace workspace, McpToolScope mcpToolScope);
 
     /** Commits round messages; the runtime accounts for returned model usage before this call. */
     void addMessage(LoopMessages loopMessages);
@@ -39,8 +54,14 @@ public interface ConversationManager {
      * <p>The summary arrives as text: what a compaction produces and how it is parsed belong to
      * the compaction strategy, so a session can be rebuilt from any source of one without this
      * contract adopting one summary layout.</p>
+     *
+     * <p>Like {@link #startConversation}, the fact is returned rather than published: the caller
+     * decides when an application may observe it.</p>
+     *
+     * @return the rebuild this call performed, or empty when the summary was unusable and nothing
+     *         was rebuilt
      */
-    void rebuildContext(String summary, Execution execution);
+    Optional<ContextRebuiltEvent> rebuildContext(String summary, Execution execution);
 
     /**
      * Reads how far the context compaction of {@code execution} has progressed.

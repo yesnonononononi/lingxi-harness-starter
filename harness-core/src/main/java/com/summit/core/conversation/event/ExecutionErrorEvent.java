@@ -1,28 +1,28 @@
 package com.summit.core.conversation.event;
 
-import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.ToString;
 
-
-import java.time.Instant;
 import java.util.Map;
 
-@Data
-public class ExecutionErrorEvent implements AgentEvent{
+/** Published when an agent-loop execution fails. */
+@Getter
+@EqualsAndHashCode(callSuper = true)
+@ToString(callSuper = true)
+public class ExecutionErrorEvent extends AbstractEvent implements RuntimeEvent {
+
     private final String errMsg;
     private final String extraDes;
-    private final String executionId;
-    /** Usage accumulated before the failure; {@code null} = not collected (≠ zero). */
+    /** Usage accumulated before the failure; {@code null} = not collected. */
     private final TokenInfo tokenInfo;
-    private final Map<String, Object> metaData;
-    private final Instant timestamp = Instant.now();
 
     public ExecutionErrorEvent(String errMsg, String extraDes, String executionId, TokenInfo tokenInfo,
                                Map<String, Object> metaData) {
+        super(executionId, metaData);
         this.errMsg = errMsg;
         this.extraDes = extraDes;
-        this.executionId = executionId;
         this.tokenInfo = tokenInfo;
-        this.metaData = metaData == null ? Map.of() : Map.copyOf(metaData);
     }
 
     /** Compatibility constructor for callers without token usage. */
@@ -33,19 +33,6 @@ public class ExecutionErrorEvent implements AgentEvent{
     /** Compatibility constructor for callers without selected event metadata. */
     public ExecutionErrorEvent(String errMsg, String extraDes, String executionId) {
         this(errMsg, extraDes, executionId, null, Map.of());
-    }
-    @Override
-    public Map<String, Object> eventMetaData() {
-        return metaData;
-    }
-    @Override
-    public String executionId() {
-        return executionId;
-    }
-
-    @Override
-    public Instant timestamp() {
-        return timestamp;
     }
 
     @Override

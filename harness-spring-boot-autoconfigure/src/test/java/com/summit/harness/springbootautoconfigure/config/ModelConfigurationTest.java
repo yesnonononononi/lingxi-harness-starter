@@ -50,7 +50,8 @@ class ModelConfigurationTest {
         assertTrue(withLookup > messagesOnly);
         assertTrue(tokenizer.count(messages, List.of(allowed, hidden)) > withLookup);
         var config = AgentConfig.builder().maxTokens(withLookup).build();
-        var reporter = conversations.contextUsageReporter(tokenizer, config, new RuntimeEventPublisher(List.of()),
+        var reporter = conversations.contextUsageReporter(tokenizer, config,
+                conversations.contextEventPublisher(List.of()),
                 new AgentChatProperties(), beans.getBeanProvider(ToolRegistry.class));
         var visibleExecution = Execution.create(AgentRequest.builder()
                 .contextSpec(ContextSpec.builder()
@@ -64,7 +65,7 @@ class ModelConfigurationTest {
                 .build(), "test");
         assertEquals(withLookup, reporter.report(visibleExecution).tokenCount());
         assertEquals(messagesOnly, reporter.report(hiddenExecution).tokenCount());
-        var manager = new DefaultConversationManager(ContextAttachmentProvider.NONE);
+        var manager = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         var checker = new BoundaryChecker(config, tokenizer, manager, null, null, reporter, null);
         assertEquals(ContextSqueezeRequest.prune(), checker.shouldSqueezeContext(TokenUsageEntity.empty(), visibleExecution, true));
         assertEquals(ContextSqueezeRequest.none(), checker.shouldSqueezeContext(TokenUsageEntity.empty(), hiddenExecution, true));

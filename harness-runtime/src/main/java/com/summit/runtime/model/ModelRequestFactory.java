@@ -86,6 +86,7 @@ public class ModelRequestFactory {
                 .invocationUsage(invocationUsage)
                 .thinking(execution.isThinking())
                 .runtimeEventPublisher(context.getRuntimeEventPublisher())
+                .agentEventPublisher(context.getAgentEventPublisher())
                 .streaming(execution.isStreaming());
         if (execution.isStreaming()) {
             builder.streamingChatResponseHandler(streamingHandler(execution, control, responseId, invocationUsage));
@@ -134,12 +135,13 @@ public class ModelRequestFactory {
     }
 
     /**
-     * Publishes partial text / thinking as runtime events and completes the future on the final response.
+     * Publishes partial text / thinking as agent stream events and completes the future on the final response.
      */
     private StreamingModelResponseBehaveDecider streamingHandler(Execution execution, ExecutionControlSignal control,
                                                                 String responseId, ModelInvocationUsage invocationUsage) {
         return new StreamingModelResponseBehaveDecider(
                 context.getRuntimeEventPublisher(),
+                context.getAgentEventPublisher(),
                 StreamingModelResponseBehaveDecider.StreamingResponseContext.builder()
                         .executionId(execution.getId())
                         .agentId(execution.getAgentId())
