@@ -6,6 +6,8 @@ import com.summit.core.conversation.CheckpointSaver;
 import com.summit.core.conversation.ConversationManager;
 import lombok.RequiredArgsConstructor;
 
+import java.util.List;
+
 /**
  * Applies a model-generated compaction output to a session.
  *
@@ -48,6 +50,10 @@ public class DefaultCompactSummaryApplier implements CompactSummaryApplier {
                         %s
                         summary:
                         %s
+                        overturned:
+                        %s
+                        unresolved:
+                        %s
                         completed task:
                         %s
                         pending task:
@@ -55,7 +61,11 @@ public class DefaultCompactSummaryApplier implements CompactSummaryApplier {
                         summary-task state:
                         %s
                         Continue the conversation based on this summary. Do NOT execute anything about this summary
-                        """, summary.getGoal(), summary.getSummary(), summary.getCompleted(), summary.getPending(),
+                        """, summary.getGoal(), summary.getSummary(),
+                summary.getOverturned() == null ? List.of() : summary.getOverturned(),
+                summary.getUnresolved() == null ? List.of() : summary.getUnresolved(),
+                summary.getCompleted() == null ? List.of() : summary.getCompleted(),
+                summary.getPending() == null ? List.of() : summary.getPending(),
                 summary.getState());
     }
 }

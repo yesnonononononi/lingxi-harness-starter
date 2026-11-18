@@ -145,13 +145,13 @@ class CompactionThinkingResidueTest {
             }
         }
 
-        // 改动点之前的用户消息仍然被保留（这是摘要压缩的设计），但它们本身不携带 thinking
+        // 改动点之前的用户消息已被摘要吸收，仅保留最新一轮用户消息 Q3，且不携带 thinking
         List<String> keptUserTexts = rebuilt.stream()
                 .filter(UserMessageEntity.class::isInstance)
                 .map(message -> message.text())
                 .toList();
-        assertTrue(keptUserTexts.containsAll(List.of("Q1", "Q2", "Q3")),
-                "摘要只替换 assistant 历史，用户消息必须保留，实际: " + keptUserTexts);
+        assertEquals(List.of("Q3"), keptUserTexts,
+                "摘要压缩后仅保留最新一轮用户消息，实际: " + keptUserTexts);
 
         // 改动点之前的 assistant 已整条被摘要取代 —— 不再以「带 thinking 的原文」形式存在
         for (Message message : rebuilt) {

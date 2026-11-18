@@ -19,6 +19,8 @@ public class ContextSummary {
      * Summary of the context
      */
     private String summary;
+    private List<String> overturned;
+    private List<String> unresolved;
     /**
      * Completed tasks
      */

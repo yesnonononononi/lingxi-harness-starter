@@ -8,9 +8,11 @@ import com.summit.core.compact.ContextCompactRequest;
 import com.summit.core.conversation.api.ChatRequestEntity;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
+import com.summit.core.conversation.api.ToolCallRequest;
 import com.summit.core.conversation.message.AiMessageEntity;
 import com.summit.core.conversation.message.Message;
 import com.summit.core.conversation.message.SystemMessageEntity;
+import com.summit.core.conversation.message.ToolMessageEntity;
 import com.summit.core.conversation.message.UserMessageEntity;
 import com.summit.core.runtime.loop.ContextUsageReporter;
 import com.summit.runtime.conversation.DefaultConversationManager;
@@ -68,12 +70,10 @@ class SummaryRebuildContractTest {
         assertEquals(List.of("question"), userTexts(execution));
     }
 
-    /** Case 10 (P0-2 regression): every user message survives the rebuild, in original order. */
+    /** Earlier answered user turns are absorbed by the summary; only the latest user turn survives. */
     @Test
-    void summaryRebuildKeepsAllUserMessages() {
+    void summaryRebuildDropsEarlierAnsweredUserMessages() {
         DefaultConversationManager conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
-        // The trailing assistant messages carry no thinking, so retainableTail() keeps nothing:
-        // without premise B every user message but the newest one disappears here.
         Execution execution = execution(
                 SystemMessageEntity.builder().text("LEADING").build(),
                 UserMessageEntity.from("user-one"),
@@ -84,8 +84,8 @@ class SummaryRebuildContractTest {
 
         conversations.rebuildContext("compressed summary", execution, CheckpointSaver.NONE);
 
-        assertEquals(List.of("user-one", "user-two", "user-three"), userTexts(execution),
-                "a summary rebuild must keep every user message of the compressed context");
+        assertEquals(List.of("user-three"), userTexts(execution),
+                "earlier answered user turns must not be replayed as open user messages");
     }
 
     /** Case 11 (premise A): the second summarize round sees the previous summary. */
@@ -157,15 +157,11 @@ class SummaryRebuildContractTest {
     }
 
     /**
-     * Case 10b: premise B survives the answered-trailing-turn path.
-     *
-     * <p>The {@code compact_context} tool rebuild passes {@code answeredTrailingUserTurn=true}, for
-     * which {@code retainableTail()} returns nothing. The old behaviour then dropped <b>every</b>
-     * user message and injected a bare "continue" prompt, losing what the user actually asked for.
-     * Premise B (design §3.4) overrides that: all user messages must still survive the rebuild.</p>
+     * An answered earlier turn is dropped while the latest user message survives without injecting
+     * a redundant continue prompt.
      */
     @Test
-    void summaryRebuildKeepsAllUserMessagesEvenWhenTrailingTurnAnswered() {
+    void summaryRebuildDropsEarlierTurnEvenWhenTrailingTurnExists() {
         DefaultConversationManager conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         Execution execution = execution(
                 SystemMessageEntity.builder().text("LEADING").build(),
@@ -175,8 +171,8 @@ class SummaryRebuildContractTest {
 
         conversations.rebuildContext("compressed summary", execution, CheckpointSaver.NONE);
 
-        assertEquals(List.of("user-one", "user-two"), userTexts(execution),
-                "an answered trailing turn must not drop the earlier user messages");
+        assertEquals(List.of("user-two"), userTexts(execution),
+                "only the latest user message survives the rebuild");
         boolean injectedContinuePrompt = execution.getMessages().stream()
                 .filter(UserMessageEntity.class::isInstance)
                 .map(Message::text)
@@ -237,6 +233,44 @@ class SummaryRebuildContractTest {
                 "the stale thinking block is removed");
         assertTrue(retained.getAttributes() == null || retained.getAttributes().isEmpty(),
                 "the stale thinking signature attribute is removed");
+    }
+
+    @Test
+    void oversizedToolTrailingTurnKeepsLatestUserAndRecentToolGroupsWithoutDuplicates() {
+        DefaultConversationManager conversations = DefaultConversationManager.builder()
+                .tokenizer(new DefaultTokenizer())
+                .maxTokens(900)
+                .contextAttachmentProvider(ContextAttachmentProvider.NONE)
+                .promptAssemblerFactory(SystemPromptAssembler::new)
+                .build();
+        AiMessageEntity tc1 = AiMessageEntity.builder().toolCalls(List.of(new ToolCallRequest("c1", "t", 0, "{}"))).build();
+        ToolMessageEntity tr1 = ToolMessageEntity.builder().id("c1").name("t").toolOutput("x".repeat(600)).build();
+        AiMessageEntity tc2 = AiMessageEntity.builder().toolCalls(List.of(new ToolCallRequest("c2", "t", 0, "{}"))).build();
+        ToolMessageEntity tr2 = ToolMessageEntity.builder().id("c2").name("t").toolOutput("out2").build();
+        AiMessageEntity tc3 = AiMessageEntity.builder().toolCalls(List.of(new ToolCallRequest("c3", "t", 0, "{}"))).build();
+        ToolMessageEntity tr3 = ToolMessageEntity.builder().id("c3").name("t").toolOutput("out3").build();
+        AiMessageEntity tc4 = AiMessageEntity.builder().toolCalls(List.of(new ToolCallRequest("c4", "t", 0, "{}"))).build();
+        ToolMessageEntity tr4 = ToolMessageEntity.builder().id("c4").name("t").toolOutput("out4").build();
+        UserMessageEntity earlyNotice = UserMessageEntity.from("early notice").markPendingCompaction();
+        UserMessageEntity lateNotice = UserMessageEntity.from("late notice").markPendingCompaction();
+
+        Execution execution = execution(
+                SystemMessageEntity.builder().text("LEADING").build(),
+                UserMessageEntity.from("old question"),
+                AiMessageEntity.builder().text("old answer").build(),
+                UserMessageEntity.from("current task"),
+                tc1, tr1, earlyNotice, tc2, tr2, tc3, tr3, tc4, tr4, lateNotice);
+
+        conversations.rebuildContext("compressed summary", execution, CheckpointSaver.NONE);
+
+        List<Message> rebuilt = execution.getMessages();
+        assertEquals(List.of("current task", "late notice"), userTexts(execution),
+                "latest real user message survives once and early notice before cut point is dropped");
+        assertFalse(rebuilt.contains(tc1), "oldest tool group beyond MAX_GROUP=3 is dropped");
+        assertTrue(rebuilt.contains(tc2) && rebuilt.contains(tc3) && rebuilt.contains(tc4),
+                "last 3 tool-call groups survive in order");
+        assertEquals(1, rebuilt.stream().filter(lateNotice::equals).count(),
+                "trailing compact notification must not be duplicated");
     }
 
     private static Execution execution(Message... messages) {

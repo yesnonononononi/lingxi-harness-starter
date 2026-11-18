@@ -12,21 +12,25 @@ import static org.junit.jupiter.api.Assertions.*;
 class ContextCompactionPromptTest {
 
     @Test
-    void exampleKeepsTheExistingFiveFieldJsonContract() throws Exception {
+    void exampleKeepsTheSevenFieldJsonContract() throws Exception {
         String prompt = ContextCompactionPrompt.BASE_COMPACTION_PROMPT;
         String example = prompt.substring(prompt.indexOf('{'), prompt.lastIndexOf('}') + 1);
         JsonNode json = new ObjectMapper().readTree(example);
         Set<String> fields = new HashSet<>();
         json.fieldNames().forEachRemaining(fields::add);
-        assertEquals(Set.of("goal", "summary", "completed", "pending", "state"), fields);
+        assertEquals(Set.of("goal", "summary", "overturned", "unresolved", "completed", "pending", "state"), fields);
         assertTrue(json.get("goal").isTextual());
         assertTrue(json.get("summary").isTextual());
+        assertTrue(json.get("overturned").isArray());
+        assertTrue(json.get("unresolved").isArray());
         assertTrue(json.get("completed").isArray());
         assertTrue(json.get("pending").isArray());
         assertEquals("DONE", json.get("state").asText());
         ContextSummary summary = CompactSummaryResolver.resolve(example);
         assertNotNull(summary);
         assertEquals(json.get("summary").asText(), summary.getSummary());
+        assertFalse(summary.getOverturned().isEmpty());
+        assertFalse(summary.getUnresolved().isEmpty());
         assertFalse(summary.getPending().isEmpty());
         assertEquals("DONE", summary.getState());
     }

@@ -36,8 +36,7 @@ import java.util.stream.Collectors;
 public class DefaultConversationManager implements ConversationManager {
     private static final String CONTINUE_AFTER_COMPACTION_PROMPT = """
             The conversation history before this point has been compacted into the summary above.
-            you may can see all user messages of the history, after that, lastest turn message
-            Continue the work from there: do not repeat steps that are already marked as completed.
+            after that, lastest turn message. Continue the work from there: do not repeat steps that are already marked as completed.
             """;
     /**
      * Fraction of the context cap the trailing turn may occupy before {@link #retainableTail} shrinks
@@ -306,17 +305,16 @@ public class DefaultConversationManager implements ConversationManager {
                         """, value)).build()));
 
         List<Message> retained = retainCompactionInputs(current);
-        List<Message> tail = retainableTail(retained);
-        List<Message> earlierUsers = retained.subList(0, retained.size() - tail.size()).stream()
-                .filter(UserMessageEntity.class::isInstance).toList();
+        List<Message> dynamicContext = retained.stream()
+                .filter(message -> message instanceof UserMessageEntity user && user.hasContextContract())
+                .toList();
+        List<Message> tail = stripOldThinking(retainableTail(retained));
 
         rebuilt.add(leading);
         rebuilt.addAll(attachment);
         rebuilt.add(summaryMessage);
-        rebuilt.addAll(earlierUsers);
-        rebuilt.addAll(stripOldThinking(tail));
-
-
+        rebuilt.addAll(dynamicContext);
+        rebuilt.addAll(tail);
         execution.setMessages(rebuilt);
 
         // Only the counters this class owns are written (§3.3.4): a rebuild advances the summary
@@ -459,9 +457,10 @@ public class DefaultConversationManager implements ConversationManager {
     private List<Message> retainableTail(List<Message> messages) {
         int lastUserMessageIndex = -1;
 
-
         for (int i = messages.size() - 1; i >= 0; i--) {
-            if (messages.get(i) instanceof UserMessageEntity user && !user.hasCompactionMarker()) {
+            if (messages.get(i) instanceof UserMessageEntity user
+                    && !user.hasCompactionMarker()
+                    && !user.hasContextContract()) {
                 lastUserMessageIndex = i;
                 break;
             }
@@ -471,13 +470,14 @@ public class DefaultConversationManager implements ConversationManager {
             return List.of();
         }
 
-        if (lastUserMessageIndex == messages.size() - 1) {
-            return List.of();
+        List<Message> result = new ArrayList<>();
+        for (int i = lastUserMessageIndex; i < messages.size(); i++) {
+            Message message = messages.get(i);
+            if (message instanceof UserMessageEntity user && user.hasContextContract()) {
+                continue;
+            }
+            result.add(message);
         }
-
-        ArrayList<Message> result = new ArrayList<>(
-                messages.subList(lastUserMessageIndex + 1, messages.size())
-        );
 
         // tokenizer needs to calc the result tokens, if it exceeds the acceptable limit, then the policy further needs to compact
         double ratio = tokenizer.calcCurrentTokenRatio(result, List.of(), maxTokens);
@@ -489,24 +489,48 @@ public class DefaultConversationManager implements ConversationManager {
         return result;
     }
 
-    private List<Message> furtherCompact(ArrayList<Message> result) {
-        int lastAiMessageIndex = -1;
+    private List<Message> furtherCompact(List<Message> result) {
+        final int MAX_GROUP = 3;
+        List<Message> furtherResult = new ArrayList<>();
+        UserMessageEntity anchorUser = !result.isEmpty()
+                && result.getFirst() instanceof UserMessageEntity user
+                && !user.hasCompactionMarker()
+                ? user
+                : null;
+        if (anchorUser != null) {
+            furtherResult.add(anchorUser);
+        }
 
-        for (int i = result.size() - 1; i >= 0; i--) {
-            Message message = result.get(i);
-            if (message instanceof AiMessageEntity) {
-                lastAiMessageIndex = i;
-                break;
+        int startBound = anchorUser != null ? 1 : 0;
+        int group = 0;
+        int cutIndex = -1;
+
+        for (int i = result.size() - 1; i >= startBound; i--) {
+            if (result.get(i) instanceof AiMessageEntity assistant) {
+                cutIndex = i;
+                boolean hasToolCalls = assistant.getToolCalls() != null && !assistant.getToolCalls().isEmpty();
+                if (!hasToolCalls) {
+                    // A plain-text reply is already a complete anchor; no need to pull earlier steps.
+                    break;
+                }
+                group++;
+                if (group >= MAX_GROUP) {
+                    break;
+                }
             }
         }
 
-        if (lastAiMessageIndex == -1) {
-            return List.of();
+        if (cutIndex != -1) {
+            furtherResult.addAll(result.subList(cutIndex, result.size()));
+            return furtherResult;
         }
 
-        return new ArrayList<>(
-                result.subList(lastAiMessageIndex, result.size())
-        );
+        for (int i = startBound; i < result.size(); i++) {
+            if (result.get(i) instanceof UserMessageEntity user) {
+                furtherResult.add(user);
+            }
+        }
+        return furtherResult;
     }
 
     /**

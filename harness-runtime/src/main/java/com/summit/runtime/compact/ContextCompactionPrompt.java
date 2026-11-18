@@ -24,15 +24,17 @@ public final class ContextCompactionPrompt {
             If a [PROTECTED APPLICATION STATE] section is supplied, include its content verbatim once in the summary string, with only the escaping required by JSON. Do not reinterpret or shorten it.
             Use the language of the user's active request for prose; keep technical literals in their original form.
 
-            Reply with EXACTLY ONE valid JSON object containing only these five fields, with no markdown fences, comments, explanation, or surrounding text:
+            Reply with EXACTLY ONE valid JSON object containing only these seven fields, with no markdown fences, comments, explanation, or surrounding text:
             {
               "goal": "the active user goal and its scope",
               "summary": "constraints, current state, decisions, evidence, and continuation details",
+              "overturned": ["earlier claims, assumptions, or plans disproven, renamed, or superseded by later facts or instructions"],
+              "unresolved": ["open questions, blockers, or unverified claims that still need attention"],
               "completed": ["confirmed completed work and its verification status"],
               "pending": ["remaining agreed work, blockers, and resume conditions"],
               "state": "DONE"
             }
-            goal and summary must be strings; completed and pending must be arrays of strings (use [] when empty).
+            goal and summary must be strings; overturned, unresolved, completed, and pending must be arrays of strings (use [] when empty).
             state describes summary generation, not completion of the user's task: use DONE when a usable handoff was produced, even if pending is non-empty; use FAILED only when a usable handoff cannot be produced.
             Escape quotes, backslashes, newlines, and tabs inside string values using valid JSON escapes (\\\", \\\\, \\n, \\t). Never use literal control characters inside strings.
             """;

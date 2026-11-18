@@ -56,7 +56,6 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
     private final CompactSummaryApplier summaryApplier;
 
 
-
     @Override
     public boolean compact(ContextCompactRequest request) {
         Execution execution = request.execution();
@@ -103,12 +102,21 @@ public class DefaultModelCompacter implements ContextCompacter, ToolExecutor {
                 + (attachment.isPresent() ? "\nPreserve the attached application state verbatim." : "");
         String payload = attachment.map(value -> history + "\n\n[PROTECTED APPLICATION STATE]\n" + value)
                 .orElse(history);
-        ChatResponseEntity response = models.apply(request).chat(ChatRequestEntity.builder().messages(List.of(
-                SystemMessageEntity.builder().text(prompt).build(), UserMessageEntity.from(payload))).build());
+        ChatResponseEntity response = models.apply(request)
+                .chat(ChatRequestEntity.builder()
+                        .messages(List.of(
+                                SystemMessageEntity.builder()
+                                        .text(prompt)
+                                        .build(),
+                                UserMessageEntity.from(payload))
+                        )
+                        .build());
         return response.getAiMessageEntity().text();
     }
 
-    /** Renders the session messages into a plain-text history as the compact-model input. */
+    /**
+     * Renders the session messages into a plain-text history as the compact-model input.
+     */
     private String renderConversation(List<Message> messages) {
         StringBuilder history = new StringBuilder();
         for (int i = 0; i < messages.size(); i++) {

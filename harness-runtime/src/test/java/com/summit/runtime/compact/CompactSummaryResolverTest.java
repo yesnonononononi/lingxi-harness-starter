@@ -101,7 +101,34 @@ class CompactSummaryResolverTest {
         assertTrue(new DefaultCompactSummaryApplier(manager, CheckpointSaver.NONE).apply(raw, null));
         assertEquals(1, rebuilt.size());
         assertTrue(rebuilt.getFirst().contains("summary:\ns"), rebuilt.getFirst());
+        assertTrue(rebuilt.getFirst().contains("overturned:\n[]"), rebuilt.getFirst());
+        assertTrue(rebuilt.getFirst().contains("unresolved:\n[]"), rebuilt.getFirst());
         assertTrue(rebuilt.getFirst().contains("completed task:\n[c]"), rebuilt.getFirst());
+    }
+
+    @Test
+    void overturnedAndUnresolvedFieldsAreParsedAndRendered() {
+        String raw = """
+                {
+                  "goal": "g",
+                  "summary": "s",
+                  "overturned": ["ContextPrefixChangedEvent was merged into ContextChangedEvent"],
+                  "unresolved": ["verify downstream listener"],
+                  "completed": ["c"],
+                  "pending": [],
+                  "state": "DONE"
+                }
+                """;
+        ContextSummary parsed = CompactSummaryResolver.resolve(raw);
+        assertNotNull(parsed);
+        assertEquals(List.of("ContextPrefixChangedEvent was merged into ContextChangedEvent"), parsed.getOverturned());
+        assertEquals(List.of("verify downstream listener"), parsed.getUnresolved());
+
+        List<String> rebuilt = new ArrayList<>();
+        ConversationManager manager = stubManager(rebuilt);
+        assertTrue(new DefaultCompactSummaryApplier(manager, CheckpointSaver.NONE).apply(raw, null));
+        assertTrue(rebuilt.getFirst().contains("overturned:\n[ContextPrefixChangedEvent was merged into ContextChangedEvent]"));
+        assertTrue(rebuilt.getFirst().contains("unresolved:\n[verify downstream listener]"));
     }
 
     private static ConversationManager stubManager(List<String> rebuilt) {
