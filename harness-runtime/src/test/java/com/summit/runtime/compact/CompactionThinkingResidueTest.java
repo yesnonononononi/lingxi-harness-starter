@@ -73,7 +73,7 @@ class CompactionThinkingResidueTest {
                 .executions(new InMemoryActiveExecutionRegistry()).conversationManager(conversations)
                 .contextAttachmentProvider(ContextAttachmentProvider.NONE)
                 .usage(new ContextUsageReporter(new DefaultTokenizer(), 10_000, new ContextEventPublisher(List.of()), 1))
-                .summaryApplier(new DefaultCompactSummaryApplier(conversations, new ContextEventPublisher(List.of()))).build();
+                .summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
     }
 
     private AgentRequest request() {

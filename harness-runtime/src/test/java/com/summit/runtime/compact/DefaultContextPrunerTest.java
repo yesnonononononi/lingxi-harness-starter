@@ -302,7 +302,7 @@ class DefaultContextPrunerTest {
             modelCalls.incrementAndGet();
             throw new IllegalStateException("offline model failure");
         }).conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations, new ContextEventPublisher(List.of()))).build();
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
         BoundaryChecker checker = new BoundaryChecker(config, tokenizer, conversations,
                 new DefaultContextPruner(config, usage), compacter, null, null);
         Execution execution = history("{}", "old output", "latest output".repeat(1_000));
@@ -586,7 +586,7 @@ class DefaultContextPrunerTest {
             return ChatResponseEntity.builder().aiMessageEntity(AiMessageEntity.builder()
                     .text("{\"summary\":\"usable summary\"}").build()).build();
         }).conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations, new ContextEventPublisher(List.of()))).build();
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
 
         BoundaryChecker checker = new BoundaryChecker(config, tokenizer, conversations,
                 new DefaultContextPruner(config, usage), summaries, null, null);

@@ -9,7 +9,6 @@ import com.summit.core.conversation.ChangedDiff;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.api.ConversationTranscriptSink;
-import com.summit.core.conversation.event.AgentEvent;
 import com.summit.core.conversation.event.ContextChangedEvent;
 import com.summit.core.conversation.event.ContextChangeReason;
 import com.summit.core.conversation.event.ContextEventPublisher;
@@ -17,7 +16,6 @@ import com.summit.core.conversation.event.ContextRebuiltEvent;
 import com.summit.core.conversation.message.*;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.prompt.PromptAssembler;
-import com.summit.core.runtime.loop.ExecutionRepository;
 import com.summit.core.runtime.loop.LoopMessages;
 import com.summit.core.runtime.workspace.Workspace;
 import com.summit.core.skill.SkillLoader;
@@ -58,6 +56,14 @@ public class DefaultConversationManager implements ConversationManager {
      */
     private static final int DEFAULT_MAX_LIVE_CONTEXT_BLOCKS = 4;
     /**
+     * Shared by every manager built without listeners: the manager still reports, into nothing.
+     *
+     * <p>Not {@code null}: "nobody is listening" is the normal case for a manager a test or a
+     * single-purpose caller assembled, and it must not turn the run's own notification path into an
+     * NPE.</p>
+     */
+    private static final ContextEventPublisher EMPTY_CONTEXT_EVENTS = new ContextEventPublisher(List.of());
+    /**
      * Factory of the assembler that renders each execution's leading system message.
      *
      * <p>A supplier rather than a shared instance because the assembler is stateful during one
@@ -75,6 +81,25 @@ public class DefaultConversationManager implements ConversationManager {
     private final SkillLoader skillLoader;
 
     /**
+     * The context surface this manager reports its own changes on.
+     *
+     * <p>Named after the channel, not after a listener list: the manager states the fact, and who
+     * the fact is interesting to is the application's wiring decision. Never {@code null} — a
+     * manager assembled without one reports into the shared empty surface, because "nobody is
+     * listening" must not turn into an NPE on the run's own notification path.</p>
+     *
+     * <p><b>What a listener can expect to read back.</b> The fact is published inside the call that
+     * made it, after the execution's message list is final, so a listener that reads
+     * {@code execution.getMessages()} sees exactly the state the event describes. It does
+     * <em>not</em> wait for the runtime's snapshot: the list this manager owns is in-memory state,
+     * and persistence of a run stays the runtime's business. A consumer that stores an audit row per
+     * context fact is therefore recording a fact about a run that may still fail to save — the same
+     * trade every in-memory notification makes, and the reason the event is not a substitute for the
+     * saved snapshot.</p>
+     */
+    private final ContextEventPublisher contextEventPublisher;
+
+    /**
      * Collects the collaborators this manager needs, replacing six overloads whose argument order
      * was the only thing telling "the sink" from "the tokenizer" apart.
      *
@@ -88,24 +113,26 @@ public class DefaultConversationManager implements ConversationManager {
                                        ContextAttachmentProvider contextAttachmentProvider,
                                        ConversationTranscriptSink conversationTranscriptSink,
                                        Supplier<PromptAssembler> promptAssemblerFactory,
-                                       SkillLoader skillLoader
+                                       SkillLoader skillLoader,
+                                       ContextEventPublisher contextEventPublisher
     ) {
         this.maxTokens = maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS;
         this.maxLiveContextBlocks = maxLiveContextBlocks > 0 ? maxLiveContextBlocks : DEFAULT_MAX_LIVE_CONTEXT_BLOCKS;
         this.tokenizer = tokenizer == null ? new DefaultTokenizer() : tokenizer;
         this.conversationTranscriptSink = conversationTranscriptSink;
-        // "Every parameter is optional" has to hold for this one too: a caller that only wants the
+        // "Every parameter is optional" has to hold for these two too: a caller that only wants the
         // defaults must not get an NPE on the first startConversation.
         this.promptAssemblerFactory =
                 promptAssemblerFactory == null ? SystemPromptAssembler::new : promptAssemblerFactory;
         this.contextAttachmentProvider = contextAttachmentProvider;
         this.skillLoader = skillLoader;
+        this.contextEventPublisher = contextEventPublisher == null ? EMPTY_CONTEXT_EVENTS : contextEventPublisher;
 
     }
 
 
     @Override
-    public Optional<ContextChangedEvent> startConversation(Execution execution, Workspace workspace, McpToolScope mcpToolScope) {
+    public void startConversation(Execution execution, Workspace workspace, McpToolScope mcpToolScope) {
         AgentRequest agentRequest = execution.getAgentRequest();
         McpToolScope scope = mcpToolScope == null ? McpToolScope.EMPTY : mcpToolScope;
 
@@ -149,13 +176,12 @@ public class DefaultConversationManager implements ConversationManager {
         // Replacing the list is what tells the incremental token baseline that its snapshot is
         // stale; leaving the reference alone when nothing changed keeps that baseline valid.
         if (reasons.isEmpty()) {
-            return Optional.empty();
+            return;
         }
 
         execution.setMessages(rebuilt);
 
-        int currentLiveBlocks = liveBlocks;
-        warnWhenContextPilesUp(execution, currentLiveBlocks);
+        warnWhenContextPilesUp(execution, liveBlocks);
 
         // Truncated in one pass instead of mutating the discover's map: that map may be an immutable
         // empty one, and rewriting entries in place only works as long as the implementation happens
@@ -166,12 +192,14 @@ public class DefaultConversationManager implements ConversationManager {
                                 diffTruncated(entry.getValue().oldContent()),
                                 diffTruncated(entry.getValue().newContent()))));
 
-        return Optional.of(ContextChangedEvent.builder()
+        // Published only once the list the model will be given is final: a listener that reads the
+        // execution back must never see the state from before the change it is being told about.
+        contextEventPublisher.onContextChanged(ContextChangedEvent.builder()
                 .executionId(execution.getId())
                 .metaData(execution.eventMetaData())
                 .reasons(reasons)
                 .changedSections(truncated)
-                .currentLiveBlocks(currentLiveBlocks)
+                .currentLiveBlocks(liveBlocks)
                 .maxLiveBlocks(maxLiveContextBlocks)
                 .build());
     }
@@ -249,8 +277,8 @@ public class DefaultConversationManager implements ConversationManager {
 
 
     @Override
-    public Optional<ContextRebuiltEvent> rebuildContext(String summary, Execution execution) {
-        if (summary == null || summary.isBlank()) return Optional.empty();
+    public void rebuildContext(String summary, Execution execution) {
+        if (summary == null || summary.isBlank()) return;
 
         List<Message> current = execution.getMessages();
         List<Message> attachment = new ArrayList<>();
@@ -291,7 +319,9 @@ public class DefaultConversationManager implements ConversationManager {
         // "summarization is closed" latch — resetting those here is the P0-1 regression.
         execution.setCompactionState(execution.getCompactionState().afterSummaryRebuild());
 
-        return Optional.of(ContextRebuiltEvent.builder()
+        // Same rule as startConversation: the rebuilt message list is already in place when the fact
+        // is reported, so a consumer reading it back sees the session it describes.
+        contextEventPublisher.onContextRebuilt(ContextRebuiltEvent.builder()
                 .executionId(execution.getId())
                 .metaData(execution.eventMetaData())
                 .summaryGeneration(execution.getCompactionState().summaryGeneration())

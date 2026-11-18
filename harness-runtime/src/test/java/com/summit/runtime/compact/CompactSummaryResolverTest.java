@@ -6,8 +6,6 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import com.summit.core.conversation.event.ContextEventPublisher;
-import com.summit.core.conversation.event.ContextRebuiltEvent;
-import java.util.Optional;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -89,7 +87,7 @@ class CompactSummaryResolverTest {
         List<String> rebuilt = new ArrayList<>();
         ConversationManager manager = stubManager(rebuilt);
 
-        assertFalse(new DefaultCompactSummaryApplier(manager, new ContextEventPublisher(List.of())).apply("   ", null));
+        assertFalse(new DefaultCompactSummaryApplier(manager).apply("   ", null));
         assertTrue(rebuilt.isEmpty());
     }
 
@@ -99,7 +97,7 @@ class CompactSummaryResolverTest {
         ConversationManager manager = stubManager(rebuilt);
         String raw = "{\"goal\":\"g\",\"summary\":\"s\",\"completed\":[\"c\"],\"pending\":[],\"state\":\"DONE\"}";
 
-        assertTrue(new DefaultCompactSummaryApplier(manager, new ContextEventPublisher(List.of())).apply(raw, null));
+        assertTrue(new DefaultCompactSummaryApplier(manager).apply(raw, null));
         assertEquals(1, rebuilt.size());
         assertTrue(rebuilt.getFirst().contains("summary:\ns"), rebuilt.getFirst());
         assertTrue(rebuilt.getFirst().contains("completed task:\n[c]"), rebuilt.getFirst());
@@ -112,8 +110,6 @@ class CompactSummaryResolverTest {
                 (proxy, method, args) -> {
                     if (method.getName().equals("rebuildContext")) {
                         rebuilt.add((String) args[0]);
-                        return Optional.of(ContextRebuiltEvent.builder()
-                                .executionId("execution").summaryGeneration(1).messageCount(1).build());
                     }
                     return null;
                 });

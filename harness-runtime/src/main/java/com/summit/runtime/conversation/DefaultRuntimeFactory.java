@@ -6,7 +6,6 @@ import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ResponseIdGenerator;
 import com.summit.core.conversation.event.AgentEventPublisher;
-import com.summit.core.conversation.event.ContextEventPublisher;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.mcp.McpToolScope;
 import com.summit.core.model.ModelInvoker;
@@ -46,7 +45,6 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
     private final ExecutionControl executionControl;
     private final LoopInterceptorProcessor loopInterceptorProcessor;
     private final RuntimeTransactionalSupport transactionalSupport;
-    private final ContextEventPublisher contextEventPublisher;
     /** Local history pruning (prune band). */
     private final DefaultContextPruner contextPruner;
     /** Model deep compaction (summarize band). */
@@ -78,7 +76,6 @@ public class DefaultRuntimeFactory implements RuntimeFactory {
                         .usage(usage)
                         .runtimeTransactionalSupport(transactionalSupport)
                         .tokenizer(tokenizer)
-                        .contextEventPublisher(contextEventPublisher)
                         .loopInterceptorProcessor(loopInterceptorProcessor)
                         .executionRepository(executionRepository)
                         .executionControl(executionControl)

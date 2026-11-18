@@ -190,7 +190,7 @@ class ContextUsageBaselineTest {
             return ChatResponseEntity.builder().aiMessageEntity(AiMessageEntity.builder()
                     .text("{\"summary\":\"" + summary + "\"}").build()).build();
         }).conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations, new ContextEventPublisher(List.of()))).build();
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
         BoundaryChecker checker = new BoundaryChecker(config(2), tokenizer, conversations,
                 new DefaultContextPruner(config(2), usage), compacter, usage, null);
         if (alwaysOversized) {

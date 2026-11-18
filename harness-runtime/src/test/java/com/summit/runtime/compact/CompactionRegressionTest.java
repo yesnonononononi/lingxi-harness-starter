@@ -54,7 +54,7 @@ class CompactionRegressionTest {
             return ChatResponseEntity.builder().aiMessageEntity(AiMessageEntity.builder()
                     .text("{\"summary\":\"summary\"}").build()).build();
         }).conversationManager(conversations).contextAttachmentProvider(id -> Optional.of("protected state"))
-                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations, new ContextEventPublisher(List.of()))).build();
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
         ArrayList<Message> history = new ArrayList<Message>(List.of(
                 SystemMessageEntity.builder().text("system").build(), UserMessageEntity.from("history")));
         Execution execution = Execution.builder().id("e").messages(history)
@@ -168,7 +168,7 @@ class CompactionRegressionTest {
             modelCalls.add(1);
             throw new IllegalStateException("model unavailable");
         }).conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(capturingReporter(events)).summaryApplier(new DefaultCompactSummaryApplier(conversations, new ContextEventPublisher(List.of()))).build();
+                .usage(capturingReporter(events)).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
 
         Execution execution = executionWith(
                 SystemMessageEntity.builder().text("system").build(),

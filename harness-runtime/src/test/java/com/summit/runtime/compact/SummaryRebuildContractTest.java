@@ -101,7 +101,7 @@ class SummaryRebuildContractTest {
                     .aiMessageEntity(AiMessageEntity.builder().text(SUMMARY_JSON).build())
                     .build();
         }).conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations, new ContextEventPublisher(List.of()))).build();
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
         Execution execution = execution(
                 SystemMessageEntity.builder().text("LEADING-SYSTEM-PROMPT").build(),
                 UserMessageEntity.from("history the first round compresses"));

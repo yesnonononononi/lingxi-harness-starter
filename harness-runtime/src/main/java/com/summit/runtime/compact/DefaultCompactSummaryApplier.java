@@ -3,7 +3,6 @@ package com.summit.runtime.compact;
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.CompactSummaryApplier;
 import com.summit.core.conversation.ConversationManager;
-import com.summit.core.conversation.event.ContextEventPublisher;
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -19,13 +18,6 @@ public class DefaultCompactSummaryApplier implements CompactSummaryApplier {
 
     private final ConversationManager conversationManager;
 
-    /**
-     * Reported the moment the rebuild happens, like the squeeze telemetry published around it: a
-     * rebuild is a fact about the message list that is already in memory, and a UI needs it while
-     * the run is still going. It deliberately does not wait for the run's closing snapshot.
-     */
-    private final ContextEventPublisher contextEvents;
-
 
     /**
      * Resolves the output and rebuilds the context, but only when a usable summary came out of it.
@@ -36,8 +28,9 @@ public class DefaultCompactSummaryApplier implements CompactSummaryApplier {
     public boolean apply(String rawOutput, Execution execution) {
         ContextSummary summary = CompactSummaryResolver.resolve(rawOutput);
         if (summary == null) return false;
-        conversationManager.rebuildContext(render(summary), execution)
-                .ifPresent(contextEvents::onContextRebuilt);
+        // The rebuild reports itself: which message list a session now has is the manager's domain,
+        // and this class has nothing to say about it beyond "the summary was usable".
+        conversationManager.rebuildContext(render(summary), execution);
         return true;
     }
 

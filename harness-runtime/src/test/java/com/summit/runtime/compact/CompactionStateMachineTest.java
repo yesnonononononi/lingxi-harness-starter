@@ -354,7 +354,7 @@ class CompactionStateMachineTest {
         };
         DefaultModelCompacter modelCompacter = DefaultModelCompacter.builder().models(ignored -> model)
                 .conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations, new ContextEventPublisher(List.of()))).build();
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
         AgentConfig agentConfig = AgentConfig.builder()
                 .maxTokens(100_000)
                 .maxSummaryAttempts(maxSummaryAttempts)

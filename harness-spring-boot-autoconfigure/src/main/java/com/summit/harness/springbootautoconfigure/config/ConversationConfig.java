@@ -51,6 +51,13 @@ public class ConversationConfig {
      * "what prompt is this run using" into a question about configuration files rather than about
      * the request.</p>
      */
+    /**
+     * The manager is the owner of the message list, so it is also the publisher of the facts about
+     * that list: it is handed the context surface and reports through it. That is why this bean
+     * depends on {@code ContextEventPublisher} — a {@code ContextListener} must not depend on
+     * {@code ConversationManager} in turn, or the two beans form a cycle (put {@code @Lazy} on the
+     * listener's dependency if it genuinely needs the manager).
+     */
     @Bean
     @ConditionalOnMissingBean
     public ConversationManager conversationManager(List<ContextAttachmentProvider> contextAttachmentProviders,
@@ -58,7 +65,8 @@ public class ConversationConfig {
                                                    ObjectProvider<PromptAssembler> promptAssembler,
                                                    SkillLoader skillLoader,
                                                    Tokenizer tokenizer,
-                                                   AgentConfig agentConfig) {
+                                                   AgentConfig agentConfig,
+                                                   ObjectProvider<ContextEventPublisher> contextEventPublisher) {
         return DefaultConversationManager.builder()
                 .tokenizer(tokenizer)
                 .maxTokens(agentConfig.maxTokens())
@@ -66,6 +74,8 @@ public class ConversationConfig {
                 .contextAttachmentProvider(ContextAttachmentProvider.compose(contextAttachmentProviders))
                 .promptAssemblerFactory(() -> promptAssembler.getIfAvailable(SystemPromptAssembler::new))
                 .skillLoader(skillLoader)
+                .contextEventPublisher(contextEventPublisher.getIfAvailable(
+                        () -> new ContextEventPublisher(List.of())))
                 .build();
     }
 
@@ -87,11 +97,14 @@ public class ConversationConfig {
     }
 
 
+    /**
+     * Applying a summary is "resolve the text, ask the manager to rebuild": the rebuild reports
+     * itself, so there is no second collaborator to inject here.
+     */
     @Bean
     @ConditionalOnMissingBean(CompactSummaryApplier.class)
-    public CompactSummaryApplier compactSummaryApplier(ConversationManager conversationManager,
-                                                       ContextEventPublisher contextEventPublisher){
-        return new DefaultCompactSummaryApplier(conversationManager, contextEventPublisher);
+    public CompactSummaryApplier compactSummaryApplier(ConversationManager conversationManager){
+        return new DefaultCompactSummaryApplier(conversationManager);
     }
 
 

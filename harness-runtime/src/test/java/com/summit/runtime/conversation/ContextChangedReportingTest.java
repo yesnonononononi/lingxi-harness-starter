@@ -23,7 +23,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -32,21 +31,43 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The context manager reports what it changed, and only what it changed.
+ * The manager reports its own changes, and only when there is a change to report.
  *
- * <p>The event is returned rather than published here on purpose: an event a consumer may treat as
- * an authoritative fact must not be readable before the snapshot it describes is durable. So the
- * manager's job is to answer "did anything change, and what", and the runtime publishes that answer
- * after the save. These tests pin the manager's half, including the round that changed nothing and
- * must therefore report nothing.</p>
+ * <p>The message list the model is about to receive belongs to this manager, so the fact that it
+ * changed is published from here — through the context surface the manager was built with. A
+ * listener therefore always reads back the state the event describes, and the "nothing changed"
+ * round publishes nothing at all instead of dispatching a {@code null}.</p>
  */
 class ContextChangedReportingTest {
 
-    private final DefaultConversationManager conversations =
-            DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
+    private static final class Recorder implements ContextListener {
+        private final List<ContextChangedEvent> changes = new ArrayList<>();
+        private final List<ContextRebuiltEvent> rebuilds = new ArrayList<>();
+
+        @Override
+        public int order() {
+            return 0;
+        }
+
+        @Override
+        public void onContextChanged(ContextChangedEvent event) {
+            changes.add(event);
+        }
+
+        @Override
+        public void onContextRebuilt(ContextRebuiltEvent event) {
+            rebuilds.add(event);
+        }
+    }
+
+    private final Recorder recorder = new Recorder();
+    private final DefaultConversationManager conversations = DefaultConversationManager.builder()
+            .contextAttachmentProvider(ContextAttachmentProvider.NONE)
+            .contextEventPublisher(new ContextEventPublisher(List.of(recorder)))
+            .build();
 
     @Test
-    void anUnchangedRoundReportsNothingAndLeavesTheListAlone() {
+    void anUnchangedRoundPublishesNothingAndLeavesTheListAlone() {
         AgentRequest request = requestWithMemory("SYS", "mem v1");
         UserMessageEntity sameContext = ContextDynamicAssembler.builder()
                 .contextSpec(request.getContextSpec())
@@ -61,26 +82,26 @@ class ContextChangedReportingTest {
         Execution execution = execution(history, request);
         List<Message> before = execution.getMessages();
 
-        Optional<ContextChangedEvent> first = conversations.startConversation(execution, null, McpToolScope.EMPTY);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY);
         execution.getMessages().add(AiMessageEntity.builder().text("answer").build());
         execution.getMessages().add(UserMessageEntity.from("next question"));
         List<Message> beforeSecond = execution.getMessages();
-        Optional<ContextChangedEvent> second = conversations.startConversation(execution, null, McpToolScope.EMPTY);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY);
 
-        assertTrue(first.isEmpty(), "the request already matches the history, so there is nothing to report");
-        assertTrue(second.isEmpty(), "nothing changed on the following round either");
+        assertTrue(recorder.changes.isEmpty(), "a round that changed nothing must not publish a change");
         assertSame(beforeSecond, execution.getMessages(),
                 "the list reference is left alone so the incremental token baseline stays valid");
         assertEquals(5, execution.getMessages().size(), "no duplicate context block was inserted");
     }
 
     @Test
-    void theFirstRoundReportsAnInsertedSystemPromptAndFreshSections() {
+    void theFirstRoundPublishesAnInsertedSystemPromptAndFreshSections() {
         Execution execution = execution(new ArrayList<>(List.of(UserMessageEntity.from("question"))),
                 requestWithMemory("SYS", "mem v1"));
 
-        ContextChangedEvent event = conversations.startConversation(execution, null, McpToolScope.EMPTY).orElseThrow();
+        conversations.startConversation(execution, null, McpToolScope.EMPTY);
 
+        ContextChangedEvent event = only(recorder.changes);
         assertEquals("execution-1", event.executionId());
         assertTrue(event.getReasons().contains(ContextChangeReason.SYSTEM_PROMPT_INSERTED),
                 "the leading system prompt did not exist before this round");
@@ -90,8 +111,37 @@ class ContextChangedReportingTest {
                 "a section that did not exist before has no old side to diff against");
     }
 
+    /** The event must describe the state a listener can already read back. */
     @Test
-    void aRewrittenBusinessPromptIsReportedAsAPrefixBreak() {
+    void theChangeIsPublishedOnlyAfterTheMessageListIsFinal() {
+        List<Object> observedFirstMessage = new ArrayList<>();
+        ContextEventPublisher publisher = new ContextEventPublisher(List.of(new ContextListener() {
+            @Override
+            public int order() {
+                return 0;
+            }
+
+            @Override
+            public void onContextChanged(ContextChangedEvent event) {
+                observedFirstMessage.add(event.getReasons());
+            }
+        }));
+        DefaultConversationManager manager = DefaultConversationManager.builder()
+                .contextAttachmentProvider(ContextAttachmentProvider.NONE)
+                .contextEventPublisher(publisher)
+                .build();
+        Execution execution = execution(new ArrayList<>(List.of(UserMessageEntity.from("question"))),
+                requestWithMemory("SYS", "mem v1"));
+
+        manager.startConversation(execution, null, McpToolScope.EMPTY);
+
+        assertEquals(1, observedFirstMessage.size(), "the fact is published during the call that made it");
+        assertTrue(execution.getMessages().getFirst() instanceof SystemMessageEntity,
+                "the list the event describes is already in place when the listener runs");
+    }
+
+    @Test
+    void aRewrittenBusinessPromptIsPublishedAsAPrefixBreak() {
         List<Message> history = new ArrayList<>(List.of(
                 SystemMessageEntity.builder().text("## Business Prompt\nv1").build(),
                 UserMessageEntity.from("q1"),
@@ -101,8 +151,9 @@ class ContextChangedReportingTest {
                 .contextSpec(ContextSpec.builder().systemPrompt("v2").build())
                 .build());
 
-        ContextChangedEvent event = conversations.startConversation(execution, null, McpToolScope.EMPTY).orElseThrow();
+        conversations.startConversation(execution, null, McpToolScope.EMPTY);
 
+        ContextChangedEvent event = only(recorder.changes);
         assertTrue(event.getReasons().contains(ContextChangeReason.SYSTEM_PROMPT_REPLACED));
         assertFalse(event.prefixPreserved(), "the leading system prompt changed, so every cached token is gone");
         SystemMessageEntity leading = (SystemMessageEntity) execution.getMessages().getFirst();
@@ -113,7 +164,7 @@ class ContextChangedReportingTest {
     }
 
     @Test
-    void aRebuildReportsItsOwnEventAndCanBeToldApartFromAnOrdinaryChange() {
+    void aRebuildPublishesItsOwnEventDuringTheCall() {
         List<Message> history = new ArrayList<>(List.of(
                 SystemMessageEntity.builder().text("SYS").build(),
                 UserMessageEntity.from("q1"),
@@ -121,25 +172,43 @@ class ContextChangedReportingTest {
                 UserMessageEntity.from("q2")));
         Execution execution = execution(history, AgentRequest.builder().build());
 
-        ContextRebuiltEvent event = conversations.rebuildContext("summary", execution).orElseThrow();
+        conversations.rebuildContext("summary", execution);
 
+        ContextRebuiltEvent event = only(recorder.rebuilds);
         assertEquals("CONTEXT_REBUILT", event.type());
-        assertEquals(execution.getMessages().size(), event.getMessageCount());
+        assertEquals(execution.getMessages().size(), event.getMessageCount(),
+                "the reported count is the session a listener can already read");
         assertTrue(event.getSummaryGeneration() >= 1, "the first summary of a session is generation one");
+        assertTrue(recorder.changes.isEmpty(), "a rebuild is its own fact, not an ordinary change");
     }
 
     @Test
-    void aBlankSummaryIsNotARebuildAndReportsNothing() {
+    void aBlankSummaryIsNotARebuildAndPublishesNothing() {
         Execution execution = execution(new ArrayList<>(List.of(UserMessageEntity.from("q1"))),
                 AgentRequest.builder().build());
         List<Message> before = execution.getMessages();
 
-        assertTrue(conversations.rebuildContext("   ", execution).isEmpty());
+        conversations.rebuildContext("   ", execution);
+
+        assertTrue(recorder.rebuilds.isEmpty());
         assertSame(before, execution.getMessages(), "an unusable summary must not touch the history");
     }
 
     @Test
-    void theContextChannelNeverReachesTheStreamingSurface() {
+    void aManagerBuiltWithoutListenersReportsIntoNothingInsteadOfFailing() {
+        DefaultConversationManager bare = DefaultConversationManager.builder()
+                .contextAttachmentProvider(ContextAttachmentProvider.NONE)
+                .build();
+        Execution execution = execution(new ArrayList<>(List.of(UserMessageEntity.from("question"))),
+                requestWithMemory("SYS", "mem v1"));
+
+        bare.startConversation(execution, null, McpToolScope.EMPTY);
+
+        assertTrue(execution.getMessages().getFirst() instanceof SystemMessageEntity);
+    }
+
+    @Test
+    void theContextSurfaceAndTheStreamingSurfaceStaySeparate() {
         List<String> contextTrail = new ArrayList<>();
         List<String> streamTrail = new ArrayList<>();
         ContextEventPublisher contextEvents = new ContextEventPublisher(List.of(new ContextListener() {
@@ -150,11 +219,6 @@ class ContextChangedReportingTest {
 
             @Override
             public void onContextChanged(ContextChangedEvent event) {
-                contextTrail.add(event.type());
-            }
-
-            @Override
-            public void onContextRebuilt(ContextRebuiltEvent event) {
                 contextTrail.add(event.type());
             }
         }));
@@ -171,14 +235,14 @@ class ContextChangedReportingTest {
         }));
 
         contextEvents.onContextChanged(ContextChangedEvent.builder().executionId("execution").build());
-        contextEvents.onContextRebuilt(ContextRebuiltEvent.builder().executionId("execution").build());
 
-        assertEquals(List.of("CONTEXT_CHANGED", "CONTEXT_REBUILT"), contextTrail);
+        assertEquals(List.of("CONTEXT_CHANGED"), contextTrail);
         assertTrue(streamTrail.isEmpty(), "a context fact never reaches the streaming surface");
     }
 
-    private static AgentRequest requestWithMemory(String memory) {
-        return requestWithMemory(null, memory);
+    private static <T> T only(List<T> events) {
+        assertEquals(1, events.size(), "exactly one fact for one change");
+        return events.getFirst();
     }
 
     private static AgentRequest requestWithMemory(String systemPrompt, String memory) {

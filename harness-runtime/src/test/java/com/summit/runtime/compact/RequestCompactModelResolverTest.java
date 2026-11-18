@@ -174,7 +174,7 @@ class RequestCompactModelResolverTest {
         DefaultConversationManager conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         DefaultModelCompacter compacter = DefaultModelCompacter.builder().models(resolver::resolve).executions(executions)
                 .conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations, new ContextEventPublisher(List.of()))).build();
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
 
         assertTrue(compacter.compact(new ContextCompactRequest(automatic, null)));
         assertTrue(compacter.execute(ToolExecution.builder().executionId(tool.getId()).args("history").build()).isSuccess());

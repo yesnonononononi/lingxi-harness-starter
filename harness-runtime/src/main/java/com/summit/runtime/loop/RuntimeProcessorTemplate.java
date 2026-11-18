@@ -2,8 +2,6 @@ package com.summit.runtime.loop;
 
 import com.summit.core.agent.Execution;
 import com.summit.core.agent.ExecutionState;
-import com.summit.core.conversation.event.AgentEvent;
-import com.summit.core.conversation.event.ContextChangedEvent;
 import com.summit.core.runtime.ExecutionRuntime;
 import com.summit.core.runtime.loop.ExecutionControlSignal;
 import com.summit.core.runtime.loop.ExecutionFailureObserver;
@@ -49,9 +47,11 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
                 notifyLifecycle(() -> this.context.getRuntimeLifeStyleManager().onResume(execution));
             } else {
 
-                // Step one: initialize the metadata of the execution (messages, tokenUsage, systemMessage)
-                ContextChangedEvent pendingContextEvent = this.context.getConversationManager().startConversation(
-                        execution, context.getWorkspace(), context.getMcpToolScope()).orElse(null);
+                // Step one: initialize the metadata of the execution (messages, tokenUsage,
+                // systemMessage). Reporting that change is the manager's own job — it owns the
+                // message list, and it publishes through its own context surface.
+                this.context.getConversationManager().startConversation(
+                        execution, context.getWorkspace(), context.getMcpToolScope());
 
                 // Step two: transition the execution to the STARTED state
                 execution.startChecked();
@@ -61,11 +61,6 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
 
                 // Step four: publish the STARTED event
                 notifyLifecycle(() -> this.context.getRuntimeLifeStyleManager().onStart(execution));
-
-                // Step five: report what the context launch changed, once the snapshot carrying it
-                // is durable. A context fact is what an application audits, so it must not be
-                // observed before the state it describes exists.
-                deliverContextChanged(pendingContextEvent);
             }
 
             // Step six: run the agent loop
@@ -187,20 +182,6 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
 
     private void save(Execution execution) {
         context.getExecutionRepository().save(execution);
-    }
-
-    /**
-     * Reports a context change after the snapshot that carries it is durable.
-     *
-     * <p>Goes through {@link ExecutionRepository#afterCommit} like the terminal notifications: a
-     * transactional repository defers the delivery to its commit, a plain one delivers at once. A
-     * {@code null} means the launch changed nothing, which is the common case and publishes
-     * nothing — the previous version dispatched a null event to every listener.</p>
-     */
-    private void deliverContextChanged(ContextChangedEvent event) {
-        if (event == null) return;
-        this.context.getExecutionRepository()
-                .afterCommit(() -> notifyLifecycle(() -> this.context.getContextEventPublisher().onContextChanged(event)));
     }
 
     private void notifyLifecycle(Runnable notification) {

@@ -6,7 +6,6 @@ import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ResponseIdGenerator;
 import com.summit.core.conversation.event.AgentEventPublisher;
-import com.summit.core.conversation.event.ContextEventPublisher;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
 import com.summit.core.runtime.RuntimeFactory;
 import com.summit.core.runtime.RuntimeListener;
@@ -67,7 +66,6 @@ public class ExecutionRuntimeConfig {
                                                 ResponseIdGenerator responseIdGenerator,
                                                 CompactSummaryApplier compactSummaryApplier,
                                                 RuntimeTransactionalSupport runtimeTransactionalSupport,
-                                                ContextEventPublisher contextEventPublisher,
                                                 AgentEventPublisher agentEventPublisher) {
         return DefaultRuntimeFactory.builder()
                 .toolExecutionManager(defaultToolExecutionManager)
@@ -77,7 +75,6 @@ public class ExecutionRuntimeConfig {
                 .conversationManager(conversationManager)
                 .compactSummaryApplier(compactSummaryApplier)
                 .usage(usage)
-                .contextEventPublisher(contextEventPublisher)
                 .transactionalSupport(runtimeTransactionalSupport)
                 .tokenizer(tokenizer)
                 .loopInterceptorProcessor(loopInterceptorProcessor)

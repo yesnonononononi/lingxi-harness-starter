@@ -39,6 +39,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import com.summit.core.runtime.AgentStreamListener;
 import com.summit.core.conversation.event.AgentEventPublisher;
+import com.summit.core.conversation.event.ContextEventPublisher;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -71,7 +72,7 @@ class ResponseIdentityPropagationTest {
                     .executionControl(new DefaultExecutionController(() -> null, repository, publisher, lifecycle))
                     .loopInterceptorProcessor(fixture.context.getLoopInterceptorProcessor())
                     .boundaryChecker(fixture.context.getRuntimeBoundaryChecker()).tokenizer(tokenizer)
-                    .usage(new ContextUsageReporter(tokenizer, 100000, fixture.context.getContextEventPublisher(), 5)).build();
+                    .usage(new ContextUsageReporter(tokenizer, 100000, new ContextEventPublisher(List.of()), 5)).build();
             fixture.execution.setExecutionState(ExecutionState.CREATED);
 
             factory.createRuntime(fixture.context.getInvoker(), workspace(), McpToolScope.EMPTY)
