@@ -36,6 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.summit.core.conversation.CheckpointSaver;
 
 /**
  * State machine of the summarize band (design §3.1, §3.3.4, §3.3.5) — cases 1 to 9 of §8.2.
@@ -277,7 +278,7 @@ class CompactionStateMachineTest {
         checker.before(TokenUsageEntity.empty(), execution);
         assertTrue(execution.getCompactionState().summaryUnavailable());
 
-        conversations.rebuildContext("a summary produced by another path", execution);
+        conversations.rebuildContext("a summary produced by another path", execution, CheckpointSaver.NONE);
 
         assertTrue(execution.getCompactionState().summaryUnavailable(),
                 "a rebuild must never clear the unavailable latch");
@@ -297,7 +298,7 @@ class CompactionStateMachineTest {
         execution.setCompactionState(
                 CompactionState.none().withSummaryGeneration(2).withPruneGeneration(1));
 
-        conversations.rebuildContext("rebuilt summary", execution);
+        conversations.rebuildContext("rebuilt summary", execution, CheckpointSaver.NONE);
 
         CompactionState state = execution.getCompactionState();
         assertEquals(0, state.pruneGeneration(), "a new generation starts un-pruned");
@@ -311,8 +312,8 @@ class CompactionStateMachineTest {
         Execution execution = execution();
         execution.setCompactionState(new CompactionState(1, 1, true, 1));
 
-        conversations.rebuildContext("first rebuilt summary", execution);
-        conversations.rebuildContext("second rebuilt summary", execution);
+        conversations.rebuildContext("first rebuilt summary", execution, CheckpointSaver.NONE);
+        conversations.rebuildContext("second rebuilt summary", execution, CheckpointSaver.NONE);
 
         CompactionState state = execution.getCompactionState();
         assertEquals(1, state.summaryAttempts(), "a rebuild must never reset the attempt counter");
@@ -354,7 +355,7 @@ class CompactionStateMachineTest {
         };
         DefaultModelCompacter modelCompacter = DefaultModelCompacter.builder().models(ignored -> model)
                 .conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations, CheckpointSaver.NONE)).build();
         AgentConfig agentConfig = AgentConfig.builder()
                 .maxTokens(100_000)
                 .maxSummaryAttempts(maxSummaryAttempts)

@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import com.summit.core.conversation.CheckpointSaver;
 
 /**
  * The messages one execution sends on its first round, asserted as rendered text.
@@ -220,7 +221,7 @@ class DefaultConversationManagerSystemPromptTest {
                 .agentRequest(request)
                 .build();
 
-        conversations.startConversation(execution, workspace, scope);
+        conversations.startConversation(execution, workspace, scope, CheckpointSaver.NONE);
 
         List<Message> messages = execution.getMessages();
         SystemMessageEntity leading = assertInstanceOf(SystemMessageEntity.class, messages.getFirst(),

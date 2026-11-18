@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import com.summit.core.conversation.CheckpointSaver;
 
 class ContextUsageBaselineTest {
     @Test
@@ -190,7 +191,7 @@ class ContextUsageBaselineTest {
             return ChatResponseEntity.builder().aiMessageEntity(AiMessageEntity.builder()
                     .text("{\"summary\":\"" + summary + "\"}").build()).build();
         }).conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations, CheckpointSaver.NONE)).build();
         BoundaryChecker checker = new BoundaryChecker(config(2), tokenizer, conversations,
                 new DefaultContextPruner(config(2), usage), compacter, usage, null);
         if (alwaysOversized) {

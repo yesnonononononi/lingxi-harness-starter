@@ -47,6 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.summit.core.conversation.CheckpointSaver;
 
 /**
  * Checks pending prefixes, complete latest turns, and text-only history through both real adapters.
@@ -280,7 +281,7 @@ class PrunedContextWireAcceptanceTest {
                 AgentRequest.builder().contextSpec(ContextSpec.builder().systemPrompt("system").context(messages).build()).build(), "test");
         execution.setMessages(new ArrayList<>(messages));
         DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build()
-                .rebuildContext("压缩后的摘要", execution);
+                .rebuildContext("压缩后的摘要", execution, CheckpointSaver.NONE);
         return execution.getMessages();
     }
 

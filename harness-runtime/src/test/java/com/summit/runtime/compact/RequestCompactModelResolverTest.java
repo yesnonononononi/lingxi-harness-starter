@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import com.summit.core.conversation.CheckpointSaver;
 
 class RequestCompactModelResolverTest {
     /** Summarization profile: its own budget, no thinking — never the chat request's effort. */
@@ -174,7 +175,7 @@ class RequestCompactModelResolverTest {
         DefaultConversationManager conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).build();
         DefaultModelCompacter compacter = DefaultModelCompacter.builder().models(resolver::resolve).executions(executions)
                 .conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations, CheckpointSaver.NONE)).build();
 
         assertTrue(compacter.compact(new ContextCompactRequest(automatic, null)));
         assertTrue(compacter.execute(ToolExecution.builder().executionId(tool.getId()).args("history").build()).isSuccess());

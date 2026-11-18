@@ -44,6 +44,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
+import com.summit.core.conversation.CheckpointSaver;
 
 class LoopRegressionTest {
 
@@ -809,7 +810,7 @@ class LoopRegressionTest {
             assertSame(execution, current);
             assertEquals("business summary output", raw);
             applied.incrementAndGet();
-            conversations.rebuildContext("custom rendered summary", current);
+            conversations.rebuildContext("custom rendered summary", current, CheckpointSaver.NONE);
             return true;
         };
         LoopInterceptor observer = new LoopInterceptor() {

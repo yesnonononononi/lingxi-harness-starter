@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
+import com.summit.core.conversation.CheckpointSaver;
 
 /**
  * 摘要压缩后的 thinking 残留守卫。
@@ -73,7 +74,7 @@ class CompactionThinkingResidueTest {
                 .executions(new InMemoryActiveExecutionRegistry()).conversationManager(conversations)
                 .contextAttachmentProvider(ContextAttachmentProvider.NONE)
                 .usage(new ContextUsageReporter(new DefaultTokenizer(), 10_000, new ContextEventPublisher(List.of()), 1))
-                .summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
+                .summaryApplier(new DefaultCompactSummaryApplier(conversations, CheckpointSaver.NONE)).build();
     }
 
     private AgentRequest request() {

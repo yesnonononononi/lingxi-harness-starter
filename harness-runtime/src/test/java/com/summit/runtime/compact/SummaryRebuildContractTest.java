@@ -27,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.summit.core.conversation.CheckpointSaver;
 
 /**
  * The two non-deletable contracts of a summary rebuild (design §3.4) — cases 10 to 12 of §8.2.
@@ -48,22 +49,22 @@ class SummaryRebuildContractTest {
         Execution execution = execution(SystemMessageEntity.builder().text("system").build(),
                 UserMessageEntity.from("question"), earlierReply, notification);
 
-        conversations.rebuildContext("first summary", execution);
-        conversations.rebuildContext("second summary before delivery", execution);
+        conversations.rebuildContext("first summary", execution, CheckpointSaver.NONE);
+        conversations.rebuildContext("second summary before delivery", execution, CheckpointSaver.NONE);
 
         assertEquals(List.of("question", "incoming mail"), userTexts(execution));
         assertEquals(List.of(earlierReply, notification), execution.getMessages().subList(3, 5));
         assertEquals(false, notification.getAttrs().get(UserMessageEntity.COMPACT));
 
         execution.getMessages().add(AiMessageEntity.builder().text("mail received").build());
-        conversations.rebuildContext("summary after delivery", execution);
+        conversations.rebuildContext("summary after delivery", execution, CheckpointSaver.NONE);
 
         UserMessageEntity delivered = execution.getMessages().stream().filter(message -> message.text().equals("incoming mail"))
                 .map(UserMessageEntity.class::cast).findFirst().orElseThrow();
         assertEquals(true, delivered.getAttrs().get(UserMessageEntity.COMPACT));
         assertEquals(false, notification.getAttrs().get(UserMessageEntity.COMPACT));
 
-        conversations.rebuildContext("summary of processed mail", execution);
+        conversations.rebuildContext("summary of processed mail", execution, CheckpointSaver.NONE);
         assertEquals(List.of("question"), userTexts(execution));
     }
 
@@ -81,7 +82,7 @@ class SummaryRebuildContractTest {
                 AiMessageEntity.builder().text("answer-two").build(),
                 UserMessageEntity.from("user-three"));
 
-        conversations.rebuildContext("compressed summary", execution);
+        conversations.rebuildContext("compressed summary", execution, CheckpointSaver.NONE);
 
         assertEquals(List.of("user-one", "user-two", "user-three"), userTexts(execution),
                 "a summary rebuild must keep every user message of the compressed context");
@@ -101,7 +102,7 @@ class SummaryRebuildContractTest {
                     .aiMessageEntity(AiMessageEntity.builder().text(SUMMARY_JSON).build())
                     .build();
         }).conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations, CheckpointSaver.NONE)).build();
         Execution execution = execution(
                 SystemMessageEntity.builder().text("LEADING-SYSTEM-PROMPT").build(),
                 UserMessageEntity.from("history the first round compresses"));
@@ -126,7 +127,7 @@ class SummaryRebuildContractTest {
                 SystemMessageEntity.builder().text("LEADING").build(),
                 UserMessageEntity.from("user-one"));
 
-        conversations.rebuildContext("compressed summary", execution);
+        conversations.rebuildContext("compressed summary", execution, CheckpointSaver.NONE);
 
         List<Message> rebuilt = execution.getMessages();
         assertEquals("LEADING", rebuilt.getFirst().text(),
@@ -172,7 +173,7 @@ class SummaryRebuildContractTest {
                 AiMessageEntity.builder().text("answer-one").build(),
                 UserMessageEntity.from("user-two"));
 
-        conversations.rebuildContext("compressed summary", execution);
+        conversations.rebuildContext("compressed summary", execution, CheckpointSaver.NONE);
 
         assertEquals(List.of("user-one", "user-two"), userTexts(execution),
                 "an answered trailing turn must not drop the earlier user messages");
@@ -204,7 +205,7 @@ class SummaryRebuildContractTest {
                 AiMessageEntity.builder().text("OLDSTEP " + "x".repeat(700)).build(),
                 AiMessageEntity.builder().text("NEWSTEP " + "y".repeat(200)).build());
 
-        conversations.rebuildContext("compressed summary", execution);
+        conversations.rebuildContext("compressed summary", execution, CheckpointSaver.NONE);
 
         List<String> texts = execution.getMessages().stream().map(Message::text).toList();
         assertFalse(texts.stream().anyMatch(t -> t != null && t.contains("OLDSTEP")),
@@ -225,7 +226,7 @@ class SummaryRebuildContractTest {
                 AiMessageEntity.builder().text("answer").thinking("OLD-THINKING")
                         .attributes(java.util.Map.of("signature", "OLD-SIG")).build());
 
-        conversations.rebuildContext("compressed summary", execution);
+        conversations.rebuildContext("compressed summary", execution, CheckpointSaver.NONE);
 
         AiMessageEntity retained = execution.getMessages().stream()
                 .filter(AiMessageEntity.class::isInstance).map(AiMessageEntity.class::cast)

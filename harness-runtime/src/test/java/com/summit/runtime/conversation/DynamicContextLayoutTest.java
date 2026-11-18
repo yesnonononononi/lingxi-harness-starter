@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import com.summit.core.conversation.CheckpointSaver;
 
 /**
  * Where the per-round context lands, and what it is allowed to touch.
@@ -52,7 +53,7 @@ class DynamicContextLayoutTest {
 
         Execution execution = execution(history, requestWithMemory("SYS", "mem v2"));
 
-        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
 
         List<Message> after = execution.getMessages();
         assertEquals(6, after.size(), "one message was inserted, nothing was dropped");
@@ -85,8 +86,8 @@ class DynamicContextLayoutTest {
         Execution execution = execution(history, request);
         List<Message> before = execution.getMessages();
 
-        conversations.startConversation(execution, null, McpToolScope.EMPTY);
-        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
 
         assertSame(before, execution.getMessages(),
                 "nothing changed, so even the list reference is left alone and the token baseline stays valid");
@@ -106,7 +107,7 @@ class DynamicContextLayoutTest {
 
         Execution execution = execution(history, requestWithMemory("mem v2"));
 
-        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
 
         List<UserMessageEntity> contextMessages = execution.getMessages().stream()
                 .filter(UserMessageEntity.class::isInstance)
@@ -136,7 +137,7 @@ class DynamicContextLayoutTest {
 
         Execution execution = execution(history, requestWithMemory("unused"));
 
-        conversations.rebuildContext("summary", execution);
+        conversations.rebuildContext("summary", execution, CheckpointSaver.NONE);
 
         List<UserMessageEntity> remaining = execution.getMessages().stream()
                 .filter(UserMessageEntity.class::isInstance)
@@ -166,13 +167,13 @@ class DynamicContextLayoutTest {
             Execution execution = execution(history, requestWithMemory("CONTEXT-5"));
 
             // The fifth block crosses the default limit of four: one warning, and it is appended.
-            conversations.startConversation(execution, null, McpToolScope.EMPTY);
+            conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
             assertEquals(5, liveContextBlocks(execution), "the block is still appended: the guard only reports");
             assertEquals(1, warningCount(appender), "crossing the limit warns once");
 
             // Nothing changed: no insert, so no repeated warning on the following rounds.
-            conversations.startConversation(execution, null, McpToolScope.EMPTY);
-            conversations.startConversation(execution, null, McpToolScope.EMPTY);
+            conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
+            conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
             assertEquals(5, liveContextBlocks(execution), "an unchanged context is not appended again");
             assertEquals(1, warningCount(appender),
                     "an unchanged history sitting at the limit must not warn on every round");
@@ -196,13 +197,13 @@ class DynamicContextLayoutTest {
 
         List<Message> history = new ArrayList<>(List.of(UserMessageEntity.from("turn 1")));
         Execution execution = execution(history, round1Request);
-        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
 
         // Simulate assistant reply and turn 2 with identical context
         execution.getMessages().add(AiMessageEntity.builder().text("reply 1").build());
         execution.getMessages().add(UserMessageEntity.from("turn 2"));
         List<Message> beforeUnchanged = execution.getMessages();
-        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
         assertSame(beforeUnchanged, execution.getMessages(),
                 "multi-turn with unchanged sections must not re-insert <context>");
 
@@ -215,7 +216,7 @@ class DynamicContextLayoutTest {
                         .environment(Map.of("ENV_A", "1", "API_TOKEN", "secret"))
                         .build())
                 .build());
-        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
 
         UserMessageEntity delta = assertInstanceOf(UserMessageEntity.class,
                 execution.getMessages().get(execution.getMessages().size() - 2));
@@ -232,7 +233,7 @@ class DynamicContextLayoutTest {
         execution.getMessages().add(AiMessageEntity.builder().text("reply 2").build());
         execution.getMessages().add(UserMessageEntity.from("turn 3"));
         List<Message> beforeTurn3 = execution.getMessages();
-        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
         assertSame(beforeTurn3, execution.getMessages(), "already-cleared section is not emitted again");
     }
 
@@ -262,7 +263,7 @@ class DynamicContextLayoutTest {
                 UserMessageEntity.from("q2")));
 
         Execution execution = execution(history, AgentRequest.builder().build());
-        conversations.rebuildContext("summary", execution);
+        conversations.rebuildContext("summary", execution, CheckpointSaver.NONE);
 
         List<UserMessageEntity> remaining = execution.getMessages().stream()
                 .filter(UserMessageEntity.class::isInstance)
@@ -313,7 +314,7 @@ class DynamicContextLayoutTest {
                 .contextSpec(ContextSpec.builder().systemPrompt("v2").build())
                 .build());
 
-        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
 
         SystemMessageEntity leading = assertInstanceOf(SystemMessageEntity.class, execution.getMessages().getFirst());
         assertEquals("## Business Prompt\nv2", leading.getText());
@@ -331,7 +332,7 @@ class DynamicContextLayoutTest {
                 .build();
         Execution execution = execution(new ArrayList<>(List.of(UserMessageEntity.from("q1"))), turn1);
 
-        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
 
         SystemMessageEntity system = assertInstanceOf(SystemMessageEntity.class, execution.getMessages().getFirst());
         assertFalse(system.getText().contains("edit_file"), "blacklist must not enter system prompt");
@@ -348,7 +349,7 @@ class DynamicContextLayoutTest {
                         .build())
                 .build());
 
-        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
 
         UserMessageEntity ctx2 = assertInstanceOf(UserMessageEntity.class,
                 execution.getMessages().get(execution.getMessages().size() - 2));

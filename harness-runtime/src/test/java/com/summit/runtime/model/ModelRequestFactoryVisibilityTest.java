@@ -32,6 +32,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.summit.core.conversation.CheckpointSaver;
 
 /**
  * Model-visible tools = the whitelisted static tools, plus the framework kernel tools the registry
@@ -182,7 +183,7 @@ class ModelRequestFactoryVisibilityTest {
 
     private static ConversationManager conversations() {
         return new ConversationManager() {
-            public void startConversation(Execution execution, Workspace workspace, McpToolScope scope) { }
+            public void startConversation(Execution execution, Workspace workspace, McpToolScope scope, CheckpointSaver checkpoint) { }
 
             public void addMessage(LoopMessages loopMessages) { }
 
@@ -190,7 +191,7 @@ class ModelRequestFactoryVisibilityTest {
 
             public TokenUsageEntity tokenUsage(Execution execution) { return TokenUsageEntity.empty(); }
 
-            public void rebuildContext(String summary, Execution execution) { }
+            public void rebuildContext(String summary, Execution execution, CheckpointSaver checkpoint) { }
 
             public void appendSystemMessage(Execution execution, SystemMessageEntity entity) { }
 

@@ -2,6 +2,7 @@ package com.summit.runtime.compact;
 
 import com.summit.core.agent.Execution;
 import com.summit.core.compact.CompactSummaryApplier;
+import com.summit.core.conversation.CheckpointSaver;
 import com.summit.core.conversation.ConversationManager;
 import lombok.RequiredArgsConstructor;
 
@@ -12,11 +13,16 @@ import lombok.RequiredArgsConstructor;
  * pipeline: the caller has an output string and needs to know only whether the context changed.
  * The summary layout and the prompt that produces it are the compaction strategy's business, so
  * they live beside this class rather than in the {@link ConversationManager} contract.</p>
+ *
+ * <p>The rebuild needs a checkpoint to publish behind, and persistence belongs to the runtime, so
+ * the save action is carried here — resolved once when this applier is assembled — and handed to the
+ * manager at the call. This class never sees the repository itself.</p>
  */
 @RequiredArgsConstructor
 public class DefaultCompactSummaryApplier implements CompactSummaryApplier {
 
     private final ConversationManager conversationManager;
+    private final CheckpointSaver checkpointSaver;
 
 
     /**
@@ -30,7 +36,7 @@ public class DefaultCompactSummaryApplier implements CompactSummaryApplier {
         if (summary == null) return false;
         // The rebuild reports itself: which message list a session now has is the manager's domain,
         // and this class has nothing to say about it beyond "the summary was usable".
-        conversationManager.rebuildContext(render(summary), execution);
+        conversationManager.rebuildContext(render(summary), execution, checkpointSaver);
         return true;
     }
 

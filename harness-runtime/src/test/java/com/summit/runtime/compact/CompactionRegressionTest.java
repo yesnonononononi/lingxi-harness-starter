@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import com.summit.core.conversation.CheckpointSaver;
 
 /**
  * The regressions that must survive the compaction redesign (§8.1).
@@ -54,7 +55,7 @@ class CompactionRegressionTest {
             return ChatResponseEntity.builder().aiMessageEntity(AiMessageEntity.builder()
                     .text("{\"summary\":\"summary\"}").build()).build();
         }).conversationManager(conversations).contextAttachmentProvider(id -> Optional.of("protected state"))
-                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations, CheckpointSaver.NONE)).build();
         ArrayList<Message> history = new ArrayList<Message>(List.of(
                 SystemMessageEntity.builder().text("system").build(), UserMessageEntity.from("history")));
         Execution execution = Execution.builder().id("e").messages(history)
@@ -93,7 +94,7 @@ class CompactionRegressionTest {
                 .usage(usage).summaryApplier((raw, current) -> {
                     assertSame(execution, current);
                     outputs.add(raw);
-                    conversations.rebuildContext("custom rendered summary", current);
+                    conversations.rebuildContext("custom rendered summary", current, CheckpointSaver.NONE);
                     return true;
                 }).build();
 
@@ -168,7 +169,7 @@ class CompactionRegressionTest {
             modelCalls.add(1);
             throw new IllegalStateException("model unavailable");
         }).conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(capturingReporter(events)).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
+                .usage(capturingReporter(events)).summaryApplier(new DefaultCompactSummaryApplier(conversations, CheckpointSaver.NONE)).build();
 
         Execution execution = executionWith(
                 SystemMessageEntity.builder().text("system").build(),

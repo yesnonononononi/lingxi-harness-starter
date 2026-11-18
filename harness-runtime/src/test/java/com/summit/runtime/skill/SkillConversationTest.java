@@ -18,6 +18,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import com.summit.core.conversation.CheckpointSaver;
 
 class SkillConversationTest {
     @TempDir Path root;
@@ -65,7 +66,7 @@ class SkillConversationTest {
                         .build())
                 .skillConfig(config).build();
         Execution execution = Execution.create(request, "test");
-        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
         return execution.getMessages().stream()
                 .filter(UserMessageEntity.class::isInstance)
                 .map(com.summit.core.conversation.message.Message::text)

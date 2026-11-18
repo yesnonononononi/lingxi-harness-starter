@@ -6,6 +6,7 @@ import com.summit.core.compact.ContextAttachmentProvider;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conf.SkillConfig;
 import com.summit.core.conversation.ChangedDiff;
+import com.summit.core.conversation.CheckpointSaver;
 import com.summit.core.conversation.ConversationManager;
 import com.summit.core.conversation.api.ChatResponseEntity;
 import com.summit.core.conversation.api.ConversationTranscriptSink;
@@ -90,12 +91,11 @@ public class DefaultConversationManager implements ConversationManager {
      *
      * <p><b>What a listener can expect to read back.</b> The fact is published inside the call that
      * made it, after the execution's message list is final, so a listener that reads
-     * {@code execution.getMessages()} sees exactly the state the event describes. It does
-     * <em>not</em> wait for the runtime's snapshot: the list this manager owns is in-memory state,
-     * and persistence of a run stays the runtime's business. A consumer that stores an audit row per
-     * context fact is therefore recording a fact about a run that may still fail to save — the same
-     * trade every in-memory notification makes, and the reason the event is not a substitute for the
-     * saved snapshot.</p>
+     * {@code execution.getMessages()} sees exactly the state the event describes. It is also
+     * published only after the caller's {@link CheckpointSaver} has stored that state, so the event
+     * can be treated as an authoritative fact rather than a hint that something might still be rolled
+     * back — that ordering is why the save action arrives as a parameter instead of this class
+     * owning a repository it has no business owning.</p>
      */
     private final ContextEventPublisher contextEventPublisher;
 
@@ -132,7 +132,8 @@ public class DefaultConversationManager implements ConversationManager {
 
 
     @Override
-    public void startConversation(Execution execution, Workspace workspace, McpToolScope mcpToolScope) {
+    public void startConversation(Execution execution, Workspace workspace, McpToolScope mcpToolScope,
+                                  CheckpointSaver checkpoint) {
         AgentRequest agentRequest = execution.getAgentRequest();
         McpToolScope scope = mcpToolScope == null ? McpToolScope.EMPTY : mcpToolScope;
 
@@ -192,8 +193,12 @@ public class DefaultConversationManager implements ConversationManager {
                                 diffTruncated(entry.getValue().oldContent()),
                                 diffTruncated(entry.getValue().newContent()))));
 
-        // Published only once the list the model will be given is final: a listener that reads the
-        // execution back must never see the state from before the change it is being told about.
+        // Published only once the list the model will be given is final, and only after the caller's
+        // save action has made it durable: a listener that reads the execution back must never see
+        // the state from before the change it is being told about, and must never be told about a
+        // session that exists only in memory.
+        checkpoint.save(execution);
+
         contextEventPublisher.onContextChanged(ContextChangedEvent.builder()
                 .executionId(execution.getId())
                 .metaData(execution.eventMetaData())
@@ -277,7 +282,7 @@ public class DefaultConversationManager implements ConversationManager {
 
 
     @Override
-    public void rebuildContext(String summary, Execution execution) {
+    public void rebuildContext(String summary, Execution execution, CheckpointSaver checkpoint) {
         if (summary == null || summary.isBlank()) return;
 
         List<Message> current = execution.getMessages();
@@ -319,8 +324,11 @@ public class DefaultConversationManager implements ConversationManager {
         // "summarization is closed" latch — resetting those here is the P0-1 regression.
         execution.setCompactionState(execution.getCompactionState().afterSummaryRebuild());
 
-        // Same rule as startConversation: the rebuilt message list is already in place when the fact
-        // is reported, so a consumer reading it back sees the session it describes.
+        // Same rule as startConversation, with the same ordering: the rebuilt list is in place and
+        // saved before the rebuild is reported, so a consumer reading it back sees the session it
+        // describes — in memory and in the store.
+        checkpoint.save(execution);
+
         contextEventPublisher.onContextRebuilt(ContextRebuiltEvent.builder()
                 .executionId(execution.getId())
                 .metaData(execution.eventMetaData())

@@ -4,6 +4,7 @@ package com.summit.runtime.context;
 import com.summit.core.compact.CompactSummaryApplier;
 import com.summit.core.compact.Tokenizer;
 import com.summit.core.conversation.ConversationManager;
+import com.summit.core.conversation.CheckpointSaver;
 import com.summit.core.conversation.api.ResponseIdGenerator;
 import com.summit.core.conversation.event.AgentEventPublisher;
 import com.summit.core.conversation.event.RuntimeEventPublisher;
@@ -97,9 +98,12 @@ public class RuntimeContext {
 
     /** Direct builder users retain the default summary application behavior. */
     public CompactSummaryApplier getCompactSummaryApplier() {
-        return compactSummaryApplier == null
-                ? new DefaultCompactSummaryApplier(conversationManager)
-                : compactSummaryApplier;
+        if (compactSummaryApplier != null) return compactSummaryApplier;
+        // The rebuild publishes a fact, so it needs a checkpoint behind that fact. Persistence is the
+        // runtime's, and this context holds the repository: hand its save action over rather than the
+        // repository, so the applier can stay ignorant of where sessions are stored.
+        return new DefaultCompactSummaryApplier(conversationManager,
+                executionRepository == null ? CheckpointSaver.NONE : executionRepository::save);
     }
 
     /**

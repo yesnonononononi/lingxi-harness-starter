@@ -99,12 +99,15 @@ public class ConversationConfig {
 
     /**
      * Applying a summary is "resolve the text, ask the manager to rebuild": the rebuild reports
-     * itself, so there is no second collaborator to inject here.
+     * itself, so the applier needs no second collaborator type — but it does carry the save action.
+     * A rebuild publishes a fact, and that fact must have a stored session behind it; the repository
+     * stays the runtime's business, only its {@code save} is handed over.
      */
     @Bean
     @ConditionalOnMissingBean(CompactSummaryApplier.class)
-    public CompactSummaryApplier compactSummaryApplier(ConversationManager conversationManager){
-        return new DefaultCompactSummaryApplier(conversationManager);
+    public CompactSummaryApplier compactSummaryApplier(ConversationManager conversationManager,
+                                                       ExecutionRepository executions){
+        return new DefaultCompactSummaryApplier(conversationManager, executions::save);
     }
 
 

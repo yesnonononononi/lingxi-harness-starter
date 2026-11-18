@@ -9,6 +9,7 @@ import com.summit.core.conversation.event.ContextEventPublisher;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import com.summit.core.conversation.CheckpointSaver;
 
 class CompactSummaryResolverTest {
 
@@ -87,7 +88,7 @@ class CompactSummaryResolverTest {
         List<String> rebuilt = new ArrayList<>();
         ConversationManager manager = stubManager(rebuilt);
 
-        assertFalse(new DefaultCompactSummaryApplier(manager).apply("   ", null));
+        assertFalse(new DefaultCompactSummaryApplier(manager, CheckpointSaver.NONE).apply("   ", null));
         assertTrue(rebuilt.isEmpty());
     }
 
@@ -97,7 +98,7 @@ class CompactSummaryResolverTest {
         ConversationManager manager = stubManager(rebuilt);
         String raw = "{\"goal\":\"g\",\"summary\":\"s\",\"completed\":[\"c\"],\"pending\":[],\"state\":\"DONE\"}";
 
-        assertTrue(new DefaultCompactSummaryApplier(manager).apply(raw, null));
+        assertTrue(new DefaultCompactSummaryApplier(manager, CheckpointSaver.NONE).apply(raw, null));
         assertEquals(1, rebuilt.size());
         assertTrue(rebuilt.getFirst().contains("summary:\ns"), rebuilt.getFirst());
         assertTrue(rebuilt.getFirst().contains("completed task:\n[c]"), rebuilt.getFirst());

@@ -34,6 +34,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
+import com.summit.core.conversation.CheckpointSaver;
 
 class ContextAttachmentAutoConfigurationTest {
     @Test
@@ -47,7 +48,7 @@ class ContextAttachmentAutoConfigurationTest {
             assertFalse(context.containsBean("contextAttachmentProvider"));
 
             Execution execution = execution();
-            context.getBean(ConversationManager.class).rebuildContext("summary", execution);
+            context.getBean(ConversationManager.class).rebuildContext("summary", execution, CheckpointSaver.NONE);
             assertProtected(execution);
 
             execution = execution();
@@ -69,7 +70,7 @@ class ContextAttachmentAutoConfigurationTest {
             assertEquals(1, context.getBeansOfType(ContextAttachmentProvider.class).size());
             assertSame(ContextAttachmentProvider.NONE, context.getBean(ContextAttachmentProvider.class));
             Execution execution = execution();
-            context.getBean(ConversationManager.class).rebuildContext("summary", execution);
+            context.getBean(ConversationManager.class).rebuildContext("summary", execution, CheckpointSaver.NONE);
             assertTrue(execution.getMessages().stream().noneMatch(message -> message.text().contains("CHECKLIST")));
         }
     }

@@ -28,7 +28,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.summit.core.conversation.CheckpointSaver;
 
 /**
  * The manager reports its own changes, and only when there is a change to report.
@@ -82,11 +84,11 @@ class ContextChangedReportingTest {
         Execution execution = execution(history, request);
         List<Message> before = execution.getMessages();
 
-        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
         execution.getMessages().add(AiMessageEntity.builder().text("answer").build());
         execution.getMessages().add(UserMessageEntity.from("next question"));
         List<Message> beforeSecond = execution.getMessages();
-        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
 
         assertTrue(recorder.changes.isEmpty(), "a round that changed nothing must not publish a change");
         assertSame(beforeSecond, execution.getMessages(),
@@ -99,7 +101,7 @@ class ContextChangedReportingTest {
         Execution execution = execution(new ArrayList<>(List.of(UserMessageEntity.from("question"))),
                 requestWithMemory("SYS", "mem v1"));
 
-        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
 
         ContextChangedEvent event = only(recorder.changes);
         assertEquals("execution-1", event.executionId());
@@ -133,7 +135,7 @@ class ContextChangedReportingTest {
         Execution execution = execution(new ArrayList<>(List.of(UserMessageEntity.from("question"))),
                 requestWithMemory("SYS", "mem v1"));
 
-        manager.startConversation(execution, null, McpToolScope.EMPTY);
+        manager.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
 
         assertEquals(1, observedFirstMessage.size(), "the fact is published during the call that made it");
         assertTrue(execution.getMessages().getFirst() instanceof SystemMessageEntity,
@@ -151,7 +153,7 @@ class ContextChangedReportingTest {
                 .contextSpec(ContextSpec.builder().systemPrompt("v2").build())
                 .build());
 
-        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
 
         ContextChangedEvent event = only(recorder.changes);
         assertTrue(event.getReasons().contains(ContextChangeReason.SYSTEM_PROMPT_REPLACED));
@@ -172,7 +174,7 @@ class ContextChangedReportingTest {
                 UserMessageEntity.from("q2")));
         Execution execution = execution(history, AgentRequest.builder().build());
 
-        conversations.rebuildContext("summary", execution);
+        conversations.rebuildContext("summary", execution, CheckpointSaver.NONE);
 
         ContextRebuiltEvent event = only(recorder.rebuilds);
         assertEquals("CONTEXT_REBUILT", event.type());
@@ -188,7 +190,7 @@ class ContextChangedReportingTest {
                 AgentRequest.builder().build());
         List<Message> before = execution.getMessages();
 
-        conversations.rebuildContext("   ", execution);
+        conversations.rebuildContext("   ", execution, CheckpointSaver.NONE);
 
         assertTrue(recorder.rebuilds.isEmpty());
         assertSame(before, execution.getMessages(), "an unusable summary must not touch the history");
@@ -202,7 +204,7 @@ class ContextChangedReportingTest {
         Execution execution = execution(new ArrayList<>(List.of(UserMessageEntity.from("question"))),
                 requestWithMemory("SYS", "mem v1"));
 
-        bare.startConversation(execution, null, McpToolScope.EMPTY);
+        bare.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
 
         assertTrue(execution.getMessages().getFirst() instanceof SystemMessageEntity);
     }
@@ -238,6 +240,127 @@ class ContextChangedReportingTest {
 
         assertEquals(List.of("CONTEXT_CHANGED"), contextTrail);
         assertTrue(streamTrail.isEmpty(), "a context fact never reaches the streaming surface");
+    }
+
+    // --- checkpoint ordering ---------------------------------------------------------------
+
+    /**
+     * The fact is only worth reading as authoritative if the session it describes is already stored:
+     * the checkpoint has to run, and finish, before the listener is called.
+     */
+    @Test
+    void theChangeIsPublishedOnlyAfterTheCheckpointIsSaved() {
+        List<String> trail = new ArrayList<>();
+        DefaultConversationManager manager = DefaultConversationManager.builder()
+                .contextAttachmentProvider(ContextAttachmentProvider.NONE)
+                .contextEventPublisher(new ContextEventPublisher(List.of(new ContextListener() {
+                    @Override
+                    public int order() {
+                        return 0;
+                    }
+
+                    @Override
+                    public void onContextChanged(ContextChangedEvent event) {
+                        trail.add("published");
+                    }
+                })))
+                .build();
+        Execution execution = execution(new ArrayList<>(List.of(UserMessageEntity.from("question"))),
+                requestWithMemory("SYS", "mem v1"));
+
+        manager.startConversation(execution, null, McpToolScope.EMPTY,
+                stored -> trail.add("saved:" + stored.getMessages().size()));
+
+        assertEquals(List.of("saved:3", "published"), trail,
+                "the checkpoint sees the final message list, and the event comes after it");
+    }
+
+    @Test
+    void aRebuildIsCheckpointedBeforeItIsPublished() {
+        List<String> trail = new ArrayList<>();
+        DefaultConversationManager manager = DefaultConversationManager.builder()
+                .contextAttachmentProvider(ContextAttachmentProvider.NONE)
+                .contextEventPublisher(new ContextEventPublisher(List.of(new ContextListener() {
+                    @Override
+                    public int order() {
+                        return 0;
+                    }
+
+                    @Override
+                    public void onContextRebuilt(ContextRebuiltEvent event) {
+                        trail.add("published:" + event.getMessageCount());
+                    }
+                })))
+                .build();
+        Execution execution = execution(new ArrayList<>(List.of(
+                SystemMessageEntity.builder().text("SYS").build(),
+                UserMessageEntity.from("q1"),
+                AiMessageEntity.builder().text("a1").build(),
+                UserMessageEntity.from("q2"))), AgentRequest.builder().build());
+
+        manager.rebuildContext("summary", execution, stored -> trail.add("saved:" + stored.getMessages().size()));
+
+        assertEquals(2, trail.size());
+        assertTrue(trail.getFirst().startsWith("saved:"), "the checkpoint runs first: " + trail);
+        assertTrue(trail.getLast().startsWith("published:"), "and the fact follows it: " + trail);
+    }
+
+    /**
+     * A session that failed to save must not be announced: the event would be a fact about a run
+     * that does not exist in the store. The failure belongs to the caller, so it is rethrown.
+     */
+    @Test
+    void aFailedCheckpointPublishesNothingAndPropagates() {
+        Execution execution = execution(new ArrayList<>(List.of(UserMessageEntity.from("question"))),
+                requestWithMemory("SYS", "mem v1"));
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> conversations.startConversation(execution, null, McpToolScope.EMPTY, stored -> {
+                    throw new IllegalStateException("store is down");
+                }));
+
+        assertEquals("store is down", failure.getMessage());
+        assertTrue(recorder.changes.isEmpty(), "no fact about a session that was never stored");
+    }
+
+    @Test
+    void aFailedCheckpointOnRebuildPublishesNothing() {
+        Execution execution = execution(new ArrayList<>(List.of(
+                SystemMessageEntity.builder().text("SYS").build(),
+                UserMessageEntity.from("q1"),
+                AiMessageEntity.builder().text("a1").build(),
+                UserMessageEntity.from("q2"))), AgentRequest.builder().build());
+
+        assertThrows(IllegalStateException.class,
+                () -> conversations.rebuildContext("summary", execution, stored -> {
+                    throw new IllegalStateException("store is down");
+                }));
+
+        assertTrue(recorder.rebuilds.isEmpty());
+    }
+
+    @Test
+    void aRoundWithoutAFactDoesNotTouchTheCheckpoint() {
+        List<String> saved = new ArrayList<>();
+        AgentRequest request = requestWithMemory("SYS", "mem v1");
+        UserMessageEntity sameContext = ContextDynamicAssembler.builder()
+                .contextSpec(request.getContextSpec())
+                .scope(McpToolScope.EMPTY)
+                .skills(List.of())
+                .tasks(request.getTask())
+                .build();
+        List<Message> history = new ArrayList<>(List.of(
+                SystemMessageEntity.builder().text("## Business Prompt\nSYS").build(),
+                sameContext,
+                UserMessageEntity.from("question")));
+        Execution execution = execution(history, request);
+
+        conversations.startConversation(execution, null, McpToolScope.EMPTY,
+                stored -> saved.add(stored.getId()));
+        conversations.rebuildContext("  ", execution, stored -> saved.add(stored.getId()));
+
+        assertTrue(saved.isEmpty(),
+                "nothing is published on this path, so there is nothing to store on the way to publishing");
     }
 
     private static <T> T only(List<T> events) {

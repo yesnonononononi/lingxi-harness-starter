@@ -44,6 +44,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import com.summit.core.conversation.CheckpointSaver;
 
 /** The fallback preserves user turns, assistant findings, and the latest complete user turn. */
 class DefaultContextPrunerTest {
@@ -302,7 +303,7 @@ class DefaultContextPrunerTest {
             modelCalls.incrementAndGet();
             throw new IllegalStateException("offline model failure");
         }).conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations, CheckpointSaver.NONE)).build();
         BoundaryChecker checker = new BoundaryChecker(config, tokenizer, conversations,
                 new DefaultContextPruner(config, usage), compacter, null, null);
         Execution execution = history("{}", "old output", "latest output".repeat(1_000));
@@ -586,7 +587,7 @@ class DefaultContextPrunerTest {
             return ChatResponseEntity.builder().aiMessageEntity(AiMessageEntity.builder()
                     .text("{\"summary\":\"usable summary\"}").build()).build();
         }).conversationManager(conversations).contextAttachmentProvider(ContextAttachmentProvider.NONE)
-                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations)).build();
+                .usage(usage).summaryApplier(new DefaultCompactSummaryApplier(conversations, CheckpointSaver.NONE)).build();
 
         BoundaryChecker checker = new BoundaryChecker(config, tokenizer, conversations,
                 new DefaultContextPruner(config, usage), summaries, null, null);

@@ -31,8 +31,23 @@ public interface ConversationManager {
      * else to publish made every caller responsible for a decision it had no state to make — and the
      * one caller that did keep that responsibility dispatched a {@code null} on the common
      * "nothing changed" round.</p>
+     *
+     * <p><b>{@code checkpoint} is saved before the fact is published.</b> A listener may therefore
+     * read the event as an authoritative fact: the session it describes is already stored, not "will
+     * be stored if the run survives". Persistence itself stays the caller's: this manager never sees
+     * a repository, it just calls the save action it was handed at the one moment that matters. The
+     * saver runs only when there is a fact to publish — a round that changed nothing publishes
+     * nothing and calls nothing — and it must complete synchronously. If it throws, the exception
+     * propagates and no event is published: a fact about a session that failed to save is exactly
+     * what this ordering exists to prevent.</p>
+     *
+     * @param checkpoint the save action that makes this round's context durable; production wiring
+     *                   passes the runtime's repository, an in-process assembly passes
+     *                   {@link CheckpointSaver#NONE} and accepts that its facts have no stored
+     *                   session behind them
      */
-    void startConversation(Execution execution, Workspace workspace, McpToolScope mcpToolScope);
+    void startConversation(Execution execution, Workspace workspace, McpToolScope mcpToolScope,
+                           CheckpointSaver checkpoint);
 
     /** Commits round messages; the runtime accounts for returned model usage before this call. */
     void addMessage(LoopMessages loopMessages);
@@ -52,10 +67,16 @@ public interface ConversationManager {
      * breaks the cached prefix, and the notification that it happened is part of doing it, not a
      * separate chore for whoever happens to call this method.</p>
      *
-     * @param summary the rendered summary to open the rebuilt session with; blank means there is
-     *                nothing to rebuild and no fact to report
+     * <p>The same ordering holds: the rebuilt message list is saved through {@code checkpoint}
+     * before the rebuild is published, so a consumer of {@code CONTEXT_REBUILT} is reading a session
+     * that already exists in the store. A blank summary rebuilds nothing, publishes nothing and
+     * saves nothing.</p>
+     *
+     * @param summary    the rendered summary to open the rebuilt session with; blank means there is
+     *                   nothing to rebuild and no fact to report
+     * @param checkpoint the save action that makes the rebuilt session durable
      */
-    void rebuildContext(String summary, Execution execution);
+    void rebuildContext(String summary, Execution execution, CheckpointSaver checkpoint);
 
     /**
      * Reads how far the context compaction of {@code execution} has progressed.

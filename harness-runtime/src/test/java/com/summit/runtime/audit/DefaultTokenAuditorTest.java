@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import com.summit.core.conversation.CheckpointSaver;
 
 class DefaultTokenAuditorTest {
     @Test
@@ -48,8 +49,8 @@ class DefaultTokenAuditorTest {
                 .build()).build();
         var execution = Execution.create(request, "agent");
         var conversations = DefaultConversationManager.builder().contextAttachmentProvider(ContextAttachmentProvider.NONE).tokenizer(tokenizer).build();
-        conversations.startConversation(execution, null, McpToolScope.EMPTY);
-        conversations.startConversation(execution, null, McpToolScope.EMPTY);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
 
         var audit = auditor(tokenizer).analysis(execution);
         Message dynamicContext = dynamicMessage(execution);

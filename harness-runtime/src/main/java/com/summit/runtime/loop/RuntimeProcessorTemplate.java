@@ -49,14 +49,18 @@ public class RuntimeProcessorTemplate implements ExecutionRuntime {
 
                 // Step one: initialize the metadata of the execution (messages, tokenUsage,
                 // systemMessage). Reporting that change is the manager's own job — it owns the
-                // message list, and it publishes through its own context surface.
+                // message list, and it publishes through its own context surface. The runtime's save
+                // is handed over as the checkpoint: the manager stores the round's context before it
+                // publishes the fact, so a listener may read that fact as authoritative.
                 this.context.getConversationManager().startConversation(
-                        execution, context.getWorkspace(), context.getMcpToolScope());
+                        execution, context.getWorkspace(), context.getMcpToolScope(), this::save);
 
                 // Step two: transition the execution to the STARTED state
                 execution.startChecked();
 
-                // Step three: save the snapshot of the execution
+                // Step three: save the snapshot of the execution. The manager already saved the
+                // context it published (step one), but that snapshot predates the STARTED transition;
+                // this one records the state the lifecycle event announces.
                 save(execution);
 
                 // Step four: publish the STARTED event
