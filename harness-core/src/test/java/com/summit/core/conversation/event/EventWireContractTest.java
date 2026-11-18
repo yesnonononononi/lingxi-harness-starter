@@ -29,6 +29,7 @@ class EventWireContractTest {
         Event event = ContextChangedEvent.builder()
                 .executionId("e-1")
                 .metaData(Map.of("turnId", "7"))
+                .contextRevision(3)
                 .build();
 
         ObjectNode json = plain.valueToTree(event);
@@ -38,6 +39,8 @@ class EventWireContractTest {
         assertEquals("e-1", json.path("executionId").asText());
         assertEquals("7", json.path("metaData").path("turnId").asText());
         assertTrue(json.hasNonNull("timestamp"));
+        assertEquals(3, json.path("contextRevision").asLong(),
+                "the fact identity has to survive a host that knows nothing about the framework");
     }
 
     @Test

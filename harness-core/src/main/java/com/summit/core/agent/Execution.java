@@ -137,6 +137,31 @@ public class Execution {
         return this.compactionState == null ? CompactionState.none() : this.compactionState;
     }
 
+    /**
+     * How many times this execution's context has been revised, counting from one.
+     *
+     * <p>Same rule as {@link #compactionState}: it is execution history, so it lives in the snapshot
+     * and not in the singleton that produces it. A consumer needs it because the payload cannot
+     * identify a fact — two distinct revisions may carry an identical payload, and a subscriber that
+     * counts deliveries itself loses the count with its process.</p>
+     *
+     * <p>Advanced in the call that revises the context, before the snapshot is stored, so a fact
+     * never announces a number the resumed run would hand out a second time.</p>
+     */
+    private long contextRevision;
+
+    /**
+     * Takes the next context revision.
+     *
+     * <p>Only the code that just revised the context may call this: the number is the fact's
+     * identity, so taking one without publishing a fact leaves a hole nobody can explain.</p>
+     *
+     * @return the revision this change created, starting at one
+     */
+    public long nextContextRevision() {
+        return ++this.contextRevision;
+    }
+
     public void cancel(){
         this.executionState = ExecutionState.CANCELLED;
         this.completedAt = Instant.now();

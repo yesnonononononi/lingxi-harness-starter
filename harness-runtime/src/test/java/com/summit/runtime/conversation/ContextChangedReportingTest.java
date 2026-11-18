@@ -363,6 +363,64 @@ class ContextChangedReportingTest {
                 "nothing is published on this path, so there is nothing to store on the way to publishing");
     }
 
+    /**
+     * A fact's identity is its revision, not its payload: the same reasons and the same changed
+     * kinds can describe two different revisions, and only the revision tells them apart.
+     */
+    @Test
+    void everyFactCarriesItsOwnRevision() {
+        Execution execution = execution(new ArrayList<>(List.of(UserMessageEntity.from("question"))),
+                requestWithMemory("SYS", "mem v1"));
+
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
+        execution.getMessages().add(AiMessageEntity.builder().text("answer").build());
+        execution.getMessages().add(UserMessageEntity.from("next question"));
+        execution.setAgentRequest(requestWithMemory("SYS", "mem v2"));
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
+
+        assertEquals(2, recorder.changes.size(), "two rounds that changed the context are two facts");
+        assertEquals(1, recorder.changes.getFirst().getContextRevision());
+        assertEquals(2, recorder.changes.getLast().getContextRevision());
+        assertEquals(recorder.changes.getLast().getContextRevision(), execution.getContextRevision(),
+                "the number a fact announces is the one already stored with the context it describes");
+    }
+
+    /** A rebuild is a revision of the same context, so it takes its number from the same counter. */
+    @Test
+    void aRebuildTakesTheNextRevisionFromTheSameCounter() {
+        Execution execution = execution(new ArrayList<>(List.of(UserMessageEntity.from("question"))),
+                requestWithMemory("SYS", "mem v1"));
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
+
+        conversations.rebuildContext("summary", execution, CheckpointSaver.NONE);
+
+        assertEquals(1, only(recorder.changes).getContextRevision());
+        assertEquals(2, only(recorder.rebuilds).getContextRevision());
+        assertEquals(2, execution.getContextRevision());
+    }
+
+    /** A round that changes nothing takes no number, so the revisions stay gapless. */
+    @Test
+    void anUnchangedRoundTakesNoRevision() {
+        AgentRequest request = requestWithMemory("SYS", "mem v1");
+        UserMessageEntity sameContext = ContextDynamicAssembler.builder()
+                .contextSpec(request.getContextSpec())
+                .scope(McpToolScope.EMPTY)
+                .skills(List.of())
+                .tasks(request.getTask())
+                .build();
+        List<Message> history = new ArrayList<>(List.of(
+                SystemMessageEntity.builder().text("## Business Prompt\nSYS").build(),
+                sameContext,
+                UserMessageEntity.from("question")));
+        Execution execution = execution(history, request);
+
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
+
+        assertTrue(recorder.changes.isEmpty(), "nothing happened, so nothing is numbered");
+        assertEquals(0, execution.getContextRevision());
+    }
+
     private static <T> T only(List<T> events) {
         assertEquals(1, events.size(), "exactly one fact for one change");
         return events.getFirst();

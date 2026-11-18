@@ -175,6 +175,10 @@ public class DefaultConversationManager implements ConversationManager {
 
         warnWhenContextPilesUp(execution, liveBlocks);
 
+        // Taken before the save below, not at publish time: the revision has to become durable with
+        // the context it numbers, or a resumed run would report the same revision twice.
+        long contextRevision = execution.nextContextRevision();
+
         // Truncated in one pass instead of mutating the discover's map: that map may be an immutable
         // empty one, and rewriting entries in place only works as long as the implementation happens
         // to be mutable.
@@ -193,6 +197,7 @@ public class DefaultConversationManager implements ConversationManager {
         contextEventPublisher.onContextChanged(ContextChangedEvent.builder()
                 .executionId(execution.getId())
                 .metaData(execution.eventMetaData())
+                .contextRevision(contextRevision)
                 .reasons(reasons)
                 .changedSections(truncated)
                 .currentLiveBlocks(liveBlocks)
@@ -287,11 +292,14 @@ public class DefaultConversationManager implements ConversationManager {
         // Same rule as startConversation, with the same ordering: the rebuilt list is in place and
         // saved before the rebuild is reported, so a consumer reading it back sees the session it
         // describes — in memory and in the store.
+        long contextRevision = execution.nextContextRevision();
+
         checkpoint.save(execution);
 
         contextEventPublisher.onContextRebuilt(ContextRebuiltEvent.builder()
                 .executionId(execution.getId())
                 .metaData(execution.eventMetaData())
+                .contextRevision(contextRevision)
                 .summaryGeneration(execution.getCompactionState().summaryGeneration())
                 .messageCount(rebuilt.size())
                 .build());

@@ -22,10 +22,15 @@ public class ContextRebuiltEvent extends AbstractEvent {
     /** Messages the rebuilt context holds, so a consumer can see how much history survived. */
     private final int messageCount;
 
+    /** Which revision of the execution's context this rebuild created (per-execution, starting at one). */
+    private final long contextRevision;
+
     @Builder
-    private ContextRebuiltEvent(String executionId, Map<String, Object> metaData,
+    private ContextRebuiltEvent(String executionId, Map<String, Object> metaData, long contextRevision,
                                 int summaryGeneration, int messageCount) {
         super(executionId, metaData);
+        this.contextRevision = contextRevision;
+
         this.summaryGeneration = summaryGeneration;
         this.messageCount = messageCount;
     }

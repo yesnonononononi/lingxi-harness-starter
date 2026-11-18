@@ -22,6 +22,11 @@ import java.util.Set;
  *
  * <p>Published after the execution's snapshot of this state is durable, so a consumer may treat it
  * as an authoritative fact rather than a hint that something might still be rolled back.</p>
+ *
+ * <p>The payload does not identify the fact: two revisions can carry the same reasons, the same
+ * changed kinds and the same live-block count. {@link #getContextRevision()} is the identity —
+ * anything else a consumer derives from the remaining fields only separates the facts by accident,
+ * and stops separating them the moment a field is added or dropped.</p>
  */
 @Getter
 public class ContextChangedEvent extends AbstractEvent {
@@ -43,14 +48,20 @@ public class ContextChangedEvent extends AbstractEvent {
     /** How many live blocks this deployment tolerates before they count as piling up. */
     private final int maxLiveBlocks;
 
+    /** Which revision of the execution's context this change created (per-execution, starting at one). */
+    private final long contextRevision;
+
     @Builder
     private ContextChangedEvent(String executionId,
                                 Map<String, Object> metaData,
+                                long contextRevision,
                                 Set<ContextChangeReason> reasons,
                                 Map<ContextSectionKind, ChangedDiff> changedSections,
                                 int currentLiveBlocks,
                                 int maxLiveBlocks) {
         super(executionId, metaData);
+        this.contextRevision = contextRevision;
+
         this.reasons = reasons == null || reasons.isEmpty()
                 ? Set.of(ContextChangeReason.DYNAMIC_SECTIONS_CHANGED) : Set.copyOf(reasons);
         this.changedSections = changedSections == null || changedSections.isEmpty()
