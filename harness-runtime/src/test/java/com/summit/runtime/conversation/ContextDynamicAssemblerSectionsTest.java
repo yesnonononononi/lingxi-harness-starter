@@ -49,10 +49,11 @@ class ContextDynamicAssemblerSectionsTest {
                     + "\n  Entry path: /skills/demo/SKILL.md";
 
     @Test
-    void rendersTheSameTextAsBeforeWhileMarkingEachSectionBody() {
+    void rendersTheLegendAndSectionsInRenderOrder() {
         UserMessageEntity message = assembleAllSections();
 
-        String expected = "<context>"
+        // The legend is part of every block: it is what tells the model the newest block wins.
+        String expected = "<context>\n" + ContextDynamicAssembler.LEGEND
                 + MCP_TITLE + MCP_SECTION_BODY
                 + SKILL_TITLE + SKILL_BODY
                 + MEMORY_TITLE + "mem line"
@@ -101,7 +102,8 @@ class ContextDynamicAssemblerSectionsTest {
         assertNotNull(message);
         assertEquals(1, message.contextSections().size());
         assertEquals(ContextSectionKind.MEMORY, message.contextSections().getFirst().kind());
-        assertEquals("<context>" + MEMORY_TITLE + "only memory", message.text());
+        assertEquals("<context>\n" + ContextDynamicAssembler.LEGEND + MEMORY_TITLE + "only memory",
+                message.text());
     }
 
     @Test

@@ -56,7 +56,8 @@ class DefaultTokenAuditorTest {
         Message dynamicContext = dynamicMessage(execution);
 
         assertCount(audit.otherTokens().memoryTokens(), tokenizer.countText(body));
-        assertEquals("<context>\n\n## Memory Prompt\n" + body, dynamicContext.text(),
+        assertEquals("<context>\n" + ContextDynamicAssembler.LEGEND + "\n\n## Memory Prompt\n" + body,
+                dynamicContext.text(),
                 "memory moved out of the system prompt into the per-round context");
 
         // The cacheable system prompt holds the environment section only.

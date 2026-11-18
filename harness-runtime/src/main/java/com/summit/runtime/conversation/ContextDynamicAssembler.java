@@ -42,6 +42,25 @@ public class ContextDynamicAssembler {
     public static final String LABEL = "<context>";
     public static final String CLEARED_BODY = "(none)";
 
+    /**
+     * How to read this block and the older ones still sitting in the history.
+     *
+     * <p>A change is answered by appending a new block, never by rewriting the previous one, so a
+     * long conversation holds several snapshots whose values contradict each other — the model was
+     * left to infer "the newest wins" from position alone. Stating it turns a lucky guess into a
+     * rule; it is also the only place that says a forbidden tool is declared-but-blocked and that
+     * {@link #CLEARED_BODY} means "nothing to apply" rather than a literal value.</p>
+     *
+     * <p>Constant by design: it belongs to no {@code ContextSectionKind}, so it takes no part in
+     * the section diff and can never cause a block of its own. Only a block that is being written
+     * anyway pays for it.</p>
+     */
+    public static final String LEGEND = "Per-round snapshot: when this conversation holds several "
+            + "<context> blocks, the newest wins and the earlier ones are superseded — re-read a section "
+            + "instead of assuming its earlier value still holds. A tool listed under Forbidden Tools is "
+            + "declared but blocked for this round, and calling it is rejected; a section reading (none) "
+            + "has nothing to apply.";
+
     private static final String MCP_TITLE = "\n\n## MCP Tools\n";
     private static final String SKILL_TITLE = "\n\n## Skill Prompt\n";
     private static final String MEMORY_TITLE = "\n\n## Memory Prompt\n";
@@ -98,6 +117,7 @@ public class ContextDynamicAssembler {
             return null;
         }
         StringBuilder text = new StringBuilder(LABEL);
+        text.append('\n').append(LEGEND);
         List<ContextSectionMark> marks = new ArrayList<>(bodies.size());
         for (ContextSectionKind kind : ContextSectionKind.values()) {
             String body = bodies.get(kind);

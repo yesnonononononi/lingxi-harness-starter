@@ -103,7 +103,8 @@ class DefaultConversationManagerSystemPromptTest {
                 You are LingXi, a coding agent. Reply in the user's language.""", prompt.system(),
                 "the cacheable half holds the static environment and the application's own prompt, nothing else");
 
-        assertTrue(prompt.dynamic().startsWith("<context>\n\n## MCP Tools\n"), prompt.dynamic());
+        assertTrue(prompt.dynamic().startsWith("<context>\n" + ContextDynamicAssembler.LEGEND + "\n\n## MCP Tools\n"),
+                prompt.dynamic());
         assertTrue(prompt.dynamic().contains("`hasMore`."), "the disclosure instructions survive");
         assertTrue(prompt.dynamic().endsWith("- github - GitHub remote tools - 2 tools"), prompt.dynamic());
     }
