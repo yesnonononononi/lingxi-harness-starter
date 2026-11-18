@@ -21,7 +21,16 @@ import java.util.Map;
  */
 public interface Event {
 
-    /** Discriminator used by listeners / transports to dispatch this event. */
+    /**
+     * Discriminator used by listeners / transports to dispatch this event.
+     *
+     * <p>Annotated here, on the interface, together with the other three wire fields: the event kind
+     * is part of the transport contract, not something every host has to re-declare by registering a
+     * Jackson mix-in on its own mapper. A mapper that never heard of this framework still serialises
+     * {@code type} — which matters the moment an application serialises events it received.
+     * </p>
+     */
+    @JsonProperty("type")
     String type();
 
     @JsonProperty("executionId")
