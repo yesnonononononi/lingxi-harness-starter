@@ -96,21 +96,24 @@ class ContextChangedReportingTest {
         assertEquals(5, execution.getMessages().size(), "no duplicate context block was inserted");
     }
 
+    /**
+     * A brand-new session gets its prefix <em>built</em>, not rewritten. With no assistant reply
+     * behind it there is no cached prefix to invalidate, so announcing a break would make every new
+     * conversation claim its cache just broke — the fact is true only in the reporting, not in reality.
+     */
     @Test
-    void theFirstRoundPublishesAnInsertedSystemPromptAndFreshSections() {
+    void theFirstRoundInitializesTheContextWithoutReportingAPrefixBreak() {
         Execution execution = execution(new ArrayList<>(List.of(UserMessageEntity.from("question"))),
                 requestWithMemory("SYS", "mem v1"));
 
         conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
 
-        ContextChangedEvent event = only(recorder.changes);
-        assertEquals("execution-1", event.executionId());
-        assertTrue(event.getReasons().contains(ContextChangeReason.SYSTEM_PROMPT_INSERTED),
-                "the leading system prompt did not exist before this round");
-        assertTrue(event.getReasons().contains(ContextChangeReason.DYNAMIC_SECTIONS_CHANGED));
-        assertFalse(event.prefixPreserved(), "a first round has no cached prefix to preserve");
-        assertNull(event.getChangedSections().get(ContextSectionKind.MEMORY).oldContent(),
-                "a section that did not exist before has no old side to diff against");
+        assertTrue(recorder.changes.isEmpty(),
+                "a session with no assistant reply has no prefix to invalidate, so nothing is reported");
+        assertTrue(execution.getMessages().getFirst() instanceof SystemMessageEntity,
+                "the leading system prompt is still inserted");
+        assertTrue(execution.getMessages().size() > 1, "the per-round context block is still appended");
+        assertEquals(0, execution.getContextRevision(), "no fact, no revision");
     }
 
     /** The event must describe the state a listener can already read back. */
@@ -132,8 +135,12 @@ class ContextChangedReportingTest {
                 .contextAttachmentProvider(ContextAttachmentProvider.NONE)
                 .contextEventPublisher(publisher)
                 .build();
-        Execution execution = execution(new ArrayList<>(List.of(UserMessageEntity.from("question"))),
-                requestWithMemory("SYS", "mem v1"));
+        Execution execution = execution(new ArrayList<>(List.of(
+                SystemMessageEntity.builder().text("## Business Prompt\nv1").build(),
+                UserMessageEntity.from("q1"),
+                AiMessageEntity.builder().text("a1").build(),
+                UserMessageEntity.from("q2"))),
+                AgentRequest.builder().contextSpec(ContextSpec.builder().systemPrompt("v2").build()).build());
 
         manager.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
 
@@ -265,14 +272,20 @@ class ContextChangedReportingTest {
                     }
                 })))
                 .build();
-        Execution execution = execution(new ArrayList<>(List.of(UserMessageEntity.from("question"))),
-                requestWithMemory("SYS", "mem v1"));
+        Execution execution = execution(new ArrayList<>(List.of(
+                SystemMessageEntity.builder().text("## Business Prompt\nv1").build(),
+                UserMessageEntity.from("q1"),
+                AiMessageEntity.builder().text("a1").build(),
+                UserMessageEntity.from("q2"))),
+                AgentRequest.builder().contextSpec(ContextSpec.builder().systemPrompt("v2").build()).build());
 
         manager.startConversation(execution, null, McpToolScope.EMPTY,
                 stored -> trail.add("saved:" + stored.getMessages().size()));
 
-        assertEquals(List.of("saved:3", "published"), trail,
-                "the checkpoint sees the final message list, and the event comes after it");
+        assertEquals(2, trail.size(), trail.toString());
+        assertTrue(trail.getFirst().startsWith("saved:"),
+                "the checkpoint sees the final message list: " + trail);
+        assertEquals("published", trail.getLast(), "and the event comes after it");
     }
 
     @Test
@@ -311,8 +324,12 @@ class ContextChangedReportingTest {
      */
     @Test
     void aFailedCheckpointPublishesNothingAndPropagates() {
-        Execution execution = execution(new ArrayList<>(List.of(UserMessageEntity.from("question"))),
-                requestWithMemory("SYS", "mem v1"));
+        Execution execution = execution(new ArrayList<>(List.of(
+                SystemMessageEntity.builder().text("## Business Prompt\nv1").build(),
+                UserMessageEntity.from("q1"),
+                AiMessageEntity.builder().text("a1").build(),
+                UserMessageEntity.from("q2"))),
+                AgentRequest.builder().contextSpec(ContextSpec.builder().systemPrompt("v2").build()).build());
 
         IllegalStateException failure = assertThrows(IllegalStateException.class,
                 () -> conversations.startConversation(execution, null, McpToolScope.EMPTY, stored -> {
@@ -377,8 +394,13 @@ class ContextChangedReportingTest {
         execution.getMessages().add(UserMessageEntity.from("next question"));
         execution.setAgentRequest(requestWithMemory("SYS", "mem v2"));
         conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
+        execution.getMessages().add(AiMessageEntity.builder().text("answer again").build());
+        execution.getMessages().add(UserMessageEntity.from("third question"));
+        execution.setAgentRequest(requestWithMemory("SYS", "mem v3"));
+        conversations.startConversation(execution, null, McpToolScope.EMPTY, CheckpointSaver.NONE);
 
-        assertEquals(2, recorder.changes.size(), "two rounds that changed the context are two facts");
+        assertEquals(2, recorder.changes.size(),
+                "the first round builds the prefix; the next two rewrite it, and each rewrite is its own fact");
         assertEquals(1, recorder.changes.getFirst().getContextRevision());
         assertEquals(2, recorder.changes.getLast().getContextRevision());
         assertEquals(recorder.changes.getLast().getContextRevision(), execution.getContextRevision(),
@@ -394,9 +416,10 @@ class ContextChangedReportingTest {
 
         conversations.rebuildContext("summary", execution, CheckpointSaver.NONE);
 
-        assertEquals(1, only(recorder.changes).getContextRevision());
-        assertEquals(2, only(recorder.rebuilds).getContextRevision());
-        assertEquals(2, execution.getContextRevision());
+        assertEquals(1, only(recorder.rebuilds).getContextRevision());
+        assertTrue(recorder.changes.isEmpty(),
+                "the first round built the prefix instead of rewriting it, so the rebuild starts at revision 1");
+        assertEquals(1, execution.getContextRevision());
     }
 
     /** A round that changes nothing takes no number, so the revisions stay gapless. */

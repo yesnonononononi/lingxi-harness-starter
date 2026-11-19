@@ -173,7 +173,18 @@ public class DefaultConversationManager implements ConversationManager {
 
         execution.setMessages(rebuilt);
 
+        // The pile-up guard reports the shape of the history, not whether a fact is published, so it
+        // runs before the prefix gate below: a session that is not reported still gets its warning.
         warnWhenContextPilesUp(execution, liveBlocks);
+
+        // A session that has not produced an assistant reply yet has no prefix to invalidate:
+        // inserting the leading system prompt and the first dynamic block is initialization, not a
+        // rewrite. Reporting it would make every brand-new session announce that its cache just broke.
+        // Nothing is checkpointed on this path either — the caller saves the list right after this
+        // call, and there is no fact to make durable before publishing.
+        if (rebuilt.stream().noneMatch(AiMessageEntity.class::isInstance)) {
+            return;
+        }
 
         // Taken before the save below, not at publish time: the revision has to become durable with
         // the context it numbers, or a resumed run would report the same revision twice.
